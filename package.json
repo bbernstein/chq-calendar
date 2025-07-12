@@ -1,0 +1,22 @@
+{
+  "name": "chq-calendar",
+  "version": "1.0.0",
+  "description": "Dynamic calendar generator for Chautauqua Institution 2025",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
+    "deploy:infra": "cd infrastructure && terraform apply",
+    "deploy:backend": "cd backend && npm run deploy",
+    "deploy:frontend": "cd frontend && npm run build && npm run deploy",
+    "setup": "./scripts/setup.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

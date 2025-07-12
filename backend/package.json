@@ -1,0 +1,26 @@
+{
+  "name": "chautauqua-backend",
+  "version": "1.0.0",
+  "description": "Lambda functions for Chautauqua calendar generation",
+  "main": "index.js",
+  "scripts": {
+    "build": "esbuild src/handlers/*.ts --bundle --platform=node --target=node18 --outdir=dist --external:aws-sdk",
+    "deploy": "npm run build && zip -r lambda-function.zip dist/ node_modules/ package.json && aws lambda update-function-code --function-name chautauqua-calendar-generator --zip-file fileb://lambda-function.zip"
+  },
+  "dependencies": {
+    "aws-lambda": "^1.0.7",
+    "aws-sdk": "^2.1234.0",
+    "ical-generator": "^4.1.0",
+    "uuid": "^9.0.0",
+    "date-fns": "^2.29.3",
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.109",
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^9.0.0",
+    "@types/cheerio": "^0.22.31",
+    "esbuild": "^0.19.0",
+    "typescript": "^5.0.0"
+  }
+}
