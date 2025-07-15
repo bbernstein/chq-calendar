@@ -7,7 +7,6 @@ export interface ChautauquaEvent {
   location: string;
   venue: string;
   tags: string[];
-  week: number;
   dayOfWeek: number;
   isRecurring?: boolean;
   recurrencePattern?: string;
@@ -18,6 +17,8 @@ export interface ChautauquaEvent {
   series?: string;
   presenter?: string;
   discipline?: string;
+  url?: string;
+  imageUrl?: string;
 
   // Dynamic data tracking
   lastUpdated: Date;
@@ -25,6 +26,8 @@ export interface ChautauquaEvent {
   confidence: 'confirmed' | 'tentative' | 'placeholder' | 'tba';
   changeLog?: EventChange[];
   syncStatus: 'synced' | 'pending' | 'error' | 'outdated';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface EventChange {

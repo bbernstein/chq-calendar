@@ -1,102 +1,779 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+
+interface Event {
+  id: string;
+  title: string;
+  description?: string;
+  startDate: string;
+  endDate: string;
+  location?: string;
+  category?: string;
+  originalCategories?: string[];
+  tags?: string[];
+  presenter?: string;
+  lastModified?: string;
+  attachments?: Array<{
+    url: string;
+    type: string;
+    isImage: boolean;
+  }>;
+  url?: string;
+}
+
+interface CalendarFilters {
+  categories?: string[];
+  tags?: string[];
+  dateRange?: {
+    start: string;
+    end: string;
+  };
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(false);
+  const filters = useMemo(() => ({}), []);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'this-week'>('all');
+  const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState<number | null>(null);
+  const [hasMouseMoved, setHasMouseMoved] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const apiUrl = useMemo(() => 
+    process.env.NODE_ENV === 'development' 
+      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001') 
+      : '/api'
+  , []);
+    
+  console.log('API URL:', apiUrl, 'NODE_ENV:', process.env.NODE_ENV);
+
+  // Description truncation helpers
+  const DESCRIPTION_TRUNCATE_LENGTH = 200;
+
+  const toggleDescription = (eventId: string) => {
+    setExpandedDescriptions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(eventId)) {
+        newSet.delete(eventId);
+      } else {
+        newSet.add(eventId);
+      }
+      return newSet;
+    });
+  };
+
+  const truncateDescription = (description: string, eventId: string) => {
+    if (!description) return null;
+
+    const isExpanded = expandedDescriptions.has(eventId);
+    const needsTruncation = description.length > DESCRIPTION_TRUNCATE_LENGTH;
+
+    if (!needsTruncation) {
+      return <p className="text-gray-600 mb-2">{description}</p>;
+    }
+
+    const displayText = isExpanded
+      ? description
+      : description.substring(0, DESCRIPTION_TRUNCATE_LENGTH) + '...';
+
+    return (
+      <div className="mb-2">
+        <p className="text-gray-600 mb-1">{displayText}</p>
+        <button
+          onClick={() => toggleDescription(eventId)}
+          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+        >
+          {isExpanded ? 'Show less' : 'Show more'}
+        </button>
+      </div>
+    );
+  };
+
+  // Calculate Chautauqua season weeks (9 weeks starting from 4th Sunday of June)
+  const getChautauquaSeasonWeeks = (year: number = 2025) => {
+    // Start from June 1st and find the 4th Sunday
+    const june1 = new Date(year, 5, 1); // June 1st
+    const current = new Date(june1);
+    let sundayCount = 0;
+    let fourthSunday = null;
+
+    // Find the 4th Sunday of June
+    while (current.getMonth() === 5) { // Still in June
+      if (current.getDay() === 0) { // Sunday
+        sundayCount++;
+        if (sundayCount === 4) {
+          fourthSunday = new Date(current);
+          break;
+        }
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    if (!fourthSunday) {
+      // Fallback: if somehow we can't find 4th Sunday, use June 22, 2025
+      fourthSunday = new Date(2025, 5, 22);
+    }
+
+    const weeks = [];
+    for (let i = 0; i < 9; i++) {
+      const weekStart = new Date(fourthSunday);
+      weekStart.setDate(fourthSunday.getDate() + (i * 7));
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+
+      weeks.push({
+        number: i + 1,
+        start: weekStart,
+        end: weekEnd,
+        label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+      });
+    }
+
+    return weeks;
+  };
+
+  const seasonWeeks = useMemo(() => getChautauquaSeasonWeeks(), []);
+
+  // Date filtering helpers
+  const isToday = (dateString: string) => {
+    const today = new Date();
+    const eventDate = new Date(dateString);
+    return eventDate.toDateString() === today.toDateString();
+  };
+
+  const isThisWeek = (dateString: string) => {
+    const today = new Date();
+    const eventDate = new Date(dateString);
+    const dayOfWeek = today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - dayOfWeek + 1);
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - dayOfWeek + 7);
+    return eventDate >= monday && eventDate <= sunday;
+  };
+
+  const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
+    const eventDate = new Date(dateString);
+    const week = seasonWeeks[weekNumber - 1];
+    return eventDate >= week.start && eventDate <= week.end;
+  };
+
+  // Week selection handlers
+  const handleWeekMouseDown = (weekNum: number) => {
+    setIsDragging(true);
+    setDragStart(weekNum);
+    setHasMouseMoved(false);
+    // Show immediate visual feedback for potential selection
+    setSelectedWeeks([weekNum]);
+    // Prevent text selection during potential drag
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleWeekMouseEnter = (weekNum: number) => {
+    if (isDragging && dragStart !== null) {
+      setHasMouseMoved(true);
+      const start = Math.min(dragStart, weekNum);
+      const end = Math.max(dragStart, weekNum);
+      const range = [];
+      for (let i = start; i <= end; i++) {
+        range.push(i);
+      }
+      setSelectedWeeks(range);
+
+      // Clear date filter when dragging to select weeks
+      setDateFilter('all');
+    }
+  };
+
+  const handleWeekMouseUp = (weekNum: number) => {
+    if (isDragging && dragStart !== null) {
+      if (!hasMouseMoved) {
+        // This was a click, not a drag - select only this week
+        setSelectedWeeks([weekNum]);
+      }
+      // If hasMouseMoved is true, the selection was already set in handleWeekMouseEnter
+
+      // Clear date filter when selecting weeks
+      setDateFilter('all');
+    }
+
+    setIsDragging(false);
+    setDragStart(null);
+    setHasMouseMoved(false);
+    // Restore text selection
+    document.body.style.userSelect = '';
+  };
+
+  // Mobile-friendly tap-to-toggle handler
+  const handleWeekTap = (weekNum: number) => {
+    setSelectedWeeks(prev => {
+      const newSelection = prev.includes(weekNum)
+        ? prev.filter(w => w !== weekNum) // Remove if already selected
+        : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
+      
+      // Clear date filter when selecting weeks
+      if (newSelection.length > 0) {
+        setDateFilter('all');
+      }
+      
+      return newSelection;
+    });
+  };
+
+  // Advanced search with phrase and word matching, plus smart shortcuts
+  const searchEvents = (events: Event[], term: string) => {
+    if (!term) return events;
+
+    const searchTerm = term.toLowerCase();
+
+    // Smart shortcuts
+    const shortcuts: { [key: string]: string[] } = {
+      'amp': ['amphitheater'],
+      'cso': ['chautauqua symphony orchestra'],
+      'symphony': ['chautauqua symphony orchestra'],
+      'orchestra': ['chautauqua symphony orchestra']
+    };
+
+    // Apply shortcuts - expand search term to include alternatives
+    const searchTerms = [searchTerm];
+    if (shortcuts[searchTerm]) {
+      searchTerms.push(...shortcuts[searchTerm]);
+    }
+
+    const scored = events.map(event => {
+      const title = event.title.toLowerCase();
+      const description = (event.description || '').toLowerCase();
+      const presenter = (event.presenter || '').toLowerCase();
+      const location = (event.location || '').toLowerCase();
+      const category = (event.category || '').toLowerCase();
+
+      // Combine all tags and categories for searching
+      const allTags = [
+        ...(event.tags || []),
+        ...(event.originalCategories || [])
+      ].map(tag => tag.toLowerCase());
+
+      let score = 0;
+
+      // Check all search terms (original + shortcuts)
+      searchTerms.forEach(currentTerm => {
+        // Exact phrase matches (highest priority)
+        if (title.includes(currentTerm)) score += 100;
+        if (location.includes(currentTerm)) score += 90;
+        if (description.includes(currentTerm)) score += 50;
+        if (category.includes(currentTerm)) score += 80;
+        if (presenter.includes(currentTerm)) score += 25;
+
+        // Tag matching (including partial matches for Symphony Orchestra)
+        allTags.forEach(tag => {
+          if (tag.includes(currentTerm)) score += 85;
+          // Special case: "cso" or "symphony" should match "Chautauqua Symphony Orchestra/Classical Concerts"
+          if ((currentTerm === 'cso' || currentTerm === 'chautauqua symphony orchestra') &&
+              tag.includes('chautauqua symphony orchestra')) {
+            score += 95;
+          }
+        });
+
+        // Word matches (lower priority)
+        const words = currentTerm.split(/\s+/);
+        words.forEach(word => {
+          if (word.length > 2) { // Avoid matching very short words
+            if (title.includes(word)) score += 10;
+            if (location.includes(word)) score += 9;
+            if (description.includes(word)) score += 5;
+            if (category.includes(word)) score += 8;
+            if (presenter.includes(word)) score += 3;
+
+            allTags.forEach(tag => {
+              if (tag.includes(word)) score += 7;
+            });
+          }
+        });
+      });
+
+      return { event, score };
+    });
+
+    return scored
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.event);
+  };
+
+  // Filter events based on all criteria
+  const filterEvents = (events: Event[]) => {
+    let filtered = [...events];
+
+    // Search filter
+    if (searchTerm) {
+      filtered = searchEvents(filtered, searchTerm);
+    }
+
+    // Date filter
+    if (dateFilter === 'today') {
+      filtered = filtered.filter(event => isToday(event.startDate));
+    } else if (dateFilter === 'this-week') {
+      filtered = filtered.filter(event => isThisWeek(event.startDate));
+    }
+
+    // Week filter (independent of date filter)
+    if (selectedWeeks.length > 0) {
+      filtered = filtered.filter(event =>
+        selectedWeeks.some(weekNum => isInChautauquaWeek(event.startDate, weekNum))
+      );
+    }
+
+    // Tag filter
+    if (selectedTags.length > 0) {
+      filtered = filtered.filter(event =>
+        selectedTags.some(tag =>
+          event.tags?.includes(tag) ||
+          event.originalCategories?.includes(tag)
+        )
+      );
+    }
+
+    return filtered;
+  };
+
+  // Group events by day
+  const groupEventsByDay = (events: Event[]) => {
+    const grouped: { [key: string]: Event[] } = {};
+
+    events.forEach(event => {
+      const eventDate = new Date(event.startDate);
+      const dayKey = eventDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+
+      if (!grouped[dayKey]) {
+        grouped[dayKey] = [];
+      }
+      grouped[dayKey].push(event);
+    });
+
+    // Sort events within each day by start time
+    Object.keys(grouped).forEach(dayKey => {
+      grouped[dayKey].sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    });
+
+    // Return days sorted by date
+    const sortedDays = Object.keys(grouped).sort((a, b) => {
+      const dateA = new Date(grouped[a][0].startDate);
+      const dateB = new Date(grouped[b][0].startDate);
+      return dateA.getTime() - dateB.getTime();
+    });
+
+    return sortedDays.map(dayKey => ({
+      day: dayKey,
+      events: grouped[dayKey]
+    }));
+  };
+
+  // Fetch events from API
+  const fetchEvents = async () => {
+    setLoading(true);
+    try {
+      // Convert week selections to date ranges
+      let apiFilters = {};
+      
+      // If weeks are selected, convert to date range
+      if (selectedWeeks.length > 0) {
+        const startWeek = Math.min(...selectedWeeks);
+        const endWeek = Math.max(...selectedWeeks);
+        
+        const startDate = seasonWeeks[startWeek - 1]?.start;
+        const endDate = seasonWeeks[endWeek - 1]?.end;
+        
+        if (startDate && endDate) {
+          apiFilters = {
+            dateRange: {
+              start: startDate.toISOString(),
+              end: endDate.toISOString()
+            }
+          };
+        }
+      }
+      
+      const response = await fetch(`${apiUrl}/calendar`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filters: apiFilters,
+          format: 'json'
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const fetchedEvents = data.events || [];
+        setEvents(fetchedEvents);
+
+        // Extract unique categories for filter options
+        const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
+
+        // Extract all unique tags from both tags and originalCategories
+        const allTags = new Set<string>();
+        fetchedEvents.forEach((event: Event) => {
+          event.tags?.forEach(tag => allTags.add(tag));
+          event.originalCategories?.forEach(cat => allTags.add(cat));
+        });
+
+        setAvailableCategories(categories.sort());
+        setAvailableTags(Array.from(allTags).sort());
+      } else {
+        console.error('Failed to fetch events');
+      }
+    } catch (error) {
+      console.error('Error fetching events:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create sample data
+
+  // Generate calendar download
+
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  // Refetch when week selection changes
+  useEffect(() => {
+    if (selectedWeeks.length > 0) {
+      fetchEvents();
+    }
+  }, [selectedWeeks]);
+
+  // Handle global mouse events for week dragging
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isDragging) {
+        setIsDragging(false);
+        setDragStart(null);
+        setHasMouseMoved(false);
+        // Restore text selection
+        document.body.style.userSelect = '';
+      }
+    };
+
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [isDragging]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      {/* Header */}
+      <header className="bg-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-6">
+            <div className="flex items-center">
+              <h1 className="text-3xl font-bold text-gray-900">
+                Chautauqua Calendar
+              </h1>
+              <span className="ml-3 px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
+                2025 Season
+              </span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        {/* Main Filter Panel */}
+        <div className="bg-white rounded-lg shadow mb-6">
+          <div className="p-4">
+            {/* Search Bar */}
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Search titles, descriptions, presenters, locations, categories... (try 'amp' or 'cso')"
+                className="w-full border border-gray-300 rounded-md px-4 py-2"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            {/* Date and Week Filters */}
+            <div className="mb-4">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                {/* Quick Date Filters */}
+                <button
+                  onClick={() => {
+                    setDateFilter(dateFilter === 'today' ? 'all' : 'today');
+                    if (dateFilter !== 'today') {
+                      setSelectedWeeks([]); // Clear week selection when selecting "Today"
+                    }
+                  }}
+                  title="Show all events for today (full day, regardless of current time)"
+                  className={`px-4 py-2 rounded-md border transition-all ${
+                    dateFilter === 'today'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => {
+                    setDateFilter(dateFilter === 'this-week' ? 'all' : 'this-week');
+                    if (dateFilter !== 'this-week') {
+                      setSelectedWeeks([]); // Clear week selection when selecting "This Week"
+                    }
+                  }}
+                  title="Show events starting after the current time through the end of this week"
+                  className={`px-4 py-2 rounded-md border transition-all ${
+                    dateFilter === 'this-week'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  This Week
+                </button>
+
+                {/* Week Range Selector */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                  <span className="text-sm text-gray-600 whitespace-nowrap">Weeks:</span>
+                  <div
+                    className={`flex border border-gray-300 rounded-md overflow-hidden select-none overflow-x-auto ${
+                      isDragging ? 'cursor-grabbing' : 'cursor-pointer'
+                    }`}
+                  >
+                    {seasonWeeks.map((week, index) => (
+                      <div
+                        key={week.number}
+                        className={`w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs sm:text-sm flex-shrink-0 ${
+                          selectedWeeks.includes(week.number)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white text-gray-700 hover:bg-blue-50'
+                        }`}
+                        onMouseDown={() => handleWeekMouseDown(week.number)}
+                        onMouseEnter={() => handleWeekMouseEnter(week.number)}
+                        onMouseUp={() => handleWeekMouseUp(week.number)}
+                        onTouchStart={(e) => {
+                          e.preventDefault(); // Prevent mouse events from also firing
+                          handleWeekTap(week.number);
+                        }}
+                        title={week.label}
+                      >
+                        {week.number}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Show selected weeks info */}
+              {selectedWeeks.length > 0 && (
+                <div className="mt-2 text-sm text-gray-600">
+                  Selected: {selectedWeeks.length === 1
+                    ? seasonWeeks[selectedWeeks[0] - 1].label
+                    : `Weeks ${Math.min(...selectedWeeks)}-${Math.max(...selectedWeeks)} (${selectedWeeks.length} weeks)`
+                  }
+                </div>
+              )}
+              
+              {/* Usage instructions */}
+              <div className="mt-2 text-xs text-gray-500">
+                <span className="hidden sm:inline">Click and drag to select multiple weeks, or </span>
+                <span className="sm:hidden">Tap weeks to select/deselect, or </span>
+                click individual weeks to select one
+              </div>
+            </div>
+
+            {/* All Tags */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                All Tags & Categories
+              </label>
+              <div className="max-h-32 overflow-y-auto">
+                <div className="flex flex-wrap gap-2">
+                  {availableTags.map(tag => (
+                    <button
+                      key={tag}
+                      onClick={() => {
+                        setSelectedTags(prev =>
+                          prev.includes(tag)
+                            ? prev.filter(t => t !== tag)
+                            : [...prev, tag]
+                        );
+                      }}
+                      className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                        selectedTags.includes(tag)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Clear Filters */}
+            {(searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0) && (
+              <div className="mt-4 pt-3 border-t border-gray-200">
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedTags([]);
+                    setDateFilter('all');
+                    setSelectedWeeks([]);
+                    fetchEvents();
+                  }}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+
+        {/* Events Section */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Events {filterEvents(events).length > 0 && `(${filterEvents(events).length})`}
+            </h3>
+            <div className="flex space-x-2">
+              <button
+                onClick={fetchEvents}
+                disabled={loading}
+                className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 disabled:opacity-50"
+              >
+                {loading ? '⟳ Loading...' : '🔄 Refresh'}
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6">
+            {loading ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-2 text-gray-600">Loading events...</p>
+              </div>
+            ) : filterEvents(events).length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-6xl mb-4">🎭</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
+                <p className="text-gray-600 mb-4">
+                  Try adjusting your filters or search terms.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {groupEventsByDay(filterEvents(events)).map((dayGroup) => (
+                  <div key={dayGroup.day}>
+                    {/* Day Header */}
+                    <div className="sticky top-0 bg-white z-10 border-b border-gray-200 pb-2 mb-4">
+                      <h3 className="text-xl font-bold text-gray-900">{dayGroup.day}</h3>
+                    </div>
+
+                    {/* Events for this day */}
+                    <div className="space-y-3">
+                      {dayGroup.events.map((event) => (
+                  <div key={event.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex-1">
+                        <h4 className="text-lg font-semibold text-gray-900 mb-1">
+                          {event.url ? (
+                            <a
+                              href={event.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 hover:underline"
+                            >
+                              {event.title} 🔗
+                            </a>
+                          ) : (
+                            event.title
+                          )}
+                        </h4>
+                        {truncateDescription(event.description || '', event.id)}
+                        <div className="flex flex-wrap gap-4 text-sm text-gray-500">
+                          <span>🕐 {new Date(event.startDate).toLocaleTimeString()}</span>
+                          {event.location && <span>📍 {event.location}</span>}
+                          {event.presenter && <span>👤 {event.presenter}</span>}
+                          {event.week && <span>📆 Week {event.week}</span>}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {event.category && (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                              {event.category}
+                            </span>
+                          )}
+                          {event.originalCategories?.map(cat => (
+                            <span key={cat} className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
+                              {cat}
+                            </span>
+                          ))}
+                          {event.tags?.filter(tag => !event.originalCategories?.includes(tag)).map(tag => (
+                            <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Event Image */}
+                      {event.attachments && event.attachments.length > 0 && (
+                        <div className="flex-shrink-0">
+                          {event.attachments
+                            .filter(attachment => attachment.isImage)
+                            .slice(0, 1)
+                            .map((attachment, _index) => (
+                              <img alt="Event attachment"
+                                key={index}
+                                src={attachment.url}
+                                alt={`${event.title} image`}
+                                className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-lg border border-gray-200"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            ))}
+                        </div>
+                      )}
+                        </div>
+                      </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+
+      {/* Footer */}
+      <footer className="bg-gray-800 text-white mt-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <p className="text-gray-400">
+              © 2025 Chautauqua Calendar Generator. Built for the Chautauqua Institution community.
+            </p>
+          </div>
+        </div>
       </footer>
     </div>
   );
