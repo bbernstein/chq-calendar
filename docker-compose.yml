@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # DynamoDB Local
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    container_name: chq-calendar-dynamodb
+    ports:
+      - "8000:8000"
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    networks:
+      - chq-calendar-network
+
+  # Backend API (Express server instead of Lambda)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: chq-calendar-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DYNAMODB_ENDPOINT=http://dynamodb:8000
+      - DYNAMODB_REGION=us-east-1
+      - EVENTS_TABLE_NAME=chq-calendar-events
+      - DATA_SOURCES_TABLE_NAME=chq-calendar-data-sources
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+      - USE_NEW_API=true
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - dynamodb
+    networks:
+      - chq-calendar-network
+    command: npm run dev
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: chq-calendar-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - INTERNAL_API_URL=http://backend:3001
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - chq-calendar-network
+    command: npm run dev
+
+  # DynamoDB Admin UI (optional)
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:latest
+    container_name: chq-calendar-dynamodb-admin
+    ports:
+      - "8001:8001"
+    environment:
+      - DYNAMO_ENDPOINT=http://dynamodb:8000
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+    depends_on:
+      - dynamodb
+    networks:
+      - chq-calendar-network
+
+volumes:
+  dynamodb_data:
+
+networks:
+  chq-calendar-network:
+    driver: bridge

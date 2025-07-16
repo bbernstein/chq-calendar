@@ -13,10 +13,12 @@
     "deploy:infra": "cd infrastructure && terraform apply",
     "deploy:backend": "cd backend && npm run deploy",
     "deploy:frontend": "cd frontend && npm run build && npm run deploy",
-    "setup": "./scripts/setup.sh"
+    "setup": "./scripts/setup.sh",
+    "test:integration": "node integration-test.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "node-fetch": "^2.7.0"
   }
 }

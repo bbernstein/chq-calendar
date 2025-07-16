@@ -105,6 +105,40 @@ resource "aws_dynamodb_table" "data_sources" {
   }
 }
 
+# DynamoDB table for sync status tracking
+resource "aws_dynamodb_table" "sync_status" {
+  name         = "${var.app_name}-sync-status"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  attribute {
+    name = "type"
+    type = "S"
+  }
+
+  attribute {
+    name = "timestamp"
+    type = "N"
+  }
+
+  global_secondary_index {
+    name            = "TypeIndex"
+    hash_key        = "type"
+    range_key       = "timestamp"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    Name        = "${var.app_name}-sync-status"
+    Environment = var.environment
+  }
+}
+
 # Route 53 Hosted Zone
 resource "aws_route53_zone" "main" {
   name = var.domain_name
@@ -338,7 +372,9 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
           aws_dynamodb_table.events.arn,
           "${aws_dynamodb_table.events.arn}/index/*",
           aws_dynamodb_table.data_sources.arn,
-          "${aws_dynamodb_table.data_sources.arn}/index/*"
+          "${aws_dynamodb_table.data_sources.arn}/index/*",
+          aws_dynamodb_table.sync_status.arn,
+          "${aws_dynamodb_table.sync_status.arn}/index/*"
         ]
       }
     ]
@@ -360,7 +396,9 @@ resource "aws_lambda_function" "calendar_generator" {
     variables = {
       EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
       DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
+      SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       ENVIRONMENT             = var.environment
+      USE_NEW_API             = "true"
     }
   }
 }
@@ -413,6 +451,18 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
       aws_api_gateway_resource.calendar_resource.id,
       aws_api_gateway_method.calendar_post.id,
       aws_api_gateway_integration.calendar_integration.id,
+      aws_api_gateway_resource.sync.id,
+      aws_api_gateway_method.sync_post.id,
+      aws_api_gateway_integration.sync_post.id,
+      aws_api_gateway_method.sync_list_get.id,
+      aws_api_gateway_integration.sync_list_get.id,
+      aws_api_gateway_resource.sync_health.id,
+      aws_api_gateway_method.sync_health_get.id,
+      aws_api_gateway_integration.sync_health_get.id,
+      aws_api_gateway_resource.sync_status.id,
+      aws_api_gateway_resource.sync_status_id.id,
+      aws_api_gateway_method.sync_status_get.id,
+      aws_api_gateway_integration.sync_status_get.id,
     ]))
   }
 
