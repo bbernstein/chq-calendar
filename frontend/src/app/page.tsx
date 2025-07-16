@@ -125,10 +125,8 @@ export default function Home() {
 
     const weeks = [];
     for (let i = 0; i < 9; i++) {
-      const weekStart = new Date(fourthSunday);
-      weekStart.setDate(fourthSunday.getDate() + (i * 7));
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
+      const weekStart = new Date(fourthSunday.getTime() + (i * 7 * 24 * 60 * 60 * 1000));
+      const weekEnd = new Date(weekStart.getTime() + (6 * 24 * 60 * 60 * 1000));
 
       weeks.push({
         number: i + 1,
@@ -164,7 +162,12 @@ export default function Home() {
   const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
     const eventDate = new Date(dateString);
     const week = seasonWeeks[weekNumber - 1];
-    return eventDate >= week.start && eventDate <= week.end;
+    
+    // Create end of day for proper comparison
+    const weekEndInclusive = new Date(week.end);
+    weekEndInclusive.setHours(23, 59, 59, 999);
+    
+    return eventDate >= week.start && eventDate <= weekEndInclusive;
   };
 
   // Week selection handlers
@@ -398,10 +401,14 @@ export default function Home() {
         const endDate = seasonWeeks[endWeek - 1]?.end;
         
         if (startDate && endDate) {
+          // Set end date to end of the last day (23:59:59)
+          const endDateInclusive = new Date(endDate);
+          endDateInclusive.setHours(23, 59, 59, 999);
+          
           apiFilters = {
             dateRange: {
               start: startDate.toISOString(),
-              end: endDate.toISOString()
+              end: endDateInclusive.toISOString()
             }
           };
         }
@@ -421,6 +428,8 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         const fetchedEvents = data.events || [];
+        console.log('Fetched events:', fetchedEvents.length, 'events');
+        console.log('First event:', fetchedEvents[0]);
         setEvents(fetchedEvents);
 
         // Extract unique categories for filter options
@@ -671,7 +680,12 @@ export default function Home() {
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="mt-2 text-gray-600">Loading events...</p>
               </div>
-            ) : filterEvents(events).length === 0 ? (
+            ) : (() => {
+              const filteredEvents = filterEvents(events);
+              console.log('Filtered events:', filteredEvents.length, 'events');
+              console.log('Total events:', events.length);
+              return filteredEvents.length === 0;
+            })() ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🎭</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
