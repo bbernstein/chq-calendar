@@ -13,6 +13,18 @@ A dynamic calendar generator for Chautauqua Institution 2025 season with real-ti
 
 **⚠️ IMPORTANT: Always test locally before deploying to production!**
 
+### Utilities
+
+The `utils/` directory contains helpful scripts for development and maintenance:
+
+- `integration-test.js` - Comprehensive test suite comparing localhost vs production
+- `clear-production-db.js` - Clear production database (use with caution)
+- `recreate-tables.js` - Reset local DynamoDB tables
+- `test-weeks.js` - Test week date calculations
+- `trigger-full-season-sync.js` - Manual production sync trigger
+
+See `utils/README.md` for detailed usage instructions.
+
 ### Step 1: Local Development & Testing
 ```bash
 # Start local development environment
