@@ -60,10 +60,58 @@ const createResponse = (statusCode: number, body: any, headers: Record<string, s
   };
 };
 
+// Helper function to transform database events to the expected Event format
+const transformDatabaseEvent = (dbEvent: any): Event => {
+  return {
+    id: dbEvent.id,
+    title: dbEvent.title,
+    description: dbEvent.description,
+    startDate: dbEvent.startDate,
+    endDate: dbEvent.endDate,
+    location: dbEvent.location || (dbEvent.venue?.name) || '',
+    category: dbEvent.category || (dbEvent.categories && dbEvent.categories.length > 0 ? dbEvent.categories[0].name : ''),
+    week: dbEvent.week || undefined,
+    tags: Array.isArray(dbEvent.tags) ? dbEvent.tags : [],
+    url: dbEvent.url,
+    presenter: dbEvent.presenter,
+    uid: dbEvent.uid,
+    lastModified: dbEvent.lastModified || dbEvent.lastUpdated,
+    createdAt: dbEvent.createdAt,
+    updatedAt: dbEvent.updatedAt
+  };
+};
+
+// Helper function to scan all events with pagination
+const scanAllEvents = async (): Promise<any[]> => {
+  const allEvents: any[] = [];
+  let lastEvaluatedKey: any = undefined;
+  
+  do {
+    const command = new ScanCommand({
+      TableName: EVENTS_TABLE_NAME,
+      ExclusiveStartKey: lastEvaluatedKey
+    });
+    
+    const result = await docClient.send(command);
+    
+    if (result.Items) {
+      allEvents.push(...result.Items);
+    }
+    
+    lastEvaluatedKey = result.LastEvaluatedKey;
+    
+    console.log(`Scanned ${result.Items?.length || 0} events, total: ${allEvents.length}`);
+    
+  } while (lastEvaluatedKey);
+  
+  console.log(`Total events scanned: ${allEvents.length}`);
+  return allEvents;
+};
+
 // Helper function to query events from DynamoDB with optimized filtering
 const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[]> => {
   try {
-    let events: Event[] = [];
+    let events: any[] = [];
 
     // Use GSI queries when possible for better performance
     if (filters?.categories && filters.categories.length === 1) {
@@ -77,72 +125,73 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
         }
       });
       const result = await docClient.send(command);
-      events = (result.Items || []) as Event[];
+      events = (result.Items || []) as any[];
     } else if (filters?.dateRange?.start) {
-      // Use scan with filter expression for date range queries
-      // since DateIndex doesn't support range queries on hash key
-      const filterExpression = filters.dateRange.end 
-        ? 'startDate BETWEEN :startDate AND :endDate'
-        : 'startDate >= :startDate';
-      
-      const expressionAttributeValues = {
-        ':startDate': filters.dateRange.start,
-        ...(filters.dateRange.end && { ':endDate': filters.dateRange.end })
-      };
-
-      const command = new ScanCommand({
-        TableName: EVENTS_TABLE_NAME,
-        FilterExpression: filterExpression,
-        ExpressionAttributeValues: expressionAttributeValues
-      });
-      const result = await docClient.send(command);
-      events = (result.Items || []) as Event[];
+      // For date range queries, we need to scan all events first 
+      // and then filter programmatically because date formats vary
+      // Handle pagination to get all events
+      events = await scanAllEvents();
     } else {
       // Fall back to scan if no efficient query is possible
-      const command = new ScanCommand({
-        TableName: EVENTS_TABLE_NAME
-      });
-      const result = await docClient.send(command);
-      events = (result.Items || []) as Event[];
+      // Handle pagination to get all events
+      events = await scanAllEvents();
     }
 
+    // Transform database events to the expected Event format
+    const transformedEvents = events.map(dbEvent => transformDatabaseEvent(dbEvent));
+
     // Apply remaining filters
+    let filteredEvents = transformedEvents;
     if (filters) {
       if (filters.categories && filters.categories.length > 1) {
-        events = events.filter(event =>
+        filteredEvents = filteredEvents.filter(event =>
           filters.categories!.includes(event.category || '')
         );
       }
 
-
       if (filters.tags && filters.tags.length > 0) {
-        events = events.filter(event =>
+        filteredEvents = filteredEvents.filter(event =>
           event.tags && filters.tags!.some(tag => event.tags!.includes(tag))
         );
       }
 
-      if (filters.dateRange && !filters.categories) {
-        // Only apply date filtering if we didn't already use the DateIndex
-        const startDate = parseISO(filters.dateRange.start);
-        const endDate = parseISO(filters.dateRange.end);
+      if (filters.dateRange) {
+        // Apply date filtering for all cases
+        const startDate = new Date(filters.dateRange.start);
+        const endDate = new Date(filters.dateRange.end);
 
-        events = events.filter(event => {
-          const eventStart = parseISO(event.startDate);
-          return eventStart >= startDate && eventStart <= endDate;
+        filteredEvents = filteredEvents.filter(event => {
+          // Parse database date format (YYYY-MM-DD HH:MM:SS or ISO format)
+          let eventStart: Date;
+          if (event.startDate.includes('T')) {
+            // ISO format
+            eventStart = new Date(event.startDate);
+          } else {
+            // Database format (YYYY-MM-DD HH:MM:SS) - assume it's in Eastern Time
+            // Add 'T' to make it parseable and treat as UTC (since times are already in ET)
+            eventStart = new Date(event.startDate.replace(' ', 'T') + '.000Z');
+          }
+          
+          // For date-only comparisons, compare just the date parts
+          const eventDateOnly = event.startDate.split(' ')[0];
+          const startDateOnly = filters.dateRange.start.split('T')[0];
+          const endDateOnly = filters.dateRange.end.split('T')[0];
+          
+          return eventDateOnly >= startDateOnly && eventDateOnly <= endDateOnly;
         });
       }
     }
 
     // Sort by start date
-    events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    filteredEvents.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
     // Filter out week tags from events
-    events = events.map(event => ({
+    filteredEvents = filteredEvents.map(event => ({
       ...event,
       tags: event.tags?.filter(tag => !tag.match(/^week.*/i)) || []
     }));
 
-    return events;
+    return filteredEvents;
   } catch (error) {
     console.error('Error querying events:', error);
     throw error;
@@ -168,7 +217,10 @@ const generateICalendar = (events: Event[]): string => {
       location: event.location || '',
       url: event.url || '',
       organizer: event.presenter ? { name: event.presenter } : undefined,
-      categories: event.category ? [event.category] : [],
+      categories: [
+        ...(event.category && event.category.trim() ? [event.category.trim()] : []),
+        ...(event.tags || []).filter(tag => tag && tag.trim())
+      ],
       created: parseISO(event.createdAt),
       lastModified: parseISO(event.updatedAt)
     });
@@ -203,7 +255,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
     // Handle calendar generation
     if (httpMethod === 'POST' && path === '/calendar') {
-      const { filters, format = 'ics', timezone = 'America/New_York' } = requestBody;
+      const { filters, format = 'json', timezone = 'America/New_York' } = requestBody;
 
       // Fetch events from DynamoDB with optimized queries
       const events = await queryEvents(filters);
