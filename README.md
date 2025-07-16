@@ -9,6 +9,14 @@ A dynamic calendar generator for Chautauqua Institution 2025 season with real-ti
 - 📱 Mobile-responsive interface
 - 🔔 Real-time update notifications
 
+## Documentation
+
+📚 Detailed documentation is available in the `docs/` directory:
+- [Development Workflow](docs/DEVELOPMENT_WORKFLOW.md) - Complete development and deployment process
+- [API Integration Design](docs/API_INTEGRATION_DESIGN.md) - Technical architecture and API details
+- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment instructions
+- [System Design](docs/DESIGN.md) - Overall system architecture and design decisions
+
 ## Development Workflow
 
 **⚠️ IMPORTANT: Always test locally before deploying to production!**

@@ -15,6 +15,7 @@
     "prebuild": "npm run test:ci",
     "sync": "ts-node src/scripts/syncData.ts",
     "init-tables": "ts-node src/scripts/initTables.ts",
+    "create-tables": "cd .. && ./scripts/create-tables.sh",
     "trigger-sync": "node utils/trigger-full-season-sync.js"
   },
   "dependencies": {
