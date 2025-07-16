@@ -40,3 +40,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Test reports
+*test*.json
+integration-test-report-*.json
