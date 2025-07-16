@@ -84,7 +84,7 @@ cd backend && npm run deploy
 
 ### Prerequisites
 - Docker and Docker Compose
-- Node.js 18+ (for development outside Docker)
+- Node.js 24+ (for development outside Docker)
 
 ### Running Locally
 The application can run completely locally using Docker:

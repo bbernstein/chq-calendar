@@ -17,7 +17,7 @@
     "test:integration": "node integration-test.js"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "typescript": "^5.0.0",
     "node-fetch": "^2.7.0"
   }
