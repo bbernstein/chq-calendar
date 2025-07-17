@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import Image from 'next/image';
 
 interface Event {
   id: string;
@@ -876,7 +877,6 @@ function HomeContent() {
                           <span>🕐 {new Date(event.startDate).toLocaleTimeString()}</span>
                           {event.location && <span>📍 {event.location}</span>}
                           {event.presenter && <span>👤 {event.presenter}</span>}
-                          {event.week && <span>📆 Week {event.week}</span>}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {event.category && (
@@ -906,10 +906,12 @@ function HomeContent() {
                             .filter(attachment => attachment.isImage)
                             .slice(0, 1)
                             .map((attachment, _index) => (
-                              <img alt="Event attachment"
-                                key={index}
+                              <Image
+                                key={_index}
                                 src={attachment.url}
                                 alt={`${event.title} image`}
+                                width={96}
+                                height={96}
                                 className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-lg border border-gray-200"
                                 onError={(e) => {
                                   e.currentTarget.style.display = 'none';
