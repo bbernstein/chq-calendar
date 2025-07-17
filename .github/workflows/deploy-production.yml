@@ -76,14 +76,14 @@ jobs:
       working-directory: ./frontend
       run: |
         # Sync to S3 bucket
-        aws s3 sync .next/out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+        aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
           --delete \
           --exclude "*.map" \
           --cache-control "public, max-age=31536000, immutable" \
           --metadata-directive REPLACE
         
         # Update HTML files with shorter cache
-        aws s3 sync .next/out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+        aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
           --exclude "*" \
           --include "*.html" \
           --cache-control "public, max-age=3600" \
