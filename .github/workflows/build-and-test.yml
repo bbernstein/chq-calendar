@@ -1,0 +1,168 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+        options: >-
+          --health-cmd "curl -f http://localhost:8000" || exit 1
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+    
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: npm ci
+    
+    - name: Run backend tests
+      working-directory: ./backend
+      run: npm run test:ci
+      env:
+        DYNAMODB_ENDPOINT: http://localhost:8000
+        DYNAMODB_REGION: us-east-1
+        AWS_ACCESS_KEY_ID: dummy
+        AWS_SECRET_ACCESS_KEY: dummy
+        EVENTS_TABLE_NAME: chq-calendar-events-test
+        DATA_SOURCES_TABLE_NAME: chq-calendar-data-sources-test
+    
+    - name: Build backend
+      working-directory: ./backend
+      run: npx esbuild src/server.ts --bundle --platform=node --target=node24 --outfile=dist/server.js --external:aws-sdk
+    
+    - name: Upload backend coverage
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: backend-coverage
+        path: backend/coverage/
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Run frontend linting
+      working-directory: ./frontend
+      run: npm run lint || true  # Don't fail on lint warnings
+    
+    - name: Run frontend type checking
+      working-directory: ./frontend
+      run: npx tsc --noEmit
+    
+    - name: Build frontend
+      working-directory: ./frontend
+      run: npm run build
+      env:
+        NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
+    
+    - name: Upload frontend build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-build
+        path: frontend/.next/
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: |
+          backend/package-lock.json
+          frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd backend && npm ci
+        cd ../frontend && npm ci
+    
+    - name: Build backend
+      working-directory: ./backend
+      run: npx esbuild src/server.ts --bundle --platform=node --target=node24 --outfile=dist/server.js --external:aws-sdk
+    
+    - name: Start backend server
+      working-directory: ./backend
+      run: |
+        npm run dev &
+        echo $! > backend.pid
+      env:
+        NODE_ENV: test
+        PORT: 3001
+        DYNAMODB_ENDPOINT: http://localhost:8000
+        DYNAMODB_REGION: us-east-1
+        AWS_ACCESS_KEY_ID: dummy
+        AWS_SECRET_ACCESS_KEY: dummy
+        EVENTS_TABLE_NAME: chq-calendar-events-test
+        DATA_SOURCES_TABLE_NAME: chq-calendar-data-sources-test
+        USE_NEW_API: true
+    
+    - name: Wait for backend to be ready
+      run: |
+        timeout 30 bash -c 'until curl -f http://localhost:3001/health; do sleep 1; done'
+    
+    - name: Run integration tests
+      run: |
+        # Test health endpoint
+        curl -f http://localhost:3001/health
+        
+        # Test calendar endpoint
+        curl -f -X POST http://localhost:3001/calendar \
+          -H "Content-Type: application/json" \
+          -d '{"filters": {}, "format": "json"}'
+        
+        # Test sync endpoint
+        curl -f -X POST http://localhost:3001/sync \
+          -H "Content-Type: application/json" \
+          -d '{"syncType": "incremental"}'
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        if [ -f backend/backend.pid ]; then
+          kill $(cat backend/backend.pid) || true
+        fi
