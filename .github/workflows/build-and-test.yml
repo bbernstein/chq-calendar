@@ -15,14 +15,21 @@ jobs:
         image: amazon/dynamodb-local:latest
         ports:
           - 8000:8000
-        options: >-
-          --health-cmd "curl -f http://localhost:8000" || exit 1
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
     - uses: actions/checkout@v4
+    
+    - name: Wait for DynamoDB to be ready
+      run: |
+        echo "Waiting for DynamoDB to start..."
+        for i in {1..30}; do
+          if curl -f http://localhost:8000 2>/dev/null; then
+            echo "DynamoDB is ready!"
+            break
+          fi
+          echo "Waiting for DynamoDB... (attempt $i/30)"
+          sleep 2
+        done
     
     - name: Use Node.js 24
       uses: actions/setup-node@v4
@@ -106,6 +113,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    
+    - name: Wait for DynamoDB to be ready
+      run: |
+        echo "Waiting for DynamoDB to start..."
+        for i in {1..30}; do
+          if curl -f http://localhost:8000 2>/dev/null; then
+            echo "DynamoDB is ready!"
+            break
+          fi
+          echo "Waiting for DynamoDB... (attempt $i/30)"
+          sleep 2
+        done
     
     - name: Use Node.js 24
       uses: actions/setup-node@v4
