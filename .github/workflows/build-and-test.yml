@@ -9,38 +9,9 @@ on:
 jobs:
   test-backend:
     runs-on: ubuntu-latest
-    
-    services:
-      dynamodb:
-        image: amazon/dynamodb-local:latest
-        ports:
-          - 8000:8000
-        options: >-
-          --health-cmd "curl -f http://localhost:8000 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-          --health-start-period 30s
 
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Wait for DynamoDB to be ready and create tables
-      run: |
-        echo "Waiting for DynamoDB to start..."
-        # Wait for DynamoDB to be responsive
-        for i in {1..20}; do
-          if curl -f -s http://localhost:8000 >/dev/null 2>&1; then
-            echo "DynamoDB is responsive!"
-            break
-          fi
-          echo "Waiting for DynamoDB... (attempt $i/20)"
-          sleep 3
-        done
-        
-        # Test DynamoDB with AWS CLI
-        echo "Testing DynamoDB with AWS CLI..."
-        aws dynamodb list-tables --endpoint-url http://localhost:8000 --region us-east-1 || echo "DynamoDB not fully ready, proceeding anyway..."
     
     - name: Use Node.js 24
       uses: actions/setup-node@v4
@@ -56,13 +27,6 @@ jobs:
     - name: Run backend tests
       working-directory: ./backend
       run: npm run test:ci
-      env:
-        DYNAMODB_ENDPOINT: http://localhost:8000
-        DYNAMODB_REGION: us-east-1
-        AWS_ACCESS_KEY_ID: dummy
-        AWS_SECRET_ACCESS_KEY: dummy
-        EVENTS_TABLE_NAME: chq-calendar-events-test
-        DATA_SOURCES_TABLE_NAME: chq-calendar-data-sources-test
     
     - name: Build backend
       working-directory: ./backend
