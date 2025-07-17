@@ -157,11 +157,20 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
       console.log(`Scan found ${events.length} events total`);
     } else {
       // Fall back to scan if no efficient query is possible
-      const command = new ScanCommand({
-        TableName: EVENTS_TABLE_NAME
-      });
-      const result = await docClient.send(command);
-      events = (result.Items || []) as any[];
+      // Handle DynamoDB scan pagination for full table scan
+      let lastEvaluatedKey = undefined;
+      do {
+        const command = new ScanCommand({
+          TableName: EVENTS_TABLE_NAME,
+          ExclusiveStartKey: lastEvaluatedKey
+        });
+        const result = await docClient.send(command);
+        events.push(...(result.Items || []) as any[]);
+        lastEvaluatedKey = result.LastEvaluatedKey;
+        console.log(`Scan batch found ${result.Items?.length || 0} events, total so far: ${events.length}`);
+      } while (lastEvaluatedKey);
+      
+      console.log(`Scan found ${events.length} events total`);
     }
 
     // Transform events to match frontend expectations
@@ -252,7 +261,7 @@ const generateICalendar = (events: Event[]): string => {
       location: event.location || '',
       url: event.url || '',
       organizer: event.presenter ? { name: event.presenter } : undefined,
-      categories: event.category ? [event.category] : [],
+      categories: event.category ? [{ name: event.category }] : [],
       created: parseISO(event.createdAt),
       lastModified: parseISO(event.updatedAt)
     });
@@ -638,6 +647,9 @@ app.listen(port, async () => {
     syncScheduler.start();
   }
 });
+
+// Environment flag for new API
+const USE_NEW_API = process.env.USE_NEW_API === 'true';
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

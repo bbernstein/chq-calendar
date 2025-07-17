@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
 interface Event {
   id: string;
@@ -31,9 +31,32 @@ interface CalendarFilters {
   };
 }
 
+// Global data store to persist across re-renders
+let globalEventData: {
+  events: Event[] | null;
+  categories: string[];
+  tags: string[];
+  weeks: number[];
+  loadedAt: number | null;
+} = {
+  events: null,
+  categories: [],
+  tags: [],
+  weeks: [],
+  loadedAt: null
+};
+
 export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const isLoadingRef = useRef(false);
+  const mountTimeRef = useRef(Date.now());
+
+  // Only log in development to avoid console spam
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Component rendered at', new Date().toISOString(), 'Mount time:', new Date(mountTimeRef.current).toISOString());
+  }
   const filters = useMemo(() => ({}), []);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
@@ -41,7 +64,7 @@ export default function Home() {
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'this-week'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('all');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -155,15 +178,24 @@ export default function Home() {
     return eventDate.toDateString() === today.toDateString();
   };
 
+  const isNext = (dateString: string) => {
+    const today = new Date();
+    const eventDate = new Date(dateString);
+    const dayOfWeek = today.getDay();
+    const saturday = new Date(today);
+    saturday.setDate(today.getDate() - dayOfWeek + 6);
+    return eventDate >= today && eventDate <= saturday;
+  };
+
   const isThisWeek = (dateString: string) => {
     const today = new Date();
     const eventDate = new Date(dateString);
     const dayOfWeek = today.getDay();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - dayOfWeek + 1);
     const sunday = new Date(today);
-    sunday.setDate(today.getDate() - dayOfWeek + 7);
-    return eventDate >= monday && eventDate <= sunday;
+    sunday.setDate(today.getDate() - dayOfWeek - 1);
+    const saturday = new Date(today);
+    saturday.setDate(today.getDate() - dayOfWeek + 6);
+    return eventDate >= sunday && eventDate <= saturday;
   };
 
   const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
@@ -179,11 +211,16 @@ export default function Home() {
 
   // Week selection handlers
   const handleWeekMouseDown = (weekNum: number) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('handleWeekMouseDown called for week', weekNum);
+    }
+
+    // Batch state updates to reduce re-renders
     setIsDragging(true);
     setDragStart(weekNum);
     setHasMouseMoved(false);
-    // Show immediate visual feedback for potential selection
     setSelectedWeeks([weekNum]);
+
     // Prevent text selection during potential drag
     document.body.style.userSelect = 'none';
   };
@@ -333,6 +370,8 @@ export default function Home() {
       filtered = filtered.filter(event => isToday(event.startDate));
     } else if (dateFilter === 'this-week') {
       filtered = filtered.filter(event => isThisWeek(event.startDate));
+    } else if (dateFilter === 'next') {
+      filtered = filtered.filter(event => isNext(event.startDate));
     }
 
     // Week filter (independent of date filter)
@@ -393,33 +432,65 @@ export default function Home() {
   };
 
   // Fetch events from API
-  const fetchEvents = async () => {
+  const fetchAllEvents = async (forceRefresh = false) => {
+    console.log('fetchAllEvents called', {
+      dataLoaded,
+      forceRefresh,
+      isLoadingRef: isLoadingRef.current,
+      globalDataLoaded: !!globalEventData.events
+    });
+
+    // Check global store first
+    if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
+      console.log('Loading from global store');
+      setEvents(globalEventData.events);
+      setAvailableCategories(globalEventData.categories);
+      setAvailableTags(globalEventData.tags);
+      setAvailableWeeks(globalEventData.weeks);
+      setDataLoaded(true);
+      return;
+    }
+
+    // Skip if already loading
+    if (isLoadingRef.current && !forceRefresh) {
+      console.log('Already loading, skipping duplicate call');
+      return;
+    }
+
+    // Skip if data already loaded and not forcing refresh
+    if (dataLoaded && !forceRefresh) {
+      console.log('Data already loaded, skipping API call');
+      return;
+    }
+
+    isLoadingRef.current = true;
+
+    // Check sessionStorage first (unless forcing refresh)
+    if (!forceRefresh) {
+      try {
+        const cachedData = sessionStorage.getItem('chq-calendar-events');
+        if (cachedData) {
+          const parsed = JSON.parse(cachedData);
+          // Check if cache is less than 1 hour old
+          if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000) {
+            console.log('Loading events from session cache');
+            setEvents(parsed.events);
+            setAvailableCategories(parsed.categories);
+            setAvailableTags(parsed.tags);
+            setAvailableWeeks(parsed.weeks);
+            setDataLoaded(true);
+            isLoadingRef.current = false;
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load from sessionStorage:', e);
+      }
+    }
+
     setLoading(true);
     try {
-      // Convert week selections to date ranges
-      let apiFilters = {};
-
-      // If weeks are selected, convert to date range
-      if (selectedWeeks.length > 0) {
-        const startWeek = Math.min(...selectedWeeks);
-        const endWeek = Math.max(...selectedWeeks);
-
-        const startDate = seasonWeeks[startWeek - 1]?.start;
-        const endDate = seasonWeeks[endWeek - 1]?.end;
-
-        if (startDate && endDate) {
-          // Set end date to end of the last day (23:59:59)
-          const endDateInclusive = new Date(endDate);
-          endDateInclusive.setHours(23, 59, 59, 999);
-
-          apiFilters = {
-            dateRange: {
-              start: startDate.toISOString(),
-              end: endDateInclusive.toISOString()
-            }
-          };
-        }
-      }
+      console.log('Loading all events for the season...');
 
       const response = await fetch(`${apiUrl}/calendar`, {
         method: 'POST',
@@ -427,7 +498,7 @@ export default function Home() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          filters: apiFilters,
+          filters: {}, // Empty filters to get all events
           format: 'json'
         })
       });
@@ -435,9 +506,10 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         const fetchedEvents = data.events || [];
-        console.log('Fetched events:', fetchedEvents.length, 'events');
+        console.log('Loaded all events:', fetchedEvents.length, 'events');
         console.log('First event:', fetchedEvents[0]);
         setEvents(fetchedEvents);
+        setDataLoaded(true);
 
         // Extract unique categories for filter options
         const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
@@ -449,8 +521,35 @@ export default function Home() {
           event.originalCategories?.forEach(cat => allTags.add(cat));
         });
 
-        setAvailableCategories(categories.sort());
-        setAvailableTags(Array.from(allTags).sort());
+        const sortedCategories = categories.sort();
+        const sortedTags = Array.from(allTags).sort();
+        const weeks = seasonWeeks.map(w => w.number);
+
+        setAvailableCategories(sortedCategories);
+        setAvailableTags(sortedTags);
+        setAvailableWeeks(weeks);
+
+        // Update global store
+        globalEventData = {
+          events: fetchedEvents,
+          categories: sortedCategories,
+          tags: sortedTags,
+          weeks: weeks,
+          loadedAt: Date.now()
+        };
+
+        // Cache in sessionStorage
+        try {
+          sessionStorage.setItem('chq-calendar-events', JSON.stringify({
+            events: fetchedEvents,
+            categories: categories.sort(),
+            tags: Array.from(allTags).sort(),
+            weeks: weeks,
+            timestamp: Date.now()
+          }));
+        } catch (e) {
+          console.warn('Failed to save to sessionStorage:', e);
+        }
       } else {
         console.error('Failed to fetch events');
       }
@@ -458,6 +557,7 @@ export default function Home() {
       console.error('Error fetching events:', error);
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
   };
 
@@ -466,15 +566,14 @@ export default function Home() {
   // Generate calendar download
 
   useEffect(() => {
-    fetchEvents();
+    console.log('Component mounted - Initial useEffect triggered');
+    fetchAllEvents();
+
+    return () => {
+      console.log('Component unmounting!');
+    };
   }, []);
 
-  // Refetch when week selection changes
-  useEffect(() => {
-    if (selectedWeeks.length > 0) {
-      fetchEvents();
-    }
-  }, [selectedWeeks]);
 
   // Handle global mouse events for week dragging
   useEffect(() => {
@@ -545,6 +644,22 @@ export default function Home() {
                   }`}
                 >
                   Today
+                </button>
+                <button
+                  onClick={() => {
+                    setDateFilter(dateFilter === 'next' ? 'all' : 'next');
+                    if (dateFilter !== 'next') {
+                      setSelectedWeeks([]); // Clear week selection when selecting "This Week"
+                    }
+                  }}
+                  title="Show events starting after the current time through the end of this week"
+                  className={`px-4 py-2 rounded-md border transition-all ${
+                    dateFilter === 'next'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  Next
                 </button>
                 <button
                   onClick={() => {
@@ -652,7 +767,6 @@ export default function Home() {
                     setSelectedTags([]);
                     setDateFilter('all');
                     setSelectedWeeks([]);
-                    fetchEvents();
                   }}
                   className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
                 >
@@ -672,7 +786,7 @@ export default function Home() {
             </h3>
             <div className="flex space-x-2">
               <button
-                onClick={fetchEvents}
+                onClick={() => fetchAllEvents(true)}
                 disabled={loading}
                 className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 disabled:opacity-50"
               >
@@ -687,12 +801,7 @@ export default function Home() {
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="mt-2 text-gray-600">Loading events...</p>
               </div>
-            ) : (() => {
-              const filteredEvents = filterEvents(events);
-              console.log('Filtered events:', filteredEvents.length, 'events');
-              console.log('Total events:', events.length);
-              return filteredEvents.length === 0;
-            })() ? (
+            ) : filterEvents(events).length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🎭</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
