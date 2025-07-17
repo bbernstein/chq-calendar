@@ -56,17 +56,32 @@ jobs:
         # Install production dependencies for Lambda package
         npm ci --omit=dev
         
-        # Debug: Check what's in node_modules
-        echo "Checking node_modules contents:"
-        ls -la node_modules/ | head -20
-        echo "Looking for ical-generator:"
-        ls -la node_modules/ | grep ical || echo "ical-generator not found"
+        # Debug: Check current directory and npm workspace
+        echo "Current directory:"
+        pwd
+        echo "Files in current directory:"
+        ls -la
+        echo "Check if node_modules exists in current directory:"
+        ls -la node_modules/ 2>/dev/null || echo "No node_modules in current directory"
+        echo "Check if node_modules exists in parent directory:"
+        ls -la ../node_modules/ 2>/dev/null || echo "No node_modules in parent directory"
+        echo "Check for ical-generator in parent node_modules:"
+        ls -la ../node_modules/ | grep ical || echo "ical-generator not found in parent"
         
         # Build the Lambda function
         npm run build:prod
         
-        # Create the package manually to ensure node_modules is included
-        zip -r lambda-function.zip dist/ package.json node_modules/
+        # Create the package with node_modules from parent if needed
+        if [ -d "node_modules" ]; then
+          echo "Using local node_modules"
+          zip -r lambda-function.zip dist/ package.json node_modules/
+        elif [ -d "../node_modules" ]; then
+          echo "Using parent node_modules"
+          zip -r lambda-function.zip dist/ package.json ../node_modules/
+        else
+          echo "No node_modules found, creating zip without dependencies"
+          zip -r lambda-function.zip dist/ package.json
+        fi
         
         # Debug: Check zip contents
         echo "Checking zip contents:"
