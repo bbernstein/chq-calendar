@@ -50,8 +50,11 @@ jobs:
     - name: Deploy backend to Lambda
       working-directory: ./backend
       run: |
+        # Clean any previous build artifacts
+        rm -rf node_modules lambda-function.zip
+        
         # Install production dependencies for Lambda package
-        npm ci --only=production
+        npm ci --omit=dev
         
         # Debug: Check what's in node_modules
         echo "Checking node_modules contents:"
@@ -59,8 +62,11 @@ jobs:
         echo "Looking for ical-generator:"
         ls -la node_modules/ | grep ical || echo "ical-generator not found"
         
-        # Package Lambda function
-        npm run package
+        # Build the Lambda function
+        npm run build:prod
+        
+        # Create the package manually to ensure node_modules is included
+        zip -r lambda-function.zip dist/ package.json node_modules/
         
         # Debug: Check zip contents
         echo "Checking zip contents:"
