@@ -50,6 +50,9 @@ jobs:
     - name: Deploy backend to Lambda
       working-directory: ./backend
       run: |
+        # Install production dependencies for Lambda package
+        npm ci --only=production
+        
         # Package Lambda function
         npm run package
         
