@@ -39,6 +39,7 @@ interface GlobalEventData {
   tags: string[];
   weeks: number[];
   loadedAt: number | null;
+  setGlobalEventData?: React.Dispatch<React.SetStateAction<GlobalEventData>>;
 }
 
 const GlobalEventDataContext = createContext<GlobalEventData | undefined>(undefined);
@@ -61,12 +62,13 @@ export function GlobalEventDataProvider({ children }: { children: React.ReactNod
   });
 
   return (
-    <GlobalEventDataContext.Provider value={globalEventData}>
+    <GlobalEventDataContext.Provider value={{ ...globalEventData, setGlobalEventData }}>
       {children}
     </GlobalEventDataContext.Provider>
   );
 }
-export default function Home() {
+function HomeContent() {
+  const globalEventData = useGlobalEventData();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -300,21 +302,21 @@ export default function Home() {
   const searchEvents = (events: Event[], term: string) => {
     if (!term) return events;
 
-    const searchTerm = term.toLowerCase();
+    // const searchTerm = term.toLowerCase();
 
-    // Smart shortcuts
-    const shortcuts: { [key: string]: string[] } = {
-      'amp': ['amphitheater'],
-      'cso': ['chautauqua symphony orchestra'],
-      'symphony': ['chautauqua symphony orchestra'],
-      'orchestra': ['chautauqua symphony orchestra']
-    };
+    // // Smart shortcuts
+    // const shortcuts: { [key: string]: string[] } = {
+    //   'amp': ['amphitheater'],
+    //   'cso': ['chautauqua symphony orchestra'],
+    //   'symphony': ['chautauqua symphony orchestra'],
+    //   'orchestra': ['chautauqua symphony orchestra']
+    // };
 
-    // Apply shortcuts - expand search term to include alternatives
+    // // Apply shortcuts - expand search term to include alternatives
     const searchTerms = [searchTerm];
-    if (shortcuts[searchTerm]) {
-      searchTerms.push(...shortcuts[searchTerm]);
-    }
+    // if (shortcuts[searchTerm]) {
+    //   searchTerms.push(...shortcuts[searchTerm]);
+    // }
 
     const scored = events.map(event => {
       const title = event.title.toLowerCase();
@@ -333,9 +335,16 @@ export default function Home() {
 
       // Check all search terms (original + shortcuts)
       searchTerms.forEach(currentTerm => {
+
         // Exact phrase matches (highest priority)
         if (title.includes(currentTerm)) score += 100;
-        if (location.includes(currentTerm)) score += 90;
+
+        if (currentTerm === 'amp') {
+          if (location.includes('amphitheater')) score += 100;
+        } else {
+          if (location.includes(currentTerm)) score += 90;
+        }
+
         if (description.includes(currentTerm)) score += 50;
         if (category.includes(currentTerm)) score += 80;
         if (presenter.includes(currentTerm)) score += 25;
@@ -344,8 +353,8 @@ export default function Home() {
         allTags.forEach(tag => {
           if (tag.includes(currentTerm)) score += 85;
           // Special case: "cso" or "symphony" should match "Chautauqua Symphony Orchestra/Classical Concerts"
-          if ((currentTerm === 'cso' || currentTerm === 'chautauqua symphony orchestra') &&
-              tag.includes('chautauqua symphony orchestra')) {
+          if ((currentTerm === 'cso' || currentTerm === 'symphony') &&
+              tag.includes('chautauqua symphony orchestra/classical concerts')) {
             score += 95;
           }
         });
@@ -550,13 +559,15 @@ export default function Home() {
         setAvailableWeeks(weeks);
 
         // Update global store
-        globalEventData = {
-          events: fetchedEvents,
-          categories: sortedCategories,
-          tags: sortedTags,
-          weeks: weeks,
-          loadedAt: Date.now()
-        };
+        if (globalEventData.setGlobalEventData) {
+          globalEventData.setGlobalEventData({
+            events: fetchedEvents,
+            categories: sortedCategories,
+            tags: sortedTags,
+            weeks: weeks,
+            loadedAt: Date.now()
+          });
+        }
 
         // Cache in sessionStorage
         try {
@@ -755,7 +766,9 @@ export default function Home() {
               </label>
               <div className="max-h-32 overflow-y-auto">
                 <div className="flex flex-wrap gap-2">
-                  {availableTags.map(tag => (
+                  {availableTags
+                    .filter(tag => !tag.startsWith('Week '))
+                    .map(tag => (
                     <button
                       key={tag}
                       onClick={() => {
@@ -771,7 +784,7 @@ export default function Home() {
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
                     >
-                      {tag}
+                      {decodeHtmlEntities(tag)}
                     </button>
                   ))}
                 </div>
@@ -875,12 +888,12 @@ export default function Home() {
                             ?.filter(cat => !cat.startsWith('Week '))
                             ?.map(cat => (
                             <span key={cat} className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
-                              {cat}
+                              {decodeHtmlEntities(cat)}
                             </span>
                           ))}
                           {/* {event.tags?.filter(tag => !event.originalCategories?.includes(tag)).map(tag => (
                             <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
-                              {tag}
+                              {decodeHtmlEntities(tag)}
                             </span>
                           ))} */}
                         </div>
@@ -928,5 +941,13 @@ export default function Home() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <GlobalEventDataProvider>
+      <HomeContent />
+    </GlobalEventDataProvider>
   );
 }
