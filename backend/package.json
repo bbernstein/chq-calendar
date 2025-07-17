@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "npm run test && npx esbuild src/handlers/*.ts --bundle --platform=node --target=node24 --outdir=dist --external:aws-sdk",
-    "build:prod": "npx esbuild src/server.ts --bundle --platform=node --target=node24 --outfile=dist/server.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb",
+    "build:prod": "npx esbuild src/server.ts --bundle --platform=node --target=node24 --outfile=dist/server.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:express --external:cors --external:ical-generator --external:date-fns --external:cheerio --external:axios --external:uuid",
     "dev": "node dist/server.js",
     "deploy": "npm run build && zip -r lambda-function.zip dist/ package.json && aws lambda update-function-code --function-name chautauqua-calendar-generator --zip-file fileb://lambda-function.zip",
     "package": "npm run build:prod && zip -r lambda-function.zip dist/ node_modules/ package.json",
