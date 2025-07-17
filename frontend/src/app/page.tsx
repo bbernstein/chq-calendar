@@ -48,12 +48,12 @@ export default function Home() {
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
 
-  const apiUrl = useMemo(() => 
-    process.env.NODE_ENV === 'development' 
-      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001') 
+  const apiUrl = useMemo(() =>
+    process.env.NODE_ENV === 'development'
+      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
       : '/api'
   , []);
-    
+
   console.log('API URL:', apiUrl, 'NODE_ENV:', process.env.NODE_ENV);
 
   // Description truncation helpers
@@ -70,6 +70,13 @@ export default function Home() {
       return newSet;
     });
   };
+
+  const  decodeHtmlEntities = (encodedString: string | undefined) => {
+      const parser = new DOMParser();
+      if (!encodedString) return null;
+      const doc = parser.parseFromString(encodedString, 'text/html');
+      return doc.documentElement.textContent;
+  }
 
   const truncateDescription = (description: string, eventId: string) => {
     if (!description) return null;
@@ -162,11 +169,11 @@ export default function Home() {
   const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
     const eventDate = new Date(dateString);
     const week = seasonWeeks[weekNumber - 1];
-    
+
     // Create end of day for proper comparison
     const weekEndInclusive = new Date(week.end);
     weekEndInclusive.setHours(23, 59, 59, 999);
-    
+
     return eventDate >= week.start && eventDate <= weekEndInclusive;
   };
 
@@ -222,12 +229,12 @@ export default function Home() {
       const newSelection = prev.includes(weekNum)
         ? prev.filter(w => w !== weekNum) // Remove if already selected
         : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
-      
+
       // Clear date filter when selecting weeks
       if (newSelection.length > 0) {
         setDateFilter('all');
       }
-      
+
       return newSelection;
     });
   };
@@ -391,20 +398,20 @@ export default function Home() {
     try {
       // Convert week selections to date ranges
       let apiFilters = {};
-      
+
       // If weeks are selected, convert to date range
       if (selectedWeeks.length > 0) {
         const startWeek = Math.min(...selectedWeeks);
         const endWeek = Math.max(...selectedWeeks);
-        
+
         const startDate = seasonWeeks[startWeek - 1]?.start;
         const endDate = seasonWeeks[endWeek - 1]?.end;
-        
+
         if (startDate && endDate) {
           // Set end date to end of the last day (23:59:59)
           const endDateInclusive = new Date(endDate);
           endDateInclusive.setHours(23, 59, 59, 999);
-          
+
           apiFilters = {
             dateRange: {
               start: startDate.toISOString(),
@@ -413,7 +420,7 @@ export default function Home() {
           };
         }
       }
-      
+
       const response = await fetch(`${apiUrl}/calendar`, {
         method: 'POST',
         headers: {
@@ -513,7 +520,7 @@ export default function Home() {
               <input
                 type="text"
                 placeholder="Search titles, descriptions, presenters, locations, categories... (try 'amp' or 'cso')"
-                className="w-full border border-gray-300 rounded-md px-4 py-2"
+                className="w-full border border-gray-300 rounded-md px-4 py-2 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -597,7 +604,7 @@ export default function Home() {
                   }
                 </div>
               )}
-              
+
               {/* Usage instructions */}
               <div className="mt-2 text-xs text-gray-500">
                 <span className="hidden sm:inline">Click and drag to select multiple weeks, or </span>
@@ -716,13 +723,13 @@ export default function Home() {
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-800 hover:underline"
                             >
-                              {event.title} 🔗
+                              {decodeHtmlEntities(event.title)} 🔗
                             </a>
                           ) : (
-                            event.title
+                            decodeHtmlEntities(event.title)
                           )}
                         </h4>
-                        {truncateDescription(event.description || '', event.id)}
+                        {truncateDescription(decodeHtmlEntities(event.description) || '', event.id)}
                         <div className="flex flex-wrap gap-4 text-sm text-gray-500">
                           <span>🕐 {new Date(event.startDate).toLocaleTimeString()}</span>
                           {event.location && <span>📍 {event.location}</span>}
@@ -735,16 +742,18 @@ export default function Home() {
                               {event.category}
                             </span>
                           )}
-                          {event.originalCategories?.map(cat => (
+                          {event.originalCategories
+                            ?.filter(cat => !cat.startsWith('Week '))
+                            ?.map(cat => (
                             <span key={cat} className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
                               {cat}
                             </span>
                           ))}
-                          {event.tags?.filter(tag => !event.originalCategories?.includes(tag)).map(tag => (
+                          {/* {event.tags?.filter(tag => !event.originalCategories?.includes(tag)).map(tag => (
                             <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
                               {tag}
                             </span>
-                          ))}
+                          ))} */}
                         </div>
                       </div>
 
