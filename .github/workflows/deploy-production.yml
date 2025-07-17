@@ -62,9 +62,10 @@ jobs:
           --zip-file fileb://lambda-function.zip
         
         # Update environment variables
+        echo '{"Variables":{"NODE_ENV":"production","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","USE_NEW_API":"true"}}' > env.json
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-          --environment Variables='{"NODE_ENV":"production","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","USE_NEW_API":"true"}'
+          --environment file://env.json
     
     - name: Deploy frontend to S3 and CloudFront
       working-directory: ./frontend
