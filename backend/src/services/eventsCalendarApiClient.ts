@@ -102,7 +102,7 @@ export class EventsCalendarApiClient {
     const allEvents: ApiEvent[] = [];
     let page = 1;
     let hasMore = true;
-    const perPage = 100; // Maximum allowed by API
+    const perPage = 50; // Use 50 per page to match what API actually returns
 
     console.log(`Fetching all events from ${dateRange.start} to ${dateRange.end}`);
 
@@ -115,9 +115,18 @@ export class EventsCalendarApiClient {
           console.log(`Fetched page ${page}: ${response.events.length} events (total: ${allEvents.length})`);
         }
 
-        // Check if there are more pages
-        console.log(`Page ${page} - Events: ${response.events.length}, Total: ${response.total}, Next URL: ${response.next_rest_url ? 'Yes' : 'No'}`);
-        hasMore = response.next_rest_url !== undefined && response.next_rest_url !== null;
+        // Simple but reliable pagination: if we got a full page, try the next page
+        // This will continue until we get fewer than perPage events or hit our safety limit
+        hasMore = response.events.length === perPage;
+        
+        console.log(`Page ${page} - Events: ${response.events.length}, Total so far: ${allEvents.length}, API Total: ${response.total || 'unknown'}, Has more: ${hasMore}`);
+        
+        // Safety check to prevent infinite loops
+        if (page > 100) {
+          console.warn('Stopping pagination after 100 pages to prevent infinite loop');
+          break;
+        }
+        
         page++;
 
         // Add delay between requests to be respectful

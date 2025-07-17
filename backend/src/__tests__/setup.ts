@@ -9,6 +9,7 @@ jest.mock('@aws-sdk/client-dynamodb');
 jest.mock('@aws-sdk/lib-dynamodb');
 
 // Mock console methods to reduce noise in tests
+const originalConsole = console;
 global.console = {
   ...console,
   log: jest.fn(),
@@ -17,3 +18,6 @@ global.console = {
   warn: jest.fn(),
   error: jest.fn(),
 };
+
+// Restore console for debugging if needed
+global.originalConsole = originalConsole;
