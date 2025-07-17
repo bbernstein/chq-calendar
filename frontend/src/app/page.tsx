@@ -96,7 +96,7 @@ export default function Home() {
 
   const  decodeHtmlEntities = (encodedString: string | undefined) => {
       const parser = new DOMParser();
-      if (!encodedString) return null;
+      if (encodedString === undefined) return null;
       const doc = parser.parseFromString(encodedString, 'text/html');
       return doc.documentElement.textContent;
   }
