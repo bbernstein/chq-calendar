@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import { DataSyncService } from './services/dataSyncService';
 import { EventsCalendarDataSyncService } from './services/eventsCalendarDataSyncService';
 import { SyncScheduler } from './services/syncScheduler';
 import ical from 'ical-generator';
@@ -32,16 +31,11 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient, {
   },
 });
 
-// Initialize sync service based on feature flag
-const USE_NEW_API = process.env.USE_NEW_API === 'true';
-console.log(`🔧 USE_NEW_API flag: ${USE_NEW_API} (env: ${process.env.USE_NEW_API})`);
-const syncService = USE_NEW_API ? new EventsCalendarDataSyncService(undefined, docClient) : new DataSyncService(docClient);
+// Initialize sync service (using new JSON API)
+const syncService = new EventsCalendarDataSyncService(undefined, docClient);
 
 // Initialize sync scheduler for periodic syncs
-let syncScheduler: SyncScheduler | null = null;
-if (USE_NEW_API) {
-  syncScheduler = new SyncScheduler(docClient);
-}
+const syncScheduler = new SyncScheduler(docClient);
 
 // Environment variables
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
@@ -163,11 +157,20 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
       console.log(`Scan found ${events.length} events total`);
     } else {
       // Fall back to scan if no efficient query is possible
-      const command = new ScanCommand({
-        TableName: EVENTS_TABLE_NAME
-      });
-      const result = await docClient.send(command);
-      events = (result.Items || []) as any[];
+      // Handle DynamoDB scan pagination for full table scan
+      let lastEvaluatedKey = undefined;
+      do {
+        const command = new ScanCommand({
+          TableName: EVENTS_TABLE_NAME,
+          ExclusiveStartKey: lastEvaluatedKey
+        });
+        const result = await docClient.send(command);
+        events.push(...(result.Items || []) as any[]);
+        lastEvaluatedKey = result.LastEvaluatedKey;
+        console.log(`Scan batch found ${result.Items?.length || 0} events, total so far: ${events.length}`);
+      } while (lastEvaluatedKey);
+      
+      console.log(`Scan found ${events.length} events total`);
     }
 
     // Transform events to match frontend expectations
@@ -258,7 +261,7 @@ const generateICalendar = (events: Event[]): string => {
       location: event.location || '',
       url: event.url || '',
       organizer: event.presenter ? { name: event.presenter } : undefined,
-      categories: event.category ? [event.category] : [],
+      categories: event.category ? [{ name: event.category }] : [],
       created: parseISO(event.createdAt),
       lastModified: parseISO(event.updatedAt)
     });
@@ -447,44 +450,32 @@ app.get('/data-sources', async (req, res) => {
 // Data sync endpoints
 app.post('/sync', async (req, res) => {
   try {
+    const { syncType = 'incremental', year = 2025, startDate, endDate } = req.body;
+    console.log(`Starting sync (${syncType}) for year ${year}`);
+    
     let result;
     
-    if (USE_NEW_API) {
-      const { syncType = 'incremental', year = 2025, startDate, endDate } = req.body;
-      console.log(`Starting new API sync (${syncType}) for year ${year}`);
-      
-      const newSyncService = syncService as EventsCalendarDataSyncService;
-      
-      switch (syncType) {
-        case 'full':
-          result = await newSyncService.syncAllSeasonEvents(year);
-          break;
-        case 'daily':
-          result = await newSyncService.performDailySync(year);
-          break;
-        case 'hourly':
-          result = await newSyncService.performHourlySync();
-          break;
-        case 'dateRange':
-          if (!startDate || !endDate) {
-            return res.status(400).json({
-              success: false,
-              error: 'Date range sync requires startDate and endDate'
-            });
-          }
-          result = await newSyncService.syncDateRange(startDate, endDate);
-          break;
-        default:
-          result = await newSyncService.performIncrementalSync();
-      }
-    } else {
-      const { monthsToSync = 3, forceUpdate = false } = req.body;
-      console.log(`Starting legacy sync for ${monthsToSync} months (forceUpdate: ${forceUpdate})`);
-      
-      result = await (syncService as DataSyncService).syncEventData({
-        monthsToSync,
-        forceUpdate,
-      });
+    switch (syncType) {
+      case 'full':
+        result = await syncService.syncAllSeasonEvents(year);
+        break;
+      case 'daily':
+        result = await syncService.performDailySync(year);
+        break;
+      case 'hourly':
+        result = await syncService.performHourlySync();
+        break;
+      case 'dateRange':
+        if (!startDate || !endDate) {
+          return res.status(400).json({
+            success: false,
+            error: 'Date range sync requires startDate and endDate'
+          });
+        }
+        result = await syncService.syncDateRange(startDate, endDate);
+        break;
+      default:
+        result = await syncService.performIncrementalSync();
     }
     
     res.json(result);
@@ -501,12 +492,8 @@ app.post('/sync', async (req, res) => {
 // Specific sync endpoints for different strategies
 app.post('/sync/full', async (req, res) => {
   try {
-    if (!USE_NEW_API) {
-      return res.status(400).json({ error: 'Full sync only available with new API' });
-    }
-    
     const { year = 2025 } = req.body;
-    const result = await (syncService as EventsCalendarDataSyncService).syncAllSeasonEvents(year);
+    const result = await syncService.syncAllSeasonEvents(year);
     res.json(result);
   } catch (error) {
     console.error('Error during full sync:', error);
@@ -520,12 +507,8 @@ app.post('/sync/full', async (req, res) => {
 
 app.post('/sync/daily', async (req, res) => {
   try {
-    if (!USE_NEW_API) {
-      return res.status(400).json({ error: 'Daily sync only available with new API' });
-    }
-    
     const { year = 2025 } = req.body;
-    const result = await (syncService as EventsCalendarDataSyncService).performDailySync(year);
+    const result = await syncService.performDailySync(year);
     res.json(result);
   } catch (error) {
     console.error('Error during daily sync:', error);
@@ -539,11 +522,7 @@ app.post('/sync/daily', async (req, res) => {
 
 app.post('/sync/hourly', async (req, res) => {
   try {
-    if (!USE_NEW_API) {
-      return res.status(400).json({ error: 'Hourly sync only available with new API' });
-    }
-    
-    const result = await (syncService as EventsCalendarDataSyncService).performHourlySync();
+    const result = await syncService.performHourlySync();
     res.json(result);
   } catch (error) {
     console.error('Error during hourly sync:', error);
@@ -557,10 +536,6 @@ app.post('/sync/hourly', async (req, res) => {
 
 app.post('/sync/range', async (req, res) => {
   try {
-    if (!USE_NEW_API) {
-      return res.status(400).json({ error: 'Range sync only available with new API' });
-    }
-    
     const { startDate, endDate } = req.body;
     if (!startDate || !endDate) {
       return res.status(400).json({
@@ -569,7 +544,7 @@ app.post('/sync/range', async (req, res) => {
       });
     }
     
-    const result = await (syncService as EventsCalendarDataSyncService).syncDateRange(startDate, endDate);
+    const result = await syncService.syncDateRange(startDate, endDate);
     res.json(result);
   } catch (error) {
     console.error('Error during range sync:', error);
@@ -584,10 +559,6 @@ app.post('/sync/range', async (req, res) => {
 // Sync scheduler management endpoints
 app.post('/sync/scheduler/start', async (req, res) => {
   try {
-    if (!USE_NEW_API || !syncScheduler) {
-      return res.status(400).json({ error: 'Sync scheduler only available with new API' });
-    }
-    
     syncScheduler.start();
     res.json({ success: true, message: 'Sync scheduler started' });
   } catch (error) {
@@ -602,10 +573,6 @@ app.post('/sync/scheduler/start', async (req, res) => {
 
 app.post('/sync/scheduler/stop', async (req, res) => {
   try {
-    if (!USE_NEW_API || !syncScheduler) {
-      return res.status(400).json({ error: 'Sync scheduler only available with new API' });
-    }
-    
     syncScheduler.stop();
     res.json({ success: true, message: 'Sync scheduler stopped' });
   } catch (error) {
@@ -620,10 +587,6 @@ app.post('/sync/scheduler/stop', async (req, res) => {
 
 app.get('/sync/scheduler/status', async (req, res) => {
   try {
-    if (!USE_NEW_API || !syncScheduler) {
-      return res.status(400).json({ error: 'Sync scheduler only available with new API' });
-    }
-    
     const status = syncScheduler.getStatus();
     res.json(status);
   } catch (error) {
@@ -638,35 +601,18 @@ app.get('/sync/scheduler/status', async (req, res) => {
 
 app.get('/sync/status', async (req, res) => {
   try {
-    if (USE_NEW_API) {
-      // For new API, show current event count and sync status
-      const eventsCount = await docClient.send(new ScanCommand({
-        TableName: EVENTS_TABLE_NAME,
-        Select: 'COUNT'
-      }));
-      
-      const schedulerStatus = syncScheduler ? syncScheduler.getStatus() : null;
-      
-      res.json({
-        totalEvents: eventsCount.Count || 0,
-        syncScheduler: schedulerStatus,
-        useNewAPI: true
-      });
-    } else {
-      // Legacy sync status
-      const eventsNeedingSync = await syncService.getEventsNeedingSync();
-      
-      res.json({
-        eventsNeedingSync: eventsNeedingSync.length,
-        events: eventsNeedingSync.map(event => ({
-          id: event.id,
-          title: event.title,
-          startDate: event.startDate,
-          lastUpdated: event.lastUpdated,
-          syncStatus: event.syncStatus,
-        })),
-      });
-    }
+    // Show current event count and sync status
+    const eventsCount = await docClient.send(new ScanCommand({
+      TableName: EVENTS_TABLE_NAME,
+      Select: 'COUNT'
+    }));
+    
+    const schedulerStatus = syncScheduler.getStatus();
+    
+    res.json({
+      totalEvents: eventsCount.Count || 0,
+      syncScheduler: schedulerStatus
+    });
   } catch (error) {
     console.error('Error checking sync status:', error);
     res.status(500).json({
@@ -701,6 +647,9 @@ app.listen(port, async () => {
     syncScheduler.start();
   }
 });
+
+// Environment flag for new API
+const USE_NEW_API = process.env.USE_NEW_API === 'true';
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

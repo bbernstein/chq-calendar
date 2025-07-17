@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import Image from 'next/image';
 
 interface Event {
   id: string;
@@ -31,9 +32,54 @@ interface CalendarFilters {
   };
 }
 
-export default function Home() {
+import { createContext, useContext } from 'react';
+
+interface GlobalEventData {
+  events: Event[] | null;
+  categories: string[];
+  tags: string[];
+  weeks: number[];
+  loadedAt: number | null;
+  setGlobalEventData?: React.Dispatch<React.SetStateAction<GlobalEventData>>;
+}
+
+const GlobalEventDataContext = createContext<GlobalEventData | undefined>(undefined);
+
+export function useGlobalEventData() {
+  const context = useContext(GlobalEventDataContext);
+  if (!context) {
+    throw new Error('useGlobalEventData must be used within a GlobalEventDataProvider');
+  }
+  return context;
+}
+
+export function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
+  const [globalEventData, setGlobalEventData] = useState<GlobalEventData>({
+    events: null,
+    categories: [],
+    tags: [],
+    weeks: [],
+    loadedAt: null,
+  });
+
+  return (
+    <GlobalEventDataContext.Provider value={{ ...globalEventData, setGlobalEventData }}>
+      {children}
+    </GlobalEventDataContext.Provider>
+  );
+}
+function HomeContent() {
+  const globalEventData = useGlobalEventData();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const isLoadingRef = useRef(false);
+  const mountTimeRef = useRef(Date.now());
+
+  // Only log in development to avoid console spam
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Component rendered at', new Date().toISOString(), 'Mount time:', new Date(mountTimeRef.current).toISOString());
+  }
   const filters = useMemo(() => ({}), []);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
@@ -41,19 +87,19 @@ export default function Home() {
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'this-week'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('all');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
 
-  const apiUrl = useMemo(() => 
-    process.env.NODE_ENV === 'development' 
-      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001') 
+  const apiUrl = useMemo(() =>
+    process.env.NODE_ENV === 'development'
+      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
       : '/api'
   , []);
-    
+
   console.log('API URL:', apiUrl, 'NODE_ENV:', process.env.NODE_ENV);
 
   // Description truncation helpers
@@ -70,6 +116,13 @@ export default function Home() {
       return newSet;
     });
   };
+
+  const  decodeHtmlEntities = (encodedString: string | undefined) => {
+      const parser = new DOMParser();
+      if (encodedString === undefined) return null;
+      const doc = parser.parseFromString(encodedString, 'text/html');
+      return doc.documentElement.textContent;
+  }
 
   const truncateDescription = (description: string, eventId: string) => {
     if (!description) return null;
@@ -148,35 +201,49 @@ export default function Home() {
     return eventDate.toDateString() === today.toDateString();
   };
 
+  const isNext = (dateString: string) => {
+    const today = new Date();
+    const eventDate = new Date(dateString);
+    const dayOfWeek = today.getDay();
+    const saturday = new Date(today);
+    saturday.setDate(today.getDate() - dayOfWeek + 6);
+    return eventDate >= today && eventDate <= saturday;
+  };
+
   const isThisWeek = (dateString: string) => {
     const today = new Date();
     const eventDate = new Date(dateString);
     const dayOfWeek = today.getDay();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - dayOfWeek + 1);
     const sunday = new Date(today);
-    sunday.setDate(today.getDate() - dayOfWeek + 7);
-    return eventDate >= monday && eventDate <= sunday;
+    sunday.setDate(today.getDate() - dayOfWeek - 1);
+    const saturday = new Date(today);
+    saturday.setDate(today.getDate() - dayOfWeek + 6);
+    return eventDate >= sunday && eventDate <= saturday;
   };
 
   const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
     const eventDate = new Date(dateString);
     const week = seasonWeeks[weekNumber - 1];
-    
+
     // Create end of day for proper comparison
     const weekEndInclusive = new Date(week.end);
     weekEndInclusive.setHours(23, 59, 59, 999);
-    
+
     return eventDate >= week.start && eventDate <= weekEndInclusive;
   };
 
   // Week selection handlers
   const handleWeekMouseDown = (weekNum: number) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('handleWeekMouseDown called for week', weekNum);
+    }
+
+    // Batch state updates to reduce re-renders
     setIsDragging(true);
     setDragStart(weekNum);
     setHasMouseMoved(false);
-    // Show immediate visual feedback for potential selection
     setSelectedWeeks([weekNum]);
+
     // Prevent text selection during potential drag
     document.body.style.userSelect = 'none';
   };
@@ -222,12 +289,12 @@ export default function Home() {
       const newSelection = prev.includes(weekNum)
         ? prev.filter(w => w !== weekNum) // Remove if already selected
         : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
-      
+
       // Clear date filter when selecting weeks
       if (newSelection.length > 0) {
         setDateFilter('all');
       }
-      
+
       return newSelection;
     });
   };
@@ -236,21 +303,21 @@ export default function Home() {
   const searchEvents = (events: Event[], term: string) => {
     if (!term) return events;
 
-    const searchTerm = term.toLowerCase();
+    // const searchTerm = term.toLowerCase();
 
-    // Smart shortcuts
-    const shortcuts: { [key: string]: string[] } = {
-      'amp': ['amphitheater'],
-      'cso': ['chautauqua symphony orchestra'],
-      'symphony': ['chautauqua symphony orchestra'],
-      'orchestra': ['chautauqua symphony orchestra']
-    };
+    // // Smart shortcuts
+    // const shortcuts: { [key: string]: string[] } = {
+    //   'amp': ['amphitheater'],
+    //   'cso': ['chautauqua symphony orchestra'],
+    //   'symphony': ['chautauqua symphony orchestra'],
+    //   'orchestra': ['chautauqua symphony orchestra']
+    // };
 
-    // Apply shortcuts - expand search term to include alternatives
+    // // Apply shortcuts - expand search term to include alternatives
     const searchTerms = [searchTerm];
-    if (shortcuts[searchTerm]) {
-      searchTerms.push(...shortcuts[searchTerm]);
-    }
+    // if (shortcuts[searchTerm]) {
+    //   searchTerms.push(...shortcuts[searchTerm]);
+    // }
 
     const scored = events.map(event => {
       const title = event.title.toLowerCase();
@@ -269,9 +336,16 @@ export default function Home() {
 
       // Check all search terms (original + shortcuts)
       searchTerms.forEach(currentTerm => {
+
         // Exact phrase matches (highest priority)
         if (title.includes(currentTerm)) score += 100;
-        if (location.includes(currentTerm)) score += 90;
+
+        if (currentTerm === 'amp') {
+          if (location.includes('amphitheater')) score += 100;
+        } else {
+          if (location.includes(currentTerm)) score += 90;
+        }
+
         if (description.includes(currentTerm)) score += 50;
         if (category.includes(currentTerm)) score += 80;
         if (presenter.includes(currentTerm)) score += 25;
@@ -280,8 +354,8 @@ export default function Home() {
         allTags.forEach(tag => {
           if (tag.includes(currentTerm)) score += 85;
           // Special case: "cso" or "symphony" should match "Chautauqua Symphony Orchestra/Classical Concerts"
-          if ((currentTerm === 'cso' || currentTerm === 'chautauqua symphony orchestra') &&
-              tag.includes('chautauqua symphony orchestra')) {
+          if ((currentTerm === 'cso' || currentTerm === 'symphony') &&
+              tag.includes('chautauqua symphony orchestra/classical concerts')) {
             score += 95;
           }
         });
@@ -326,6 +400,8 @@ export default function Home() {
       filtered = filtered.filter(event => isToday(event.startDate));
     } else if (dateFilter === 'this-week') {
       filtered = filtered.filter(event => isThisWeek(event.startDate));
+    } else if (dateFilter === 'next') {
+      filtered = filtered.filter(event => isNext(event.startDate));
     }
 
     // Week filter (independent of date filter)
@@ -386,41 +462,73 @@ export default function Home() {
   };
 
   // Fetch events from API
-  const fetchEvents = async () => {
+  const fetchAllEvents = async (forceRefresh = false) => {
+    console.log('fetchAllEvents called', {
+      dataLoaded,
+      forceRefresh,
+      isLoadingRef: isLoadingRef.current,
+      globalDataLoaded: !!globalEventData.events
+    });
+
+    // Check global store first
+    if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
+      console.log('Loading from global store');
+      setEvents(globalEventData.events);
+      setAvailableCategories(globalEventData.categories);
+      setAvailableTags(globalEventData.tags);
+      setAvailableWeeks(globalEventData.weeks);
+      setDataLoaded(true);
+      return;
+    }
+
+    // Skip if already loading
+    if (isLoadingRef.current && !forceRefresh) {
+      console.log('Already loading, skipping duplicate call');
+      return;
+    }
+
+    // Skip if data already loaded and not forcing refresh
+    if (dataLoaded && !forceRefresh) {
+      console.log('Data already loaded, skipping API call');
+      return;
+    }
+
+    isLoadingRef.current = true;
+
+    // Check sessionStorage first (unless forcing refresh)
+    if (!forceRefresh) {
+      try {
+        const cachedData = sessionStorage.getItem('chq-calendar-events');
+        if (cachedData) {
+          const parsed = JSON.parse(cachedData);
+          // Check if cache is less than 1 hour old
+          if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000) {
+            console.log('Loading events from session cache');
+            setEvents(parsed.events);
+            setAvailableCategories(parsed.categories);
+            setAvailableTags(parsed.tags);
+            setAvailableWeeks(parsed.weeks);
+            setDataLoaded(true);
+            isLoadingRef.current = false;
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load from sessionStorage:', e);
+      }
+    }
+
     setLoading(true);
     try {
-      // Convert week selections to date ranges
-      let apiFilters = {};
-      
-      // If weeks are selected, convert to date range
-      if (selectedWeeks.length > 0) {
-        const startWeek = Math.min(...selectedWeeks);
-        const endWeek = Math.max(...selectedWeeks);
-        
-        const startDate = seasonWeeks[startWeek - 1]?.start;
-        const endDate = seasonWeeks[endWeek - 1]?.end;
-        
-        if (startDate && endDate) {
-          // Set end date to end of the last day (23:59:59)
-          const endDateInclusive = new Date(endDate);
-          endDateInclusive.setHours(23, 59, 59, 999);
-          
-          apiFilters = {
-            dateRange: {
-              start: startDate.toISOString(),
-              end: endDateInclusive.toISOString()
-            }
-          };
-        }
-      }
-      
+      console.log('Loading all events for the season...');
+
       const response = await fetch(`${apiUrl}/calendar`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          filters: apiFilters,
+          filters: {}, // Empty filters to get all events
           format: 'json'
         })
       });
@@ -428,9 +536,10 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         const fetchedEvents = data.events || [];
-        console.log('Fetched events:', fetchedEvents.length, 'events');
+        console.log('Loaded all events:', fetchedEvents.length, 'events');
         console.log('First event:', fetchedEvents[0]);
         setEvents(fetchedEvents);
+        setDataLoaded(true);
 
         // Extract unique categories for filter options
         const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
@@ -442,8 +551,37 @@ export default function Home() {
           event.originalCategories?.forEach(cat => allTags.add(cat));
         });
 
-        setAvailableCategories(categories.sort());
-        setAvailableTags(Array.from(allTags).sort());
+        const sortedCategories = categories.sort();
+        const sortedTags = Array.from(allTags).sort();
+        const weeks = seasonWeeks.map(w => w.number);
+
+        setAvailableCategories(sortedCategories);
+        setAvailableTags(sortedTags);
+        setAvailableWeeks(weeks);
+
+        // Update global store
+        if (globalEventData.setGlobalEventData) {
+          globalEventData.setGlobalEventData({
+            events: fetchedEvents,
+            categories: sortedCategories,
+            tags: sortedTags,
+            weeks: weeks,
+            loadedAt: Date.now()
+          });
+        }
+
+        // Cache in sessionStorage
+        try {
+          sessionStorage.setItem('chq-calendar-events', JSON.stringify({
+            events: fetchedEvents,
+            categories: categories.sort(),
+            tags: Array.from(allTags).sort(),
+            weeks: weeks,
+            timestamp: Date.now()
+          }));
+        } catch (e) {
+          console.warn('Failed to save to sessionStorage:', e);
+        }
       } else {
         console.error('Failed to fetch events');
       }
@@ -451,6 +589,7 @@ export default function Home() {
       console.error('Error fetching events:', error);
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
   };
 
@@ -459,15 +598,14 @@ export default function Home() {
   // Generate calendar download
 
   useEffect(() => {
-    fetchEvents();
+    console.log('Component mounted - Initial useEffect triggered');
+    fetchAllEvents();
+
+    return () => {
+      console.log('Component unmounting!');
+    };
   }, []);
 
-  // Refetch when week selection changes
-  useEffect(() => {
-    if (selectedWeeks.length > 0) {
-      fetchEvents();
-    }
-  }, [selectedWeeks]);
 
   // Handle global mouse events for week dragging
   useEffect(() => {
@@ -513,7 +651,7 @@ export default function Home() {
               <input
                 type="text"
                 placeholder="Search titles, descriptions, presenters, locations, categories... (try 'amp' or 'cso')"
-                className="w-full border border-gray-300 rounded-md px-4 py-2"
+                className="w-full border border-gray-300 rounded-md px-4 py-2 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -538,6 +676,22 @@ export default function Home() {
                   }`}
                 >
                   Today
+                </button>
+                <button
+                  onClick={() => {
+                    setDateFilter(dateFilter === 'next' ? 'all' : 'next');
+                    if (dateFilter !== 'next') {
+                      setSelectedWeeks([]); // Clear week selection when selecting "This Week"
+                    }
+                  }}
+                  title="Show events starting after the current time through the end of this week"
+                  className={`px-4 py-2 rounded-md border transition-all ${
+                    dateFilter === 'next'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  Next
                 </button>
                 <button
                   onClick={() => {
@@ -597,7 +751,7 @@ export default function Home() {
                   }
                 </div>
               )}
-              
+
               {/* Usage instructions */}
               <div className="mt-2 text-xs text-gray-500">
                 <span className="hidden sm:inline">Click and drag to select multiple weeks, or </span>
@@ -613,7 +767,9 @@ export default function Home() {
               </label>
               <div className="max-h-32 overflow-y-auto">
                 <div className="flex flex-wrap gap-2">
-                  {availableTags.map(tag => (
+                  {availableTags
+                    .filter(tag => !tag.startsWith('Week '))
+                    .map(tag => (
                     <button
                       key={tag}
                       onClick={() => {
@@ -629,7 +785,7 @@ export default function Home() {
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
                     >
-                      {tag}
+                      {decodeHtmlEntities(tag)}
                     </button>
                   ))}
                 </div>
@@ -645,7 +801,6 @@ export default function Home() {
                     setSelectedTags([]);
                     setDateFilter('all');
                     setSelectedWeeks([]);
-                    fetchEvents();
                   }}
                   className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
                 >
@@ -665,7 +820,7 @@ export default function Home() {
             </h3>
             <div className="flex space-x-2">
               <button
-                onClick={fetchEvents}
+                onClick={() => fetchAllEvents(true)}
                 disabled={loading}
                 className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 disabled:opacity-50"
               >
@@ -680,12 +835,7 @@ export default function Home() {
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="mt-2 text-gray-600">Loading events...</p>
               </div>
-            ) : (() => {
-              const filteredEvents = filterEvents(events);
-              console.log('Filtered events:', filteredEvents.length, 'events');
-              console.log('Total events:', events.length);
-              return filteredEvents.length === 0;
-            })() ? (
+            ) : filterEvents(events).length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🎭</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
@@ -716,18 +866,17 @@ export default function Home() {
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-800 hover:underline"
                             >
-                              {event.title} 🔗
+                              {decodeHtmlEntities(event.title)} 🔗
                             </a>
                           ) : (
-                            event.title
+                            decodeHtmlEntities(event.title)
                           )}
                         </h4>
-                        {truncateDescription(event.description || '', event.id)}
+                        {truncateDescription(decodeHtmlEntities(event.description) || '', event.id)}
                         <div className="flex flex-wrap gap-4 text-sm text-gray-500">
                           <span>🕐 {new Date(event.startDate).toLocaleTimeString()}</span>
                           {event.location && <span>📍 {event.location}</span>}
                           {event.presenter && <span>👤 {event.presenter}</span>}
-                          {event.week && <span>📆 Week {event.week}</span>}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {event.category && (
@@ -735,16 +884,18 @@ export default function Home() {
                               {event.category}
                             </span>
                           )}
-                          {event.originalCategories?.map(cat => (
+                          {event.originalCategories
+                            ?.filter(cat => !cat.startsWith('Week '))
+                            ?.map(cat => (
                             <span key={cat} className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
-                              {cat}
+                              {decodeHtmlEntities(cat)}
                             </span>
                           ))}
-                          {event.tags?.filter(tag => !event.originalCategories?.includes(tag)).map(tag => (
+                          {/* {event.tags?.filter(tag => !event.originalCategories?.includes(tag)).map(tag => (
                             <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
-                              {tag}
+                              {decodeHtmlEntities(tag)}
                             </span>
-                          ))}
+                          ))} */}
                         </div>
                       </div>
 
@@ -755,10 +906,12 @@ export default function Home() {
                             .filter(attachment => attachment.isImage)
                             .slice(0, 1)
                             .map((attachment, _index) => (
-                              <img alt="Event attachment"
-                                key={index}
+                              <Image
+                                key={_index}
                                 src={attachment.url}
                                 alt={`${event.title} image`}
+                                width={96}
+                                height={96}
                                 className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-lg border border-gray-200"
                                 onError={(e) => {
                                   e.currentTarget.style.display = 'none';
@@ -790,5 +943,13 @@ export default function Home() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <GlobalEventDataProvider>
+      <HomeContent />
+    </GlobalEventDataProvider>
   );
 }

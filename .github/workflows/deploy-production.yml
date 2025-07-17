@@ -1,0 +1,140 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even if tests fail'
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Install dependencies
+      run: |
+        cd backend && npm ci
+        cd ../frontend && npm ci
+    
+    - name: Run backend tests
+      working-directory: ./backend
+      run: npm run test:ci
+      if: ${{ !inputs.force_deploy }}
+    
+    - name: Build backend
+      working-directory: ./backend
+      run: npm run build
+    
+    - name: Build frontend
+      working-directory: ./frontend
+      run: npm run build
+      env:
+        NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
+    
+    - name: Deploy backend to Lambda
+      working-directory: ./backend
+      run: |
+        # Package Lambda function
+        npm run package
+        
+        # Deploy to AWS Lambda
+        aws lambda update-function-code \
+          --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+          --zip-file fileb://lambda-function.zip
+        
+        # Update environment variables
+        aws lambda update-function-configuration \
+          --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+          --environment Variables='{
+            "NODE_ENV":"production",
+            "DYNAMODB_REGION":"${{ secrets.AWS_REGION }}",
+            "EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}",
+            "DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}",
+            "USE_NEW_API":"true"
+          }'
+    
+    - name: Deploy frontend to S3 and CloudFront
+      working-directory: ./frontend
+      run: |
+        # Sync to S3 bucket
+        aws s3 sync .next/out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+          --delete \
+          --exclude "*.map" \
+          --cache-control "public, max-age=31536000, immutable" \
+          --metadata-directive REPLACE
+        
+        # Update HTML files with shorter cache
+        aws s3 sync .next/out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+          --exclude "*" \
+          --include "*.html" \
+          --cache-control "public, max-age=3600" \
+          --metadata-directive REPLACE
+        
+        # Invalidate CloudFront cache
+        aws cloudfront create-invalidation \
+          --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+          --paths "/*"
+    
+    - name: Update Lambda function URL (if using Function URL)
+      run: |
+        # Update API Gateway or Lambda Function URL if needed
+        echo "Backend deployed to Lambda function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
+        echo "Frontend deployed to: https://www.chqcal.org"
+    
+    - name: Run post-deployment tests
+      run: |
+        # Wait for deployment to propagate
+        sleep 30
+        
+        # Test production API
+        echo "Testing production API..."
+        curl -f "https://www.chqcal.org/api/health" || exit 1
+        
+        # Test calendar endpoint
+        EVENTS_COUNT=$(curl -s -X POST "https://www.chqcal.org/api/calendar" \
+          -H "Content-Type: application/json" \
+          -d '{"filters": {}}' | jq '.events | length' || echo "0")
+        
+        if [ "$EVENTS_COUNT" -gt "0" ]; then
+          echo "✅ Production API returning $EVENTS_COUNT events"
+        else
+          echo "❌ Production API not returning events"
+          exit 1
+        fi
+        
+        # Test frontend
+        echo "Testing production frontend..."
+        curl -f "https://www.chqcal.org" || exit 1
+        
+        echo "🎉 Production deployment successful!"
+    
+    - name: Notify deployment success
+      if: success()
+      run: |
+        echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
+    
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        echo "::error title=Deployment Failed::Production deployment failed. Check logs for details."
