@@ -53,8 +53,18 @@ jobs:
         # Install production dependencies for Lambda package
         npm ci --only=production
         
+        # Debug: Check what's in node_modules
+        echo "Checking node_modules contents:"
+        ls -la node_modules/ | head -20
+        echo "Looking for ical-generator:"
+        ls -la node_modules/ | grep ical || echo "ical-generator not found"
+        
         # Package Lambda function
         npm run package
+        
+        # Debug: Check zip contents
+        echo "Checking zip contents:"
+        unzip -l lambda-function.zip | head -20
         
         # Deploy to AWS Lambda
         aws lambda update-function-code \
