@@ -61,6 +61,11 @@ jobs:
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
           --zip-file fileb://lambda-function.zip
         
+        # Wait for the code update to complete
+        echo "Waiting for Lambda function to finish updating..."
+        aws lambda wait function-updated \
+          --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        
         # Update environment variables
         echo '{"Variables":{"NODE_ENV":"production","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","USE_NEW_API":"true"}}' > env.json
         aws lambda update-function-configuration \
