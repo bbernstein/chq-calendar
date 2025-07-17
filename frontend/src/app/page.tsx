@@ -31,21 +31,41 @@ interface CalendarFilters {
   };
 }
 
-// Global data store to persist across re-renders
-let globalEventData: {
+import { createContext, useContext } from 'react';
+
+interface GlobalEventData {
   events: Event[] | null;
   categories: string[];
   tags: string[];
   weeks: number[];
   loadedAt: number | null;
-} = {
-  events: null,
-  categories: [],
-  tags: [],
-  weeks: [],
-  loadedAt: null
-};
+}
 
+const GlobalEventDataContext = createContext<GlobalEventData | undefined>(undefined);
+
+export function useGlobalEventData() {
+  const context = useContext(GlobalEventDataContext);
+  if (!context) {
+    throw new Error('useGlobalEventData must be used within a GlobalEventDataProvider');
+  }
+  return context;
+}
+
+export function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
+  const [globalEventData, setGlobalEventData] = useState<GlobalEventData>({
+    events: null,
+    categories: [],
+    tags: [],
+    weeks: [],
+    loadedAt: null,
+  });
+
+  return (
+    <GlobalEventDataContext.Provider value={globalEventData}>
+      {children}
+    </GlobalEventDataContext.Provider>
+  );
+}
 export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
