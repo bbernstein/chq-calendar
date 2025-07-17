@@ -3,18 +3,6 @@
 # Data sources to get existing resource ARNs
 data "aws_caller_identity" "current" {}
 
-data "aws_lambda_function" "calendar_generator" {
-  function_name = aws_lambda_function.calendar_generator.function_name
-}
-
-data "aws_s3_bucket" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-}
-
-data "aws_cloudfront_distribution" "main" {
-  id = aws_cloudfront_distribution.main.id
-}
-
 # IAM User for GitHub Actions
 resource "aws_iam_user" "github_actions" {
   name = "${var.app_name}-github-actions"
@@ -45,7 +33,7 @@ resource "aws_iam_policy" "github_actions" {
           "lambda:GetFunction",
           "lambda:GetFunctionConfiguration"
         ]
-        Resource = data.aws_lambda_function.calendar_generator.arn
+        Resource = aws_lambda_function.calendar_generator.arn
       },
       {
         Sid    = "S3FrontendDeployment"
@@ -60,8 +48,8 @@ resource "aws_iam_policy" "github_actions" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          data.aws_s3_bucket.frontend.arn,
-          "${data.aws_s3_bucket.frontend.arn}/*"
+          aws_s3_bucket.frontend_bucket.arn,
+          "${aws_s3_bucket.frontend_bucket.arn}/*"
         ]
       },
       {
@@ -72,7 +60,7 @@ resource "aws_iam_policy" "github_actions" {
           "cloudfront:GetInvalidation",
           "cloudfront:ListInvalidations"
         ]
-        Resource = data.aws_cloudfront_distribution.main.arn
+        Resource = aws_cloudfront_distribution.frontend_distribution.arn
       },
       {
         Sid    = "DynamoDBAccess"
@@ -146,8 +134,8 @@ output "github_secrets" {
     AWS_SECRET_ACCESS_KEY     = aws_iam_access_key.github_actions.secret
     AWS_REGION                = var.aws_region
     LAMBDA_FUNCTION_NAME      = aws_lambda_function.calendar_generator.function_name
-    S3_BUCKET_NAME            = aws_s3_bucket.frontend.id
-    CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.main.id
+    S3_BUCKET_NAME            = aws_s3_bucket.frontend_bucket.id
+    CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.frontend_distribution.id
     EVENTS_TABLE_NAME         = aws_dynamodb_table.events.name
     DATA_SOURCES_TABLE_NAME   = aws_dynamodb_table.data_sources.name
   }
@@ -165,8 +153,8 @@ output "github_secrets_setup_commands" {
     gh secret set AWS_SECRET_ACCESS_KEY --body "${aws_iam_access_key.github_actions.secret}"
     gh secret set AWS_REGION --body "${var.aws_region}"
     gh secret set LAMBDA_FUNCTION_NAME --body "${aws_lambda_function.calendar_generator.function_name}"
-    gh secret set S3_BUCKET_NAME --body "${aws_s3_bucket.frontend.id}"
-    gh secret set CLOUDFRONT_DISTRIBUTION_ID --body "${aws_cloudfront_distribution.main.id}"
+    gh secret set S3_BUCKET_NAME --body "${aws_s3_bucket.frontend_bucket.id}"
+    gh secret set CLOUDFRONT_DISTRIBUTION_ID --body "${aws_cloudfront_distribution.frontend_distribution.id}"
     gh secret set EVENTS_TABLE_NAME --body "${aws_dynamodb_table.events.name}"
     gh secret set DATA_SOURCES_TABLE_NAME --body "${aws_dynamodb_table.data_sources.name}"
   EOT
@@ -180,8 +168,8 @@ resource "local_file" "github_secrets_json" {
     AWS_SECRET_ACCESS_KEY     = aws_iam_access_key.github_actions.secret
     AWS_REGION                = var.aws_region
     LAMBDA_FUNCTION_NAME      = aws_lambda_function.calendar_generator.function_name
-    S3_BUCKET_NAME            = aws_s3_bucket.frontend.id
-    CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.main.id
+    S3_BUCKET_NAME            = aws_s3_bucket.frontend_bucket.id
+    CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.frontend_distribution.id
     EVENTS_TABLE_NAME         = aws_dynamodb_table.events.name
     DATA_SOURCES_TABLE_NAME   = aws_dynamodb_table.data_sources.name
   })
