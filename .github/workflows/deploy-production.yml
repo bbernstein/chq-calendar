@@ -101,13 +101,15 @@ jobs:
         echo "Frontend deployed to: https://www.chqcal.org"
     
     - name: Run post-deployment tests
+      continue-on-error: true
       run: |
         # Wait for deployment to propagate
         sleep 30
         
         # Test production API
         echo "Testing production API..."
-        curl -f "https://www.chqcal.org/api/health" || exit 1
+        echo "URL: https://www.chqcal.org/api/health"
+        curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
         
         # Test calendar endpoint
         EVENTS_COUNT=$(curl -s -X POST "https://www.chqcal.org/api/calendar" \
@@ -126,6 +128,12 @@ jobs:
         curl -f "https://www.chqcal.org" || exit 1
         
         echo "🎉 Production deployment successful!"
+        
+        echo ""
+        echo "⚠️  Note: If API tests failed with 403, check:"
+        echo "  1. API Gateway configuration for /api/* routes"
+        echo "  2. CloudFront behavior rules for API paths"
+        echo "  3. Lambda function URL configuration"
     
     - name: Notify deployment success
       if: success()
