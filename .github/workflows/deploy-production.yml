@@ -64,13 +64,7 @@ jobs:
         # Update environment variables
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-          --environment Variables='{
-            "NODE_ENV":"production",
-            "DYNAMODB_REGION":"${{ secrets.AWS_REGION }}",
-            "EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}",
-            "DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}",
-            "USE_NEW_API":"true"
-          }'
+          --environment Variables='{"NODE_ENV":"production","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","USE_NEW_API":"true"}'
     
     - name: Deploy frontend to S3 and CloudFront
       working-directory: ./frontend
