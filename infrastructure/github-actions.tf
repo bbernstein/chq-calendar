@@ -145,6 +145,7 @@ output "github_secrets" {
 # Output for easy copy-paste setup
 output "github_secrets_setup_commands" {
   description = "Commands to set up GitHub secrets (use with GitHub CLI)"
+  sensitive   = true
   value = <<-EOT
     # Set up GitHub secrets for repository
     # First install GitHub CLI: https://cli.github.com/
