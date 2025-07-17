@@ -1,4 +1,5 @@
 import { ApiEvent, ChautauquaEvent, EventVenue, EventCategory, EventImage } from '../types';
+import * as cheerio from 'cheerio';
 
 export class EventTransformationService {
   /**
@@ -14,8 +15,8 @@ export class EventTransformationService {
       uid: this.generateBackwardCompatibleUid(apiEvent),
       
       // Event details
-      title: apiEvent.title,
-      description: apiEvent.description ? this.stripHtml(apiEvent.description) : undefined,
+      title: this.decodeHtmlEntities(apiEvent.title),
+      description: apiEvent.description ? this.stripHtml(this.decodeHtmlEntities(apiEvent.description)) : undefined,
       startDate: apiEvent.start_date,
       endDate: apiEvent.end_date,
       timezone: apiEvent.timezone,
@@ -403,6 +404,18 @@ export class EventTransformationService {
     }
     
     return 'confirmed';
+  }
+
+  /**
+   * Decode HTML entities in text
+   */
+  private static decodeHtmlEntities(text: string): string {
+    if (!text) return text;
+    
+    // Use cheerio to decode HTML entities
+    // This handles entities like &#8220; &#8221; &#8211; &amp; etc.
+    const $ = cheerio.load(`<div>${text}</div>`, null, false);
+    return $('div').text();
   }
 
   /**

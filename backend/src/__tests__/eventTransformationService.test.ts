@@ -117,6 +117,36 @@ describe('EventTransformationService', () => {
       expect(result.description).toBeUndefined();
     });
 
+    it('should decode HTML entities in title and description', () => {
+      const apiEvent: ApiEvent = {
+        id: 789,
+        title: '&#8220;Sculpture Garden&#8221; Exhibition &#8211; June 22–August 21',
+        description: 'Join us for this amazing &amp; wonderful &#8220;special&#8221; exhibition.',
+        start_date: '2025-06-22T10:00:00',
+        end_date: '2025-08-21T17:00:00',
+        timezone: 'America/New_York',
+        categories: [],
+        status: 'publish',
+        featured: false,
+      };
+
+      const result = EventTransformationService.transformApiEvent(apiEvent);
+
+      // Check that HTML entities are properly decoded
+      expect(result.title).toContain('Sculpture Garden');
+      expect(result.title).toContain('Exhibition');
+      expect(result.title).toContain('June 22–August 21');
+      expect(result.title).not.toContain('&#8220;');
+      expect(result.title).not.toContain('&#8221;');
+      expect(result.title).not.toContain('&#8211;');
+      
+      expect(result.description).toContain('amazing & wonderful');
+      expect(result.description).toContain('special');
+      expect(result.description).not.toContain('&amp;');
+      expect(result.description).not.toContain('&#8220;');
+      expect(result.description).not.toContain('&#8221;');
+    });
+
     it('should extract week number from date', () => {
       const testCases = [
         { date: '2025-06-28T10:00:00', expectedWeek: 1 },
