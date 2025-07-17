@@ -2,9 +2,48 @@
 
 This document outlines the GitHub secrets required for automated deployment to AWS.
 
-## Required GitHub Secrets
+## 🚀 **Recommended: Terraform Setup (Automated)**
 
-### AWS Configuration
+The easiest way to set up GitHub Actions deployment is using our Terraform infrastructure:
+
+### Step 1: Deploy Infrastructure with GitHub Actions IAM
+```bash
+cd infrastructure
+terraform apply
+```
+
+### Step 2: Get GitHub Secrets from Terraform Output
+```bash
+# View all secrets that need to be set
+terraform output github_secrets
+
+# Get commands to set secrets with GitHub CLI
+terraform output github_secrets_setup_commands
+```
+
+### Step 3: Set GitHub Secrets Automatically
+```bash
+# Install GitHub CLI if not already installed
+# https://cli.github.com/
+
+# Authenticate with GitHub
+gh auth login
+
+# Run the output commands to set all secrets
+terraform output -raw github_secrets_setup_commands | bash
+```
+
+That's it! The Terraform setup automatically:
+- ✅ Creates IAM user with least-privilege permissions
+- ✅ Generates access keys securely
+- ✅ Outputs all values needed for GitHub secrets
+- ✅ Provides ready-to-run commands for setup
+
+## 📋 **Manual Setup (Alternative)**
+
+If you prefer to set up manually, you'll need these GitHub secrets:
+
+### Required GitHub Secrets
 Set these secrets in your GitHub repository: **Settings → Secrets and variables → Actions → Repository secrets**
 
 | Secret Name | Description | Example Value |
@@ -12,123 +51,14 @@ Set these secrets in your GitHub repository: **Settings → Secrets and variable
 | `AWS_ACCESS_KEY_ID` | AWS Access Key ID for deployment user | `AKIA...` |
 | `AWS_SECRET_ACCESS_KEY` | AWS Secret Access Key for deployment user | `abc123...` |
 | `AWS_REGION` | AWS region where resources are deployed | `us-east-1` |
-
-### Application Configuration
-| Secret Name | Description | Example Value |
-|-------------|-------------|---------------|
 | `LAMBDA_FUNCTION_NAME` | Name of the Lambda function for the backend | `chautauqua-calendar-generator` |
 | `S3_BUCKET_NAME` | S3 bucket name for frontend hosting | `chqcal.org` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront distribution ID | `E1234567890ABC` |
 | `EVENTS_TABLE_NAME` | DynamoDB table name for events | `chq-calendar-events` |
 | `DATA_SOURCES_TABLE_NAME` | DynamoDB table name for data sources | `chq-calendar-data-sources` |
 
-## AWS IAM Policy Setup
-
-### 1. Create IAM User for GitHub Actions
-
-```bash
-aws iam create-user --user-name github-actions-chq-calendar
-```
-
-### 2. Create IAM Policy
-
-Create a policy named `GitHubActionsChqCalendarPolicy` with the following permissions:
-
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "lambda:UpdateFunctionCode",
-                "lambda:UpdateFunctionConfiguration",
-                "lambda:GetFunction"
-            ],
-            "Resource": "arn:aws:lambda:*:*:function:chautauqua-calendar-generator"
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:PutObject",
-                "s3:PutObjectAcl",
-                "s3:GetObject",
-                "s3:DeleteObject",
-                "s3:ListBucket"
-            ],
-            "Resource": [
-                "arn:aws:s3:::chqcal.org",
-                "arn:aws:s3:::chqcal.org/*"
-            ]
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "cloudfront:CreateInvalidation",
-                "cloudfront:GetInvalidation"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:DescribeTable"
-            ],
-            "Resource": [
-                "arn:aws:dynamodb:*:*:table/chq-calendar-events",
-                "arn:aws:dynamodb:*:*:table/chq-calendar-data-sources"
-            ]
-        }
-    ]
-}
-```
-
-### 3. Attach Policy to User
-
-```bash
-aws iam attach-user-policy \
-  --user-name github-actions-chq-calendar \
-  --policy-arn arn:aws:iam::YOUR_ACCOUNT_ID:policy/GitHubActionsChqCalendarPolicy
-```
-
-### 4. Create Access Keys
-
-```bash
-aws iam create-access-key --user-name github-actions-chq-calendar
-```
-
-## Setup Instructions
-
-### Step 1: Create AWS IAM User and Policy
-1. Use the AWS CLI commands above or AWS Console
-2. Save the Access Key ID and Secret Access Key
-
-### Step 2: Get AWS Resource Information
-Run these commands to get the required values:
-
-```bash
-# Get your AWS account ID and region
-aws sts get-caller-identity
-aws configure get region
-
-# Get Lambda function name (if already deployed)
-aws lambda list-functions --query 'Functions[?contains(FunctionName, `chautauqua`) || contains(FunctionName, `calendar`)].FunctionName'
-
-# Get S3 bucket name
-aws s3 ls | grep -i chq
-
-# Get CloudFront distribution ID
-aws cloudfront list-distributions --query 'DistributionList.Items[].{Id:Id,DomainName:DomainName}' --output table
-
-# Get DynamoDB table names
-aws dynamodb list-tables --query 'TableNames[?contains(@, `chq`) || contains(@, `calendar`)]'
-```
-
-### Step 3: Add Secrets to GitHub
-1. Go to your repository on GitHub
-2. Navigate to **Settings → Secrets and variables → Actions**
-3. Click **New repository secret**
-4. Add each secret from the table above
+### Manual IAM Setup
+If not using Terraform, you can create the IAM user manually (see the original IAM setup section below).
 
 ### Step 4: Set up Environment Protection (Optional)
 1. Go to **Settings → Environments**
