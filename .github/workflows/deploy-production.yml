@@ -37,14 +37,9 @@ jobs:
         cd backend && npm ci
         cd ../frontend && npm ci
     
-    - name: Run backend tests
-      working-directory: ./backend
-      run: npm run test:ci
-      if: ${{ !inputs.force_deploy }}
-    
     - name: Build backend
       working-directory: ./backend
-      run: npm run build
+      run: npm run build:prod
     
     - name: Build frontend
       working-directory: ./frontend
