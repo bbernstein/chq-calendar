@@ -1120,7 +1120,7 @@ function HomeContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center">
             <p className="text-gray-400">
-              © 2025 Chautauqua Calendar Generator. Built for the Chautauqua Institution community.
+              © 2025 Chautauqua Calendar by Bernie and Claude
             </p>
           </div>
         </div>
