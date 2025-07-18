@@ -35,7 +35,7 @@ interface GlobalEventData {
 
 const GlobalEventDataContext = createContext<GlobalEventData | undefined>(undefined);
 
-export function useGlobalEventData() {
+function useGlobalEventData() {
   const context = useContext(GlobalEventDataContext);
   if (!context) {
     throw new Error('useGlobalEventData must be used within a GlobalEventDataProvider');
@@ -43,7 +43,7 @@ export function useGlobalEventData() {
   return context;
 }
 
-export function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
+function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
   const [globalEventData, setGlobalEventData] = useState<GlobalEventData>({
     events: null,
     categories: [],
