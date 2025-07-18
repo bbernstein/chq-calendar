@@ -21,6 +21,9 @@ interface Event {
     isImage: boolean;
   }>;
   url?: string;
+  // Pre-computed set containing lowercase versions of tags and categories
+  // combined, used for efficient filtering
+  _tagsLowerSet?: Set<string>;
 }
 
 interface GlobalEventData {
@@ -40,6 +43,25 @@ function useGlobalEventData() {
     throw new Error('useGlobalEventData must be used within a GlobalEventDataProvider');
   }
   return context;
+}
+
+// Custom hook for tag selection management
+function useTagSelection(selectedTags: string[], setSelectedTags: React.Dispatch<React.SetStateAction<string[]>>) {
+  const toggleTag = useCallback((tag: string) => {
+    setSelectedTags(prev => {
+      const tagLower = tag.toLowerCase();
+      const existingTag = prev.find(t => t.toLowerCase() === tagLower);
+      return existingTag
+        ? prev.filter(t => t.toLowerCase() !== tagLower)
+        : [...prev, tag];
+    });
+  }, [setSelectedTags]);
+
+  const isTagSelected = useCallback((tag: string) => {
+    return selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase());
+  }, [selectedTags]);
+
+  return { toggleTag, isTagSelected };
 }
 
 function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
@@ -97,10 +119,10 @@ function HomeContent() {
 
   const decodeHtmlEntities = (encodedString: string | undefined) => {
     if (!encodedString) return undefined;
-    
+
     // If no HTML entities found, return original string
     if (!encodedString.includes('&')) return encodedString;
-    
+
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(encodedString, 'text/html');
@@ -112,8 +134,17 @@ function HomeContent() {
     }
   };
 
-  // Decode HTML entities for an entire event object
+  // Decode HTML entities for an entire event object and pre-compute lowercase tags
   const decodeEventHtmlEntities = useCallback((event: Event): Event => {
+    const decodedTags = event.tags?.map(tag => decodeHtmlEntities(tag) || tag);
+    const decodedCategories = event.originalCategories?.map(cat => decodeHtmlEntities(cat) || cat);
+
+    // Pre-compute lowercase tag set for efficient filtering
+    const allTags: string[] = [];
+    if (decodedTags) allTags.push(...decodedTags);
+    if (decodedCategories) allTags.push(...decodedCategories);
+    const _tagsLowerSet = new Set(allTags.map(tag => tag.toLowerCase()));
+
     return {
       ...event,
       title: decodeHtmlEntities(event.title) || event.title,
@@ -121,16 +152,25 @@ function HomeContent() {
       location: decodeHtmlEntities(event.location) || event.location,
       presenter: decodeHtmlEntities(event.presenter) || event.presenter,
       category: decodeHtmlEntities(event.category) || event.category,
-      originalCategories: event.originalCategories?.map(cat => decodeHtmlEntities(cat) || cat),
-      tags: event.tags?.map(tag => decodeHtmlEntities(tag) || tag),
+      originalCategories: decodedCategories,
+      tags: decodedTags,
       // Also decode attachment types in case they contain HTML entities
       attachments: event.attachments?.map(att => ({
         ...att,
         type: decodeHtmlEntities(att.type) || att.type
-      }))
+      })),
+      _tagsLowerSet
     };
   }, []);
 
+  // Use the tag selection hook
+  const { toggleTag, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
+
+  // Memoize lowercase selected tags as a Set for O(1) lookup performance
+  const selectedTagsLowerSet = useMemo(() =>
+    new Set(selectedTags.map(tag => tag.toLowerCase())),
+    [selectedTags]
+  );
 
   // Calculate Chautauqua season weeks (9 weeks starting from 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -293,7 +333,7 @@ function HomeContent() {
       const presenter = (event.presenter || '').toLowerCase();
       const location = (event.location || '').toLowerCase();
       const category = (event.category || '').toLowerCase();
-      
+
 
       // Combine all tags and categories for searching
       const allTags = [
@@ -380,14 +420,36 @@ function HomeContent() {
       );
     }
 
-    // Tag filter
-    if (selectedTags.length > 0) {
-      filtered = filtered.filter(event =>
-        selectedTags.some(tag =>
-          event.tags?.includes(tag) ||
-          event.originalCategories?.includes(tag)
-        )
-      );
+    // Tag filter - case insensitive (using pre-computed Sets for O(1) lookups)
+    if (selectedTagsLowerSet.size > 0) {
+      filtered = filtered.filter(event => {
+        // Use pre-computed lowercase tag set if available
+        if (event._tagsLowerSet) {
+          for (const selectedTag of selectedTagsLowerSet) {
+            if (event._tagsLowerSet.has(selectedTag)) {
+              return true;
+            }
+          }
+          return false;
+        }
+
+        // Fallback for events without pre-computed sets (shouldn't happen normally)
+        if (event.tags) {
+          for (const eventTag of event.tags) {
+            if (selectedTagsLowerSet.has(eventTag.toLowerCase())) {
+              return true;
+            }
+          }
+        }
+        if (event.originalCategories) {
+          for (const eventCat of event.originalCategories) {
+            if (selectedTagsLowerSet.has(eventCat.toLowerCase())) {
+              return true;
+            }
+          }
+        }
+        return false;
+      });
     }
 
     return filtered;
@@ -533,12 +595,12 @@ function HomeContent() {
           if (event.tags) allTagsAndCategories.push(...event.tags);
           if (event.originalCategories) allTagsAndCategories.push(...event.originalCategories);
         });
-        
+
         // Deduplicate tags using the same logic as event display
         const normalizeTag = (tag: string) => tag.toLowerCase().replace(/[-\s]+/g, ' ').trim();
         const seenNormalized = new Set<string>();
         const uniqueTags: string[] = [];
-        
+
         // Sort by preference: prefer tags with spaces and proper capitalization
         const sortedByPreference = allTagsAndCategories.sort((a, b) => {
           // Prefer tags with spaces over dashes
@@ -546,16 +608,16 @@ function HomeContent() {
           const bHasSpaces = b.includes(' ');
           if (aHasSpaces && !bHasSpaces) return -1;
           if (!aHasSpaces && bHasSpaces) return 1;
-          
+
           // Prefer tags with capital letters
           const aHasCapitals = /[A-Z]/.test(a);
           const bHasCapitals = /[A-Z]/.test(b);
           if (aHasCapitals && !bHasCapitals) return -1;
           if (!aHasCapitals && bHasCapitals) return 1;
-          
+
           return 0;
         });
-        
+
         for (const tag of sortedByPreference) {
           if (!tag.startsWith('Week ')) {
             const normalized = normalizeTag(tag);
@@ -764,18 +826,18 @@ function HomeContent() {
                     if (dateFilter === 'today') {
                       const today = new Date();
                       const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
-                      const fullDate = today.toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
+                      const fullDate = today.toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
                       });
                       return `Today, ${dayName}, ${fullDate}`;
                     } else if (dateFilter === 'next') {
                       const now = new Date();
-                      const timeString = now.toLocaleTimeString('en-US', { 
-                        hour: 'numeric', 
+                      const timeString = now.toLocaleTimeString('en-US', {
+                        hour: 'numeric',
                         minute: '2-digit',
-                        hour12: true 
+                        hour12: true
                       });
                       return `Next events after ${timeString}`;
                     } else if (dateFilter === 'this-week') {
@@ -785,7 +847,7 @@ function HomeContent() {
                       sunday.setDate(today.getDate() - dayOfWeek);
                       const saturday = new Date(today);
                       saturday.setDate(today.getDate() - dayOfWeek + 6);
-                      
+
                       const sundayStr = sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                       const saturdayStr = saturday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                       return `This Week (${sundayStr} - ${saturdayStr})`;
@@ -823,15 +885,9 @@ function HomeContent() {
                       .map(tag => (
                       <button
                         key={tag}
-                        onClick={() => {
-                          setSelectedTags(prev =>
-                            prev.includes(tag)
-                              ? prev.filter(t => t !== tag)
-                              : [...prev, tag]
-                          );
-                        }}
+                        onClick={() => toggleTag(tag)}
                         className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
-                          selectedTags.includes(tag)
+                          isTagSelected(tag)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
@@ -842,7 +898,7 @@ function HomeContent() {
                   </div>
                 </div>
               </details>
-              
+
               {/* Desktop tags */}
               <div className="hidden sm:block">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -855,15 +911,9 @@ function HomeContent() {
                       .map(tag => (
                       <button
                         key={tag}
-                        onClick={() => {
-                          setSelectedTags(prev =>
-                            prev.includes(tag)
-                              ? prev.filter(t => t !== tag)
-                              : [...prev, tag]
-                          );
-                        }}
+                        onClick={() => toggleTag(tag)}
                         className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          selectedTags.includes(tag)
+                          isTagSelected(tag)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
@@ -929,16 +979,16 @@ function HomeContent() {
                             <div className="flex-1 min-w-0">
                               {/* Time and location above title */}
                               <div className="text-xs sm:text-sm text-gray-500 mb-1">
-                                🕐 {new Date(event.startDate).toLocaleTimeString([], { 
-                                  hour: 'numeric', 
+                                🕐 {new Date(event.startDate).toLocaleTimeString([], {
+                                  hour: 'numeric',
                                   minute: '2-digit',
-                                  hour12: true 
+                                  hour12: true
                                 })}
                                 {event.location && (
                                   <span className="ml-2">📍 {event.location}</span>
                                 )}
                               </div>
-                              
+
                               {/* Event title */}
                               <h4 className="text-sm sm:text-lg font-semibold text-gray-900 mb-1 leading-tight">
                                 {event.url ? (
@@ -964,7 +1014,7 @@ function HomeContent() {
                                       {event.description && (
                                         <p className="text-gray-600 text-sm mb-2">{event.description}</p>
                                       )}
-                                      
+
                                       {/* Show all tags and categories when expanded */}
                                       <div className="mb-2 flex flex-wrap gap-1">
                                         {(() => {
@@ -974,12 +1024,12 @@ function HomeContent() {
                                             ...(event.originalCategories || []),
                                             ...(event.tags || [])
                                           ];
-                                          
+
                                           // Filter out Week tags and deduplicate
                                           const normalizeTag = (tag: string) => tag.toLowerCase().replace(/[-\s]+/g, ' ').trim();
                                           const seenNormalized = new Set();
                                           const uniqueTags = [];
-                                          
+
                                           for (const tag of allTagsAndCategories) {
                                             if (!tag.startsWith('Week ')) {
                                               const normalized = normalizeTag(tag);
@@ -989,20 +1039,13 @@ function HomeContent() {
                                               }
                                             }
                                           }
-                                          
+
                                           return uniqueTags.map((tag, index) => (
                                             <button
                                               key={`${tag}-${index}`}
-                                              onClick={() => {
-                                                // Toggle the tag in the main filter
-                                                setSelectedTags(prev => 
-                                                  prev.includes(tag)
-                                                    ? prev.filter(t => t !== tag) // Remove if already selected
-                                                    : [...prev, tag] // Add if not selected
-                                                );
-                                              }}
+                                              onClick={() => toggleTag(tag)}
                                               className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                                selectedTags.includes(tag)
+                                                isTagSelected(tag)
                                                   ? 'bg-blue-600 text-white'
                                                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                               }`}
@@ -1012,7 +1055,7 @@ function HomeContent() {
                                           ));
                                         })()}
                                       </div>
-                                      
+
                                       <button
                                         onClick={() => toggleDescription(event.id)}
                                         className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center gap-1"
