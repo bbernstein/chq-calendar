@@ -371,8 +371,6 @@ function HomeContent() {
       filtered = filtered.filter(event => isNext(event.startDate));
     } else if (dateFilter === 'this-week') {
       filtered = filtered.filter(event => isThisWeek(event.startDate));
-    } else if (dateFilter === 'next') {
-      filtered = filtered.filter(event => isNext(event.startDate));
     }
 
     // Week filter (independent of date filter)
