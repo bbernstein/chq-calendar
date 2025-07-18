@@ -380,13 +380,14 @@ function HomeContent() {
       );
     }
 
-    // Tag filter
+    // Tag filter - case insensitive
     if (selectedTags.length > 0) {
       filtered = filtered.filter(event =>
-        selectedTags.some(tag =>
-          event.tags?.includes(tag) ||
-          event.originalCategories?.includes(tag)
-        )
+        selectedTags.some(selectedTag => {
+          const selectedTagLower = selectedTag.toLowerCase();
+          return event.tags?.some(eventTag => eventTag.toLowerCase() === selectedTagLower) ||
+                 event.originalCategories?.some(eventCat => eventCat.toLowerCase() === selectedTagLower);
+        })
       );
     }
 
@@ -824,14 +825,16 @@ function HomeContent() {
                       <button
                         key={tag}
                         onClick={() => {
-                          setSelectedTags(prev =>
-                            prev.includes(tag)
-                              ? prev.filter(t => t !== tag)
-                              : [...prev, tag]
-                          );
+                          setSelectedTags(prev => {
+                            const tagLower = tag.toLowerCase();
+                            const existingTag = prev.find(t => t.toLowerCase() === tagLower);
+                            return existingTag
+                              ? prev.filter(t => t.toLowerCase() !== tagLower)
+                              : [...prev, tag];
+                          });
                         }}
                         className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
-                          selectedTags.includes(tag)
+                          selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase())
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
@@ -856,14 +859,16 @@ function HomeContent() {
                       <button
                         key={tag}
                         onClick={() => {
-                          setSelectedTags(prev =>
-                            prev.includes(tag)
-                              ? prev.filter(t => t !== tag)
-                              : [...prev, tag]
-                          );
+                          setSelectedTags(prev => {
+                            const tagLower = tag.toLowerCase();
+                            const existingTag = prev.find(t => t.toLowerCase() === tagLower);
+                            return existingTag
+                              ? prev.filter(t => t.toLowerCase() !== tagLower)
+                              : [...prev, tag];
+                          });
                         }}
                         className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          selectedTags.includes(tag)
+                          selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase())
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
@@ -994,15 +999,17 @@ function HomeContent() {
                                             <button
                                               key={`${tag}-${index}`}
                                               onClick={() => {
-                                                // Toggle the tag in the main filter
-                                                setSelectedTags(prev => 
-                                                  prev.includes(tag)
-                                                    ? prev.filter(t => t !== tag) // Remove if already selected
+                                                // Toggle the tag in the main filter (case insensitive)
+                                                setSelectedTags(prev => {
+                                                  const tagLower = tag.toLowerCase();
+                                                  const existingTag = prev.find(t => t.toLowerCase() === tagLower);
+                                                  return existingTag
+                                                    ? prev.filter(t => t.toLowerCase() !== tagLower) // Remove if already selected
                                                     : [...prev, tag] // Add if not selected
-                                                );
+                                                });
                                               }}
                                               className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                                selectedTags.includes(tag)
+                                                selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase())
                                                   ? 'bg-blue-600 text-white'
                                                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                               }`}
