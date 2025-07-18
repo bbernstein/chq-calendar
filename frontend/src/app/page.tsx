@@ -65,7 +65,6 @@ function HomeContent() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
   // const mountTimeRef = useRef(Date.now());
-
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
