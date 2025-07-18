@@ -82,8 +82,6 @@ function HomeContent() {
 
   console.log('API URL:', apiUrl, 'NODE_ENV:', process.env.NODE_ENV);
 
-  // Description truncation helpers
-  const DESCRIPTION_TRUNCATE_LENGTH = 200;
 
   const toggleDescription = (eventId: string) => {
     setExpandedDescriptions((prev: Set<string>) => {
@@ -115,7 +113,7 @@ function HomeContent() {
   };
 
   // Decode HTML entities for an entire event object
-  const decodeEventHtmlEntities = (event: Event): Event => {
+  const decodeEventHtmlEntities = useCallback((event: Event): Event => {
     return {
       ...event,
       title: decodeHtmlEntities(event.title) || event.title,
@@ -131,34 +129,8 @@ function HomeContent() {
         type: decodeHtmlEntities(att.type) || att.type
       }))
     };
-  };
+  }, []);
 
-  const truncateDescription = (description: string, eventId: string) => {
-    if (!description) return null;
-
-    const isExpanded = expandedDescriptions.has(eventId);
-    const needsTruncation = description.length > DESCRIPTION_TRUNCATE_LENGTH;
-
-    if (!needsTruncation) {
-      return <p className="text-gray-600 mb-2">{description}</p>;
-    }
-
-    const displayText = isExpanded
-      ? description
-      : description.substring(0, DESCRIPTION_TRUNCATE_LENGTH) + '...';
-
-    return (
-      <div className="mb-2">
-        <p className="text-gray-600 mb-1">{displayText}</p>
-        <button
-          onClick={() => toggleDescription(eventId)}
-          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-        >
-          {isExpanded ? 'Show less' : 'Show more'}
-        </button>
-      </div>
-    );
-  };
 
   // Calculate Chautauqua season weeks (9 weeks starting from 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -558,7 +530,7 @@ function HomeContent() {
         const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
 
         // Extract all unique tags from both tags and originalCategories with deduplication
-        const allTagsAndCategories = [];
+        const allTagsAndCategories: string[] = [];
         fetchedEvents.forEach((event: Event) => {
           if (event.tags) allTagsAndCategories.push(...event.tags);
           if (event.originalCategories) allTagsAndCategories.push(...event.originalCategories);
@@ -566,8 +538,8 @@ function HomeContent() {
         
         // Deduplicate tags using the same logic as event display
         const normalizeTag = (tag: string) => tag.toLowerCase().replace(/[-\s]+/g, ' ').trim();
-        const seenNormalized = new Set();
-        const uniqueTags = [];
+        const seenNormalized = new Set<string>();
+        const uniqueTags: string[] = [];
         
         // Sort by preference: prefer tags with spaces and proper capitalization
         const sortedByPreference = allTagsAndCategories.sort((a, b) => {
@@ -618,7 +590,7 @@ function HomeContent() {
           sessionStorage.setItem('chq-calendar-events', JSON.stringify({
             events: fetchedEvents,
             categories: categories.sort(),
-            tags: Array.from(allTags).sort(),
+            tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
             version: 'v2-decoded' // Version marker to invalidate old cache with HTML entities
@@ -635,7 +607,7 @@ function HomeContent() {
       setLoading(false);
       isLoadingRef.current = false;
     }
-  }, [apiUrl, dataLoaded, globalEventData, seasonWeeks]);
+  }, [apiUrl, dataLoaded, globalEventData, seasonWeeks, decodeEventHtmlEntities]);
 
   // Create sample data
 
