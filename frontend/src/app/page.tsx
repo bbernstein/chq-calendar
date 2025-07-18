@@ -382,9 +382,9 @@ function HomeContent() {
 
     // Tag filter - case insensitive
     if (selectedTags.length > 0) {
+      const selectedTagsLower = selectedTags.map(tag => tag.toLowerCase());
       filtered = filtered.filter(event =>
-        selectedTags.some(selectedTag => {
-          const selectedTagLower = selectedTag.toLowerCase();
+        selectedTagsLower.some(selectedTagLower => {
           return event.tags?.some(eventTag => eventTag.toLowerCase() === selectedTagLower) ||
                  event.originalCategories?.some(eventCat => eventCat.toLowerCase() === selectedTagLower);
         })
