@@ -153,6 +153,12 @@ function HomeContent() {
   // Use the tag selection hook
   const { toggleTag, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
 
+  // Memoize lowercase selected tags to avoid repeated conversions during filtering
+  const selectedTagsLower = useMemo(() => 
+    selectedTags.map(tag => tag.toLowerCase()),
+    [selectedTags]
+  );
+
   // Calculate Chautauqua season weeks (9 weeks starting from 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
     // Start from June 1st and find the 4th Sunday
@@ -401,9 +407,8 @@ function HomeContent() {
       );
     }
 
-    // Tag filter - case insensitive
-    if (selectedTags.length > 0) {
-      const selectedTagsLower = selectedTags.map(tag => tag.toLowerCase());
+    // Tag filter - case insensitive (using memoized lowercase tags)
+    if (selectedTagsLower.length > 0) {
       filtered = filtered.filter(event =>
         selectedTagsLower.some(selectedTagLower => {
           return event.tags?.some(eventTag => eventTag.toLowerCase() === selectedTagLower) ||
