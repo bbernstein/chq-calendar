@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, createContext, useContext, useCallback } from 'react';
 import Image from 'next/image';
 
 interface Event {
@@ -23,16 +23,6 @@ interface Event {
   url?: string;
 }
 
-interface CalendarFilters {
-  categories?: string[];
-  tags?: string[];
-  dateRange?: {
-    start: string;
-    end: string;
-  };
-}
-
-import { createContext, useContext } from 'react';
 
 interface GlobalEventData {
   events: Event[] | null;
@@ -80,10 +70,6 @@ function HomeContent() {
   if (process.env.NODE_ENV === 'development') {
     console.log('Component rendered at', new Date().toISOString(), 'Mount time:', new Date(mountTimeRef.current).toISOString());
   }
-  const filters = useMemo(() => ({}), []);
-  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
-  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -462,7 +448,7 @@ function HomeContent() {
   };
 
   // Fetch events from API
-  const fetchAllEvents = async (forceRefresh = false) => {
+  const fetchAllEvents = useCallback(async (forceRefresh = false) => {
     console.log('fetchAllEvents called', {
       dataLoaded,
       forceRefresh,
@@ -474,9 +460,9 @@ function HomeContent() {
     if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
       console.log('Loading from global store');
       setEvents(globalEventData.events);
-      setAvailableCategories(globalEventData.categories);
+      // setAvailableCategories(globalEventData.categories);
       setAvailableTags(globalEventData.tags);
-      setAvailableWeeks(globalEventData.weeks);
+      // setAvailableWeeks(globalEventData.weeks);
       setDataLoaded(true);
       return;
     }
@@ -505,9 +491,9 @@ function HomeContent() {
           if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000) {
             console.log('Loading events from session cache');
             setEvents(parsed.events);
-            setAvailableCategories(parsed.categories);
+            // setAvailableCategories(parsed.categories);
             setAvailableTags(parsed.tags);
-            setAvailableWeeks(parsed.weeks);
+            // setAvailableWeeks(parsed.weeks);
             setDataLoaded(true);
             isLoadingRef.current = false;
             return;
@@ -555,9 +541,10 @@ function HomeContent() {
         const sortedTags = Array.from(allTags).sort();
         const weeks = seasonWeeks.map(w => w.number);
 
-        setAvailableCategories(sortedCategories);
+        // Set available categories and weeks (currently not used in UI)
+        // setAvailableCategories(sortedCategories);
         setAvailableTags(sortedTags);
-        setAvailableWeeks(weeks);
+        // setAvailableWeeks(weeks);
 
         // Update global store
         if (globalEventData.setGlobalEventData) {
@@ -591,7 +578,7 @@ function HomeContent() {
       setLoading(false);
       isLoadingRef.current = false;
     }
-  };
+  }, [apiUrl, dataLoaded, globalEventData, seasonWeeks]);
 
   // Create sample data
 
@@ -604,7 +591,7 @@ function HomeContent() {
     return () => {
       console.log('Component unmounting!');
     };
-  }, []);
+  }, [fetchAllEvents]);
 
 
   // Handle global mouse events for week dragging
@@ -718,7 +705,7 @@ function HomeContent() {
                       isDragging ? 'cursor-grabbing' : 'cursor-pointer'
                     }`}
                   >
-                    {seasonWeeks.map((week, index) => (
+                    {seasonWeeks.map((week) => (
                       <div
                         key={week.number}
                         className={`w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs sm:text-sm flex-shrink-0 ${
