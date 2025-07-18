@@ -9,6 +9,7 @@ yarn-error.log*
 out/
 dist/
 build/
+infrastructure/github-secrets.json
 
 # Environment variables
 .env
