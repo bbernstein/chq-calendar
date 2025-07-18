@@ -74,12 +74,12 @@ function HomeContent() {
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
 
-  const apiUrl = useMemo(() => 
-    process.env.NODE_ENV === 'development' 
-      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001') 
+  const apiUrl = useMemo(() =>
+    process.env.NODE_ENV === 'development'
+      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
       : '/api'
   , []);
-    
+
   console.log('API URL:', apiUrl, 'NODE_ENV:', process.env.NODE_ENV);
 
   // Description truncation helpers
@@ -233,21 +233,26 @@ function HomeContent() {
   const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
     const eventDate = new Date(dateString);
     const week = seasonWeeks[weekNumber - 1];
-    
+
     // Create end of day for proper comparison
     const weekEndInclusive = new Date(week.end);
     weekEndInclusive.setHours(23, 59, 59, 999);
-    
+
     return eventDate >= week.start && eventDate <= weekEndInclusive;
   };
 
   // Week selection handlers
   const handleWeekMouseDown = (weekNum: number) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('handleWeekMouseDown called for week', weekNum);
+    }
+
+    // Batch state updates to reduce re-renders
     setIsDragging(true);
     setDragStart(weekNum);
     setHasMouseMoved(false);
-    // Show immediate visual feedback for potential selection
     setSelectedWeeks([weekNum]);
+
     // Prevent text selection during potential drag
     document.body.style.userSelect = 'none';
   };
@@ -293,12 +298,12 @@ function HomeContent() {
       const newSelection = prev.includes(weekNum)
         ? prev.filter(w => w !== weekNum) // Remove if already selected
         : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
-      
+
       // Clear date filter when selecting weeks
       if (newSelection.length > 0) {
         setDateFilter('all');
       }
-      
+
       return newSelection;
     });
   };
@@ -394,6 +399,8 @@ function HomeContent() {
       filtered = filtered.filter(event => isNext(event.startDate));
     } else if (dateFilter === 'this-week') {
       filtered = filtered.filter(event => isThisWeek(event.startDate));
+    } else if (dateFilter === 'next') {
+      filtered = filtered.filter(event => isNext(event.startDate));
     }
 
     // Week filter (independent of date filter)
@@ -637,7 +644,6 @@ function HomeContent() {
   useEffect(() => {
     console.log('Component mounted - Initial useEffect triggered');
     fetchAllEvents();
-
     return () => {
       console.log('Component unmounting!');
     };
@@ -757,7 +763,7 @@ function HomeContent() {
                       isDragging ? 'cursor-grabbing' : 'cursor-pointer'
                     }`}
                   >
-                    {seasonWeeks.map((week, index) => (
+                    {seasonWeeks.map((week) => (
                       <div
                         key={week.number}
                         className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
@@ -928,12 +934,7 @@ function HomeContent() {
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="mt-2 text-gray-600">Loading events...</p>
               </div>
-            ) : (() => {
-              const filteredEvents = filterEvents(events);
-              console.log('Filtered events:', filteredEvents.length, 'events');
-              console.log('Total events:', events.length);
-              return filteredEvents.length === 0;
-            })() ? (
+            ) : filterEvents(events).length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🎭</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
