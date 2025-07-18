@@ -131,6 +131,20 @@ function HomeContent() {
     };
   }, []);
 
+  // Helper functions for case-insensitive tag operations
+  const toggleTagSelection = useCallback((tag: string, setSelectedTags: React.Dispatch<React.SetStateAction<string[]>>) => {
+    setSelectedTags(prev => {
+      const tagLower = tag.toLowerCase();
+      const existingTag = prev.find(t => t.toLowerCase() === tagLower);
+      return existingTag
+        ? prev.filter(t => t.toLowerCase() !== tagLower)
+        : [...prev, tag];
+    });
+  }, []);
+
+  const isTagSelected = useCallback((tag: string, selectedTags: string[]) => {
+    return selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase());
+  }, []);
 
   // Calculate Chautauqua season weeks (9 weeks starting from 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -824,17 +838,9 @@ function HomeContent() {
                       .map(tag => (
                       <button
                         key={tag}
-                        onClick={() => {
-                          setSelectedTags(prev => {
-                            const tagLower = tag.toLowerCase();
-                            const existingTag = prev.find(t => t.toLowerCase() === tagLower);
-                            return existingTag
-                              ? prev.filter(t => t.toLowerCase() !== tagLower)
-                              : [...prev, tag];
-                          });
-                        }}
+                        onClick={() => toggleTagSelection(tag, setSelectedTags)}
                         className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
-                          selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase())
+                          isTagSelected(tag, selectedTags)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
@@ -858,17 +864,9 @@ function HomeContent() {
                       .map(tag => (
                       <button
                         key={tag}
-                        onClick={() => {
-                          setSelectedTags(prev => {
-                            const tagLower = tag.toLowerCase();
-                            const existingTag = prev.find(t => t.toLowerCase() === tagLower);
-                            return existingTag
-                              ? prev.filter(t => t.toLowerCase() !== tagLower)
-                              : [...prev, tag];
-                          });
-                        }}
+                        onClick={() => toggleTagSelection(tag, setSelectedTags)}
                         className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase())
+                          isTagSelected(tag, selectedTags)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
@@ -998,18 +996,9 @@ function HomeContent() {
                                           return uniqueTags.map((tag, index) => (
                                             <button
                                               key={`${tag}-${index}`}
-                                              onClick={() => {
-                                                // Toggle the tag in the main filter (case insensitive)
-                                                setSelectedTags(prev => {
-                                                  const tagLower = tag.toLowerCase();
-                                                  const existingTag = prev.find(t => t.toLowerCase() === tagLower);
-                                                  return existingTag
-                                                    ? prev.filter(t => t.toLowerCase() !== tagLower) // Remove if already selected
-                                                    : [...prev, tag] // Add if not selected
-                                                });
-                                              }}
+                                              onClick={() => toggleTagSelection(tag, setSelectedTags)}
                                               className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                                selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase())
+                                                isTagSelected(tag, selectedTags)
                                                   ? 'bg-blue-600 text-white'
                                                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                               }`}
