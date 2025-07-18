@@ -5,6 +5,7 @@ on:
     branches: [ main, develop, feature/* ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   test-backend:
@@ -54,15 +55,7 @@ jobs:
       working-directory: ./frontend
       run: npm ci
     
-    - name: Run frontend linting
-      working-directory: ./frontend
-      run: npm run lint || true  # Don't fail on lint warnings
-    
-    - name: Run frontend type checking
-      working-directory: ./frontend
-      run: npx tsc --noEmit
-    
-    - name: Build frontend
+    - name: Build frontend (includes type checking and linting)
       working-directory: ./frontend
       run: npm run build
       env:

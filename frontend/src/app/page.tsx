@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, createContext, useContext, useCallback } from 'react';
 import Image from 'next/image';
 
 interface Event {
@@ -23,16 +23,6 @@ interface Event {
   url?: string;
 }
 
-interface CalendarFilters {
-  categories?: string[];
-  tags?: string[];
-  dateRange?: {
-    start: string;
-    end: string;
-  };
-}
-
-import { createContext, useContext } from 'react';
 
 interface GlobalEventData {
   events: Event[] | null;
@@ -45,7 +35,7 @@ interface GlobalEventData {
 
 const GlobalEventDataContext = createContext<GlobalEventData | undefined>(undefined);
 
-export function useGlobalEventData() {
+function useGlobalEventData() {
   const context = useContext(GlobalEventDataContext);
   if (!context) {
     throw new Error('useGlobalEventData must be used within a GlobalEventDataProvider');
@@ -53,7 +43,7 @@ export function useGlobalEventData() {
   return context;
 }
 
-export function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
+function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
   const [globalEventData, setGlobalEventData] = useState<GlobalEventData>({
     events: null,
     categories: [],
@@ -74,16 +64,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
-  const mountTimeRef = useRef(Date.now());
-
-  // Only log in development to avoid console spam
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Component rendered at', new Date().toISOString(), 'Mount time:', new Date(mountTimeRef.current).toISOString());
-  }
-  const filters = useMemo(() => ({}), []);
-  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
-  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
+  // const mountTimeRef = useRef(Date.now());
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -106,7 +87,7 @@ function HomeContent() {
   const DESCRIPTION_TRUNCATE_LENGTH = 200;
 
   const toggleDescription = (eventId: string) => {
-    setExpandedDescriptions(prev => {
+    setExpandedDescriptions((prev: Set<string>) => {
       const newSet = new Set(prev);
       if (newSet.has(eventId)) {
         newSet.delete(eventId);
@@ -299,25 +280,11 @@ function HomeContent() {
     });
   };
 
-  // Advanced search with phrase and word matching, plus smart shortcuts
   const searchEvents = (events: Event[], term: string) => {
     if (!term) return events;
 
-    // const searchTerm = term.toLowerCase();
-
-    // // Smart shortcuts
-    // const shortcuts: { [key: string]: string[] } = {
-    //   'amp': ['amphitheater'],
-    //   'cso': ['chautauqua symphony orchestra'],
-    //   'symphony': ['chautauqua symphony orchestra'],
-    //   'orchestra': ['chautauqua symphony orchestra']
-    // };
-
-    // // Apply shortcuts - expand search term to include alternatives
-    const searchTerms = [searchTerm];
-    // if (shortcuts[searchTerm]) {
-    //   searchTerms.push(...shortcuts[searchTerm]);
-    // }
+    // Create search terms array from the input term
+    const searchTerms = term.toLowerCase().split(' ').filter(t => t.length > 0);
 
     const scored = events.map(event => {
       const title = event.title.toLowerCase();
@@ -462,7 +429,7 @@ function HomeContent() {
   };
 
   // Fetch events from API
-  const fetchAllEvents = async (forceRefresh = false) => {
+  const fetchAllEvents = useCallback(async (forceRefresh = false) => {
     console.log('fetchAllEvents called', {
       dataLoaded,
       forceRefresh,
@@ -474,9 +441,7 @@ function HomeContent() {
     if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
       console.log('Loading from global store');
       setEvents(globalEventData.events);
-      setAvailableCategories(globalEventData.categories);
       setAvailableTags(globalEventData.tags);
-      setAvailableWeeks(globalEventData.weeks);
       setDataLoaded(true);
       return;
     }
@@ -505,9 +470,7 @@ function HomeContent() {
           if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000) {
             console.log('Loading events from session cache');
             setEvents(parsed.events);
-            setAvailableCategories(parsed.categories);
             setAvailableTags(parsed.tags);
-            setAvailableWeeks(parsed.weeks);
             setDataLoaded(true);
             isLoadingRef.current = false;
             return;
@@ -555,9 +518,7 @@ function HomeContent() {
         const sortedTags = Array.from(allTags).sort();
         const weeks = seasonWeeks.map(w => w.number);
 
-        setAvailableCategories(sortedCategories);
         setAvailableTags(sortedTags);
-        setAvailableWeeks(weeks);
 
         // Update global store
         if (globalEventData.setGlobalEventData) {
@@ -591,7 +552,7 @@ function HomeContent() {
       setLoading(false);
       isLoadingRef.current = false;
     }
-  };
+  }, [apiUrl, dataLoaded, globalEventData, seasonWeeks]);
 
   // Create sample data
 
@@ -604,7 +565,7 @@ function HomeContent() {
     return () => {
       console.log('Component unmounting!');
     };
-  }, []);
+  }, [fetchAllEvents]);
 
 
   // Handle global mouse events for week dragging
@@ -718,7 +679,7 @@ function HomeContent() {
                       isDragging ? 'cursor-grabbing' : 'cursor-pointer'
                     }`}
                   >
-                    {seasonWeeks.map((week, index) => (
+                    {seasonWeeks.map((week) => (
                       <div
                         key={week.number}
                         className={`w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs sm:text-sm flex-shrink-0 ${
