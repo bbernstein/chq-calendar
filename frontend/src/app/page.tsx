@@ -21,6 +21,8 @@ interface Event {
     isImage: boolean;
   }>;
   url?: string;
+  // Pre-computed lowercase tag set for efficient filtering
+  _tagsLowerSet?: Set<string>;
 }
 
 interface GlobalEventData {
@@ -131,8 +133,17 @@ function HomeContent() {
     }
   };
 
-  // Decode HTML entities for an entire event object
+  // Decode HTML entities for an entire event object and pre-compute lowercase tags
   const decodeEventHtmlEntities = useCallback((event: Event): Event => {
+    const decodedTags = event.tags?.map(tag => decodeHtmlEntities(tag) || tag);
+    const decodedCategories = event.originalCategories?.map(cat => decodeHtmlEntities(cat) || cat);
+    
+    // Pre-compute lowercase tag set for efficient filtering
+    const allTags: string[] = [];
+    if (decodedTags) allTags.push(...decodedTags);
+    if (decodedCategories) allTags.push(...decodedCategories);
+    const _tagsLowerSet = new Set(allTags.map(tag => tag.toLowerCase()));
+    
     return {
       ...event,
       title: decodeHtmlEntities(event.title) || event.title,
@@ -140,22 +151,23 @@ function HomeContent() {
       location: decodeHtmlEntities(event.location) || event.location,
       presenter: decodeHtmlEntities(event.presenter) || event.presenter,
       category: decodeHtmlEntities(event.category) || event.category,
-      originalCategories: event.originalCategories?.map(cat => decodeHtmlEntities(cat) || cat),
-      tags: event.tags?.map(tag => decodeHtmlEntities(tag) || tag),
+      originalCategories: decodedCategories,
+      tags: decodedTags,
       // Also decode attachment types in case they contain HTML entities
       attachments: event.attachments?.map(att => ({
         ...att,
         type: decodeHtmlEntities(att.type) || att.type
-      }))
+      })),
+      _tagsLowerSet
     };
   }, []);
 
   // Use the tag selection hook
   const { toggleTag, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
 
-  // Memoize lowercase selected tags to avoid repeated conversions during filtering
-  const selectedTagsLower = useMemo(() => 
-    selectedTags.map(tag => tag.toLowerCase()),
+  // Memoize lowercase selected tags as a Set for O(1) lookup performance
+  const selectedTagsLowerSet = useMemo(() => 
+    new Set(selectedTags.map(tag => tag.toLowerCase())),
     [selectedTags]
   );
 
@@ -407,14 +419,36 @@ function HomeContent() {
       );
     }
 
-    // Tag filter - case insensitive (using memoized lowercase tags)
-    if (selectedTagsLower.length > 0) {
-      filtered = filtered.filter(event =>
-        selectedTagsLower.some(selectedTagLower => {
-          return event.tags?.some(eventTag => eventTag.toLowerCase() === selectedTagLower) ||
-                 event.originalCategories?.some(eventCat => eventCat.toLowerCase() === selectedTagLower);
-        })
-      );
+    // Tag filter - case insensitive (using pre-computed Sets for O(1) lookups)
+    if (selectedTagsLowerSet.size > 0) {
+      filtered = filtered.filter(event => {
+        // Use pre-computed lowercase tag set if available
+        if (event._tagsLowerSet) {
+          for (const selectedTag of selectedTagsLowerSet) {
+            if (event._tagsLowerSet.has(selectedTag)) {
+              return true;
+            }
+          }
+          return false;
+        }
+        
+        // Fallback for events without pre-computed sets (shouldn't happen normally)
+        if (event.tags) {
+          for (const eventTag of event.tags) {
+            if (selectedTagsLowerSet.has(eventTag.toLowerCase())) {
+              return true;
+            }
+          }
+        }
+        if (event.originalCategories) {
+          for (const eventCat of event.originalCategories) {
+            if (selectedTagsLowerSet.has(eventCat.toLowerCase())) {
+              return true;
+            }
+          }
+        }
+        return false;
+      });
     }
 
     return filtered;
