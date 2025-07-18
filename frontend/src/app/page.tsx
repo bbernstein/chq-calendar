@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, createContext, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, createContext, useContext, useCallback } from 'react';
 import Image from 'next/image';
 
 interface Event {
@@ -64,12 +64,8 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
-  const mountTimeRef = useRef(Date.now());
+  // const mountTimeRef = useRef(Date.now());
 
-  // Only log in development to avoid console spam
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Component rendered at', new Date().toISOString(), 'Mount time:', new Date(mountTimeRef.current).toISOString());
-  }
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -92,7 +88,7 @@ function HomeContent() {
   const DESCRIPTION_TRUNCATE_LENGTH = 200;
 
   const toggleDescription = (eventId: string) => {
-    setExpandedDescriptions(prev => {
+    setExpandedDescriptions((prev: Set<string>) => {
       const newSet = new Set(prev);
       if (newSet.has(eventId)) {
         newSet.delete(eventId);
@@ -285,25 +281,11 @@ function HomeContent() {
     });
   };
 
-  // Advanced search with phrase and word matching, plus smart shortcuts
   const searchEvents = (events: Event[], term: string) => {
     if (!term) return events;
 
-    // const searchTerm = term.toLowerCase();
-
-    // // Smart shortcuts
-    // const shortcuts: { [key: string]: string[] } = {
-    //   'amp': ['amphitheater'],
-    //   'cso': ['chautauqua symphony orchestra'],
-    //   'symphony': ['chautauqua symphony orchestra'],
-    //   'orchestra': ['chautauqua symphony orchestra']
-    // };
-
-    // // Apply shortcuts - expand search term to include alternatives
-    const searchTerms = [searchTerm];
-    // if (shortcuts[searchTerm]) {
-    //   searchTerms.push(...shortcuts[searchTerm]);
-    // }
+    // Create search terms array from the input term
+    const searchTerms = term.toLowerCase().split(' ').filter(t => t.length > 0);
 
     const scored = events.map(event => {
       const title = event.title.toLowerCase();
@@ -460,9 +442,7 @@ function HomeContent() {
     if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
       console.log('Loading from global store');
       setEvents(globalEventData.events);
-      // setAvailableCategories(globalEventData.categories);
       setAvailableTags(globalEventData.tags);
-      // setAvailableWeeks(globalEventData.weeks);
       setDataLoaded(true);
       return;
     }
@@ -491,9 +471,7 @@ function HomeContent() {
           if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000) {
             console.log('Loading events from session cache');
             setEvents(parsed.events);
-            // setAvailableCategories(parsed.categories);
             setAvailableTags(parsed.tags);
-            // setAvailableWeeks(parsed.weeks);
             setDataLoaded(true);
             isLoadingRef.current = false;
             return;
@@ -541,10 +519,7 @@ function HomeContent() {
         const sortedTags = Array.from(allTags).sort();
         const weeks = seasonWeeks.map(w => w.number);
 
-        // Set available categories and weeks (currently not used in UI)
-        // setAvailableCategories(sortedCategories);
         setAvailableTags(sortedTags);
-        // setAvailableWeeks(weeks);
 
         // Update global store
         if (globalEventData.setGlobalEventData) {
