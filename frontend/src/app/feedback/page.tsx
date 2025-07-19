@@ -21,14 +21,20 @@ export default function FeedbackPage() {
   const [error, setError] = useState('');
   const [captchaReady, setCaptchaReady] = useState(false);
 
-  // reCAPTCHA site key - this should be set via environment variable
-  const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'; // Test key
+  // reCAPTCHA site key - must be set via environment variable
+  const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
 
   const apiUrl = process.env.NODE_ENV === 'development'
     ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
     : '/api';
 
   useEffect(() => {
+    // Only load reCAPTCHA if site key is configured
+    if (!RECAPTCHA_SITE_KEY) {
+      console.warn('RECAPTCHA_SITE_KEY not configured, CAPTCHA will be disabled');
+      return;
+    }
+
     // Load reCAPTCHA script
     const script = document.createElement('script');
     script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
@@ -45,8 +51,10 @@ export default function FeedbackPage() {
     };
 
     return () => {
-      // Cleanup script on unmount
-      document.head.removeChild(script);
+      // Cleanup script on unmount - check if script exists first
+      if (script && document.head.contains(script)) {
+        document.head.removeChild(script);
+      }
     };
   }, [RECAPTCHA_SITE_KEY]);
 
@@ -58,7 +66,7 @@ export default function FeedbackPage() {
       return;
     }
 
-    if (!captchaReady) {
+    if (RECAPTCHA_SITE_KEY && !captchaReady) {
       setError('reCAPTCHA is not ready. Please wait and try again.');
       return;
     }
@@ -69,14 +77,14 @@ export default function FeedbackPage() {
     try {
       // Get reCAPTCHA token if available
       let captchaToken = '';
-      if (captchaReady && window.grecaptcha) {
+      if (RECAPTCHA_SITE_KEY && captchaReady && window.grecaptcha) {
         try {
           captchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {
             action: 'submit_feedback'
           });
         } catch (captchaError) {
           console.warn('CAPTCHA execution failed:', captchaError);
-          // Continue without CAPTCHA in development
+          // Continue without CAPTCHA - backend will handle validation
         }
       }
 
@@ -163,7 +171,7 @@ export default function FeedbackPage() {
         <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
           <div className="mb-6">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              We would Love Your Feedback
+              We would love Your Feedback
             </h2>
             <p className="text-gray-600">
               Help us improve the Chautauqua Calendar experience. Your comments and suggestions are valuable to us.
@@ -209,7 +217,7 @@ export default function FeedbackPage() {
             <div className="flex flex-col sm:flex-row gap-4">
               <button
                 type="submit"
-                disabled={isSubmitting || !captchaReady}
+                disabled={isSubmitting || (RECAPTCHA_SITE_KEY && !captchaReady)}
                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
@@ -223,17 +231,19 @@ export default function FeedbackPage() {
               </button>
             </div>
 
-            <div className="text-xs text-gray-500 mt-4">
-              This site is protected by reCAPTCHA and the Google{' '}
-              <a href="https://policies.google.com/privacy" className="text-blue-600 hover:underline">
-                Privacy Policy
-              </a>{' '}
-              and{' '}
-              <a href="https://policies.google.com/terms" className="text-blue-600 hover:underline">
-                Terms of Service
-              </a>{' '}
-              apply.
-            </div>
+            {RECAPTCHA_SITE_KEY && (
+              <div className="text-xs text-gray-500 mt-4">
+                This site is protected by reCAPTCHA and the Google{' '}
+                <a href="https://policies.google.com/privacy" className="text-blue-600 hover:underline">
+                  Privacy Policy
+                </a>{' '}
+                and{' '}
+                <a href="https://policies.google.com/terms" className="text-blue-600 hover:underline">
+                  Terms of Service
+                </a>{' '}
+                apply.
+              </div>
+            )}
           </form>
         </div>
       </main>

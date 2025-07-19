@@ -314,14 +314,19 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         return createResponse(400, { error: 'Feedback is required' });
       }
 
-      if (!captchaToken) {
+      // In development, allow missing CAPTCHA token for easier testing
+      if (!captchaToken && process.env.ENVIRONMENT !== 'prod') {
+        console.log('CAPTCHA token missing, but allowing in non-production environment');
+      } else if (!captchaToken) {
         return createResponse(400, { error: 'CAPTCHA verification is required' });
       }
 
-      // Verify CAPTCHA
-      const isCaptchaValid = await verifyCaptcha(captchaToken);
-      if (!isCaptchaValid) {
-        return createResponse(400, { error: 'CAPTCHA verification failed' });
+      // Verify CAPTCHA if token is provided
+      if (captchaToken) {
+        const isCaptchaValid = await verifyCaptcha(captchaToken);
+        if (!isCaptchaValid) {
+          return createResponse(400, { error: 'CAPTCHA verification failed' });
+        }
       }
 
       // Create feedback record
