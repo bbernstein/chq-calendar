@@ -66,7 +66,7 @@ export default function FeedbackPage() {
       return;
     }
 
-    if (RECAPTCHA_SITE_KEY && !captchaReady) {
+    if (!!RECAPTCHA_SITE_KEY && !captchaReady) {
       setError('reCAPTCHA is not ready. Please wait and try again.');
       return;
     }
@@ -77,7 +77,7 @@ export default function FeedbackPage() {
     try {
       // Get reCAPTCHA token if available
       let captchaToken = '';
-      if (RECAPTCHA_SITE_KEY && captchaReady && window.grecaptcha) {
+      if (!!RECAPTCHA_SITE_KEY && captchaReady && window.grecaptcha) {
         try {
           captchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {
             action: 'submit_feedback'
@@ -217,7 +217,7 @@ export default function FeedbackPage() {
             <div className="flex flex-col sm:flex-row gap-4">
               <button
                 type="submit"
-                disabled={isSubmitting || (RECAPTCHA_SITE_KEY && !captchaReady)}
+                disabled={isSubmitting || (!!RECAPTCHA_SITE_KEY && !captchaReady)}
                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
@@ -231,7 +231,7 @@ export default function FeedbackPage() {
               </button>
             </div>
 
-            {RECAPTCHA_SITE_KEY && (
+            {!!RECAPTCHA_SITE_KEY && (
               <div className="text-xs text-gray-500 mt-4">
                 This site is protected by reCAPTCHA and the Google{' '}
                 <a href="https://policies.google.com/privacy" className="text-blue-600 hover:underline">
