@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
+import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 interface FeedbackRecord {
   id: string;
@@ -16,17 +18,28 @@ interface FeedbackRecord {
 }
 
 export default function FeedbackManagementPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [feedbacks, setFeedbacks] = useState<FeedbackRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('all');
 
+  useEffect(() => {
+    if (status === 'loading') return;
+    
+    if (!session) {
+      router.push('/admin/login');
+      return;
+    }
+  }, [session, status, router]);
+
   const apiUrl = process.env.NODE_ENV === 'development'
     ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
     : '/api';
 
-  const fetchFeedbacks = async () => {
+  const fetchFeedbacks = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`${apiUrl}/admin/feedback`);
@@ -43,11 +56,13 @@ export default function FeedbackManagementPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiUrl]);
 
   useEffect(() => {
-    fetchFeedbacks();
-  }, []);
+    if (session) {
+      fetchFeedbacks();
+    }
+  }, [session, fetchFeedbacks]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -161,12 +176,21 @@ export default function FeedbackManagementPage() {
     return new Date(timestamp).toLocaleString();
   };
 
-  if (loading) {
+  if (status === 'loading' || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-lg text-gray-600">Loading feedback...</div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <div className="text-lg text-gray-600 mt-4">
+            {status === 'loading' ? 'Authenticating...' : 'Loading feedback...'}
+          </div>
+        </div>
       </div>
     );
+  }
+
+  if (!session) {
+    return null;
   }
 
   return (
@@ -187,8 +211,23 @@ export default function FeedbackManagementPage() {
                 Feedback Management
               </h1>
             </div>
-            <div className="text-sm text-gray-600">
-              {filteredFeedbacks.length} feedback item(s)
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-gray-600">
+                {filteredFeedbacks.length} feedback item(s)
+              </div>
+              {session?.user && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-600">
+                    {session.user.email}
+                  </span>
+                  <button
+                    onClick={() => signOut({ callbackUrl: '/admin/login' })}
+                    className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
+                  >
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

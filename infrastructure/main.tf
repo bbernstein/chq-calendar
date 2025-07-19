@@ -139,6 +139,34 @@ resource "aws_dynamodb_table" "sync_status" {
   }
 }
 
+# DynamoDB table for feedback
+resource "aws_dynamodb_table" "feedback" {
+  name         = "${var.app_name}-feedback"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  attribute {
+    name = "timestamp"
+    type = "N"
+  }
+
+  global_secondary_index {
+    name            = "TimestampIndex"
+    hash_key        = "timestamp"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    Name        = "${var.app_name}-feedback"
+    Environment = var.environment
+  }
+}
+
 # Route 53 Hosted Zone
 resource "aws_route53_zone" "main" {
   name = var.domain_name
@@ -374,7 +402,9 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
           aws_dynamodb_table.data_sources.arn,
           "${aws_dynamodb_table.data_sources.arn}/index/*",
           aws_dynamodb_table.sync_status.arn,
-          "${aws_dynamodb_table.sync_status.arn}/index/*"
+          "${aws_dynamodb_table.sync_status.arn}/index/*",
+          aws_dynamodb_table.feedback.arn,
+          "${aws_dynamodb_table.feedback.arn}/index/*"
         ]
       }
     ]
@@ -397,6 +427,7 @@ resource "aws_lambda_function" "calendar_generator" {
       EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
       DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
       SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
+      FEEDBACK_TABLE_NAME     = aws_dynamodb_table.feedback.name
       ENVIRONMENT             = var.environment
       USE_NEW_API             = "true"
     }

@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # DynamoDB Local
@@ -50,7 +50,12 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://localhost:3001
-      - INTERNAL_API_URL=http://backend:3001
+      - INTERNAL_API_URL=http://localhost:3001
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=d710e4787fd8a14aac2dcc7380db2df7
+      - GOOGLE_CLIENT_ID=176648627843-sidh0lo6t29t29tqr0tfa2lsbalesriq.apps.googleusercontent.com
+      - GOOGLE_CLIENT_SECRET=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
+      - ADMIN_EMAIL_WHITELIST=bernbernstein@gmail.com
     volumes:
       - ./frontend:/app
       - /app/node_modules
