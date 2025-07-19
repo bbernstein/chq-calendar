@@ -226,14 +226,14 @@ function HomeContent() {
     const now = new Date();
     const eventDate = new Date(dateString);
     const dayOfWeek = now.getDay();
-    
-    // Calculate end of this week (Saturday at 11:59:59 PM)
-    const saturday = new Date(now);
-    saturday.setDate(now.getDate() - dayOfWeek + 6);
-    saturday.setHours(23, 59, 59, 999);
-    
+
+    // Calculate 6 days in future
+    const nextWeek = new Date(now);
+    nextWeek.setDate(now.getDate() + 6);
+    nextWeek.setHours(23, 59, 59, 999);
+
     // Show events that start after the current time through the end of this week
-    return eventDate >= now && eventDate <= saturday;
+    return eventDate >= now && eventDate <= nextWeek;
   };
 
   const isThisWeek = (dateString: string) => {
