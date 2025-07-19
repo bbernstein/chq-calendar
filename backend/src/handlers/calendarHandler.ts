@@ -106,9 +106,17 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
 
     const result = await response.json() as { success: boolean; score?: number };
     
+    console.log(`reCAPTCHA verification result:`, {
+      success: result.success,
+      score: result.score,
+      action: result.action || 'submit_feedback'
+    });
+    
     // For reCAPTCHA v3, we should check the score as well
     if (result.score !== undefined) {
-      return result.success && result.score > 0.5; // Threshold for human vs bot
+      const isValid = result.success && result.score > 0.5; // Threshold for human vs bot
+      console.log(`reCAPTCHA score validation: ${result.score} > 0.5 = ${isValid}`);
+      return isValid;
     }
     
     return result.success;
