@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { EventsCalendarDataSyncService } from './services/eventsCalendarDataSyncService';
 import { SyncScheduler } from './services/syncScheduler';
 import ical from 'ical-generator';
@@ -40,6 +40,26 @@ const syncScheduler = new SyncScheduler(docClient);
 // Environment variables
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
 const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chq-calendar-data-sources';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
+
+interface FeedbackRequest {
+  feedback: string;
+  contactInfo?: string;
+  captchaToken?: string;
+}
+
+interface FeedbackRecord {
+  id: string;
+  feedback: string;
+  contactInfo?: string;
+  timestamp: number;
+  userAgent?: string;
+  ipAddress?: string;
+  createdAt: string;
+  archived?: boolean;
+  archivedAt?: string;
+}
 
 // Types
 interface Event {
@@ -619,6 +639,264 @@ app.get('/sync/status', async (req, res) => {
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
+});
+
+// Helper function to verify reCAPTCHA token (same as in Lambda handler)
+const verifyCaptcha = async (token: string): Promise<boolean> => {
+  if (!RECAPTCHA_SECRET_KEY) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      console.error('RECAPTCHA_SECRET_KEY not configured in production - rejecting request');
+      return false; // Fail closed in production
+    } else {
+      console.warn('RECAPTCHA_SECRET_KEY not configured, skipping CAPTCHA verification in non-production');
+      return true; // Allow in development/testing only
+    }
+  }
+
+  try {
+    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        secret: RECAPTCHA_SECRET_KEY,
+        response: token,
+      }),
+    });
+
+    const result = await response.json() as { success: boolean; score?: number; action?: string };
+    
+    console.log(`reCAPTCHA verification result:`, {
+      success: result.success,
+      score: result.score,
+      action: result.action || 'submit_feedback'
+    });
+    
+    // For reCAPTCHA v3, we should check the score as well
+    if (result.score !== undefined) {
+      const isValid = result.success && result.score > 0.5; // Threshold for human vs bot
+      console.log(`reCAPTCHA score validation: ${result.score} > 0.5 = ${isValid}`);
+      return isValid;
+    }
+    
+    return result.success;
+  } catch (error) {
+    console.error('Error verifying CAPTCHA:', error);
+    return false;
+  }
+};
+
+// Feedback submission endpoint
+app.post('/feedback', async (req, res) => {
+  try {
+    const { feedback, contactInfo, captchaToken }: FeedbackRequest = req.body;
+
+    // Validate input
+    if (!feedback || !feedback.trim()) {
+      return res.status(400).json({ error: 'Feedback is required' });
+    }
+
+    // In development, allow missing CAPTCHA token for easier testing
+    if (!captchaToken && process.env.NODE_ENV !== 'production') {
+      console.log('CAPTCHA token missing, but allowing in non-production environment');
+    } else if (!captchaToken) {
+      return res.status(400).json({ error: 'CAPTCHA verification is required' });
+    }
+
+    // Verify CAPTCHA if token is provided
+    if (captchaToken) {
+      const isCaptchaValid = await verifyCaptcha(captchaToken);
+      if (!isCaptchaValid) {
+        return res.status(400).json({ error: 'CAPTCHA verification failed' });
+      }
+    }
+
+    // Create feedback record
+    const feedbackRecord: FeedbackRecord = {
+      id: uuidv4(),
+      feedback: feedback.trim(),
+      contactInfo: contactInfo?.trim() || undefined,
+      timestamp: Date.now(),
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip || req.connection.remoteAddress,
+      createdAt: new Date().toISOString(),
+      archived: false,
+    };
+
+    // Store feedback in DynamoDB
+    await docClient.send(new PutCommand({
+      TableName: FEEDBACK_TABLE_NAME,
+      Item: feedbackRecord
+    }));
+
+    console.log('Feedback submitted successfully:', feedbackRecord.id);
+
+    res.status(201).json({
+      message: 'Feedback submitted successfully',
+      id: feedbackRecord.id
+    });
+  } catch (error) {
+    console.error('Error storing feedback:', error);
+    res.status(500).json({ error: 'Failed to store feedback' });
+  }
+});
+
+// Admin feedback management endpoints
+app.get('/admin/feedback', async (req, res) => {
+  try {
+    // List all feedback
+    const result = await docClient.send(new ScanCommand({
+      TableName: FEEDBACK_TABLE_NAME
+    }));
+
+    const feedbacks = (result.Items || []).map((item: any) => ({
+      ...item,
+      createdAt: new Date(item.timestamp).toISOString()
+    })).sort((a: any, b: any) => b.timestamp - a.timestamp);
+
+    res.json({ feedbacks });
+  } catch (error) {
+    console.error('Error fetching feedback:', error);
+    res.status(500).json({ error: 'Failed to fetch feedback' });
+  }
+});
+
+app.patch('/admin/feedback', async (req, res) => {
+  try {
+    // Update feedback (archive/unarchive)
+    const { id, archived } = req.body as { id: string; archived: boolean };
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Feedback ID is required' });
+    }
+
+    // Get the existing feedback record first
+    const getResult = await docClient.send(new GetCommand({
+      TableName: FEEDBACK_TABLE_NAME,
+      Key: { id: id }
+    }));
+
+    if (!getResult.Item) {
+      return res.status(404).json({ error: 'Feedback not found' });
+    }
+
+    const updateData: any = {
+      ...getResult.Item,
+      archived: archived,
+    };
+    
+    if (archived) {
+      updateData.archivedAt = new Date().toISOString();
+    } else {
+      delete updateData.archivedAt;
+    }
+
+    await docClient.send(new PutCommand({
+      TableName: FEEDBACK_TABLE_NAME,
+      Item: updateData
+    }));
+
+    res.json({ 
+      message: `Feedback ${archived ? 'archived' : 'unarchived'} successfully`,
+      id: id 
+    });
+  } catch (error) {
+    console.error('Error updating feedback:', error);
+    res.status(500).json({ error: 'Failed to update feedback' });
+  }
+});
+
+app.delete('/admin/feedback', async (req, res) => {
+  try {
+    // Delete feedback
+    const { id } = req.body as { id: string };
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Feedback ID is required' });
+    }
+
+    await docClient.send(new DeleteCommand({
+      TableName: FEEDBACK_TABLE_NAME,
+      Key: { id: id }
+    }));
+
+    res.json({ 
+      message: 'Feedback deleted successfully',
+      id: id 
+    });
+  } catch (error) {
+    console.error('Error deleting feedback:', error);
+    res.status(500).json({ error: 'Failed to delete feedback' });
+  }
+});
+
+// Bulk feedback operations
+app.patch('/admin/feedback/bulk', async (req, res) => {
+  try {
+    const { ids, action, archived } = req.body as { 
+      ids: string[]; 
+      action: 'archive' | 'delete'; 
+      archived?: boolean;
+    };
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Feedback IDs array is required' });
+    }
+
+    const results = [];
+    
+    for (const id of ids) {
+      try {
+        if (action === 'delete') {
+          await docClient.send(new DeleteCommand({
+            TableName: FEEDBACK_TABLE_NAME,
+            Key: { id: id }
+          }));
+          results.push({ id, action: 'deleted', success: true });
+        } else if (action === 'archive') {
+          // Get the existing feedback record first
+          const getResult = await docClient.send(new GetCommand({
+            TableName: FEEDBACK_TABLE_NAME,
+            Key: { id: id }
+          }));
+
+          if (getResult.Item) {
+            const updateData: any = {
+              ...getResult.Item,
+              archived: archived !== undefined ? archived : true,
+            };
+            
+            if (updateData.archived) {
+              updateData.archivedAt = new Date().toISOString();
+            } else {
+              delete updateData.archivedAt;
+            }
+
+            await docClient.send(new PutCommand({
+              TableName: FEEDBACK_TABLE_NAME,
+              Item: updateData
+            }));
+            results.push({ id, action: archived ? 'archived' : 'unarchived', success: true });
+          } else {
+            results.push({ id, action: 'not_found', success: false });
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing ${action} for feedback ${id}:`, error);
+        results.push({ id, action: 'error', success: false, error: (error as Error).message });
+      }
+    }
+
+    res.json({ 
+      message: `Bulk ${action} completed`,
+      results: results
+    });
+  } catch (error) {
+    console.error('Error in bulk feedback operation:', error);
+    res.status(500).json({ error: `Failed to ${req.body.action} feedback` });
   }
 });
 

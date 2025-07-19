@@ -33,6 +33,20 @@ aws dynamodb create-table $ENDPOINT $REGION \
   --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
   || echo "Data sources table might already exist"
 
+# Create feedback table
+echo "📋 Creating feedback table..."
+aws dynamodb create-table $ENDPOINT $REGION \
+  --table-name chq-calendar-feedback \
+  --attribute-definitions \
+    AttributeName=id,AttributeType=S \
+    AttributeName=timestamp,AttributeType=N \
+  --key-schema \
+    AttributeName=id,KeyType=HASH \
+  --global-secondary-indexes \
+    IndexName=TimestampIndex,KeySchema='[{AttributeName=timestamp,KeyType=HASH}]',Projection='{ProjectionType=ALL}',ProvisionedThroughput='{ReadCapacityUnits=5,WriteCapacityUnits=5}' \
+  --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+  || echo "Feedback table might already exist"
+
 echo "✅ Table creation completed!"
 
 # List tables to verify

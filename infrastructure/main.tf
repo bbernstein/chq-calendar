@@ -431,6 +431,169 @@ resource "aws_api_gateway_integration" "calendar_integration" {
   uri                     = aws_lambda_function.calendar_generator.invoke_arn
 }
 
+# Feedback API Gateway resources
+resource "aws_api_gateway_resource" "feedback_resource" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+  path_part   = "feedback"
+}
+
+resource "aws_api_gateway_method" "feedback_post" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.feedback_resource.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "feedback_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.feedback_resource.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "feedback_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.feedback_resource.id
+  http_method = aws_api_gateway_method.feedback_post.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "feedback_options_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.feedback_resource.id
+  http_method = aws_api_gateway_method.feedback_options.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+# Admin feedback API Gateway resources
+resource "aws_api_gateway_resource" "admin_resource" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+  path_part   = "admin"
+}
+
+resource "aws_api_gateway_resource" "admin_feedback_resource" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.admin_resource.id
+  path_part   = "feedback"
+}
+
+resource "aws_api_gateway_method" "admin_feedback_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "admin_feedback_patch" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method   = "PATCH"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "admin_feedback_delete" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method   = "DELETE"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "admin_feedback_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_feedback_get_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method = aws_api_gateway_method.admin_feedback_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "admin_feedback_patch_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method = aws_api_gateway_method.admin_feedback_patch.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "admin_feedback_delete_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method = aws_api_gateway_method.admin_feedback_delete.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "admin_feedback_options_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.admin_feedback_resource.id
+  http_method = aws_api_gateway_method.admin_feedback_options.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+# Bulk feedback operations
+resource "aws_api_gateway_resource" "admin_feedback_bulk_resource" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.admin_feedback_resource.id
+  path_part   = "bulk"
+}
+
+resource "aws_api_gateway_method" "admin_feedback_bulk_patch" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.admin_feedback_bulk_resource.id
+  http_method   = "PATCH"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "admin_feedback_bulk_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.admin_feedback_bulk_resource.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_feedback_bulk_patch_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.admin_feedback_bulk_resource.id
+  http_method = aws_api_gateway_method.admin_feedback_bulk_patch.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "admin_feedback_bulk_options_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.admin_feedback_bulk_resource.id
+  http_method = aws_api_gateway_method.admin_feedback_bulk_options.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
 resource "aws_lambda_permission" "api_gateway_lambda" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"

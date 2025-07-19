@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import ical from 'ical-generator';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO } from 'date-fns';
@@ -12,6 +12,8 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 // Environment variables
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
 const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chq-calendar-data-sources';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
 // Types
 interface Event {
@@ -45,6 +47,24 @@ interface CalendarRequest {
   timezone?: string;
 }
 
+interface FeedbackRequest {
+  feedback: string;
+  contactInfo?: string;
+  captchaToken?: string;
+}
+
+interface FeedbackRecord {
+  id: string;
+  feedback: string;
+  contactInfo?: string;
+  timestamp: number;
+  userAgent?: string;
+  ipAddress?: string;
+  createdAt: string;
+  archived?: boolean;
+  archivedAt?: string;
+}
+
 // Helper function to create HTTP response
 const createResponse = (statusCode: number, body: any, headers: Record<string, string> = {}): APIGatewayProxyResult => {
   return {
@@ -58,6 +78,53 @@ const createResponse = (statusCode: number, body: any, headers: Record<string, s
     },
     body: typeof body === 'string' ? body : JSON.stringify(body)
   };
+};
+
+// Helper function to verify reCAPTCHA token
+const verifyCaptcha = async (token: string): Promise<boolean> => {
+  if (!RECAPTCHA_SECRET_KEY) {
+    const isProduction = process.env.ENVIRONMENT === 'prod';
+    if (isProduction) {
+      console.error('RECAPTCHA_SECRET_KEY not configured in production - rejecting request');
+      return false; // Fail closed in production
+    } else {
+      console.warn('RECAPTCHA_SECRET_KEY not configured, skipping CAPTCHA verification in non-production');
+      return true; // Allow in development/testing only
+    }
+  }
+
+  try {
+    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        secret: RECAPTCHA_SECRET_KEY,
+        response: token,
+      }),
+    });
+
+    const result = await response.json() as { success: boolean; score?: number };
+    
+    console.log(`reCAPTCHA verification result:`, {
+      success: result.success,
+      score: result.score,
+      action: result.action || 'submit_feedback'
+    });
+    
+    // For reCAPTCHA v3, we should check the score as well
+    if (result.score !== undefined) {
+      const isValid = result.success && result.score > 0.5; // Threshold for human vs bot
+      console.log(`reCAPTCHA score validation: ${result.score} > 0.5 = ${isValid}`);
+      return isValid;
+    }
+    
+    return result.success;
+  } catch (error) {
+    console.error('Error verifying CAPTCHA:', error);
+    return false;
+  }
 };
 
 // Helper function to transform database events to the expected Event format
@@ -366,6 +433,201 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         message: 'Sample data created successfully',
         events: createdEvents
       });
+    }
+
+    // Handle feedback submission
+    if (httpMethod === 'POST' && path === '/feedback') {
+      const { feedback, contactInfo, captchaToken }: FeedbackRequest = requestBody as FeedbackRequest;
+
+      // Validate input
+      if (!feedback || !feedback.trim()) {
+        return createResponse(400, { error: 'Feedback is required' });
+      }
+
+      // In development, allow missing CAPTCHA token for easier testing
+      if (!captchaToken && process.env.ENVIRONMENT !== 'prod') {
+        console.log('CAPTCHA token missing, but allowing in non-production environment');
+      } else if (!captchaToken) {
+        return createResponse(400, { error: 'CAPTCHA verification is required' });
+      }
+
+      // Verify CAPTCHA if token is provided
+      if (captchaToken) {
+        const isCaptchaValid = await verifyCaptcha(captchaToken);
+        if (!isCaptchaValid) {
+          return createResponse(400, { error: 'CAPTCHA verification failed' });
+        }
+      }
+
+      // Create feedback record
+      const feedbackRecord: FeedbackRecord = {
+        id: uuidv4(),
+        feedback: feedback.trim(),
+        contactInfo: contactInfo?.trim() || undefined,
+        timestamp: Date.now(),
+        userAgent: event.headers['User-Agent'] || event.headers['user-agent'],
+        ipAddress: event.requestContext?.identity?.sourceIp,
+        createdAt: new Date().toISOString(),
+        archived: false,
+      };
+
+      try {
+        // Store feedback in DynamoDB
+        await docClient.send(new PutCommand({
+          TableName: FEEDBACK_TABLE_NAME,
+          Item: feedbackRecord
+        }));
+
+        console.log('Feedback submitted successfully:', feedbackRecord.id);
+
+        return createResponse(201, {
+          message: 'Feedback submitted successfully',
+          id: feedbackRecord.id
+        });
+      } catch (error) {
+        console.error('Error storing feedback:', error);
+        return createResponse(500, { error: 'Failed to store feedback' });
+      }
+    }
+
+    // Handle feedback management (list, archive, delete)
+    if (path === '/admin/feedback') {
+      // TODO: Add authentication check here
+      
+      if (httpMethod === 'GET') {
+        // List all feedback
+        try {
+          const result = await docClient.send(new ScanCommand({
+            TableName: FEEDBACK_TABLE_NAME,
+            IndexName: 'TimestampIndex'
+          }));
+
+          const feedbacks = (result.Items || []).map(item => ({
+            ...item,
+            createdAt: new Date(item.timestamp).toISOString()
+          })).sort((a, b) => b.timestamp - a.timestamp);
+
+          return createResponse(200, { feedbacks });
+        } catch (error) {
+          console.error('Error fetching feedback:', error);
+          return createResponse(500, { error: 'Failed to fetch feedback' });
+        }
+      }
+
+      if (httpMethod === 'PATCH') {
+        // Update feedback (archive/unarchive)
+        const { id, archived } = requestBody as { id: string; archived: boolean };
+        
+        if (!id) {
+          return createResponse(400, { error: 'Feedback ID is required' });
+        }
+
+        try {
+          const updateData: any = {
+            archived: archived,
+          };
+          
+          if (archived) {
+            updateData.archivedAt = new Date().toISOString();
+          }
+
+          await docClient.send(new PutCommand({
+            TableName: FEEDBACK_TABLE_NAME,
+            Item: {
+              ...updateData,
+              id: id,
+            },
+            ConditionExpression: 'attribute_exists(id)'
+          }));
+
+          return createResponse(200, { 
+            message: `Feedback ${archived ? 'archived' : 'unarchived'} successfully`,
+            id: id 
+          });
+        } catch (error) {
+          console.error('Error updating feedback:', error);
+          return createResponse(500, { error: 'Failed to update feedback' });
+        }
+      }
+
+      if (httpMethod === 'DELETE') {
+        // Delete feedback
+        const { id } = requestBody as { id: string };
+        
+        if (!id) {
+          return createResponse(400, { error: 'Feedback ID is required' });
+        }
+
+        try {
+          await docClient.send(new DeleteCommand({
+            TableName: FEEDBACK_TABLE_NAME,
+            Key: { id: id }
+          }));
+
+          return createResponse(200, { 
+            message: 'Feedback deleted successfully',
+            id: id 
+          });
+        } catch (error) {
+          console.error('Error deleting feedback:', error);
+          return createResponse(500, { error: 'Failed to delete feedback' });
+        }
+      }
+    }
+
+    // Handle bulk feedback operations
+    if (httpMethod === 'PATCH' && path === '/admin/feedback/bulk') {
+      // TODO: Add authentication check here
+      
+      const { ids, action, archived } = requestBody as { 
+        ids: string[]; 
+        action: 'archive' | 'delete'; 
+        archived?: boolean;
+      };
+      
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return createResponse(400, { error: 'Feedback IDs array is required' });
+      }
+
+      try {
+        const results = [];
+        
+        for (const id of ids) {
+          if (action === 'delete') {
+            await docClient.send(new DeleteCommand({
+              TableName: FEEDBACK_TABLE_NAME,
+              Key: { id: id }
+            }));
+            results.push({ id, action: 'deleted' });
+          } else if (action === 'archive') {
+            const updateData: any = {
+              archived: archived !== undefined ? archived : true,
+            };
+            
+            if (updateData.archived) {
+              updateData.archivedAt = new Date().toISOString();
+            }
+
+            await docClient.send(new PutCommand({
+              TableName: FEEDBACK_TABLE_NAME,
+              Item: {
+                ...updateData,
+                id: id,
+              },
+              ConditionExpression: 'attribute_exists(id)'
+            }));
+            results.push({ id, action: archived ? 'archived' : 'unarchived' });
+          }
+        }
+
+        return createResponse(200, { 
+          message: `Bulk ${action} completed successfully`,
+          results: results
+        });
+      } catch (error) {
+        console.error('Error in bulk feedback operation:', error);
+        return createResponse(500, { error: `Failed to ${action} feedback` });
+      }
     }
 
     // Method not allowed
