@@ -99,7 +99,7 @@ jobs:
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
         
         # Update environment variables
-        echo '{"Variables":{"NODE_ENV":"production","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","RECAPTCHA_SECRET_KEY":"${{ secrets.RECAPTCHA_SECRET_KEY }}","USE_NEW_API":"true"}}' > env.json
+        echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","RECAPTCHA_SECRET_KEY":"${{ secrets.RECAPTCHA_SECRET_KEY }}","USE_NEW_API":"true"}}' > env.json
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
           --environment file://env.json
