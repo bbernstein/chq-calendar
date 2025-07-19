@@ -4,6 +4,7 @@ import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryComma
 import ical from 'ical-generator';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO } from 'date-fns';
+import fetch from 'node-fetch';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
@@ -317,6 +318,60 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       } catch (error) {
         console.error('Error parsing request body:', error);
         return createResponse(400, { error: 'Invalid JSON in request body' });
+      }
+    }
+
+    // Handle feedback submission
+    if (httpMethod === 'POST' && path === '/feedback') {
+      const { feedback, contactInfo, captchaToken }: FeedbackRequest = requestBody as FeedbackRequest;
+
+      // Validate input
+      if (!feedback || !feedback.trim()) {
+        return createResponse(400, { error: 'Feedback is required' });
+      }
+
+      // In development, allow missing CAPTCHA token for easier testing
+      if (!captchaToken && process.env.ENVIRONMENT !== 'prod') {
+        console.log('CAPTCHA token missing, but allowing in non-production environment');
+      } else if (!captchaToken) {
+        return createResponse(400, { error: 'CAPTCHA verification is required' });
+      }
+
+      // Verify CAPTCHA if token is provided
+      if (captchaToken) {
+        const isCaptchaValid = await verifyCaptcha(captchaToken);
+        if (!isCaptchaValid) {
+          return createResponse(400, { error: 'CAPTCHA verification failed' });
+        }
+      }
+
+      // Create feedback record
+      const feedbackRecord: FeedbackRecord = {
+        id: uuidv4(),
+        feedback: feedback.trim(),
+        contactInfo: contactInfo?.trim() || undefined,
+        timestamp: Date.now(),
+        userAgent: event.headers['User-Agent'] || event.headers['user-agent'],
+        ipAddress: event.requestContext?.identity?.sourceIp,
+        createdAt: new Date().toISOString(),
+      };
+
+      try {
+        // Store feedback in DynamoDB
+        await docClient.send(new PutCommand({
+          TableName: FEEDBACK_TABLE_NAME,
+          Item: feedbackRecord
+        }));
+
+        console.log('Feedback submitted successfully:', feedbackRecord.id);
+
+        return createResponse(201, {
+          message: 'Feedback submitted successfully',
+          id: feedbackRecord.id
+        });
+      } catch (error) {
+        console.error('Error storing feedback:', error);
+        return createResponse(500, { error: 'Failed to store feedback' });
       }
     }
 

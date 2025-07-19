@@ -37,6 +37,19 @@ variable "domain_name" {
   default     = "chqcal.org"
 }
 
+variable "recaptcha_secret_key" {
+  description = "Google reCAPTCHA secret key for server-side verification"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "recaptcha_site_key" {
+  description = "Google reCAPTCHA site key for client-side verification (public key)"
+  type        = string
+  default     = ""
+}
+
 # DynamoDB Tables
 resource "aws_dynamodb_table" "events" {
   name         = "${var.app_name}-events"
@@ -139,7 +152,7 @@ resource "aws_dynamodb_table" "sync_status" {
   }
 }
 
-# DynamoDB table for feedback
+# DynamoDB table for user feedback
 resource "aws_dynamodb_table" "feedback" {
   name         = "${var.app_name}-feedback"
   billing_mode = "PAY_PER_REQUEST"
@@ -430,6 +443,7 @@ resource "aws_lambda_function" "calendar_generator" {
       FEEDBACK_TABLE_NAME     = aws_dynamodb_table.feedback.name
       ENVIRONMENT             = var.environment
       USE_NEW_API             = "true"
+      RECAPTCHA_SECRET_KEY    = var.recaptcha_secret_key
     }
   }
 }
@@ -452,6 +466,13 @@ resource "aws_api_gateway_method" "calendar_post" {
   authorization = "NONE"
 }
 
+resource "aws_api_gateway_method" "calendar_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.calendar_resource.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
 resource "aws_api_gateway_integration" "calendar_integration" {
   rest_api_id = aws_api_gateway_rest_api.main.id
   resource_id = aws_api_gateway_resource.calendar_resource.id
@@ -462,6 +483,15 @@ resource "aws_api_gateway_integration" "calendar_integration" {
   uri                     = aws_lambda_function.calendar_generator.invoke_arn
 }
 
+resource "aws_api_gateway_integration" "calendar_options_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.calendar_resource.id
+  http_method = aws_api_gateway_method.calendar_options.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
 # Feedback API Gateway resources
 resource "aws_api_gateway_resource" "feedback_resource" {
   rest_api_id = aws_api_gateway_rest_api.main.id
@@ -636,6 +666,9 @@ resource "aws_lambda_permission" "api_gateway_lambda" {
 resource "aws_api_gateway_deployment" "calendar_deployment" {
   depends_on = [
     aws_api_gateway_integration.calendar_integration,
+    aws_api_gateway_integration.calendar_options_integration,
+    aws_api_gateway_integration.feedback_integration,
+    aws_api_gateway_integration.feedback_options_integration,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.main.id
@@ -644,7 +677,14 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.calendar_resource.id,
       aws_api_gateway_method.calendar_post.id,
+      aws_api_gateway_method.calendar_options.id,
       aws_api_gateway_integration.calendar_integration.id,
+      aws_api_gateway_integration.calendar_options_integration.id,
+      aws_api_gateway_resource.feedback_resource.id,
+      aws_api_gateway_method.feedback_post.id,
+      aws_api_gateway_method.feedback_options.id,
+      aws_api_gateway_integration.feedback_integration.id,
+      aws_api_gateway_integration.feedback_options_integration.id,
       aws_api_gateway_resource.sync.id,
       aws_api_gateway_method.sync_post.id,
       aws_api_gateway_integration.sync_post.id,

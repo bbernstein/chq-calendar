@@ -74,8 +74,10 @@ resource "aws_iam_policy" "github_actions" {
         Resource = [
           aws_dynamodb_table.events.arn,
           aws_dynamodb_table.data_sources.arn,
+          aws_dynamodb_table.feedback.arn,
           "${aws_dynamodb_table.events.arn}/index/*",
-          "${aws_dynamodb_table.data_sources.arn}/index/*"
+          "${aws_dynamodb_table.data_sources.arn}/index/*",
+          "${aws_dynamodb_table.feedback.arn}/index/*"
         ]
       },
       {
@@ -138,6 +140,9 @@ output "github_secrets" {
     CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.frontend_distribution.id
     EVENTS_TABLE_NAME         = aws_dynamodb_table.events.name
     DATA_SOURCES_TABLE_NAME   = aws_dynamodb_table.data_sources.name
+    FEEDBACK_TABLE_NAME       = aws_dynamodb_table.feedback.name
+    RECAPTCHA_SECRET_KEY      = var.recaptcha_secret_key
+    NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
   }
   sensitive = true
 }
@@ -158,6 +163,9 @@ output "github_secrets_setup_commands" {
     gh secret set CLOUDFRONT_DISTRIBUTION_ID --body "${aws_cloudfront_distribution.frontend_distribution.id}"
     gh secret set EVENTS_TABLE_NAME --body "${aws_dynamodb_table.events.name}"
     gh secret set DATA_SOURCES_TABLE_NAME --body "${aws_dynamodb_table.data_sources.name}"
+    gh secret set FEEDBACK_TABLE_NAME --body "${aws_dynamodb_table.feedback.name}"
+    gh secret set RECAPTCHA_SECRET_KEY --body "${var.recaptcha_secret_key}"
+    gh secret set NEXT_PUBLIC_RECAPTCHA_SITE_KEY --body "${var.recaptcha_site_key}"
   EOT
 }
 
@@ -173,6 +181,9 @@ resource "local_file" "github_secrets_json" {
     CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.frontend_distribution.id
     EVENTS_TABLE_NAME         = aws_dynamodb_table.events.name
     DATA_SOURCES_TABLE_NAME   = aws_dynamodb_table.data_sources.name
+    FEEDBACK_TABLE_NAME       = aws_dynamodb_table.feedback.name
+    RECAPTCHA_SECRET_KEY      = var.recaptcha_secret_key
+    NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
   })
   
   # Make sure this file is not committed to git
