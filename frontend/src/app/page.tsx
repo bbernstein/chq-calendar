@@ -225,7 +225,6 @@ function HomeContent() {
   const isNext = (dateString: string) => {
     const now = new Date();
     const eventDate = new Date(dateString);
-    const dayOfWeek = now.getDay();
 
     // Calculate 6 days in future
     const nextWeek = new Date(now);
