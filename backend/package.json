@@ -4,7 +4,8 @@
   "description": "Lambda functions for Chautauqua calendar generation",
   "main": "index.js",
   "scripts": {
-    "build": "npm run test && npx esbuild src/handlers/*.ts --bundle --platform=node --target=node24 --outdir=dist --external:aws-sdk",
+    "build": "npm run test && npm run build:dev",
+    "build:dev": "npx esbuild src/handlers/*.ts --bundle --platform=node --target=node24 --outdir=dist --external:aws-sdk && npx esbuild src/services/*.ts --bundle --platform=node --target=node18 --outdir=dist/services --format=cjs --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:axios --external:cheerio --external:date-fns && npx esbuild src/server.ts --bundle --platform=node --target=node18 --outfile=dist/server.js --format=cjs --external:aws-sdk",
     "build:prod": "npx esbuild src/handlers/calendarHandler.ts --bundle --platform=node --target=node24 --outfile=dist/calendarHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:ical-generator --external:date-fns --external:cheerio --external:axios --external:uuid --external:node-fetch",
     "dev": "node dist/server.js",
     "deploy": "npm run build && zip -r lambda-function.zip dist/ package.json && aws lambda update-function-code --function-name chautauqua-calendar-generator --zip-file fileb://lambda-function.zip",
