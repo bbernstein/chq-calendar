@@ -82,8 +82,14 @@ const createResponse = (statusCode: number, body: any, headers: Record<string, s
 // Helper function to verify reCAPTCHA token
 const verifyCaptcha = async (token: string): Promise<boolean> => {
   if (!RECAPTCHA_SECRET_KEY) {
-    console.warn('RECAPTCHA_SECRET_KEY not configured, skipping CAPTCHA verification');
-    return true; // Allow in development/testing
+    const isProduction = process.env.ENVIRONMENT === 'prod';
+    if (isProduction) {
+      console.error('RECAPTCHA_SECRET_KEY not configured in production - rejecting request');
+      return false; // Fail closed in production
+    } else {
+      console.warn('RECAPTCHA_SECRET_KEY not configured, skipping CAPTCHA verification in non-production');
+      return true; // Allow in development/testing only
+    }
   }
 
   try {

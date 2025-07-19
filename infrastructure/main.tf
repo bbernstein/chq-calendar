@@ -37,6 +37,19 @@ variable "domain_name" {
   default     = "chqcal.org"
 }
 
+variable "recaptcha_secret_key" {
+  description = "Google reCAPTCHA secret key for server-side verification"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "recaptcha_site_key" {
+  description = "Google reCAPTCHA site key for client-side verification (public key)"
+  type        = string
+  default     = ""
+}
+
 # DynamoDB Tables
 resource "aws_dynamodb_table" "events" {
   name         = "${var.app_name}-events"
@@ -430,6 +443,7 @@ resource "aws_lambda_function" "calendar_generator" {
       FEEDBACK_TABLE_NAME     = aws_dynamodb_table.feedback.name
       ENVIRONMENT             = var.environment
       USE_NEW_API             = "true"
+      RECAPTCHA_SECRET_KEY    = var.recaptcha_secret_key
     }
   }
 }
