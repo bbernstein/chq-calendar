@@ -1,0 +1,29 @@
+{
+  "name": "Chautauqua Calendar Generator",
+  "short_name": "CHQ Calendar",
+  "description": "Dynamic calendar generator for Chautauqua Institution 2025 season",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#5B7F95",
+  "theme_color": "#5B7F95",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "32x32",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/chq-calendar-icon-256.svg",
+      "sizes": "256x256",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/chq-calendar-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
