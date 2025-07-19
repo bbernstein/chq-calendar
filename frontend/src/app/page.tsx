@@ -704,6 +704,13 @@ function HomeContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-2 sm:py-4">
             <div className="flex items-center">
+              <Image
+                src="/chq-calendar-icon-256.svg"
+                alt="Chautauqua Calendar Logo"
+                width={40}
+                height={40}
+                className="w-8 h-8 sm:w-10 sm:h-10 mr-2 sm:mr-3"
+              />
               <h1 className="text-lg sm:text-2xl font-bold text-gray-900">
                 Chautauqua Calendar
               </h1>
@@ -711,8 +718,16 @@ function HomeContent() {
                 2025 Season
               </span>
             </div>
-            <div className="text-xs sm:text-sm text-gray-600 font-medium">
-              {filterEvents(events).length > 0 && `Events (${filterEvents(events).length})`}
+            <div className="flex items-center gap-2 sm:gap-4">
+              <button
+                onClick={() => window.open('/feedback', '_blank')}
+                className="px-2 py-1 sm:px-3 sm:py-1 text-xs sm:text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Feedback
+              </button>
+              <div className="text-xs sm:text-sm text-gray-600 font-medium">
+                {filterEvents(events).length > 0 && `Events (${filterEvents(events).length})`}
+              </div>
             </div>
           </div>
         </div>

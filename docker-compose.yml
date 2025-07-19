@@ -26,6 +26,7 @@ services:
       - DYNAMODB_REGION=us-east-1
       - EVENTS_TABLE_NAME=chq-calendar-events
       - DATA_SOURCES_TABLE_NAME=chq-calendar-data-sources
+      - FEEDBACK_TABLE_NAME=chq-calendar-feedback
       - AWS_ACCESS_KEY_ID=dummy
       - AWS_SECRET_ACCESS_KEY=dummy
       - USE_NEW_API=true

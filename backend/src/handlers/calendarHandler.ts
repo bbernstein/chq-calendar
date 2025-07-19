@@ -4,6 +4,7 @@ import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryComma
 import ical from 'ical-generator';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO } from 'date-fns';
+import fetch from 'node-fetch';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
@@ -12,6 +13,8 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 // Environment variables
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
 const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chq-calendar-data-sources';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
 // Types
 interface Event {
@@ -45,6 +48,22 @@ interface CalendarRequest {
   timezone?: string;
 }
 
+interface FeedbackRequest {
+  feedback: string;
+  contactInfo?: string;
+  captchaToken: string;
+}
+
+interface FeedbackRecord {
+  id: string;
+  feedback: string;
+  contactInfo?: string;
+  timestamp: number;
+  userAgent?: string;
+  ipAddress?: string;
+  createdAt: string;
+}
+
 // Helper function to create HTTP response
 const createResponse = (statusCode: number, body: any, headers: Record<string, string> = {}): APIGatewayProxyResult => {
   return {
@@ -58,6 +77,39 @@ const createResponse = (statusCode: number, body: any, headers: Record<string, s
     },
     body: typeof body === 'string' ? body : JSON.stringify(body)
   };
+};
+
+// Helper function to verify reCAPTCHA token
+const verifyCaptcha = async (token: string): Promise<boolean> => {
+  if (!RECAPTCHA_SECRET_KEY) {
+    console.warn('RECAPTCHA_SECRET_KEY not configured, skipping CAPTCHA verification');
+    return true; // Allow in development/testing
+  }
+
+  try {
+    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        secret: RECAPTCHA_SECRET_KEY,
+        response: token,
+      }),
+    });
+
+    const result = await response.json() as { success: boolean; score?: number };
+    
+    // For reCAPTCHA v3, we should check the score as well
+    if (result.score !== undefined) {
+      return result.success && result.score > 0.5; // Threshold for human vs bot
+    }
+    
+    return result.success;
+  } catch (error) {
+    console.error('Error verifying CAPTCHA:', error);
+    return false;
+  }
 };
 
 // Helper function to transform database events to the expected Event format
@@ -250,6 +302,55 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       } catch (error) {
         console.error('Error parsing request body:', error);
         return createResponse(400, { error: 'Invalid JSON in request body' });
+      }
+    }
+
+    // Handle feedback submission
+    if (httpMethod === 'POST' && path === '/feedback') {
+      const { feedback, contactInfo, captchaToken }: FeedbackRequest = requestBody as FeedbackRequest;
+
+      // Validate input
+      if (!feedback || !feedback.trim()) {
+        return createResponse(400, { error: 'Feedback is required' });
+      }
+
+      if (!captchaToken) {
+        return createResponse(400, { error: 'CAPTCHA verification is required' });
+      }
+
+      // Verify CAPTCHA
+      const isCaptchaValid = await verifyCaptcha(captchaToken);
+      if (!isCaptchaValid) {
+        return createResponse(400, { error: 'CAPTCHA verification failed' });
+      }
+
+      // Create feedback record
+      const feedbackRecord: FeedbackRecord = {
+        id: uuidv4(),
+        feedback: feedback.trim(),
+        contactInfo: contactInfo?.trim() || undefined,
+        timestamp: Date.now(),
+        userAgent: event.headers['User-Agent'] || event.headers['user-agent'],
+        ipAddress: event.requestContext?.identity?.sourceIp,
+        createdAt: new Date().toISOString(),
+      };
+
+      try {
+        // Store feedback in DynamoDB
+        await docClient.send(new PutCommand({
+          TableName: FEEDBACK_TABLE_NAME,
+          Item: feedbackRecord
+        }));
+
+        console.log('Feedback submitted successfully:', feedbackRecord.id);
+
+        return createResponse(201, {
+          message: 'Feedback submitted successfully',
+          id: feedbackRecord.id
+        });
+      } catch (error) {
+        console.error('Error storing feedback:', error);
+        return createResponse(500, { error: 'Failed to store feedback' });
       }
     }
 
