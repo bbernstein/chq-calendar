@@ -48,61 +48,102 @@ jobs:
         NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
         NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
     
-    - name: Deploy backend to Lambda
+    - name: Deploy calendar Lambda function
       working-directory: ./backend
       run: |
         # Clean any previous build artifacts
-        rm -rf node_modules lambda-function.zip
+        rm -rf lambda-function.zip
         
-        # Install production dependencies for Lambda package
-        npm ci --omit=dev
-        
-        # Debug: Check current directory and npm workspace
-        echo "Current directory:"
-        pwd
-        echo "Files in current directory:"
-        ls -la
-        echo "Check if node_modules exists in current directory:"
-        ls -la node_modules/ 2>/dev/null || echo "No node_modules in current directory"
-        echo "Check if node_modules exists in parent directory:"
-        ls -la ../node_modules/ 2>/dev/null || echo "No node_modules in parent directory"
-        echo "Check for ical-generator in parent node_modules:"
-        ls -la ../node_modules/ | grep ical || echo "ical-generator not found in parent"
-        
-        # Build the Lambda function
+        # Build the Lambda functions
         npm run build:prod
         
-        # Create the package with node_modules from parent if needed
-        if [ -d "node_modules" ]; then
-          echo "Using local node_modules"
-          zip -r lambda-function.zip dist/ package.json node_modules/
-        elif [ -d "../node_modules" ]; then
-          echo "Using parent node_modules"
-          zip -r lambda-function.zip dist/ package.json ../node_modules/
-        else
-          echo "No node_modules found, creating zip without dependencies"
-          zip -r lambda-function.zip dist/ package.json
-        fi
+        # Install only the required production dependencies (external from esbuild)
+        npm ci --omit=dev
         
-        # Debug: Check zip contents
-        echo "Checking zip contents:"
-        unzip -l lambda-function.zip | head -20
+        # Create a minimal package with only required dependencies
+        mkdir -p package_temp/node_modules
         
-        # Deploy to AWS Lambda
+        # Copy only the dependencies that are externalized in esbuild
+        REQUIRED_DEPS="@aws-sdk ical-generator date-fns cheerio axios uuid node-fetch"
+        for dep in $REQUIRED_DEPS; do
+          if [ -d "node_modules/$dep" ]; then
+            cp -r "node_modules/$dep" package_temp/node_modules/
+          elif [ -d "../node_modules/$dep" ]; then
+            cp -r "../node_modules/$dep" package_temp/node_modules/
+          fi
+        done
+        
+        # Create package for calendar handler
+        cp package.json package_temp/
+        mkdir -p package_temp/dist
+        cp dist/calendarHandler.js package_temp/dist/
+        
+        cd package_temp
+        zip -r ../lambda-calendar.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "*/docs/*"
+        cd ..
+        
+        # Deploy calendar Lambda
         aws lambda update-function-code \
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-          --zip-file fileb://lambda-function.zip
+          --zip-file fileb://lambda-calendar.zip
         
         # Wait for the code update to complete
-        echo "Waiting for Lambda function to finish updating..."
+        echo "Waiting for calendar Lambda function to finish updating..."
         aws lambda wait function-updated \
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
         
-        # Update environment variables
+        # Update environment variables for calendar Lambda
         echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","RECAPTCHA_SECRET_KEY":"${{ secrets.RECAPTCHA_SECRET_KEY }}","USE_NEW_API":"true"}}' > env.json
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
           --environment file://env.json
+        
+        # Clean up
+        rm -rf package_temp lambda-calendar.zip
+    
+    - name: Deploy admin Lambda function
+      working-directory: ./backend
+      run: |
+        # Create a minimal package for admin handler with required dependencies
+        mkdir -p package_temp/node_modules
+        
+        # Copy only the dependencies that are externalized in esbuild for admin handler
+        REQUIRED_DEPS="@aws-sdk googleapis jsonwebtoken node-fetch uuid"
+        for dep in $REQUIRED_DEPS; do
+          if [ -d "node_modules/$dep" ]; then
+            cp -r "node_modules/$dep" package_temp/node_modules/
+          elif [ -d "../node_modules/$dep" ]; then
+            cp -r "../node_modules/$dep" package_temp/node_modules/
+          fi
+        done
+        
+        # Create package for admin handler
+        cp package.json package_temp/
+        mkdir -p package_temp/dist
+        cp dist/adminHandler.js package_temp/dist/
+        
+        cd package_temp
+        zip -r ../lambda-admin.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "*/docs/*"
+        cd ..
+        
+        # Deploy admin Lambda (assuming the admin function name is stored in secrets)
+        aws lambda update-function-code \
+          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
+          --zip-file fileb://lambda-admin.zip
+        
+        # Wait for the code update to complete
+        echo "Waiting for admin Lambda function to finish updating..."
+        aws lambda wait function-updated \
+          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }}
+        
+        # Update environment variables for admin Lambda
+        echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","NEXTAUTH_SECRET":"${{ secrets.NEXTAUTH_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
+        aws lambda update-function-configuration \
+          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
+          --environment file://admin-env.json
+        
+        # Clean up
+        rm -rf package_temp lambda-admin.zip admin-env.json
     
     - name: Deploy frontend to S3 and CloudFront
       working-directory: ./frontend
