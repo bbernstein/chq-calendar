@@ -1,13 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Remove export output for development to enable server-side features
-  ...(process.env.NODE_ENV === 'production' ? { output: 'export' } : {}),
+  // Disable static export when authentication is enabled (NextAuth requires server-side functionality)
+  // For production deployment, we'll need to deploy to a serverless platform or move auth to Lambda
   trailingSlash: true,
   images: {
     unoptimized: true
   },
-  assetPrefix: process.env.NODE_ENV === 'production' ? 'https://chqcal.org' : '',
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
   },
