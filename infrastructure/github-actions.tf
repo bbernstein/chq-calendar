@@ -33,7 +33,10 @@ resource "aws_iam_policy" "github_actions" {
           "lambda:GetFunction",
           "lambda:GetFunctionConfiguration"
         ]
-        Resource = aws_lambda_function.calendar_generator.arn
+        Resource = [
+          aws_lambda_function.calendar_generator.arn,
+          aws_lambda_function.admin_handler.arn
+        ]
       },
       {
         Sid    = "S3FrontendDeployment"
@@ -136,6 +139,7 @@ output "github_secrets" {
     AWS_SECRET_ACCESS_KEY          = aws_iam_access_key.github_actions.secret
     AWS_REGION                     = var.aws_region
     LAMBDA_FUNCTION_NAME           = aws_lambda_function.calendar_generator.function_name
+    ADMIN_LAMBDA_FUNCTION_NAME     = aws_lambda_function.admin_handler.function_name
     S3_BUCKET_NAME                 = aws_s3_bucket.frontend_bucket.id
     CLOUDFRONT_DISTRIBUTION_ID     = aws_cloudfront_distribution.frontend_distribution.id
     EVENTS_TABLE_NAME              = aws_dynamodb_table.events.name
@@ -163,6 +167,7 @@ output "github_secrets_setup_commands" {
     gh secret set AWS_SECRET_ACCESS_KEY --body "${aws_iam_access_key.github_actions.secret}"
     gh secret set AWS_REGION --body "${var.aws_region}"
     gh secret set LAMBDA_FUNCTION_NAME --body "${aws_lambda_function.calendar_generator.function_name}"
+    gh secret set ADMIN_LAMBDA_FUNCTION_NAME --body "${aws_lambda_function.admin_handler.function_name}"
     gh secret set S3_BUCKET_NAME --body "${aws_s3_bucket.frontend_bucket.id}"
     gh secret set CLOUDFRONT_DISTRIBUTION_ID --body "${aws_cloudfront_distribution.frontend_distribution.id}"
     gh secret set EVENTS_TABLE_NAME --body "${aws_dynamodb_table.events.name}"
@@ -185,6 +190,7 @@ resource "local_file" "github_secrets_json" {
     AWS_SECRET_ACCESS_KEY          = aws_iam_access_key.github_actions.secret
     AWS_REGION                     = var.aws_region
     LAMBDA_FUNCTION_NAME           = aws_lambda_function.calendar_generator.function_name
+    ADMIN_LAMBDA_FUNCTION_NAME     = aws_lambda_function.admin_handler.function_name
     S3_BUCKET_NAME                 = aws_s3_bucket.frontend_bucket.id
     CLOUDFRONT_DISTRIBUTION_ID     = aws_cloudfront_distribution.frontend_distribution.id
     EVENTS_TABLE_NAME              = aws_dynamodb_table.events.name
