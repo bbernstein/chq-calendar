@@ -21,42 +21,35 @@ npm ci --omit=dev
 # Create package directory
 mkdir -p package_temp/node_modules
 
-# Check where node_modules is located
-if [ -d "node_modules" ]; then
-  NODE_MODULES_PATH="node_modules"
-  echo "📂 Found node_modules in current directory"
-elif [ -d "../node_modules" ]; then
-  NODE_MODULES_PATH="../node_modules"
-  echo "📂 Found node_modules in parent directory"
-else
-  echo "❌ Error: node_modules not found!"
-  ls -la
-  exit 1
-fi
+# Install all externalized dependencies with their transitive dependencies
+echo "📦 Installing externalized dependencies with all transitive dependencies..."
+cd package_temp
 
-# Copy all AWS SDK and Smithy dependencies
-echo "📂 Copying AWS SDK and Smithy dependencies from $NODE_MODULES_PATH..."
-find "$NODE_MODULES_PATH" -maxdepth 1 -name "@aws-sdk*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @aws-sdk packages found"
-find "$NODE_MODULES_PATH" -maxdepth 1 -name "@smithy*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @smithy packages found"
+# Create a minimal package.json with only externalized dependencies
+cat > package.json << 'EOF'
+{
+  "name": "lambda-calendar",
+  "version": "1.0.0",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "*",
+    "@aws-sdk/lib-dynamodb": "*",
+    "ical-generator": "*",
+    "date-fns": "*",
+    "cheerio": "*",
+    "axios": "*",
+    "uuid": "*",
+    "node-fetch": "*"
+  }
+}
+EOF
 
-# Copy other externalized dependencies
-echo "📂 Copying other dependencies..."
-OTHER_DEPS="ical-generator date-fns cheerio axios uuid node-fetch"
-for dep in $OTHER_DEPS; do
-  if [ -d "$NODE_MODULES_PATH/$dep" ]; then
-    echo "  - Copying $dep"
-    cp -r "$NODE_MODULES_PATH/$dep" package_temp/node_modules/
-  else
-    echo "  ⚠️  Warning: $dep not found"
-  fi
-done
+# Install all dependencies (this will get all transitive deps)
+npm install --omit=dev --no-package-lock
 
-# Show what we copied
-echo "📦 Copied dependencies:"
-ls package_temp/node_modules/ | head -10
+cd ..
 
-# Copy package.json and handler
-cp package.json package_temp/
+# Copy the original package.json back and handler
+cp package.json package_temp/package.json
 mkdir -p package_temp/dist
 cp dist/calendarHandler.js package_temp/dist/
 
