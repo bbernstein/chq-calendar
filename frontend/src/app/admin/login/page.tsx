@@ -57,11 +57,11 @@ function LoginContent() {
   }, [router, searchParams])
 
   const handleGoogleLogin = () => {
-    // In development, we now use the production Lambda endpoints
-    // Local Express server has been removed in favor of serverless architecture
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+    // OAuth endpoints use the base domain without /api prefix
+    // Auth paths are routed directly to admin Lambda via CloudFront
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'https://www.chqcal.org';
     
-    window.location.href = `${apiUrl}/auth/google`;
+    window.location.href = `${baseUrl}/auth/google`;
   }
 
   return (
