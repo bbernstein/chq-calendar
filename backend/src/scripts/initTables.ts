@@ -10,8 +10,8 @@ const dynamoClient = new DynamoDBClient({
   }
 });
 
-const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
-const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chq-calendar-data-sources';
+const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
+const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chautauqua-calendar-data-sources';
 
 async function tableExists(tableName: string): Promise<boolean> {
   try {

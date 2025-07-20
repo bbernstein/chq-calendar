@@ -11,9 +11,9 @@ const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Environment variables
-const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
-const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chq-calendar-data-sources';
-const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
+const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
+const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chautauqua-calendar-data-sources';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
 // Types

@@ -23,7 +23,7 @@ const ENVIRONMENTS = {
   production: {
     dynamodb: {
       region: 'us-east-1',
-      tableName: 'chq-calendar-events'
+      tableName: 'chautauqua-calendar-events'  // Updated to match Terraform
     },
     api: {
       url: 'https://www.chq.org/wp-json/tribe/events/v1'

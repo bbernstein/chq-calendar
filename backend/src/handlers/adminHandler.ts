@@ -9,7 +9,7 @@ const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Environment variables
-const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-secret-key';
