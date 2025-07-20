@@ -9,11 +9,11 @@ const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Environment variables
-const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-secret-key';
-const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST || 'bernbernstein@gmail.com';
+const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST;
 const FRONTEND_URL = process.env.NODE_ENV === 'production' ? 'https://chqcal.org' : 'http://localhost:3000';
 
 // Google OAuth2 Client Setup
@@ -93,7 +93,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
   try {
     const path = event.path;
     const httpMethod = event.httpMethod;
-    
+
     // Handle CORS preflight requests
     if (httpMethod === 'OPTIONS') {
       return createResponse(200, {});
@@ -200,7 +200,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
         // Redirect back to frontend with token
         const redirectUrl = `${FRONTEND_URL}/admin/login?token=${token}&user=${encodeURIComponent(JSON.stringify({ email, name }))}`;
-        
+
         return {
           statusCode: 302,
           headers: {
@@ -251,7 +251,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       if (httpMethod === 'PATCH') {
         // Update feedback (archive/unarchive)
         const { id, archived } = requestBody as { id: string; archived: boolean };
-        
+
         if (!id) {
           return createResponse(400, { error: 'Feedback ID is required' });
         }
@@ -271,7 +271,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
             ...getResult.Item,
             archived: archived,
           };
-          
+
           if (archived) {
             updateData.archivedAt = new Date().toISOString();
           } else {
@@ -283,9 +283,9 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
             Item: updateData
           }));
 
-          return createResponse(200, { 
+          return createResponse(200, {
             message: `Feedback ${archived ? 'archived' : 'unarchived'} successfully`,
-            id: id 
+            id: id
           });
         } catch (error) {
           console.error('Error updating feedback:', error);
@@ -296,7 +296,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       if (httpMethod === 'DELETE') {
         // Delete feedback
         const { id } = requestBody as { id: string };
-        
+
         if (!id) {
           return createResponse(400, { error: 'Feedback ID is required' });
         }
@@ -307,9 +307,9 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
             Key: { id: id }
           }));
 
-          return createResponse(200, { 
+          return createResponse(200, {
             message: 'Feedback deleted successfully',
-            id: id 
+            id: id
           });
         } catch (error) {
           console.error('Error deleting feedback:', error);
@@ -320,18 +320,18 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
     // Bulk feedback operations
     if (httpMethod === 'PATCH' && path === '/admin/feedback/bulk') {
-      const { ids, action, archived } = requestBody as { 
-        ids: string[]; 
-        action: 'archive' | 'delete'; 
+      const { ids, action, archived } = requestBody as {
+        ids: string[];
+        action: 'archive' | 'delete';
         archived?: boolean;
       };
-      
+
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
         return createResponse(400, { error: 'Feedback IDs array is required' });
       }
 
       const results = [];
-      
+
       for (const id of ids) {
         try {
           if (action === 'delete') {
@@ -352,7 +352,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
                 ...getResult.Item,
                 archived: archived !== undefined ? archived : true,
               };
-              
+
               if (updateData.archived) {
                 updateData.archivedAt = new Date().toISOString();
               } else {
@@ -374,7 +374,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         }
       }
 
-      return createResponse(200, { 
+      return createResponse(200, {
         message: `Bulk ${action} completed`,
         results: results
       });

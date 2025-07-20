@@ -70,7 +70,7 @@ export default function FeedbackManagementPage() {
   const fetchFeedbacks = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await authenticatedFetch(`${apiUrl}/admin/feedback`);
+      const response = await authenticatedFetch(`${apiUrl}/admin/api/feedback`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch feedback');
@@ -111,7 +111,7 @@ export default function FeedbackManagementPage() {
 
   const handleArchive = async (id: string, archived: boolean) => {
     try {
-      const response = await authenticatedFetch(`${apiUrl}/admin/feedback`, {
+      const response = await authenticatedFetch(`${apiUrl}/admin/api/feedback`, {
         method: 'PATCH',
         body: JSON.stringify({ id, archived }),
       });
@@ -135,7 +135,7 @@ export default function FeedbackManagementPage() {
     }
 
     try {
-      const response = await authenticatedFetch(`${apiUrl}/admin/feedback`, {
+      const response = await authenticatedFetch(`${apiUrl}/admin/api/feedback`, {
         method: 'DELETE',
         body: JSON.stringify({ id }),
       });
@@ -167,7 +167,7 @@ export default function FeedbackManagementPage() {
     }
 
     try {
-      const response = await authenticatedFetch(`${apiUrl}/admin/feedback/bulk`, {
+      const response = await authenticatedFetch(`${apiUrl}/admin/api/feedback/bulk`, {
         method: 'PATCH',
         body: JSON.stringify({ ids: selectedIds, action, archived }),
       });

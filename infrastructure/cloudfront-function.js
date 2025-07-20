@@ -6,6 +6,10 @@ function handler(event) {
     if (uri.startsWith('/api/')) {
         request.uri = uri.substring(4); // Remove '/api'
     }
+    // Remove /admin/api prefix for admin API Gateway requests  
+    else if (uri.startsWith('/admin/api/')) {
+        request.uri = uri.substring(10); // Remove '/admin/api'
+    }
     
     return request;
 }

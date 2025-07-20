@@ -397,7 +397,7 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/admin/*"
+    path_pattern           = "/admin/api/*"
     allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
     cached_methods         = ["GET", "HEAD", "OPTIONS"]
     target_origin_id       = "ADMIN-API-${aws_api_gateway_rest_api.admin.id}"
