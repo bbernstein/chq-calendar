@@ -20,7 +20,7 @@ const FRONTEND_URL = process.env.NODE_ENV === 'production' ? 'https://chqcal.org
 const oauth2Client = new google.auth.OAuth2(
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
-  `${process.env.NODE_ENV === 'production' ? process.env.ADMIN_API_URL : 'http://localhost:3001'}/auth/google/callback`
+  `${process.env.NODE_ENV === 'production' ? 'https://www.chqcal.org' : 'http://localhost:3001'}/auth/google/callback`
 );
 
 // Types
