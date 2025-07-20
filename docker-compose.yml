@@ -11,28 +11,8 @@ services:
     networks:
       - chq-calendar-network
 
-  # Backend API (Express server instead of Lambda)
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
-    container_name: chq-calendar-backend
-    ports:
-      - "3001:3001"
-    env_file:
-      - .env.local
-    environment:
-      # Override specific values for Docker networking
-      - DYNAMODB_ENDPOINT=http://dynamodb:8000
-      # All other values (including secrets) come from .env.local
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    depends_on:
-      - dynamodb
-    networks:
-      - chq-calendar-network
-    command: npm run dev
+  # Note: Backend now runs as Lambda functions in AWS
+  # For local development, use Lambda simulators or deploy to AWS for testing
 
   # Frontend (Next.js)
   frontend:
@@ -44,19 +24,14 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:3001
-      - INTERNAL_API_URL=http://localhost:3001
-      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - ADMIN_EMAIL_WHITELIST=${ADMIN_EMAIL_WHITELIST:-bernbernstein@gmail.com}
+      # In development, admin features will require deploying Lambda functions to AWS
+      - NEXT_PUBLIC_API_URL=https://chqcal.org
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
     depends_on:
-      - backend
+      - dynamodb
     networks:
       - chq-calendar-network
     command: npm run dev

@@ -57,10 +57,9 @@ function LoginContent() {
   }, [router, searchParams])
 
   const handleGoogleLogin = () => {
-    // Redirect to backend OAuth endpoint
-    const apiUrl = process.env.NODE_ENV === 'development'
-      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
-      : '/api';
+    // In development, we now use the production Lambda endpoints
+    // Local Express server has been removed in favor of serverless architecture
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
     
     window.location.href = `${apiUrl}/auth/google`;
   }

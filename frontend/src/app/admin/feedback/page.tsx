@@ -39,10 +39,9 @@ export default function FeedbackManagementPage() {
     setUser(JSON.parse(userStr));
   }, [router]);
 
-  // Admin endpoints always use the Express server (never Lambda)
-  // This ensures proper OAuth authentication is enforced
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 
-    (process.env.NODE_ENV === 'development' ? 'http://localhost:3001' : 'https://admin-api.chqcal.org');
+  // Admin endpoints now use CloudFront paths that route to admin Lambda
+  // Local Express server has been removed - all environments use Lambda via CloudFront
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://chqcal.org';
 
   // Helper function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {

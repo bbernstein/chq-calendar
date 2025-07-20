@@ -324,6 +324,20 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     }
   }
 
+  # Admin API Gateway origin for OAuth and admin endpoints
+  origin {
+    domain_name = "${aws_api_gateway_rest_api.admin.id}.execute-api.${var.aws_region}.amazonaws.com"
+    origin_id   = "ADMIN-API-${aws_api_gateway_rest_api.admin.id}"
+    origin_path = "/${aws_api_gateway_stage.admin_stage.stage_name}"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
   enabled             = true
   default_root_object = "index.html"
   aliases             = [var.domain_name, "www.${var.domain_name}"]
@@ -334,6 +348,59 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
     cached_methods         = ["GET", "HEAD", "OPTIONS"]
     target_origin_id       = "API-${aws_api_gateway_rest_api.main.id}"
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Authorization", "Content-Type"]
+      cookies {
+        forward = "none"
+      }
+    }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.api_rewrite.arn
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  # Admin API behavior for /auth/* and /admin/* paths
+  ordered_cache_behavior {
+    path_pattern           = "/auth/*"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    target_origin_id       = "ADMIN-API-${aws_api_gateway_rest_api.admin.id}"
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Authorization", "Content-Type"]
+      cookies {
+        forward = "none"
+      }
+    }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.api_rewrite.arn
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/admin/*"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    target_origin_id       = "ADMIN-API-${aws_api_gateway_rest_api.admin.id}"
     compress               = true
     viewer_protocol_policy = "redirect-to-https"
 
@@ -448,7 +515,7 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
 }
 
 
-# Lambda Function
+# Lambda Function for Calendar/Public endpoints
 resource "aws_lambda_function" "calendar_generator" {
   filename      = "../backend/lambda-function.zip"
   function_name = "${var.app_name}-generator"
@@ -467,18 +534,41 @@ resource "aws_lambda_function" "calendar_generator" {
       ENVIRONMENT             = var.environment
       USE_NEW_API             = "true"
       RECAPTCHA_SECRET_KEY    = var.recaptcha_secret_key
-      NEXTAUTH_URL            = "https://${var.domain_name}"
-      NEXTAUTH_SECRET         = var.nextauth_secret
-      GOOGLE_CLIENT_ID        = var.google_client_id
-      GOOGLE_CLIENT_SECRET    = var.google_client_secret
-      ADMIN_EMAIL_WHITELIST   = var.admin_email_whitelist
     }
   }
 }
 
-# API Gateway
+# Lambda Function for Admin/OAuth endpoints
+resource "aws_lambda_function" "admin_handler" {
+  filename      = "../backend/lambda-function.zip"
+  function_name = "${var.app_name}-admin"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "dist/adminHandler.handler"
+  runtime       = "nodejs18.x"
+  timeout       = 30
+  memory_size   = 256
+
+  environment {
+    variables = {
+      FEEDBACK_TABLE_NAME     = aws_dynamodb_table.feedback.name
+      ENVIRONMENT             = var.environment
+      NEXTAUTH_SECRET         = var.nextauth_secret
+      GOOGLE_CLIENT_ID        = var.google_client_id
+      GOOGLE_CLIENT_SECRET    = var.google_client_secret
+      ADMIN_EMAIL_WHITELIST   = var.admin_email_whitelist
+      ADMIN_API_URL           = "https://admin-api.${var.domain_name}"
+    }
+  }
+}
+
+# API Gateway for Calendar/Public endpoints
 resource "aws_api_gateway_rest_api" "main" {
   name = "${var.app_name}-api"
+}
+
+# API Gateway for Admin endpoints
+resource "aws_api_gateway_rest_api" "admin" {
+  name = "${var.app_name}-admin-api"
 }
 
 resource "aws_api_gateway_resource" "calendar_resource" {
@@ -561,126 +651,184 @@ resource "aws_api_gateway_integration" "feedback_options_integration" {
   uri                     = aws_lambda_function.calendar_generator.invoke_arn
 }
 
-# Admin feedback API Gateway resources
+# Admin API Gateway resources
+# OAuth endpoints
+resource "aws_api_gateway_resource" "auth_resource" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  parent_id   = aws_api_gateway_rest_api.admin.root_resource_id
+  path_part   = "auth"
+}
+
+resource "aws_api_gateway_resource" "auth_google_resource" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  parent_id   = aws_api_gateway_resource.auth_resource.id
+  path_part   = "google"
+}
+
+resource "aws_api_gateway_resource" "auth_google_callback_resource" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  parent_id   = aws_api_gateway_resource.auth_google_resource.id
+  path_part   = "callback"
+}
+
+# Admin feedback endpoints
 resource "aws_api_gateway_resource" "admin_resource" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  parent_id   = aws_api_gateway_rest_api.admin.root_resource_id
   path_part   = "admin"
 }
 
 resource "aws_api_gateway_resource" "admin_feedback_resource" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   parent_id   = aws_api_gateway_resource.admin_resource.id
   path_part   = "feedback"
 }
 
+# OAuth methods
+resource "aws_api_gateway_method" "auth_google_get" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.auth_google_resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "auth_google_callback_get" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.auth_google_callback_resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+# Admin feedback methods
 resource "aws_api_gateway_method" "admin_feedback_get" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
   resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
   http_method   = "GET"
   authorization = "NONE"
 }
 
 resource "aws_api_gateway_method" "admin_feedback_patch" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
   resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
   http_method   = "PATCH"
   authorization = "NONE"
 }
 
 resource "aws_api_gateway_method" "admin_feedback_delete" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
   resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
   http_method   = "DELETE"
   authorization = "NONE"
 }
 
 resource "aws_api_gateway_method" "admin_feedback_options" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
   resource_id   = aws_api_gateway_resource.admin_feedback_resource.id
   http_method   = "OPTIONS"
   authorization = "NONE"
 }
 
+# OAuth integrations
+resource "aws_api_gateway_integration" "auth_google_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.auth_google_resource.id
+  http_method = aws_api_gateway_method.auth_google_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "auth_google_callback_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.auth_google_callback_resource.id
+  http_method = aws_api_gateway_method.auth_google_callback_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+# Admin feedback integrations
 resource "aws_api_gateway_integration" "admin_feedback_get_integration" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   resource_id = aws_api_gateway_resource.admin_feedback_resource.id
   http_method = aws_api_gateway_method.admin_feedback_get.http_method
 
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 resource "aws_api_gateway_integration" "admin_feedback_patch_integration" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   resource_id = aws_api_gateway_resource.admin_feedback_resource.id
   http_method = aws_api_gateway_method.admin_feedback_patch.http_method
 
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 resource "aws_api_gateway_integration" "admin_feedback_delete_integration" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   resource_id = aws_api_gateway_resource.admin_feedback_resource.id
   http_method = aws_api_gateway_method.admin_feedback_delete.http_method
 
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 resource "aws_api_gateway_integration" "admin_feedback_options_integration" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   resource_id = aws_api_gateway_resource.admin_feedback_resource.id
   http_method = aws_api_gateway_method.admin_feedback_options.http_method
 
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 # Bulk feedback operations
 resource "aws_api_gateway_resource" "admin_feedback_bulk_resource" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   parent_id   = aws_api_gateway_resource.admin_feedback_resource.id
   path_part   = "bulk"
 }
 
 resource "aws_api_gateway_method" "admin_feedback_bulk_patch" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
   resource_id   = aws_api_gateway_resource.admin_feedback_bulk_resource.id
   http_method   = "PATCH"
   authorization = "NONE"
 }
 
 resource "aws_api_gateway_method" "admin_feedback_bulk_options" {
-  rest_api_id   = aws_api_gateway_rest_api.main.id
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
   resource_id   = aws_api_gateway_resource.admin_feedback_bulk_resource.id
   http_method   = "OPTIONS"
   authorization = "NONE"
 }
 
 resource "aws_api_gateway_integration" "admin_feedback_bulk_patch_integration" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   resource_id = aws_api_gateway_resource.admin_feedback_bulk_resource.id
   http_method = aws_api_gateway_method.admin_feedback_bulk_patch.http_method
 
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 resource "aws_api_gateway_integration" "admin_feedback_bulk_options_integration" {
-  rest_api_id = aws_api_gateway_rest_api.main.id
+  rest_api_id = aws_api_gateway_rest_api.admin.id
   resource_id = aws_api_gateway_resource.admin_feedback_bulk_resource.id
   http_method = aws_api_gateway_method.admin_feedback_bulk_options.http_method
 
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
 resource "aws_lambda_permission" "api_gateway_lambda" {
@@ -689,6 +837,14 @@ resource "aws_lambda_permission" "api_gateway_lambda" {
   function_name = aws_lambda_function.calendar_generator.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "admin_api_gateway_lambda" {
+  statement_id  = "AllowExecutionFromAdminAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.admin_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.admin.execution_arn}/*/*"
 }
 
 resource "aws_api_gateway_deployment" "calendar_deployment" {
@@ -713,18 +869,52 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
       aws_api_gateway_method.feedback_options.id,
       aws_api_gateway_integration.feedback_integration.id,
       aws_api_gateway_integration.feedback_options_integration.id,
-      aws_api_gateway_resource.sync.id,
-      aws_api_gateway_method.sync_post.id,
-      aws_api_gateway_integration.sync_post.id,
-      aws_api_gateway_method.sync_list_get.id,
-      aws_api_gateway_integration.sync_list_get.id,
-      aws_api_gateway_resource.sync_health.id,
-      aws_api_gateway_method.sync_health_get.id,
-      aws_api_gateway_integration.sync_health_get.id,
-      aws_api_gateway_resource.sync_status.id,
-      aws_api_gateway_resource.sync_status_id.id,
-      aws_api_gateway_method.sync_status_get.id,
-      aws_api_gateway_integration.sync_status_get.id,
+    ]))
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_api_gateway_deployment" "admin_deployment" {
+  depends_on = [
+    aws_api_gateway_integration.auth_google_integration,
+    aws_api_gateway_integration.auth_google_callback_integration,
+    aws_api_gateway_integration.admin_feedback_get_integration,
+    aws_api_gateway_integration.admin_feedback_patch_integration,
+    aws_api_gateway_integration.admin_feedback_delete_integration,
+    aws_api_gateway_integration.admin_feedback_options_integration,
+    aws_api_gateway_integration.admin_feedback_bulk_patch_integration,
+    aws_api_gateway_integration.admin_feedback_bulk_options_integration,
+  ]
+
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+
+  triggers = {
+    redeployment = sha1(jsonencode([
+      aws_api_gateway_resource.auth_resource.id,
+      aws_api_gateway_resource.auth_google_resource.id,
+      aws_api_gateway_resource.auth_google_callback_resource.id,
+      aws_api_gateway_method.auth_google_get.id,
+      aws_api_gateway_method.auth_google_callback_get.id,
+      aws_api_gateway_integration.auth_google_integration.id,
+      aws_api_gateway_integration.auth_google_callback_integration.id,
+      aws_api_gateway_resource.admin_resource.id,
+      aws_api_gateway_resource.admin_feedback_resource.id,
+      aws_api_gateway_method.admin_feedback_get.id,
+      aws_api_gateway_method.admin_feedback_patch.id,
+      aws_api_gateway_method.admin_feedback_delete.id,
+      aws_api_gateway_method.admin_feedback_options.id,
+      aws_api_gateway_integration.admin_feedback_get_integration.id,
+      aws_api_gateway_integration.admin_feedback_patch_integration.id,
+      aws_api_gateway_integration.admin_feedback_delete_integration.id,
+      aws_api_gateway_integration.admin_feedback_options_integration.id,
+      aws_api_gateway_resource.admin_feedback_bulk_resource.id,
+      aws_api_gateway_method.admin_feedback_bulk_patch.id,
+      aws_api_gateway_method.admin_feedback_bulk_options.id,
+      aws_api_gateway_integration.admin_feedback_bulk_patch_integration.id,
+      aws_api_gateway_integration.admin_feedback_bulk_options_integration.id,
     ]))
   }
 
@@ -736,6 +926,12 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
 resource "aws_api_gateway_stage" "calendar_stage" {
   deployment_id = aws_api_gateway_deployment.calendar_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.main.id
+  stage_name    = var.environment
+}
+
+resource "aws_api_gateway_stage" "admin_stage" {
+  deployment_id = aws_api_gateway_deployment.admin_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
   stage_name    = var.environment
 }
 
@@ -788,6 +984,10 @@ output "name_servers" {
 
 output "api_url" {
   value = "https://${aws_api_gateway_rest_api.main.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.calendar_stage.stage_name}"
+}
+
+output "admin_api_url" {
+  value = "https://${aws_api_gateway_rest_api.admin.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.admin_stage.stage_name}"
 }
 
 output "s3_bucket_name" {
