@@ -1,28 +1,68 @@
 'use client'
 
-import { signIn, useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState, Suspense } from 'react'
 
-export default function LoginPage() {
-  const { data: session, status } = useSession()
+function LoginContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    if (session) {
+    // Handle OAuth callback
+    const token = searchParams.get('token')
+    const userParam = searchParams.get('user')
+    const errorParam = searchParams.get('error')
+
+    if (token && userParam) {
+      try {
+        const user = JSON.parse(decodeURIComponent(userParam))
+        localStorage.setItem('chq_auth_token', token)
+        localStorage.setItem('chq_auth_user', JSON.stringify(user))
+        router.push('/admin/feedback')
+        return
+      } catch (err) {
+        console.error('Error parsing user data:', err)
+        setError('Invalid authentication data')
+      }
+    }
+
+    if (errorParam) {
+      switch (errorParam) {
+        case 'oauth_error':
+          setError('OAuth authentication failed')
+          break
+        case 'no_code':
+          setError('No authorization code received')
+          break
+        case 'no_email':
+          setError('Unable to retrieve email from Google')
+          break
+        case 'unauthorized':
+          setError('Your email is not authorized to access this system')
+          break
+        case 'callback_error':
+          setError('Authentication callback failed')
+          break
+        default:
+          setError('Authentication error occurred')
+      }
+    }
+
+    // Check if already authenticated
+    const existingToken = localStorage.getItem('chq_auth_token')
+    if (existingToken && !token) {
       router.push('/admin/feedback')
     }
-  }, [session, router])
+  }, [router, searchParams])
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
-    )
+  const handleGoogleLogin = () => {
+    // Redirect to backend OAuth endpoint
+    const apiUrl = process.env.NODE_ENV === 'development'
+      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
+      : '/api';
+    
+    window.location.href = `${apiUrl}/auth/google`;
   }
 
   return (
@@ -36,9 +76,25 @@ export default function LoginPage() {
             Sign in to access the feedback management system
           </p>
         </div>
+        
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-md p-4">
+            <div className="flex">
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">
+                  Authentication Error
+                </h3>
+                <div className="mt-2 text-sm text-red-700">
+                  {error}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div>
           <button
-            onClick={() => signIn('google', { callbackUrl: '/admin/feedback' })}
+            onClick={handleGoogleLogin}
             className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
@@ -64,5 +120,20 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   )
 }

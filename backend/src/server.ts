@@ -8,6 +8,8 @@ import ical from 'ical-generator';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO } from 'date-fns';
 import fetch from 'node-fetch';
+import jwt from 'jsonwebtoken';
+import { google } from 'googleapis';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -43,6 +45,41 @@ const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events'
 const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chq-calendar-data-sources';
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
+
+// OAuth Environment Variables
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-secret-key';
+const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST || 'bernbernstein@gmail.com';
+const FRONTEND_URL = process.env.NODE_ENV === 'production' ? 'https://chqcal.org' : 'http://localhost:3000';
+
+// Google OAuth2 Client Setup
+const oauth2Client = new google.auth.OAuth2(
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  `${process.env.NODE_ENV === 'production' ? 'https://jqa9l42eoh.execute-api.us-east-1.amazonaws.com/prod' : 'http://localhost:3001'}/auth/google/callback`
+);
+
+// Helper function to generate JWT token
+const generateJWT = (user: { email: string; name: string }) => {
+  return jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
+};
+
+// Helper function to verify JWT token
+const verifyJWT = (token: string): { email: string; name: string } | null => {
+  try {
+    return jwt.verify(token, JWT_SECRET) as { email: string; name: string };
+  } catch (error) {
+    return null;
+  }
+};
+
+// Helper function to check if email is authorized
+const isAuthorizedEmail = (email: string): boolean => {
+  const whitelist = ADMIN_EMAIL_WHITELIST.split(',').map(e => e.trim());
+  return whitelist.includes(email);
+};
+
 // Types
 interface Event {
   id: string;
@@ -340,6 +377,73 @@ const generateICalendar = (events: Event[]): string => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// OAuth endpoints
+app.get('/auth/google', (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return res.status(500).json({ error: 'Google OAuth not configured' });
+  }
+
+  const scopes = [
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile'
+  ];
+
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: scopes,
+    state: Math.random().toString(36).substring(7) // Simple CSRF protection
+  });
+
+  res.redirect(url);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  try {
+    const { code, error } = req.query;
+
+    if (error) {
+      console.error('OAuth error:', error);
+      return res.redirect(`${FRONTEND_URL}/admin/login?error=oauth_error`);
+    }
+
+    if (!code) {
+      return res.redirect(`${FRONTEND_URL}/admin/login?error=no_code`);
+    }
+
+    // Exchange code for tokens
+    const { tokens } = await oauth2Client.getToken(code as string);
+    oauth2Client.setCredentials(tokens);
+
+    // Get user info
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const userInfo = await oauth2.userinfo.get();
+
+    const email = userInfo.data.email;
+    const name = userInfo.data.name || email;
+
+    if (!email) {
+      return res.redirect(`${FRONTEND_URL}/admin/login?error=no_email`);
+    }
+
+    // Check if user is authorized
+    if (!isAuthorizedEmail(email)) {
+      console.log(`Unauthorized login attempt from: ${email}`);
+      return res.redirect(`${FRONTEND_URL}/admin/login?error=unauthorized`);
+    }
+
+    // Generate JWT token
+    const token = generateJWT({ email, name });
+
+    // Redirect back to frontend with token
+    const redirectUrl = `${FRONTEND_URL}/admin/login?token=${token}&user=${encodeURIComponent(JSON.stringify({ email, name }))}`;
+    res.redirect(redirectUrl);
+
+  } catch (error) {
+    console.error('OAuth callback error:', error);
+    res.redirect(`${FRONTEND_URL}/admin/login?error=callback_error`);
+  }
 });
 
 // Calendar generation endpoint
@@ -745,9 +849,30 @@ app.get('/sync/status', async (req, res) => {
 });
 
 
+// Authentication middleware
+const authenticateJWT = (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  const user = verifyJWT(token);
+  if (!user) {
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+
+  if (!isAuthorizedEmail(user.email)) {
+    return res.status(403).json({ error: 'Unauthorized email' });
+  }
+
+  req.user = user;
+  next();
+};
 
 // Admin feedback management endpoints
-app.get('/admin/feedback', async (req, res) => {
+app.get('/admin/feedback', authenticateJWT, async (req, res) => {
   try {
     // List all feedback
     const result = await docClient.send(new ScanCommand({
@@ -766,7 +891,7 @@ app.get('/admin/feedback', async (req, res) => {
   }
 });
 
-app.patch('/admin/feedback', async (req, res) => {
+app.patch('/admin/feedback', authenticateJWT, async (req, res) => {
   try {
     // Update feedback (archive/unarchive)
     const { id, archived } = req.body as { id: string; archived: boolean };
@@ -811,7 +936,7 @@ app.patch('/admin/feedback', async (req, res) => {
   }
 });
 
-app.delete('/admin/feedback', async (req, res) => {
+app.delete('/admin/feedback', authenticateJWT, async (req, res) => {
   try {
     // Delete feedback
     const { id } = req.body as { id: string };
@@ -836,7 +961,7 @@ app.delete('/admin/feedback', async (req, res) => {
 });
 
 // Bulk feedback operations
-app.patch('/admin/feedback/bulk', async (req, res) => {
+app.patch('/admin/feedback/bulk', authenticateJWT, async (req, res) => {
   try {
     const { ids, action, archived } = req.body as { 
       ids: string[]; 

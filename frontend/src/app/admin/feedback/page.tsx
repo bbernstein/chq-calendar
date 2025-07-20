@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
 interface FeedbackRecord {
@@ -18,7 +17,6 @@ interface FeedbackRecord {
 }
 
 export default function FeedbackManagementPage() {
-  const { data: session, status } = useSession();
   const router = useRouter();
   const [feedbacks, setFeedbacks] = useState<FeedbackRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,24 +24,53 @@ export default function FeedbackManagementPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('all');
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRecord | null>(null);
+  const [user, setUser] = useState<{ email: string; name: string } | null>(null);
 
   useEffect(() => {
-    if (status === 'loading') return;
+    // Check authentication on mount
+    const token = localStorage.getItem('chq_auth_token');
+    const userStr = localStorage.getItem('chq_auth_user');
     
-    if (!session) {
+    if (!token || !userStr) {
       router.push('/admin/login');
       return;
     }
-  }, [session, status, router]);
+    
+    setUser(JSON.parse(userStr));
+  }, [router]);
 
   const apiUrl = process.env.NODE_ENV === 'development'
     ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
     : '/api';
 
+  // Helper function for authenticated API calls
+  const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
+    const token = localStorage.getItem('chq_auth_token');
+    
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      // Token expired or invalid, redirect to login
+      localStorage.removeItem('chq_auth_token');
+      localStorage.removeItem('chq_auth_user');
+      router.push('/admin/login');
+      throw new Error('Authentication failed');
+    }
+
+    return response;
+  }, [router]);
+
   const fetchFeedbacks = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${apiUrl}/admin/feedback`);
+      const response = await authenticatedFetch(`${apiUrl}/admin/feedback`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch feedback');
@@ -57,13 +84,13 @@ export default function FeedbackManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, authenticatedFetch]);
 
   useEffect(() => {
-    if (session) {
+    if (user) {
       fetchFeedbacks();
     }
-  }, [session, fetchFeedbacks]);
+  }, [user, fetchFeedbacks]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -84,11 +111,8 @@ export default function FeedbackManagementPage() {
 
   const handleArchive = async (id: string, archived: boolean) => {
     try {
-      const response = await fetch(`${apiUrl}/admin/feedback`, {
+      const response = await authenticatedFetch(`${apiUrl}/admin/feedback`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ id, archived }),
       });
 
@@ -111,11 +135,8 @@ export default function FeedbackManagementPage() {
     }
 
     try {
-      const response = await fetch(`${apiUrl}/admin/feedback`, {
+      const response = await authenticatedFetch(`${apiUrl}/admin/feedback`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ id }),
       });
 
@@ -146,11 +167,8 @@ export default function FeedbackManagementPage() {
     }
 
     try {
-      const response = await fetch(`${apiUrl}/admin/feedback/bulk`, {
+      const response = await authenticatedFetch(`${apiUrl}/admin/feedback/bulk`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ ids: selectedIds, action, archived }),
       });
 
@@ -177,21 +195,17 @@ export default function FeedbackManagementPage() {
     return new Date(timestamp).toLocaleString();
   };
 
-  if (status === 'loading' || loading) {
+  if (loading || !user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <div className="text-lg text-gray-600 mt-4">
-            {status === 'loading' ? 'Authenticating...' : 'Loading feedback...'}
+            {!user ? 'Authenticating...' : 'Loading feedback...'}
           </div>
         </div>
       </div>
     );
-  }
-
-  if (!session) {
-    return null;
   }
 
   return (
@@ -216,13 +230,17 @@ export default function FeedbackManagementPage() {
               <div className="text-sm text-gray-600">
                 {filteredFeedbacks.length} feedback item(s)
               </div>
-              {session?.user && (
+              {user && (
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-gray-600">
-                    {session.user.email}
+                    {user?.email}
                   </span>
                   <button
-                    onClick={() => signOut({ callbackUrl: '/admin/login' })}
+                    onClick={() => {
+                      localStorage.removeItem('chq_auth_token');
+                      localStorage.removeItem('chq_auth_user');
+                      router.push('/admin/login');
+                    }}
                     className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
                   >
                     Logout
