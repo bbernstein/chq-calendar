@@ -25,6 +25,7 @@ export default function FeedbackManagementPage() {
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('all');
+  const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRecord | null>(null);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -358,7 +359,10 @@ export default function FeedbackManagementPage() {
                         {formatDate(feedback.timestamp)}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900 max-w-md">
-                        <div className="line-clamp-3">
+                        <div 
+                          className="line-clamp-3 cursor-pointer hover:text-blue-600"
+                          onClick={() => setSelectedFeedback(feedback)}
+                        >
                           {feedback.feedback}
                         </div>
                       </td>
@@ -400,6 +404,101 @@ export default function FeedbackManagementPage() {
           )}
         </div>
       </main>
+
+      {/* Feedback Detail Modal */}
+      {selectedFeedback && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-2xl shadow-lg rounded-md bg-white">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Feedback Details</h3>
+              <button
+                onClick={() => setSelectedFeedback(null)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-medium text-gray-500">Submitted</p>
+                <p className="mt-1 text-sm text-gray-900">
+                  {formatDate(selectedFeedback.timestamp)}
+                </p>
+              </div>
+              
+              <div>
+                <p className="text-sm font-medium text-gray-500">Contact Information</p>
+                <p className="mt-1 text-sm text-gray-900">
+                  {selectedFeedback.contactInfo || 'Not provided'}
+                </p>
+              </div>
+              
+              <div>
+                <p className="text-sm font-medium text-gray-500">Status</p>
+                <span className={`inline-flex mt-1 px-2 py-1 text-xs font-semibold rounded-full ${
+                  selectedFeedback.archived
+                    ? 'bg-gray-100 text-gray-800'
+                    : 'bg-green-100 text-green-800'
+                }`}>
+                  {selectedFeedback.archived ? 'Archived' : 'Active'}
+                </span>
+              </div>
+              
+              <div>
+                <p className="text-sm font-medium text-gray-500 mb-2">Message</p>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <pre className="whitespace-pre-wrap font-sans text-sm text-gray-900">
+                    {selectedFeedback.feedback}
+                  </pre>
+                </div>
+              </div>
+              
+              {selectedFeedback.userAgent && (
+                <div>
+                  <p className="text-sm font-medium text-gray-500">User Agent</p>
+                  <p className="mt-1 text-xs text-gray-600 break-all">
+                    {selectedFeedback.userAgent}
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  handleArchive(selectedFeedback.id, !selectedFeedback.archived);
+                  setSelectedFeedback(null);
+                }}
+                className={`px-4 py-2 rounded-md text-sm font-medium ${
+                  selectedFeedback.archived
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-yellow-600 text-white hover:bg-yellow-700'
+                }`}
+              >
+                {selectedFeedback.archived ? 'Unarchive' : 'Archive'}
+              </button>
+              <button
+                onClick={() => {
+                  handleDelete(selectedFeedback.id);
+                  setSelectedFeedback(null);
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setSelectedFeedback(null)}
+                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 text-sm font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

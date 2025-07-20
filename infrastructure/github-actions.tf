@@ -143,6 +143,10 @@ output "github_secrets" {
     FEEDBACK_TABLE_NAME       = aws_dynamodb_table.feedback.name
     RECAPTCHA_SECRET_KEY      = var.recaptcha_secret_key
     NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+    NEXTAUTH_SECRET           = var.nextauth_secret
+    GOOGLE_CLIENT_ID          = var.google_client_id
+    GOOGLE_CLIENT_SECRET      = var.google_client_secret
+    ADMIN_EMAIL_WHITELIST     = var.admin_email_whitelist
   }
   sensitive = true
 }
@@ -150,7 +154,7 @@ output "github_secrets" {
 # Output for easy copy-paste setup
 output "github_secrets_setup_commands" {
   description = "Commands to set up GitHub secrets (use with GitHub CLI)"
-  sensitive   = true
+  sensitive   = false
   value = <<-EOT
     # Set up GitHub secrets for repository
     # First install GitHub CLI: https://cli.github.com/
@@ -166,6 +170,10 @@ output "github_secrets_setup_commands" {
     gh secret set FEEDBACK_TABLE_NAME --body "${aws_dynamodb_table.feedback.name}"
     gh secret set RECAPTCHA_SECRET_KEY --body "${var.recaptcha_secret_key}"
     gh secret set NEXT_PUBLIC_RECAPTCHA_SITE_KEY --body "${var.recaptcha_site_key}"
+    gh secret set NEXTAUTH_SECRET --body "${var.nextauth_secret}"
+    gh secret set GOOGLE_CLIENT_ID --body "${var.google_client_id}"
+    gh secret set GOOGLE_CLIENT_SECRET --body "${var.google_client_secret}"
+    gh secret set ADMIN_EMAIL_WHITELIST --body "${var.admin_email_whitelist}"
   EOT
 }
 
@@ -184,6 +192,10 @@ resource "local_file" "github_secrets_json" {
     FEEDBACK_TABLE_NAME       = aws_dynamodb_table.feedback.name
     RECAPTCHA_SECRET_KEY      = var.recaptcha_secret_key
     NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+    NEXTAUTH_SECRET           = var.nextauth_secret
+    GOOGLE_CLIENT_ID          = var.google_client_id
+    GOOGLE_CLIENT_SECRET      = var.google_client_secret
+    ADMIN_EMAIL_WHITELIST     = var.admin_email_whitelist
   })
   
   # Make sure this file is not committed to git

@@ -25,6 +25,29 @@ variable "environment" {
   default     = "prod"
 }
 
+variable "nextauth_secret" {
+  description = "NextAuth secret for JWT signing"
+  type        = string
+  sensitive   = true
+}
+
+variable "google_client_id" {
+  description = "Google OAuth Client ID"
+  type        = string
+}
+
+variable "google_client_secret" {
+  description = "Google OAuth Client Secret"
+  type        = string
+  sensitive   = true
+}
+
+variable "admin_email_whitelist" {
+  description = "Comma-separated list of admin emails"
+  type        = string
+  default     = "bernbernstein@gmail.com"
+}
+
 variable "app_name" {
   description = "Application name"
   type        = string
@@ -307,11 +330,11 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
 
   # API behavior for /api/* paths
   ordered_cache_behavior {
-    path_pattern     = "/api/*"
-    allowed_methods  = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods   = ["GET", "HEAD", "OPTIONS"]
-    target_origin_id = "API-${aws_api_gateway_rest_api.main.id}"
-    compress         = true
+    path_pattern           = "/api/*"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    target_origin_id       = "API-${aws_api_gateway_rest_api.main.id}"
+    compress               = true
     viewer_protocol_policy = "redirect-to-https"
 
     forwarded_values {
@@ -444,6 +467,11 @@ resource "aws_lambda_function" "calendar_generator" {
       ENVIRONMENT             = var.environment
       USE_NEW_API             = "true"
       RECAPTCHA_SECRET_KEY    = var.recaptcha_secret_key
+      NEXTAUTH_URL            = "https://${var.domain_name}"
+      NEXTAUTH_SECRET         = var.nextauth_secret
+      GOOGLE_CLIENT_ID        = var.google_client_id
+      GOOGLE_CLIENT_SECRET    = var.google_client_secret
+      ADMIN_EMAIL_WHITELIST   = var.admin_email_whitelist
     }
   }
 }
