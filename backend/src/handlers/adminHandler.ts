@@ -14,13 +14,14 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-secret-key';
 const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST;
-const FRONTEND_URL = process.env.NODE_ENV === 'production' ? 'https://chqcal.org' : 'http://localhost:3000';
+const isProduction = process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'prod';
+const FRONTEND_URL = isProduction ? 'https://www.chqcal.org' : 'http://localhost:3000';
 
 // Google OAuth2 Client Setup
 const oauth2Client = new google.auth.OAuth2(
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
-  `${process.env.NODE_ENV === 'production' ? 'https://www.chqcal.org' : 'http://localhost:3001'}/auth/google/callback`
+  `${isProduction ? 'https://www.chqcal.org' : 'http://localhost:3001'}/auth/google/callback`
 );
 
 // Types
