@@ -19,17 +19,12 @@ services:
     container_name: chq-calendar-backend
     ports:
       - "3001:3001"
+    env_file:
+      - .env.local
     environment:
-      - NODE_ENV=development
-      - PORT=3001
+      # Override specific values for Docker networking
       - DYNAMODB_ENDPOINT=http://dynamodb:8000
-      - DYNAMODB_REGION=us-east-1
-      - EVENTS_TABLE_NAME=chq-calendar-events
-      - DATA_SOURCES_TABLE_NAME=chq-calendar-data-sources
-      - FEEDBACK_TABLE_NAME=chq-calendar-feedback
-      - AWS_ACCESS_KEY_ID=dummy
-      - AWS_SECRET_ACCESS_KEY=dummy
-      - USE_NEW_API=true
+      # All other values (including secrets) come from .env.local
     volumes:
       - ./backend:/app
       - /app/node_modules
