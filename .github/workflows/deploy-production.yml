@@ -63,22 +63,39 @@ jobs:
         # Create a minimal package with only required dependencies
         mkdir -p package_temp/node_modules
         
+        # Check where node_modules is located
+        echo "Checking node_modules location..."
+        if [ -d "node_modules" ]; then
+          NODE_MODULES_PATH="node_modules"
+          echo "Found node_modules in current directory"
+        elif [ -d "../node_modules" ]; then
+          NODE_MODULES_PATH="../node_modules"
+          echo "Found node_modules in parent directory"
+        else
+          echo "Error: node_modules not found!"
+          ls -la
+          exit 1
+        fi
+        
         # Copy all AWS SDK and Smithy dependencies (they have many transitive deps)
-        echo "Copying AWS SDK and Smithy dependencies..."
-        find node_modules -maxdepth 1 -name "@aws-sdk*" -exec cp -r {} package_temp/node_modules/ \;
-        find node_modules -maxdepth 1 -name "@smithy*" -exec cp -r {} package_temp/node_modules/ \;
+        echo "Copying AWS SDK and Smithy dependencies from $NODE_MODULES_PATH..."
+        find "$NODE_MODULES_PATH" -maxdepth 1 -name "@aws-sdk*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @aws-sdk packages found"
+        find "$NODE_MODULES_PATH" -maxdepth 1 -name "@smithy*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @smithy packages found"
         
         # Copy other externalized dependencies
         OTHER_DEPS="ical-generator date-fns cheerio axios uuid node-fetch"
         for dep in $OTHER_DEPS; do
-          if [ -d "node_modules/$dep" ]; then
+          if [ -d "$NODE_MODULES_PATH/$dep" ]; then
             echo "Copying $dep"
-            cp -r "node_modules/$dep" package_temp/node_modules/
-          elif [ -d "../node_modules/$dep" ]; then
-            echo "Copying $dep from parent"
-            cp -r "../node_modules/$dep" package_temp/node_modules/
+            cp -r "$NODE_MODULES_PATH/$dep" package_temp/node_modules/
+          else
+            echo "Warning: $dep not found in $NODE_MODULES_PATH"
           fi
         done
+        
+        # List what we copied for debugging
+        echo "Copied dependencies:"
+        ls package_temp/node_modules/ | head -20
         
         # Create package for calendar handler
         cp package.json package_temp/
@@ -114,20 +131,29 @@ jobs:
         # Create a minimal package for admin handler with required dependencies
         mkdir -p package_temp/node_modules
         
+        # Use the same node_modules path detection as calendar handler
+        if [ -d "node_modules" ]; then
+          NODE_MODULES_PATH="node_modules"
+        elif [ -d "../node_modules" ]; then
+          NODE_MODULES_PATH="../node_modules"
+        else
+          echo "Error: node_modules not found for admin handler!"
+          exit 1
+        fi
+        
         # Copy all AWS SDK and Smithy dependencies for admin handler
-        echo "Copying AWS SDK and Smithy dependencies for admin handler..."
-        find node_modules -maxdepth 1 -name "@aws-sdk*" -exec cp -r {} package_temp/node_modules/ \;
-        find node_modules -maxdepth 1 -name "@smithy*" -exec cp -r {} package_temp/node_modules/ \;
+        echo "Copying AWS SDK and Smithy dependencies for admin handler from $NODE_MODULES_PATH..."
+        find "$NODE_MODULES_PATH" -maxdepth 1 -name "@aws-sdk*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @aws-sdk packages found"
+        find "$NODE_MODULES_PATH" -maxdepth 1 -name "@smithy*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @smithy packages found"
         
         # Copy other externalized dependencies for admin handler
         ADMIN_DEPS="googleapis jsonwebtoken node-fetch uuid"
         for dep in $ADMIN_DEPS; do
-          if [ -d "node_modules/$dep" ]; then
+          if [ -d "$NODE_MODULES_PATH/$dep" ]; then
             echo "Copying $dep for admin"
-            cp -r "node_modules/$dep" package_temp/node_modules/
-          elif [ -d "../node_modules/$dep" ]; then
-            echo "Copying $dep from parent for admin"
-            cp -r "../node_modules/$dep" package_temp/node_modules/
+            cp -r "$NODE_MODULES_PATH/$dep" package_temp/node_modules/
+          else
+            echo "Warning: $dep not found in $NODE_MODULES_PATH for admin"
           fi
         done
         

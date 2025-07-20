@@ -21,20 +21,39 @@ npm ci --omit=dev
 # Create package directory
 mkdir -p package_temp/node_modules
 
+# Check where node_modules is located
+if [ -d "node_modules" ]; then
+  NODE_MODULES_PATH="node_modules"
+  echo "📂 Found node_modules in current directory"
+elif [ -d "../node_modules" ]; then
+  NODE_MODULES_PATH="../node_modules"
+  echo "📂 Found node_modules in parent directory"
+else
+  echo "❌ Error: node_modules not found!"
+  ls -la
+  exit 1
+fi
+
 # Copy all AWS SDK and Smithy dependencies
-echo "📂 Copying AWS SDK and Smithy dependencies..."
-find node_modules -maxdepth 1 -name "@aws-sdk*" -exec cp -r {} package_temp/node_modules/ \;
-find node_modules -maxdepth 1 -name "@smithy*" -exec cp -r {} package_temp/node_modules/ \;
+echo "📂 Copying AWS SDK and Smithy dependencies from $NODE_MODULES_PATH..."
+find "$NODE_MODULES_PATH" -maxdepth 1 -name "@aws-sdk*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @aws-sdk packages found"
+find "$NODE_MODULES_PATH" -maxdepth 1 -name "@smithy*" -type d -exec cp -r {} package_temp/node_modules/ \; 2>/dev/null || echo "No @smithy packages found"
 
 # Copy other externalized dependencies
 echo "📂 Copying other dependencies..."
 OTHER_DEPS="ical-generator date-fns cheerio axios uuid node-fetch"
 for dep in $OTHER_DEPS; do
-  if [ -d "node_modules/$dep" ]; then
+  if [ -d "$NODE_MODULES_PATH/$dep" ]; then
     echo "  - Copying $dep"
-    cp -r "node_modules/$dep" package_temp/node_modules/
+    cp -r "$NODE_MODULES_PATH/$dep" package_temp/node_modules/
+  else
+    echo "  ⚠️  Warning: $dep not found"
   fi
 done
+
+# Show what we copied
+echo "📦 Copied dependencies:"
+ls package_temp/node_modules/ | head -10
 
 # Copy package.json and handler
 cp package.json package_temp/
