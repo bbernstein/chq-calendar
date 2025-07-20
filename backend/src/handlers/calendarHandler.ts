@@ -106,7 +106,7 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
       }),
     });
 
-    const result = await response.json() as { success: boolean; score?: number };
+    const result = await response.json() as { success: boolean; score?: number; action?: string };
     
     console.log(`reCAPTCHA verification result:`, {
       success: result.success,
@@ -286,8 +286,8 @@ const generateICalendar = (events: Event[]): string => {
       url: event.url || '',
       organizer: event.presenter ? { name: event.presenter } : undefined,
       categories: [
-        ...(event.category && event.category.trim() ? [event.category.trim()] : []),
-        ...(event.tags || []).filter(tag => tag && tag.trim())
+        ...(event.category && event.category.trim() ? [{ name: event.category.trim() }] : []),
+        ...(event.tags || []).filter(tag => tag && tag.trim()).map(tag => ({ name: tag }))
       ],
       created: parseISO(event.createdAt),
       lastModified: parseISO(event.updatedAt)
@@ -557,10 +557,10 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
             IndexName: 'TimestampIndex'
           }));
 
-          const feedbacks = (result.Items || []).map(item => ({
+          const feedbacks = (result.Items || []).map((item: any) => ({
             ...item,
             createdAt: new Date(item.timestamp).toISOString()
-          })).sort((a, b) => b.timestamp - a.timestamp);
+          })).sort((a: any, b: any) => b.timestamp - a.timestamp);
 
           return createResponse(200, { feedbacks });
         } catch (error) {
