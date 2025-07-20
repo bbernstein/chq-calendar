@@ -29,9 +29,11 @@ jobs:
       working-directory: ./backend
       run: npm run test:ci
     
-    - name: Build backend
+    - name: Build backend Lambda handlers
       working-directory: ./backend
-      run: npx esbuild src/server.ts --bundle --platform=node --target=node24 --outfile=dist/server.js --external:aws-sdk
+      run: |
+        npx esbuild src/handlers/calendarHandler.ts --bundle --platform=node --target=node24 --outfile=dist/calendarHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb
+        npx esbuild src/handlers/adminHandler.ts --bundle --platform=node --target=node24 --outfile=dist/adminHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb
     
     - name: Upload backend coverage
       uses: actions/upload-artifact@v4
