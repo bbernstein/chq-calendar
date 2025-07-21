@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import ical from 'ical-generator';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO } from 'date-fns';
@@ -11,9 +11,9 @@ const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Environment variables
-const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
-const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chq-calendar-data-sources';
-const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
+const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
+const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chautauqua-calendar-data-sources';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
 // Types
@@ -51,7 +51,7 @@ interface CalendarRequest {
 interface FeedbackRequest {
   feedback: string;
   contactInfo?: string;
-  captchaToken: string;
+  captchaToken?: string;
 }
 
 interface FeedbackRecord {
@@ -62,6 +62,8 @@ interface FeedbackRecord {
   userAgent?: string;
   ipAddress?: string;
   createdAt: string;
+  archived?: boolean;
+  archivedAt?: string;
 }
 
 // Helper function to create HTTP response
@@ -104,7 +106,7 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
       }),
     });
 
-    const result = await response.json() as { success: boolean; score?: number };
+    const result = await response.json() as { success: boolean; score?: number; action?: string };
     
     console.log(`reCAPTCHA verification result:`, {
       success: result.success,
@@ -284,8 +286,8 @@ const generateICalendar = (events: Event[]): string => {
       url: event.url || '',
       organizer: event.presenter ? { name: event.presenter } : undefined,
       categories: [
-        ...(event.category && event.category.trim() ? [event.category.trim()] : []),
-        ...(event.tags || []).filter(tag => tag && tag.trim())
+        ...(event.category && event.category.trim() ? [{ name: event.category.trim() }] : []),
+        ...(event.tags || []).filter(tag => tag && tag.trim()).map(tag => ({ name: tag }))
       ],
       created: parseISO(event.createdAt),
       lastModified: parseISO(event.updatedAt)
@@ -487,6 +489,64 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         events: createdEvents
       });
     }
+
+    // Handle feedback submission
+    if (httpMethod === 'POST' && path === '/feedback') {
+      const { feedback, contactInfo, captchaToken }: FeedbackRequest = requestBody as FeedbackRequest;
+
+      // Validate input
+      if (!feedback || !feedback.trim()) {
+        return createResponse(400, { error: 'Feedback is required' });
+      }
+
+      // In development, allow missing CAPTCHA token for easier testing
+      if (!captchaToken && process.env.ENVIRONMENT !== 'prod') {
+        console.log('CAPTCHA token missing, but allowing in non-production environment');
+      } else if (!captchaToken) {
+        return createResponse(400, { error: 'CAPTCHA verification is required' });
+      }
+
+      // Verify CAPTCHA if token is provided
+      if (captchaToken) {
+        const isCaptchaValid = await verifyCaptcha(captchaToken);
+        if (!isCaptchaValid) {
+          return createResponse(400, { error: 'CAPTCHA verification failed' });
+        }
+      }
+
+      // Create feedback record
+      const feedbackRecord: FeedbackRecord = {
+        id: uuidv4(),
+        feedback: feedback.trim(),
+        contactInfo: contactInfo?.trim() || undefined,
+        timestamp: Date.now(),
+        userAgent: event.headers['User-Agent'] || event.headers['user-agent'],
+        ipAddress: event.requestContext?.identity?.sourceIp,
+        createdAt: new Date().toISOString(),
+        archived: false,
+      };
+
+      try {
+        // Store feedback in DynamoDB
+        await docClient.send(new PutCommand({
+          TableName: FEEDBACK_TABLE_NAME,
+          Item: feedbackRecord
+        }));
+
+        console.log('Feedback submitted successfully:', feedbackRecord.id);
+
+        return createResponse(201, {
+          message: 'Feedback submitted successfully',
+          id: feedbackRecord.id
+        });
+      } catch (error) {
+        console.error('Error storing feedback:', error);
+        return createResponse(500, { error: 'Failed to store feedback' });
+      }
+    }
+
+    // Admin endpoints are handled by the Express server with proper OAuth authentication
+    // This Lambda handler only serves public endpoints (calendar generation, feedback submission)
 
     // Method not allowed
     return createResponse(405, { error: 'Method not allowed' });

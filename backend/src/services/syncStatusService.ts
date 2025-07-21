@@ -1,4 +1,4 @@
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
 interface SyncStatusRecord {
@@ -212,7 +212,7 @@ export class SyncStatusService {
       Key: { id: syncId },
     }));
 
-    return response.Item as SyncStatusRecord || null;
+    return (response.Item ? response.Item as SyncStatusRecord : null);
   }
 
   /**
@@ -255,8 +255,8 @@ export class SyncStatusService {
       });
     }
 
-    const response = await this.docClient.send(command);
-    return response.Items as SyncStatusRecord[] || [];
+    const response = await this.docClient.send(command) as QueryCommandOutput;
+    return (response.Items ? response.Items as SyncStatusRecord[] : []);
   }
 
   /**
@@ -281,9 +281,9 @@ export class SyncStatusService {
       },
       ScanIndexForward: false,
       Limit: 50, // Reasonable limit for active syncs
-    }));
+    })) as QueryCommandOutput;
 
-    return response.Items as SyncStatusRecord[] || [];
+    return (response.Items ? response.Items as SyncStatusRecord[] : []);
   }
 
   /**

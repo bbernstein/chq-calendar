@@ -33,7 +33,10 @@ resource "aws_iam_policy" "github_actions" {
           "lambda:GetFunction",
           "lambda:GetFunctionConfiguration"
         ]
-        Resource = aws_lambda_function.calendar_generator.arn
+        Resource = [
+          aws_lambda_function.calendar_generator.arn,
+          aws_lambda_function.admin_handler.arn
+        ]
       },
       {
         Sid    = "S3FrontendDeployment"
@@ -132,17 +135,22 @@ output "github_actions_secret_access_key" {
 output "github_secrets" {
   description = "All values needed for GitHub repository secrets"
   value = {
-    AWS_ACCESS_KEY_ID         = aws_iam_access_key.github_actions.id
-    AWS_SECRET_ACCESS_KEY     = aws_iam_access_key.github_actions.secret
-    AWS_REGION                = var.aws_region
-    LAMBDA_FUNCTION_NAME      = aws_lambda_function.calendar_generator.function_name
-    S3_BUCKET_NAME            = aws_s3_bucket.frontend_bucket.id
-    CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.frontend_distribution.id
-    EVENTS_TABLE_NAME         = aws_dynamodb_table.events.name
-    DATA_SOURCES_TABLE_NAME   = aws_dynamodb_table.data_sources.name
-    FEEDBACK_TABLE_NAME       = aws_dynamodb_table.feedback.name
-    RECAPTCHA_SECRET_KEY      = var.recaptcha_secret_key
+    AWS_ACCESS_KEY_ID              = aws_iam_access_key.github_actions.id
+    AWS_SECRET_ACCESS_KEY          = aws_iam_access_key.github_actions.secret
+    AWS_REGION                     = var.aws_region
+    LAMBDA_FUNCTION_NAME           = aws_lambda_function.calendar_generator.function_name
+    ADMIN_LAMBDA_FUNCTION_NAME     = aws_lambda_function.admin_handler.function_name
+    S3_BUCKET_NAME                 = aws_s3_bucket.frontend_bucket.id
+    CLOUDFRONT_DISTRIBUTION_ID     = aws_cloudfront_distribution.frontend_distribution.id
+    EVENTS_TABLE_NAME              = aws_dynamodb_table.events.name
+    DATA_SOURCES_TABLE_NAME        = aws_dynamodb_table.data_sources.name
+    FEEDBACK_TABLE_NAME            = aws_dynamodb_table.feedback.name
+    RECAPTCHA_SECRET_KEY           = var.recaptcha_secret_key
     NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+    NEXTAUTH_SECRET                = var.nextauth_secret
+    GOOGLE_CLIENT_ID               = var.google_client_id
+    GOOGLE_CLIENT_SECRET           = var.google_client_secret
+    ADMIN_EMAIL_WHITELIST          = var.admin_email_whitelist
   }
   sensitive = true
 }
@@ -151,14 +159,15 @@ output "github_secrets" {
 output "github_secrets_setup_commands" {
   description = "Commands to set up GitHub secrets (use with GitHub CLI)"
   sensitive   = true
-  value = <<-EOT
+  value       = <<-EOT
     # Set up GitHub secrets for repository
     # First install GitHub CLI: https://cli.github.com/
-    
+
     gh secret set AWS_ACCESS_KEY_ID --body "${aws_iam_access_key.github_actions.id}"
     gh secret set AWS_SECRET_ACCESS_KEY --body "${aws_iam_access_key.github_actions.secret}"
     gh secret set AWS_REGION --body "${var.aws_region}"
     gh secret set LAMBDA_FUNCTION_NAME --body "${aws_lambda_function.calendar_generator.function_name}"
+    gh secret set ADMIN_LAMBDA_FUNCTION_NAME --body "${aws_lambda_function.admin_handler.function_name}"
     gh secret set S3_BUCKET_NAME --body "${aws_s3_bucket.frontend_bucket.id}"
     gh secret set CLOUDFRONT_DISTRIBUTION_ID --body "${aws_cloudfront_distribution.frontend_distribution.id}"
     gh secret set EVENTS_TABLE_NAME --body "${aws_dynamodb_table.events.name}"
@@ -166,6 +175,10 @@ output "github_secrets_setup_commands" {
     gh secret set FEEDBACK_TABLE_NAME --body "${aws_dynamodb_table.feedback.name}"
     gh secret set RECAPTCHA_SECRET_KEY --body "${var.recaptcha_secret_key}"
     gh secret set NEXT_PUBLIC_RECAPTCHA_SITE_KEY --body "${var.recaptcha_site_key}"
+    gh secret set NEXTAUTH_SECRET --body "${var.nextauth_secret}"
+    gh secret set GOOGLE_CLIENT_ID --body "${var.google_client_id}"
+    gh secret set GOOGLE_CLIENT_SECRET --body "${var.google_client_secret}"
+    gh secret set ADMIN_EMAIL_WHITELIST --body "${var.admin_email_whitelist}"
   EOT
 }
 
@@ -173,19 +186,24 @@ output "github_secrets_setup_commands" {
 resource "local_file" "github_secrets_json" {
   filename = "${path.module}/github-secrets.json"
   content = jsonencode({
-    AWS_ACCESS_KEY_ID         = aws_iam_access_key.github_actions.id
-    AWS_SECRET_ACCESS_KEY     = aws_iam_access_key.github_actions.secret
-    AWS_REGION                = var.aws_region
-    LAMBDA_FUNCTION_NAME      = aws_lambda_function.calendar_generator.function_name
-    S3_BUCKET_NAME            = aws_s3_bucket.frontend_bucket.id
-    CLOUDFRONT_DISTRIBUTION_ID = aws_cloudfront_distribution.frontend_distribution.id
-    EVENTS_TABLE_NAME         = aws_dynamodb_table.events.name
-    DATA_SOURCES_TABLE_NAME   = aws_dynamodb_table.data_sources.name
-    FEEDBACK_TABLE_NAME       = aws_dynamodb_table.feedback.name
-    RECAPTCHA_SECRET_KEY      = var.recaptcha_secret_key
+    AWS_ACCESS_KEY_ID              = aws_iam_access_key.github_actions.id
+    AWS_SECRET_ACCESS_KEY          = aws_iam_access_key.github_actions.secret
+    AWS_REGION                     = var.aws_region
+    LAMBDA_FUNCTION_NAME           = aws_lambda_function.calendar_generator.function_name
+    ADMIN_LAMBDA_FUNCTION_NAME     = aws_lambda_function.admin_handler.function_name
+    S3_BUCKET_NAME                 = aws_s3_bucket.frontend_bucket.id
+    CLOUDFRONT_DISTRIBUTION_ID     = aws_cloudfront_distribution.frontend_distribution.id
+    EVENTS_TABLE_NAME              = aws_dynamodb_table.events.name
+    DATA_SOURCES_TABLE_NAME        = aws_dynamodb_table.data_sources.name
+    FEEDBACK_TABLE_NAME            = aws_dynamodb_table.feedback.name
+    RECAPTCHA_SECRET_KEY           = var.recaptcha_secret_key
     NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+    NEXTAUTH_SECRET                = var.nextauth_secret
+    GOOGLE_CLIENT_ID               = var.google_client_id
+    GOOGLE_CLIENT_SECRET           = var.google_client_secret
+    ADMIN_EMAIL_WHITELIST          = var.admin_email_whitelist
   })
-  
+
   # Make sure this file is not committed to git
   provisioner "local-exec" {
     command = "echo 'github-secrets.json' >> ${path.module}/../.gitignore || true"

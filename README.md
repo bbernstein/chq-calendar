@@ -55,8 +55,8 @@ See `utils/README.md` for detailed usage instructions.
 # Start environment
 docker-compose up -d
 
-# Test API
-curl -s -X POST 'http://localhost:3001/calendar' -H "Content-Type: application/json" -d '{"filters": {}}' | jq '.events | length'
+# Test API (now uses production endpoints)
+curl -s -X POST 'https://chqcal.org/api/calendar' -H "Content-Type: application/json" -d '{"filters": {}}' | jq '.events | length'
 
 # Test frontend
 open http://localhost:3000
@@ -83,8 +83,10 @@ cd backend && npm run deploy
 📋 **For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md)**
 
 ## Architecture
-- **Frontend**: Next.js with TypeScript and Tailwind CSS
-- **Backend**: AWS Lambda with TypeScript (Express.js for local development)
+- **Frontend**: Next.js with TypeScript and Tailwind CSS (static export to S3)
+- **Backend**: Serverless AWS Lambda functions with TypeScript
+  - `calendar_generator`: Public calendar and feedback endpoints
+  - `admin_handler`: OAuth authentication and admin management
 - **Infrastructure**: AWS (S3, CloudFront, API Gateway, Lambda, DynamoDB)
 - **Data Sources**: Chautauqua API, RSS feeds, iCal feeds, web scraping
 
@@ -107,15 +109,16 @@ docker-compose up -d --build
 
 ### Local Services
 - **Frontend**: http://localhost:3000 (Next.js)
-- **Backend API**: http://localhost:3001 (Express.js)
 - **DynamoDB Local**: http://localhost:8000
 - **DynamoDB Admin**: http://localhost:8001
 
+**Note**: Backend now runs as serverless Lambda functions in AWS. For local development, admin features require deploying Lambda functions to AWS or using production endpoints.
+
 ### Local Development Features
-- Hot reloading for both frontend and backend
+- Hot reloading for frontend
 - Local DynamoDB with persistent data
 - DynamoDB Admin UI for database management
-- Mock data for testing
+- Frontend connects to production Lambda functions for admin features
 - Environment variables configured for local development
 
 ### Useful Commands
@@ -125,7 +128,6 @@ docker-compose logs -f
 
 # View specific service logs
 docker-compose logs -f frontend
-docker-compose logs -f backend
 
 # Stop services
 docker-compose down

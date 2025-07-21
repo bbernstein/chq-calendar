@@ -16,7 +16,7 @@ export class EventsCalendarDataSyncService {
       // This will be injected from server.ts
       throw new Error('Database client not provided');
     })();
-    this.tableName = process.env.EVENTS_TABLE_NAME || 'chq-calendar-events';
+    this.tableName = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
   }
 
   /**
