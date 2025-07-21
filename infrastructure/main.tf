@@ -952,6 +952,47 @@ resource "aws_api_gateway_integration" "direct_feedback_options_integration" {
   uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
+# Direct bulk feedback operations for CloudFront /admin/api/feedback/bulk -> /feedback/bulk routing
+resource "aws_api_gateway_resource" "direct_feedback_bulk_resource" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  parent_id   = aws_api_gateway_resource.direct_feedback_resource.id
+  path_part   = "bulk"
+}
+
+resource "aws_api_gateway_method" "direct_feedback_bulk_patch" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.direct_feedback_bulk_resource.id
+  http_method   = "PATCH"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "direct_feedback_bulk_options" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.direct_feedback_bulk_resource.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "direct_feedback_bulk_patch_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.direct_feedback_bulk_resource.id
+  http_method = aws_api_gateway_method.direct_feedback_bulk_patch.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "direct_feedback_bulk_options_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.direct_feedback_bulk_resource.id
+  http_method = aws_api_gateway_method.direct_feedback_bulk_options.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
 resource "aws_api_gateway_deployment" "admin_deployment" {
   depends_on = [
     aws_api_gateway_integration.auth_google_integration,
@@ -966,6 +1007,8 @@ resource "aws_api_gateway_deployment" "admin_deployment" {
     aws_api_gateway_integration.direct_feedback_patch_integration,
     aws_api_gateway_integration.direct_feedback_delete_integration,
     aws_api_gateway_integration.direct_feedback_options_integration,
+    aws_api_gateway_integration.direct_feedback_bulk_patch_integration,
+    aws_api_gateway_integration.direct_feedback_bulk_options_integration,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.admin.id
@@ -994,6 +1037,20 @@ resource "aws_api_gateway_deployment" "admin_deployment" {
       aws_api_gateway_method.admin_feedback_bulk_options.id,
       aws_api_gateway_integration.admin_feedback_bulk_patch_integration.id,
       aws_api_gateway_integration.admin_feedback_bulk_options_integration.id,
+      aws_api_gateway_resource.direct_feedback_resource.id,
+      aws_api_gateway_method.direct_feedback_get.id,
+      aws_api_gateway_method.direct_feedback_patch.id,
+      aws_api_gateway_method.direct_feedback_delete.id,
+      aws_api_gateway_method.direct_feedback_options.id,
+      aws_api_gateway_integration.direct_feedback_get_integration.id,
+      aws_api_gateway_integration.direct_feedback_patch_integration.id,
+      aws_api_gateway_integration.direct_feedback_delete_integration.id,
+      aws_api_gateway_integration.direct_feedback_options_integration.id,
+      aws_api_gateway_resource.direct_feedback_bulk_resource.id,
+      aws_api_gateway_method.direct_feedback_bulk_patch.id,
+      aws_api_gateway_method.direct_feedback_bulk_options.id,
+      aws_api_gateway_integration.direct_feedback_bulk_patch_integration.id,
+      aws_api_gateway_integration.direct_feedback_bulk_options_integration.id,
     ]))
   }
 
