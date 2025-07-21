@@ -952,12 +952,119 @@ resource "aws_api_gateway_stage" "calendar_stage" {
   deployment_id = aws_api_gateway_deployment.calendar_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.main.id
   stage_name    = var.environment
+  
+  xray_tracing_enabled = true
+  
+  depends_on = [aws_api_gateway_account.main]
+  
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.main_api_gateway_logs.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      extendedRequestId = "$context.extendedRequestId"
+      ip             = "$context.identity.sourceIp"
+      caller         = "$context.identity.caller"
+      user           = "$context.identity.user"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      resourcePath   = "$context.resourcePath"
+      status         = "$context.status"
+      protocol       = "$context.protocol"
+      responseLength = "$context.responseLength"
+      error          = "$context.error.message"
+      integrationError = "$context.integrationErrorMessage"
+    })
+  }
 }
 
 resource "aws_api_gateway_stage" "admin_stage" {
   deployment_id = aws_api_gateway_deployment.admin_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.admin.id
   stage_name    = var.environment
+  
+  xray_tracing_enabled = true
+  
+  depends_on = [aws_api_gateway_account.main]
+  
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.admin_api_gateway_logs.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      extendedRequestId = "$context.extendedRequestId"
+      ip             = "$context.identity.sourceIp"
+      caller         = "$context.identity.caller"
+      user           = "$context.identity.user"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      resourcePath   = "$context.resourcePath"
+      status         = "$context.status"
+      protocol       = "$context.protocol"
+      responseLength = "$context.responseLength"
+      error          = "$context.error.message"
+      integrationError = "$context.integrationErrorMessage"
+    })
+  }
+}
+
+# IAM role for API Gateway CloudWatch logging
+resource "aws_iam_role" "api_gateway_cloudwatch" {
+  name = "${var.app_name}-api-gateway-cloudwatch-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "apigateway.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "api_gateway_cloudwatch" {
+  name = "${var.app_name}-api-gateway-cloudwatch-policy"
+  role = aws_iam_role.api_gateway_cloudwatch.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:PutLogEvents",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# API Gateway account configuration to enable CloudWatch logging
+resource "aws_api_gateway_account" "main" {
+  cloudwatch_role_arn = aws_iam_role.api_gateway_cloudwatch.arn
+  
+  depends_on = [aws_iam_role_policy.api_gateway_cloudwatch]
+}
+
+# CloudWatch Log Group for Main API Gateway
+resource "aws_cloudwatch_log_group" "main_api_gateway_logs" {
+  name              = "/aws/apigateway/${var.app_name}-main"
+  retention_in_days = 7
+}
+
+# CloudWatch Log Group for Admin API Gateway
+resource "aws_cloudwatch_log_group" "admin_api_gateway_logs" {
+  name              = "/aws/apigateway/${var.app_name}-admin"
+  retention_in_days = 7
 }
 
 # Route 53 DNS Records
