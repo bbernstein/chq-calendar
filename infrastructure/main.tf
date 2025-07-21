@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.1"
+    }
   }
 }
 
@@ -70,6 +74,12 @@ variable "recaptcha_site_key" {
   description = "Google reCAPTCHA site key for client-side verification (public key)"
   type        = string
   default     = ""
+}
+
+variable "cloudfront_cache_ttl" {
+  description = "Default TTL (in seconds) for CloudFront cache behavior"
+  type        = number
+  default     = 3600  # 1 hour
 }
 
 # DynamoDB Tables
@@ -341,7 +351,7 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   default_root_object = "index.html"
   aliases             = [var.domain_name, "www.${var.domain_name}"]
 
-  # API behavior for /api/* paths
+  # API behavior for /api/* paths with caching (Layer 2: CloudFront CDN)
   ordered_cache_behavior {
     path_pattern           = "/api/*"
     allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
@@ -363,9 +373,10 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
       function_arn = aws_cloudfront_function.api_rewrite.arn
     }
 
+    # Enable caching for API responses (Layer 2: CloudFront CDN)
     min_ttl     = 0
-    default_ttl = 0
-    max_ttl     = 0
+    default_ttl = var.cloudfront_cache_ttl
+    max_ttl     = 86400 # 24 hour max cache
   }
 
   # Admin API behavior for /auth/* and /admin/* paths
@@ -513,6 +524,33 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
   })
 }
 
+# IAM policy for Lambda to access S3 cache bucket
+resource "aws_iam_role_policy" "lambda_s3_cache" {
+  name = "${var.app_name}-lambda-s3-cache-policy"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.cache_bucket.arn}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = aws_s3_bucket.cache_bucket.arn
+      }
+    ]
+  })
+}
 
 # Lambda Function for Calendar/Public endpoints
 resource "aws_lambda_function" "calendar_generator" {
@@ -533,6 +571,10 @@ resource "aws_lambda_function" "calendar_generator" {
       ENVIRONMENT             = var.environment
       USE_NEW_API             = "true"
       RECAPTCHA_SECRET_KEY    = var.recaptcha_secret_key
+      CACHE_S3_BUCKET         = aws_s3_bucket.cache_bucket.bucket
+      CACHE_MEMORY_TTL_MINUTES = "60"
+      CACHE_S3_TTL_MINUTES    = "60"
+      CACHE_S3_KEY_PREFIX     = "calendar-cache"
     }
   }
 }
@@ -576,6 +618,13 @@ resource "aws_api_gateway_resource" "calendar_resource" {
   path_part   = "calendar"
 }
 
+resource "aws_api_gateway_method" "calendar_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.calendar_resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
 resource "aws_api_gateway_method" "calendar_post" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.calendar_resource.id
@@ -588,6 +637,16 @@ resource "aws_api_gateway_method" "calendar_options" {
   resource_id   = aws_api_gateway_resource.calendar_resource.id
   http_method   = "OPTIONS"
   authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "calendar_get_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.calendar_resource.id
+  http_method = aws_api_gateway_method.calendar_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
 }
 
 resource "aws_api_gateway_integration" "calendar_integration" {
@@ -848,6 +907,7 @@ resource "aws_lambda_permission" "admin_api_gateway_lambda" {
 
 resource "aws_api_gateway_deployment" "calendar_deployment" {
   depends_on = [
+    aws_api_gateway_integration.calendar_get_integration,
     aws_api_gateway_integration.calendar_integration,
     aws_api_gateway_integration.calendar_options_integration,
     aws_api_gateway_integration.feedback_integration,
@@ -859,8 +919,10 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
   triggers = {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.calendar_resource.id,
+      aws_api_gateway_method.calendar_get.id,
       aws_api_gateway_method.calendar_post.id,
       aws_api_gateway_method.calendar_options.id,
+      aws_api_gateway_integration.calendar_get_integration.id,
       aws_api_gateway_integration.calendar_integration.id,
       aws_api_gateway_integration.calendar_options_integration.id,
       aws_api_gateway_resource.feedback_resource.id,
@@ -1215,6 +1277,60 @@ output "cloudfront_domain" {
   value = aws_cloudfront_distribution.frontend_distribution.domain_name
 }
 
+# S3 bucket for caching calendar data (Layer 4: S3 File Cache)
+resource "aws_s3_bucket" "cache_bucket" {
+  bucket = "chautauqua-calendar-cache-${random_string.bucket_suffix.result}"
+  tags = {
+    Name        = "Chautauqua Calendar Cache"
+    Environment = var.environment
+  }
+}
+
+resource "aws_s3_bucket_versioning" "cache_bucket_versioning" {
+  bucket = aws_s3_bucket.cache_bucket.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "cache_bucket_lifecycle" {
+  bucket = aws_s3_bucket.cache_bucket.id
+
+  rule {
+    id      = "cache_cleanup"
+    status  = "Enabled"
+
+    filter {
+      prefix = "" # Apply to all objects
+    }
+
+    expiration {
+      days = 7 # Delete cache files older than 7 days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1 # Delete non-current versions after 1 day
+    }
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "cache_bucket_encryption" {
+  bucket = aws_s3_bucket.cache_bucket.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# Random suffix to ensure bucket name uniqueness
+resource "random_string" "bucket_suffix" {
+  length  = 8
+  special = false
+  upper   = false
+}
+
 output "cloudfront_distribution_id" {
   value = aws_cloudfront_distribution.frontend_distribution.id
 }
@@ -1234,4 +1350,9 @@ output "admin_api_url" {
 
 output "s3_bucket_name" {
   value = aws_s3_bucket.frontend_bucket.bucket
+}
+
+output "cache_s3_bucket_name" {
+  value = aws_s3_bucket.cache_bucket.bucket
+  description = "S3 bucket name for calendar caching"
 }

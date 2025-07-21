@@ -569,15 +569,11 @@ function HomeContent() {
     try {
       console.log('Loading all events for the season...');
 
-      const response = await fetch(`${apiUrl}/calendar`, {
-        method: 'POST',
+      const response = await fetch(`${apiUrl}/calendar?format=json`, {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          filters: {}, // Empty filters to get all events
-          format: 'json'
-        })
+          'Accept': 'application/json',
+        }
       });
 
       if (response.ok) {
