@@ -22,7 +22,7 @@ export default function FeedbackManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('all');
+  const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('active');
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRecord | null>(null);
   const [user, setUser] = useState<{ email: string; name: string } | null>(null);
 
