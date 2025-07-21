@@ -31,6 +31,7 @@ const CACHE_S3_BUCKET = process.env.CACHE_S3_BUCKET || 'chautauqua-calendar-cach
 const CACHE_MEMORY_TTL_MINUTES = parseInt(process.env.CACHE_MEMORY_TTL_MINUTES || '60');
 const CACHE_S3_TTL_MINUTES = parseInt(process.env.CACHE_S3_TTL_MINUTES || '60');
 const CACHE_S3_KEY_PREFIX = process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache';
+const CACHE_BROWSER_TTL_SECONDS = parseInt(process.env.CACHE_BROWSER_TTL_SECONDS || '3600'); // 1 hour default
 
 // Initialize cache service
 const cacheConfig: CacheConfig = {
@@ -95,12 +96,16 @@ interface FeedbackRecord {
 // Helper function to create HTTP response with caching headers
 const createResponse = (statusCode: number, body: any, headers: Record<string, string> = {}, enableCaching = false): APIGatewayProxyResult => {
   const cacheHeaders = enableCaching ? {
-    'Cache-Control': `public, max-age=${60 * 60}`, // 1 hour browser cache (Layer 1)
-    'Expires': new Date(Date.now() + 60 * 60 * 1000).toUTCString()
+    'Cache-Control': `public, max-age=${CACHE_BROWSER_TTL_SECONDS}, s-maxage=${CACHE_BROWSER_TTL_SECONDS}`, // Browser & CDN cache
+    'Expires': new Date(Date.now() + CACHE_BROWSER_TTL_SECONDS * 1000).toUTCString(),
+    'Vary': 'Accept-Encoding',
+    'X-Cache-Enabled': 'true', // Debug header to confirm caching is enabled
+    'X-Cache-TTL': String(CACHE_BROWSER_TTL_SECONDS) // Debug header with TTL value
   } : {
     'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache',
-    'Expires': '0'
+    'Expires': '0',
+    'X-Cache-Enabled': 'false' // Debug header
   };
 
   return {
@@ -447,9 +452,28 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       }
     }
 
-    // Handle calendar generation
-    if (httpMethod === 'POST' && path === '/calendar') {
-      const { filters, format = 'json', timezone = 'America/New_York' } = requestBody;
+    // Handle calendar generation (both GET and POST for caching support)
+    if ((httpMethod === 'POST' || httpMethod === 'GET') && path === '/calendar') {
+      let filters, format, timezone;
+      
+      if (httpMethod === 'POST') {
+        // POST request with body
+        ({ filters, format = 'json', timezone = 'America/New_York' } = requestBody);
+      } else {
+        // GET request with query parameters
+        const queryParams = event.queryStringParameters || {};
+        filters = queryParams.filters ? JSON.parse(queryParams.filters) : undefined;
+        format = queryParams.format || 'json';
+        timezone = queryParams.timezone || 'America/New_York';
+      }
+
+      console.log(`Calendar API called via ${httpMethod} with filters:`, JSON.stringify(filters));
+      console.log('Cache configuration:', { 
+        CACHE_BROWSER_TTL_SECONDS,
+        CACHE_MEMORY_TTL_MINUTES,
+        CACHE_S3_TTL_MINUTES,
+        CACHE_S3_BUCKET
+      });
 
       // Fetch events from DynamoDB with optimized queries
       const events = await queryEvents(filters);

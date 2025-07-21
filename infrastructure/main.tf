@@ -349,14 +349,14 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   ordered_cache_behavior {
     path_pattern           = "/api/*"
     allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS", "POST"]
     target_origin_id       = "API-${aws_api_gateway_rest_api.main.id}"
     compress               = true
     viewer_protocol_policy = "redirect-to-https"
 
     forwarded_values {
       query_string = true
-      headers      = ["Authorization", "Content-Type"]
+      headers      = ["Authorization", "Content-Type", "Cache-Control", "Expires", "X-Cache-Enabled"]
       cookies {
         forward = "none"
       }
