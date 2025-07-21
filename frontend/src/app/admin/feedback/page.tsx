@@ -41,7 +41,9 @@ export default function FeedbackManagementPage() {
 
   // Admin endpoints now use CloudFront paths that route to admin Lambda
   // Local Express server has been removed - all environments use Lambda via CloudFront
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://chqcal.org';
+  // Remove /api suffix if present since admin endpoints use /admin/api paths
+  const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://www.chqcal.org/api';
+  const apiUrl = baseApiUrl.replace(/\/api$/, '');
 
   // Helper function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
