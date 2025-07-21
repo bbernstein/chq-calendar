@@ -349,7 +349,7 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   ordered_cache_behavior {
     path_pattern           = "/api/*"
     allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS", "POST"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
     target_origin_id       = "API-${aws_api_gateway_rest_api.main.id}"
     compress               = true
     viewer_protocol_policy = "redirect-to-https"
