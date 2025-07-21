@@ -90,6 +90,9 @@ const authenticateRequest = (event: APIGatewayProxyEvent): { email: string; name
 
 export const handler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
   console.log('Admin Lambda Event:', JSON.stringify(event, null, 2));
+  console.log('Environment check - NODE_ENV:', process.env.NODE_ENV, 'ENVIRONMENT:', process.env.ENVIRONMENT);
+  console.log('isProduction:', isProduction);
+  console.log('ADMIN_EMAIL_WHITELIST:', ADMIN_EMAIL_WHITELIST);
 
   try {
     const path = event.path;
@@ -225,12 +228,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
     // All remaining endpoints require authentication
     const user = authenticateRequest(event);
+    console.log('Authentication result - user:', user);
+    console.log('Request path:', path);
     if (!user) {
       return createResponse(401, { error: 'Authentication required' });
     }
 
     // Admin feedback management endpoints
-    if (path === '/admin/feedback') {
+    if (path === '/feedback' || path === '/feedback/') {
       if (httpMethod === 'GET') {
         // List all feedback
         try {
@@ -321,7 +326,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     }
 
     // Bulk feedback operations
-    if (httpMethod === 'PATCH' && path === '/admin/feedback/bulk') {
+    if (httpMethod === 'PATCH' && (path === '/feedback/bulk' || path === '/feedback/bulk/')) {
       const { ids, action, archived } = requestBody as {
         ids: string[];
         action: 'archive' | 'delete';
