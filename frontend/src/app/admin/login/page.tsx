@@ -9,6 +9,23 @@ function LoginContent() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    // Check if running on localhost - bypass authentication for local development
+    const isLocalhost = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (isLocalhost) {
+      // Set dummy user and redirect to feedback page for local development
+      const dummyUser = { 
+        email: 'dev@localhost.local', 
+        name: 'Local Dev User' 
+      };
+      localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
+      localStorage.setItem('chq_auth_token', 'dummy-local-token');
+      console.log('Localhost detected - bypassing auth, redirecting to /admin/feedback');
+      router.push('/admin/feedback/');
+      return;
+    }
+
     // Handle OAuth callback from hash fragment (more reliable with Next.js trailing slashes)
     const hash = window.location.hash;
     const errorParam = searchParams.get('error')

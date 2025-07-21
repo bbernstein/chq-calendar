@@ -5,11 +5,20 @@ import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
 
 // DynamoDB client
-const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
+const dynamoClient = new DynamoDBClient({ 
+  region: process.env.AWS_REGION || 'us-east-1',
+  ...(process.env.DYNAMODB_ENDPOINT && {
+    endpoint: process.env.DYNAMODB_ENDPOINT,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
+    },
+  }),
+});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Environment variables
-const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chq-calendar-feedback';
+const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-secret-key';
@@ -234,10 +243,18 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       }
     }
 
-    // All remaining endpoints require authentication
-    const user = authenticateRequest(event);
+    // All remaining endpoints require authentication, except in local development
+    let user = authenticateRequest(event);
     console.log('Authentication result - user:', user);
     console.log('Request path:', path);
+    
+    // In local development, bypass authentication and use dummy user
+    const isDevelopment = !isProduction && process.env.DYNAMODB_ENDPOINT;
+    if (!user && isDevelopment) {
+      console.log('Local development mode: bypassing authentication with dummy user');
+      user = { email: 'dev@localhost.local', name: 'Local Dev User' };
+    }
+    
     if (!user) {
       return createResponse(401, { error: 'Authentication required' });
     }

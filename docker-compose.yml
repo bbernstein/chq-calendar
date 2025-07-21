@@ -11,8 +11,38 @@ services:
     networks:
       - chq-calendar-network
 
-  # Note: Backend now runs as Lambda functions in AWS
-  # For local development, use Lambda simulators or deploy to AWS for testing
+  # Backend (Express server for local development)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: chq-calendar-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - ENVIRONMENT=dev
+      - PORT=3001
+      - AWS_REGION=us-east-1
+      - DYNAMODB_ENDPOINT=http://dynamodb:8000
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+      # Load from .env file (you'll need to create this)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - ADMIN_EMAIL_WHITELIST=${ADMIN_EMAIL_WHITELIST}
+      - EVENTS_TABLE_NAME=chautauqua-calendar-events
+      - DATA_SOURCES_TABLE_NAME=chautauqua-calendar-data-sources  
+      - FEEDBACK_TABLE_NAME=chautauqua-calendar-feedback
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - dynamodb
+    networks:
+      - chq-calendar-network
+    command: npm run dev
 
   # Frontend (Next.js)
   frontend:
@@ -24,8 +54,8 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-      # In development, admin features will require deploying Lambda functions to AWS
-      - NEXT_PUBLIC_API_URL=https://chqcal.org
+      # Point to local backend for OAuth and admin features
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
     volumes:
       - ./frontend:/app
       - /app/node_modules

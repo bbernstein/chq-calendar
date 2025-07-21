@@ -21,19 +21,14 @@ jobs:
         cache: 'npm'
         cache-dependency-path: package-lock.json
     
-    - name: Install backend dependencies
-      working-directory: ./backend
+    - name: Install all workspace dependencies
       run: npm ci
     
     - name: Run backend tests
-      working-directory: ./backend
-      run: npm run test:ci
+      run: npm run test:ci --workspace=backend
     
     - name: Build backend Lambda handlers
-      working-directory: ./backend
-      run: |
-        npx esbuild src/handlers/calendarHandler.ts --bundle --platform=node --target=node24 --outfile=dist/calendarHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb
-        npx esbuild src/handlers/adminHandler.ts --bundle --platform=node --target=node24 --outfile=dist/adminHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb
+      run: npm run build --workspace=backend
     
     - name: Upload backend coverage
       uses: actions/upload-artifact@v4
@@ -52,14 +47,14 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
     
-    - name: Install frontend dependencies
-      working-directory: ./frontend
+    - name: Install all workspace dependencies
       run: npm ci
     
     - name: Build frontend (includes type checking and linting)
-      working-directory: ./frontend
-      run: npm run build
+      run: npm run build --workspace=frontend
       env:
         NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
     

@@ -22,12 +22,28 @@ export default function FeedbackManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('all');
+  const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('active');
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRecord | null>(null);
   const [user, setUser] = useState<{ email: string; name: string } | null>(null);
 
   useEffect(() => {
-    // Check authentication on mount
+    // Check if running on localhost - bypass authentication for local development
+    const isLocalhost = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (isLocalhost) {
+      // Set dummy user for local development
+      const dummyUser = { 
+        email: 'dev@localhost.local', 
+        name: 'Local Dev User' 
+      };
+      setUser(dummyUser);
+      localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
+      localStorage.setItem('chq_auth_token', 'dummy-local-token');
+      return;
+    }
+    
+    // Production authentication check
     const token = localStorage.getItem('chq_auth_token');
     const userStr = localStorage.getItem('chq_auth_user');
     
@@ -47,9 +63,12 @@ export default function FeedbackManagementPage() {
 
   // Helper function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
+    const isLocalhost = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
     const token = localStorage.getItem('chq_auth_token');
     
-    if (!token) {
+    if (!token && !isLocalhost) {
       throw new Error('No authentication token found');
     }
     
@@ -58,7 +77,7 @@ export default function FeedbackManagementPage() {
       headers: {
         'Content-Type': 'application/json',
         // Use custom header to work around API Gateway Authorization header parsing issue
-        'X-Auth-Token': token,
+        ...(token && { 'X-Auth-Token': token }),
         // Temporarily disable Authorization header as it causes API Gateway to reject the request
         // before it reaches Lambda where our workaround code can handle it
         // 'Authorization': `Bearer ${token}`,
@@ -66,12 +85,17 @@ export default function FeedbackManagementPage() {
       },
     });
 
-    if (response.status === 401 || response.status === 403) {
-      // Token expired or invalid, redirect to login
+    if ((response.status === 401 || response.status === 403) && !isLocalhost) {
+      // Token expired or invalid, redirect to login (but not on localhost)
       localStorage.removeItem('chq_auth_token');
       localStorage.removeItem('chq_auth_user');
       router.push('/admin/login');
       throw new Error('Authentication failed');
+    }
+
+    if (isLocalhost && (response.status === 401 || response.status === 403)) {
+      // On localhost, log auth errors but don't fail completely
+      console.warn('Auth error on localhost (this is expected in development):', response.status);
     }
 
     return response;
@@ -237,6 +261,13 @@ export default function FeedbackManagementPage() {
               </h1>
             </div>
             <div className="flex items-center gap-4">
+              {/* Development Mode Indicator */}
+              {typeof window !== 'undefined' && 
+                (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+                <div className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-md">
+                  🔧 Development Mode
+                </div>
+              )}
               <div className="text-sm text-gray-600">
                 {filteredFeedbacks.length} feedback item(s)
               </div>
