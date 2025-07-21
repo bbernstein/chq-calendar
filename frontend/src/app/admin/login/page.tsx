@@ -14,12 +14,19 @@ function LoginContent() {
     const userParam = searchParams.get('user')
     const errorParam = searchParams.get('error')
 
+    console.log('Login page useEffect - token:', !!token, 'userParam:', !!userParam, 'errorParam:', errorParam)
+
     if (token && userParam) {
       try {
+        console.log('Parsing user data and storing token...')
         const user = JSON.parse(decodeURIComponent(userParam))
         localStorage.setItem('chq_auth_token', token)
         localStorage.setItem('chq_auth_user', JSON.stringify(user))
-        router.push('/admin/feedback')
+        console.log('Token stored, redirecting to /admin/feedback after short delay')
+        // Small delay to ensure localStorage is properly set before redirect
+        setTimeout(() => {
+          router.push('/admin/feedback')
+        }, 100)
         return
       } catch (err) {
         console.error('Error parsing user data:', err)
