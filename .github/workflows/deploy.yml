@@ -103,7 +103,6 @@ jobs:
         cd frontend
         npm run build
 
-
     - name: Deploy to S3
       run: |
         aws s3 sync frontend/out/ s3://${{ secrets.S3_BUCKET_NAME }}/ --delete
