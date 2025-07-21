@@ -147,7 +147,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           return {
             statusCode: 302,
             headers: {
-              'Location': `${FRONTEND_URL}/admin/login?error=oauth_error`,
+              'Location': `${FRONTEND_URL}/admin/login/?error=oauth_error`,
             },
             body: '',
           };
@@ -157,7 +157,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           return {
             statusCode: 302,
             headers: {
-              'Location': `${FRONTEND_URL}/admin/login?error=no_code`,
+              'Location': `${FRONTEND_URL}/admin/login/?error=no_code`,
             },
             body: '',
           };
@@ -178,7 +178,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           return {
             statusCode: 302,
             headers: {
-              'Location': `${FRONTEND_URL}/admin/login?error=no_email`,
+              'Location': `${FRONTEND_URL}/admin/login/?error=no_email`,
             },
             body: '',
           };
@@ -190,7 +190,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           return {
             statusCode: 302,
             headers: {
-              'Location': `${FRONTEND_URL}/admin/login?error=unauthorized`,
+              'Location': `${FRONTEND_URL}/admin/login/?error=unauthorized`,
             },
             body: '',
           };
@@ -199,8 +199,9 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         // Generate JWT token
         const token = generateJWT({ email, name });
 
-        // Redirect back to frontend with token
-        const redirectUrl = `${FRONTEND_URL}/admin/login?token=${token}&user=${encodeURIComponent(JSON.stringify({ email, name }))}`;
+        // Redirect back to frontend with token in hash to prevent loss during redirects
+        const userData = encodeURIComponent(JSON.stringify({ email, name, token }));
+        const redirectUrl = `${FRONTEND_URL}/admin/login/#auth=${userData}`;
 
         return {
           statusCode: 302,
@@ -215,7 +216,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         return {
           statusCode: 302,
           headers: {
-            'Location': `${FRONTEND_URL}/admin/login?error=callback_error`,
+            'Location': `${FRONTEND_URL}/admin/login/?error=callback_error`,
           },
           body: '',
         };

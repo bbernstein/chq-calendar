@@ -9,21 +9,48 @@ function LoginContent() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    // Handle OAuth callback
+    // Handle OAuth callback from hash fragment (more reliable with Next.js trailing slashes)
+    const hash = window.location.hash;
+    const errorParam = searchParams.get('error')
+    
+    console.log('Login page useEffect - hash:', !!hash, 'errorParam:', errorParam)
+
+    if (hash && hash.startsWith('#auth=')) {
+      try {
+        const authData = hash.substring(6); // Remove '#auth='
+        const { email, name, token } = JSON.parse(decodeURIComponent(authData));
+        
+        console.log('Parsing auth data from hash...')
+        localStorage.setItem('chq_auth_token', token)
+        localStorage.setItem('chq_auth_user', JSON.stringify({ email, name }))
+        console.log('Token stored, redirecting to /admin/feedback')
+        
+        // Clear the hash from URL
+        window.history.replaceState(null, '', window.location.pathname);
+        
+        // Small delay to ensure localStorage is properly set before redirect
+        setTimeout(() => {
+          router.push('/admin/feedback')
+        }, 100)
+        return
+      } catch (err) {
+        console.error('Error parsing auth data:', err)
+        setError('Invalid authentication data')
+      }
+    }
+    
+    // Legacy support for query parameters (in case they still come through)
     const token = searchParams.get('token')
     const userParam = searchParams.get('user')
-    const errorParam = searchParams.get('error')
-
-    console.log('Login page useEffect - token:', !!token, 'userParam:', !!userParam, 'errorParam:', errorParam)
-
+    
     if (token && userParam) {
       try {
-        console.log('Parsing user data and storing token...')
+        console.log('Parsing user data from query params...')
         const user = JSON.parse(decodeURIComponent(userParam))
         localStorage.setItem('chq_auth_token', token)
         localStorage.setItem('chq_auth_user', JSON.stringify(user))
-        console.log('Token stored, redirecting to /admin/feedback after short delay')
-        // Small delay to ensure localStorage is properly set before redirect
+        console.log('Token stored, redirecting to /admin/feedback')
+        
         setTimeout(() => {
           router.push('/admin/feedback')
         }, 100)
