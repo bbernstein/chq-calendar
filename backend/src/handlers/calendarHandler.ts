@@ -535,14 +535,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
               tags: tags.sort()
             }
           }
-        }, {}, true); // Enable caching for JSON responses
+        }, undefined, true); // Enable caching for JSON responses
       }
     }
 
     // Handle events listing
     if (httpMethod === 'GET' && path === '/calendar/events') {
       const events = await queryEvents();
-      return createResponse(200, { events }, {}, true); // Enable caching
+      return createResponse(200, { events }, undefined, true); // Enable caching
     }
 
     // Handle health check

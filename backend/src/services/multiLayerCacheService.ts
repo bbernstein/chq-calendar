@@ -15,14 +15,12 @@ export interface CachedData<T> {
   cacheKey: string;
 }
 
-export class MultiLayerCacheService<T = any> {
-  private memoryCache = new Map<string, CachedData<T>>();
-  private s3Client: S3Client;
-  private config: CacheConfig;
+// Singleton S3Client to reuse across Lambda invocations
+let s3ClientInstance: S3Client | null = null;
 
-  constructor(config: CacheConfig) {
-    this.config = config;
-    this.s3Client = new S3Client({
+function getS3Client(): S3Client {
+  if (!s3ClientInstance) {
+    s3ClientInstance = new S3Client({
       region: process.env.AWS_REGION || 'us-east-1',
       ...(process.env.S3_ENDPOINT && {
         endpoint: process.env.S3_ENDPOINT,
@@ -33,6 +31,18 @@ export class MultiLayerCacheService<T = any> {
         },
       }),
     });
+  }
+  return s3ClientInstance;
+}
+
+export class MultiLayerCacheService<T = any> {
+  private memoryCache = new Map<string, CachedData<T>>();
+  private s3Client: S3Client;
+  private config: CacheConfig;
+
+  constructor(config: CacheConfig) {
+    this.config = config;
+    this.s3Client = getS3Client();
   }
 
   /**

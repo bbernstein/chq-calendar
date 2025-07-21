@@ -76,6 +76,12 @@ variable "recaptcha_site_key" {
   default     = ""
 }
 
+variable "cloudfront_cache_ttl" {
+  description = "Default TTL (in seconds) for CloudFront cache behavior"
+  type        = number
+  default     = 3600  # 1 hour
+}
+
 # DynamoDB Tables
 resource "aws_dynamodb_table" "events" {
   name         = "${var.app_name}-events"
@@ -369,7 +375,7 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
 
     # Enable caching for API responses (Layer 2: CloudFront CDN)
     min_ttl     = 0
-    default_ttl = 3600  # 1 hour cache
+    default_ttl = var.cloudfront_cache_ttl
     max_ttl     = 86400 # 24 hour max cache
   }
 
