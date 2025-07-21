@@ -236,9 +236,8 @@ jobs:
         curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
         
         # Test calendar endpoint
-        EVENTS_COUNT=$(curl -s -X POST "https://www.chqcal.org/api/calendar" \
-          -H "Content-Type: application/json" \
-          -d '{"filters": {}}' | jq '.events | length' || echo "0")
+        EVENTS_COUNT=$(curl -s "https://www.chqcal.org/api/calendar?format=json" \
+          -H "Accept: application/json" | jq '.events | length' || echo "0")
         
         if [ "$EVENTS_COUNT" -gt "0" ]; then
           echo "✅ Production API returning $EVENTS_COUNT events"

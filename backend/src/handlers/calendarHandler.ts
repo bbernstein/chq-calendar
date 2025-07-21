@@ -462,7 +462,37 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       } else {
         // GET request with query parameters
         const queryParams = event.queryStringParameters || {};
-        filters = queryParams.filters ? JSON.parse(queryParams.filters) : undefined;
+        
+        // Parse filters from query parameters
+        filters = {};
+        if (queryParams.categories) {
+          filters.categories = queryParams.categories.split(',');
+        }
+        if (queryParams.tags) {
+          filters.tags = queryParams.tags.split(',');
+        }
+        if (queryParams.startDate && queryParams.endDate) {
+          filters.dateRange = {
+            start: queryParams.startDate,
+            end: queryParams.endDate
+          };
+        }
+        
+        // If no individual filter params, check for JSON filters param (backward compatibility)
+        if (!queryParams.categories && !queryParams.tags && !queryParams.startDate && queryParams.filters) {
+          try {
+            filters = JSON.parse(queryParams.filters);
+          } catch (error) {
+            console.error('Error parsing filters JSON from query parameter:', error);
+            filters = {};
+          }
+        }
+        
+        // If no filters at all, set to undefined for cleaner cache keys
+        if (Object.keys(filters).length === 0) {
+          filters = undefined;
+        }
+        
         format = queryParams.format || 'json';
         timezone = queryParams.timezone || 'America/New_York';
       }
