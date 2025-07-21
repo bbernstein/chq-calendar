@@ -612,6 +612,13 @@ resource "aws_api_gateway_resource" "calendar_resource" {
   path_part   = "calendar"
 }
 
+resource "aws_api_gateway_method" "calendar_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.calendar_resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
 resource "aws_api_gateway_method" "calendar_post" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   resource_id   = aws_api_gateway_resource.calendar_resource.id
@@ -624,6 +631,16 @@ resource "aws_api_gateway_method" "calendar_options" {
   resource_id   = aws_api_gateway_resource.calendar_resource.id
   http_method   = "OPTIONS"
   authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "calendar_get_integration" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  resource_id = aws_api_gateway_resource.calendar_resource.id
+  http_method = aws_api_gateway_method.calendar_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
 }
 
 resource "aws_api_gateway_integration" "calendar_integration" {
@@ -884,6 +901,7 @@ resource "aws_lambda_permission" "admin_api_gateway_lambda" {
 
 resource "aws_api_gateway_deployment" "calendar_deployment" {
   depends_on = [
+    aws_api_gateway_integration.calendar_get_integration,
     aws_api_gateway_integration.calendar_integration,
     aws_api_gateway_integration.calendar_options_integration,
     aws_api_gateway_integration.feedback_integration,
@@ -895,8 +913,10 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
   triggers = {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.calendar_resource.id,
+      aws_api_gateway_method.calendar_get.id,
       aws_api_gateway_method.calendar_post.id,
       aws_api_gateway_method.calendar_options.id,
+      aws_api_gateway_integration.calendar_get_integration.id,
       aws_api_gateway_integration.calendar_integration.id,
       aws_api_gateway_integration.calendar_options_integration.id,
       aws_api_gateway_resource.feedback_resource.id,
