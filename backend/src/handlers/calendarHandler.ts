@@ -32,6 +32,7 @@ const CACHE_MEMORY_TTL_MINUTES = parseInt(process.env.CACHE_MEMORY_TTL_MINUTES |
 const CACHE_S3_TTL_MINUTES = parseInt(process.env.CACHE_S3_TTL_MINUTES || '60');
 const CACHE_S3_KEY_PREFIX = process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache';
 const CACHE_BROWSER_TTL_SECONDS = parseInt(process.env.CACHE_BROWSER_TTL_SECONDS || '3600'); // 1 hour default
+const CACHE_KEY_BUCKET_MINUTES = parseInt(process.env.CACHE_KEY_BUCKET_MINUTES || '15'); // 15 minute buckets for cache key consistency
 
 // Initialize cache service
 const cacheConfig: CacheConfig = {
@@ -312,7 +313,7 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
   // Create cache key based on filters
   const cacheKey = {
     filters: filters || {},
-    timestamp: Math.floor(Date.now() / (1000 * 60 * CACHE_MEMORY_TTL_MINUTES)) // Round to cache TTL for consistency
+    timestamp: Math.floor(Date.now() / (1000 * 60 * CACHE_KEY_BUCKET_MINUTES)) // Round to bucket interval for consistency
   };
 
   console.log('Checking cache for events with filters:', JSON.stringify(filters));

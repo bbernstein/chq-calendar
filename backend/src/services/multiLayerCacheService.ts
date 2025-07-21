@@ -20,17 +20,26 @@ let s3ClientInstance: S3Client | null = null;
 
 function getS3Client(): S3Client {
   if (!s3ClientInstance) {
-    s3ClientInstance = new S3Client({
+    const config: any = {
       region: process.env.AWS_REGION || 'us-east-1',
-      ...(process.env.S3_ENDPOINT && {
-        endpoint: process.env.S3_ENDPOINT,
-        forcePathStyle: true,
-        credentials: {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
-        },
-      }),
-    });
+    };
+
+    // Only add custom endpoint configuration if S3_ENDPOINT is set (for local development)
+    if (process.env.S3_ENDPOINT) {
+      if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+        throw new Error('AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set when using custom S3_ENDPOINT');
+      }
+      
+      config.endpoint = process.env.S3_ENDPOINT;
+      config.forcePathStyle = true;
+      config.credentials = {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      };
+    }
+    // For AWS Lambda, credentials are automatically provided by IAM roles
+
+    s3ClientInstance = new S3Client(config);
   }
   return s3ClientInstance;
 }
