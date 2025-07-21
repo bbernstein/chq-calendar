@@ -53,6 +53,9 @@ export default function FeedbackManagementPage() {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        // Use custom header to work around API Gateway Authorization header parsing issue
+        'X-Auth-Token': token,
+        // Keep Authorization header as fallback
         'Authorization': `Bearer ${token}`,
         ...options.headers,
       },

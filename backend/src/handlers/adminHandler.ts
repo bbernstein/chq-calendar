@@ -73,8 +73,16 @@ const isAuthorizedEmail = (email: string): boolean => {
 
 // Authentication middleware for Lambda
 const authenticateRequest = (event: APIGatewayProxyEvent): { email: string; name: string } | null => {
+  // Try Authorization header first (standard), then X-Auth-Token (workaround for API Gateway issue)
   const authHeader = event.headers.Authorization || event.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  const customAuthHeader = event.headers['X-Auth-Token'] || event.headers['x-auth-token'];
+  
+  let token;
+  if (authHeader) {
+    token = authHeader.split(' ')[1]; // Bearer TOKEN
+  } else if (customAuthHeader) {
+    token = customAuthHeader; // Direct token
+  }
 
   if (!token) {
     return null;

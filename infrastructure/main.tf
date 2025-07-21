@@ -406,7 +406,7 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
 
     forwarded_values {
       query_string = true
-      headers      = ["Authorization", "Content-Type"]
+      headers      = ["Authorization", "Content-Type", "X-Auth-Token"]
       cookies {
         forward = "none"
       }
@@ -877,24 +877,75 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
   }
 }
 
-# Proxy resource to catch all admin API requests
-resource "aws_api_gateway_resource" "admin_proxy" {
+# Direct feedback resource for CloudFront /admin/api/feedback -> /feedback routing
+resource "aws_api_gateway_resource" "direct_feedback_resource" {
   rest_api_id = aws_api_gateway_rest_api.admin.id
   parent_id   = aws_api_gateway_rest_api.admin.root_resource_id
-  path_part   = "{proxy+}"
+  path_part   = "feedback"
 }
 
-resource "aws_api_gateway_method" "admin_proxy_any" {
+resource "aws_api_gateway_method" "direct_feedback_get" {
   rest_api_id   = aws_api_gateway_rest_api.admin.id
-  resource_id   = aws_api_gateway_resource.admin_proxy.id
-  http_method   = "ANY"
+  resource_id   = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method   = "GET"
   authorization = "NONE"
 }
 
-resource "aws_api_gateway_integration" "admin_proxy_integration" {
+resource "aws_api_gateway_method" "direct_feedback_patch" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method   = "PATCH"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "direct_feedback_delete" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method   = "DELETE"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "direct_feedback_options" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "direct_feedback_get_integration" {
   rest_api_id = aws_api_gateway_rest_api.admin.id
-  resource_id = aws_api_gateway_resource.admin_proxy.id
-  http_method = aws_api_gateway_method.admin_proxy_any.http_method
+  resource_id = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method = aws_api_gateway_method.direct_feedback_get.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "direct_feedback_patch_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method = aws_api_gateway_method.direct_feedback_patch.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "direct_feedback_delete_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method = aws_api_gateway_method.direct_feedback_delete.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "direct_feedback_options_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.direct_feedback_resource.id
+  http_method = aws_api_gateway_method.direct_feedback_options.http_method
 
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
@@ -911,7 +962,10 @@ resource "aws_api_gateway_deployment" "admin_deployment" {
     aws_api_gateway_integration.admin_feedback_options_integration,
     aws_api_gateway_integration.admin_feedback_bulk_patch_integration,
     aws_api_gateway_integration.admin_feedback_bulk_options_integration,
-    aws_api_gateway_integration.admin_proxy_integration,
+    aws_api_gateway_integration.direct_feedback_get_integration,
+    aws_api_gateway_integration.direct_feedback_patch_integration,
+    aws_api_gateway_integration.direct_feedback_delete_integration,
+    aws_api_gateway_integration.direct_feedback_options_integration,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.admin.id
