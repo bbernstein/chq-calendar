@@ -877,6 +877,30 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
   }
 }
 
+# Proxy resource to catch all admin API requests
+resource "aws_api_gateway_resource" "admin_proxy" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  parent_id   = aws_api_gateway_rest_api.admin.root_resource_id
+  path_part   = "{proxy+}"
+}
+
+resource "aws_api_gateway_method" "admin_proxy_any" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.admin_proxy.id
+  http_method   = "ANY"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_proxy_integration" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.admin_proxy.id
+  http_method = aws_api_gateway_method.admin_proxy_any.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
 resource "aws_api_gateway_deployment" "admin_deployment" {
   depends_on = [
     aws_api_gateway_integration.auth_google_integration,
@@ -887,6 +911,7 @@ resource "aws_api_gateway_deployment" "admin_deployment" {
     aws_api_gateway_integration.admin_feedback_options_integration,
     aws_api_gateway_integration.admin_feedback_bulk_patch_integration,
     aws_api_gateway_integration.admin_feedback_bulk_options_integration,
+    aws_api_gateway_integration.admin_proxy_integration,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.admin.id
