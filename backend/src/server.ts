@@ -82,7 +82,7 @@ const mockContext: Context = {
 app.post('/calendar', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
-    const result = await calendarHandler(event, mockContext, () => {});
+    const result = await calendarHandler(event, mockContext);
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Calendar API error:', error);
@@ -95,7 +95,7 @@ app.post('/feedback', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
     event.path = '/feedback'; // Ensure proper path for calendar handler
-    const result = await calendarHandler(event, mockContext, () => {});
+    const result = await calendarHandler(event, mockContext);
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Feedback API error:', error);
@@ -108,10 +108,10 @@ app.get('/auth/google', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
     event.path = '/auth/google';
-    const result = await adminHandler(event, mockContext, () => {});
+    const result = await adminHandler(event, mockContext);
     
     if (result.statusCode === 302 && result.headers?.Location) {
-      res.redirect(result.headers.Location);
+      res.redirect(String(result.headers.Location));
     } else {
       res.status(result.statusCode).json(JSON.parse(result.body));
     }
@@ -125,10 +125,10 @@ app.get('/auth/google/callback', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
     event.path = '/auth/google/callback';
-    const result = await adminHandler(event, mockContext, () => {});
+    const result = await adminHandler(event, mockContext);
     
     if (result.statusCode === 302 && result.headers?.Location) {
-      res.redirect(result.headers.Location);
+      res.redirect(String(result.headers.Location));
     } else {
       res.status(result.statusCode).json(JSON.parse(result.body));
     }
@@ -143,7 +143,7 @@ app.get('/admin/api/feedback', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
     event.path = '/feedback';
-    const result = await adminHandler(event, mockContext, () => {});
+    const result = await adminHandler(event, mockContext);
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Admin API error:', error);
@@ -155,7 +155,7 @@ app.patch('/admin/api/feedback', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
     event.path = '/feedback';
-    const result = await adminHandler(event, mockContext, () => {});
+    const result = await adminHandler(event, mockContext);
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Admin API error:', error);
@@ -167,7 +167,7 @@ app.delete('/admin/api/feedback', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
     event.path = '/feedback';
-    const result = await adminHandler(event, mockContext, () => {});
+    const result = await adminHandler(event, mockContext);
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Admin API error:', error);
@@ -179,7 +179,7 @@ app.patch('/admin/api/feedback/bulk', async (req, res) => {
   try {
     const event = expressToLambdaEvent(req);
     event.path = '/feedback/bulk';
-    const result = await adminHandler(event, mockContext, () => {});
+    const result = await adminHandler(event, mockContext);
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Admin API error:', error);

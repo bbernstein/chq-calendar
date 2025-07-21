@@ -7,7 +7,16 @@ import { format, parseISO } from 'date-fns';
 import fetch from 'node-fetch';
 
 // DynamoDB client
-const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
+const dynamoClient = new DynamoDBClient({ 
+  region: process.env.AWS_REGION || 'us-east-1',
+  ...(process.env.DYNAMODB_ENDPOINT && {
+    endpoint: process.env.DYNAMODB_ENDPOINT,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
+    },
+  }),
+});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Environment variables

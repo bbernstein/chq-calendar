@@ -12,7 +12,7 @@ const ENVIRONMENTS = {
     dynamodb: {
       endpoint: 'http://localhost:8000',
       region: 'us-east-1',
-      tableName: 'chq-calendar-events'
+      tableName: 'chautauqua-calendar-events'
     },
     api: {
       // Still uses production API by default for localhost
