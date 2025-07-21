@@ -49,6 +49,10 @@ export default function FeedbackManagementPage() {
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem('chq_auth_token');
     
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+    
     const response = await fetch(url, {
       ...options,
       headers: {
