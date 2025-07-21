@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "npm run test && npm run build:prod",
-    "build:prod": "npx esbuild src/handlers/calendarHandler.ts --bundle --platform=node --target=node24 --outfile=dist/calendarHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:ical-generator --external:date-fns --external:cheerio --external:axios --external:uuid --external:node-fetch && npx esbuild src/handlers/adminHandler.ts --bundle --platform=node --target=node24 --outfile=dist/adminHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:googleapis --external:jsonwebtoken --external:node-fetch --external:uuid",
+    "build:prod": "npx esbuild src/handlers/calendarHandler.ts --bundle --platform=node --target=node24 --outfile=dist/calendarHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/client-s3 --external:@aws-sdk/lib-dynamodb --external:ical-generator --external:date-fns --external:cheerio --external:axios --external:uuid --external:node-fetch && npx esbuild src/handlers/adminHandler.ts --bundle --platform=node --target=node24 --outfile=dist/adminHandler.js --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/client-s3 --external:@aws-sdk/lib-dynamodb --external:googleapis --external:jsonwebtoken --external:node-fetch --external:uuid",
     "build:services": "npx esbuild src/services/*.ts --bundle --platform=node --target=node18 --outdir=dist/services --format=cjs --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:axios --external:cheerio --external:date-fns",
     "deploy": "npm run build && zip -r lambda-function.zip dist/ package.json && aws lambda update-function-code --function-name chautauqua-calendar-generator --zip-file fileb://lambda-function.zip",
     "package": "npm run build:prod && zip -r lambda-function.zip dist/ package.json node_modules/",
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0",
     "aws-lambda": "^1.0.7",
     "axios": "^1.6.0",

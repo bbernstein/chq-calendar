@@ -5,6 +5,7 @@ import ical from 'ical-generator';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO } from 'date-fns';
 import fetch from 'node-fetch';
+import { MultiLayerCacheService, CacheConfig } from '../services/multiLayerCacheService';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({ 
@@ -24,6 +25,22 @@ const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-
 const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chautauqua-calendar-data-sources';
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
+
+// Cache configuration
+const CACHE_S3_BUCKET = process.env.CACHE_S3_BUCKET || 'chautauqua-calendar-cache';
+const CACHE_MEMORY_TTL_MINUTES = parseInt(process.env.CACHE_MEMORY_TTL_MINUTES || '60');
+const CACHE_S3_TTL_MINUTES = parseInt(process.env.CACHE_S3_TTL_MINUTES || '60');
+const CACHE_S3_KEY_PREFIX = process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache';
+
+// Initialize cache service
+const cacheConfig: CacheConfig = {
+  memoryTtlMinutes: CACHE_MEMORY_TTL_MINUTES,
+  s3TtlMinutes: CACHE_S3_TTL_MINUTES,
+  s3BucketName: CACHE_S3_BUCKET,
+  s3KeyPrefix: CACHE_S3_KEY_PREFIX
+};
+
+const cacheService = new MultiLayerCacheService(cacheConfig);
 
 // Types
 interface Event {
@@ -75,8 +92,17 @@ interface FeedbackRecord {
   archivedAt?: string;
 }
 
-// Helper function to create HTTP response
-const createResponse = (statusCode: number, body: any, headers: Record<string, string> = {}): APIGatewayProxyResult => {
+// Helper function to create HTTP response with caching headers
+const createResponse = (statusCode: number, body: any, headers: Record<string, string> = {}, enableCaching = false): APIGatewayProxyResult => {
+  const cacheHeaders = enableCaching ? {
+    'Cache-Control': `public, max-age=${60 * 60}`, // 1 hour browser cache (Layer 1)
+    'Expires': new Date(Date.now() + 60 * 60 * 1000).toUTCString()
+  } : {
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  };
+
   return {
     statusCode,
     headers: {
@@ -84,6 +110,7 @@ const createResponse = (statusCode: number, body: any, headers: Record<string, s
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      ...cacheHeaders,
       ...headers
     },
     body: typeof body === 'string' ? body : JSON.stringify(body)
@@ -185,8 +212,8 @@ const scanAllEvents = async (): Promise<any[]> => {
   return allEvents;
 };
 
-// Helper function to query events from DynamoDB with optimized filtering
-const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[]> => {
+// Helper function to query events from DynamoDB with optimized filtering (uncached)
+const queryEventsFromDatabase = async (filters?: CalendarRequest['filters']): Promise<Event[]> => {
   try {
     let events: any[] = [];
 
@@ -272,6 +299,42 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
   } catch (error) {
     console.error('Error querying events:', error);
     throw error;
+  }
+};
+
+// Cached version of queryEvents using multi-layer caching
+const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[]> => {
+  // Create cache key based on filters
+  const cacheKey = {
+    filters: filters || {},
+    timestamp: Math.floor(Date.now() / (1000 * 60 * CACHE_MEMORY_TTL_MINUTES)) // Round to cache TTL for consistency
+  };
+
+  console.log('Checking cache for events with filters:', JSON.stringify(filters));
+
+  try {
+    // Try to get from cache first (Layers 3 & 4)
+    const cachedEvents = await cacheService.get(cacheKey);
+    if (cachedEvents) {
+      console.log(`Cache HIT: Returning ${cachedEvents.length} events from cache`);
+      return cachedEvents;
+    }
+
+    console.log('Cache MISS: Fetching events from database');
+    
+    // Cache miss - fetch from database
+    const events = await queryEventsFromDatabase(filters);
+    
+    // Store in cache for future requests
+    await cacheService.set(cacheKey, events);
+    
+    console.log(`Fetched and cached ${events.length} events`);
+    return events;
+  } catch (error) {
+    console.error('Error in cached queryEvents:', error);
+    // Fallback to database query if cache fails
+    console.log('Falling back to direct database query due to cache error');
+    return await queryEventsFromDatabase(filters);
   }
 };
 
@@ -399,7 +462,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         return createResponse(200, icalData, {
           'Content-Type': 'text/calendar; charset=utf-8',
           'Content-Disposition': 'attachment; filename="chautauqua-calendar.ics"'
-        });
+        }, true); // Enable caching for iCal files
       } else {
         // Return JSON format
         // Extract metadata for frontend filtering
@@ -418,14 +481,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
               tags: tags.sort()
             }
           }
-        });
+        }, {}, true); // Enable caching for JSON responses
       }
     }
 
     // Handle events listing
     if (httpMethod === 'GET' && path === '/calendar/events') {
       const events = await queryEvents();
-      return createResponse(200, { events });
+      return createResponse(200, { events }, {}, true); // Enable caching
     }
 
     // Handle health check
@@ -434,6 +497,16 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         status: 'healthy',
         timestamp: new Date().toISOString(),
         environment: process.env.ENVIRONMENT || 'unknown'
+      });
+    }
+
+    // Handle cache status check (for monitoring)
+    if (httpMethod === 'GET' && path === '/cache/status') {
+      const stats = cacheService.getCacheStats();
+      return createResponse(200, {
+        cacheStatus: 'operational',
+        stats,
+        timestamp: new Date().toISOString()
       });
     }
 
