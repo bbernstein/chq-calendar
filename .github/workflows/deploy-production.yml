@@ -20,6 +20,22 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    - name: Use Node.js 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+    
+    - name: Install dependencies and build Lambda functions
+      run: |
+        npm ci
+        npm run build --workspace=backend
+        # Create a minimal lambda-function.zip for Terraform source_code_hash
+        cd backend
+        zip -r lambda-function.zip dist/ package.json
+        cd ..
+    
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:

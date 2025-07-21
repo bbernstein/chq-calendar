@@ -1274,6 +1274,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "cache_bucket_lifecycle" {
     id      = "cache_cleanup"
     status  = "Enabled"
 
+    filter {
+      prefix = "" # Apply to all objects
+    }
+
     expiration {
       days = 7 # Delete cache files older than 7 days
     }
