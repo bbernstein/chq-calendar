@@ -59,8 +59,9 @@ export default function FeedbackManagementPage() {
         'Content-Type': 'application/json',
         // Use custom header to work around API Gateway Authorization header parsing issue
         'X-Auth-Token': token,
-        // Keep Authorization header as fallback
-        'Authorization': `Bearer ${token}`,
+        // Temporarily disable Authorization header as it causes API Gateway to reject the request
+        // before it reaches Lambda where our workaround code can handle it
+        // 'Authorization': `Bearer ${token}`,
         ...options.headers,
       },
     });
