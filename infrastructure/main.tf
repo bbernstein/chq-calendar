@@ -45,7 +45,6 @@ variable "google_client_secret" {
 variable "admin_email_whitelist" {
   description = "Comma-separated list of admin emails"
   type        = string
-  default     = "example@gmail.com"
 }
 
 variable "app_name" {

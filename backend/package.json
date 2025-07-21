@@ -9,6 +9,7 @@
     "build:services": "npx esbuild src/services/*.ts --bundle --platform=node --target=node18 --outdir=dist/services --format=cjs --external:aws-sdk --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:axios --external:cheerio --external:date-fns",
     "deploy": "npm run build && zip -r lambda-function.zip dist/ package.json && aws lambda update-function-code --function-name chautauqua-calendar-generator --zip-file fileb://lambda-function.zip",
     "package": "npm run build:prod && zip -r lambda-function.zip dist/ package.json node_modules/",
+    "package:lambda": "npm run build:prod && zip -r lambda-function.zip dist/ package.json node_modules/",
     "test": "jest --passWithNoTests",
     "test:ci": "jest --passWithNoTests --ci --coverage --watchAll=false",
     "test:watch": "jest --watch",
