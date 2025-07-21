@@ -33,17 +33,13 @@ jobs:
         aws-region: ${{ secrets.AWS_REGION }}
     
     - name: Install dependencies
-      run: |
-        cd backend && npm ci
-        cd ../frontend && npm ci
+      run: npm ci
     
     - name: Build backend
-      working-directory: ./backend
-      run: npm run build:prod
+      run: npm run build:prod --workspace=backend
     
     - name: Build frontend
-      working-directory: ./frontend
-      run: npm run build
+      run: npm run build --workspace=frontend
       env:
         NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
         NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
