@@ -11,9 +11,63 @@ on:
         default: false
 
 jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      cache_s3_bucket: ${{ steps.terraform.outputs.cache_s3_bucket_name }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "~1.0"
+        terraform_wrapper: false
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Apply Terraform Infrastructure
+      id: terraform
+      working-directory: ./infrastructure
+      run: |
+        terraform init
+        terraform plan \
+          -var="aws_region=${{ secrets.AWS_REGION }}" \
+          -var="environment=prod" \
+          -var="nextauth_secret=${{ secrets.NEXTAUTH_SECRET }}" \
+          -var="google_client_id=${{ secrets.GOOGLE_CLIENT_ID }}" \
+          -var="google_client_secret=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+          -var="admin_email_whitelist=${{ secrets.ADMIN_EMAIL_WHITELIST }}" \
+          -var="app_name=chautauqua-calendar" \
+          -var="domain_name=chqcal.org" \
+          -var="recaptcha_secret_key=${{ secrets.RECAPTCHA_SECRET_KEY }}" \
+          -var="recaptcha_site_key=${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}"
+        terraform apply -auto-approve \
+          -var="aws_region=${{ secrets.AWS_REGION }}" \
+          -var="environment=prod" \
+          -var="nextauth_secret=${{ secrets.NEXTAUTH_SECRET }}" \
+          -var="google_client_id=${{ secrets.GOOGLE_CLIENT_ID }}" \
+          -var="google_client_secret=${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+          -var="admin_email_whitelist=${{ secrets.ADMIN_EMAIL_WHITELIST }}" \
+          -var="app_name=chautauqua-calendar" \
+          -var="domain_name=chqcal.org" \
+          -var="recaptcha_secret_key=${{ secrets.RECAPTCHA_SECRET_KEY }}" \
+          -var="recaptcha_site_key=${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}"
+        
+        # Output the cache bucket name for the deployment job
+        echo "cache_s3_bucket_name=$(terraform output -raw cache_s3_bucket_name)" >> $GITHUB_OUTPUT
+
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    needs: terraform
     
     steps:
     - uses: actions/checkout@v4
@@ -127,7 +181,7 @@ jobs:
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
         
         # Update environment variables for calendar Lambda
-        echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","RECAPTCHA_SECRET_KEY":"${{ secrets.RECAPTCHA_SECRET_KEY }}","USE_NEW_API":"true","CACHE_S3_BUCKET":"${{ secrets.CACHE_S3_BUCKET }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache"}}' > env.json
+        echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","RECAPTCHA_SECRET_KEY":"${{ secrets.RECAPTCHA_SECRET_KEY }}","USE_NEW_API":"true","CACHE_S3_BUCKET":"${{ needs.terraform.outputs.cache_s3_bucket }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache"}}' > env.json
         aws lambda update-function-configuration \
           --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
           --environment file://env.json
