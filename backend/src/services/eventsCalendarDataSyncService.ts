@@ -1,5 +1,6 @@
 import { EventsCalendarApiClient } from './eventsCalendarApiClient';
 import { EventTransformationService } from './eventTransformationService';
+import { MultiLayerCacheService } from './multiLayerCacheService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -8,6 +9,7 @@ export class EventsCalendarDataSyncService {
   private transformationService: typeof EventTransformationService;
   private dbClient: DynamoDBDocumentClient;
   private tableName: string;
+  private cacheService: MultiLayerCacheService;
 
   constructor(apiClient?: EventsCalendarApiClient, dbClient?: DynamoDBDocumentClient) {
     this.apiClient = apiClient || new EventsCalendarApiClient();
@@ -17,6 +19,14 @@ export class EventsCalendarDataSyncService {
       throw new Error('Database client not provided');
     })();
     this.tableName = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
+    
+    // Initialize cache service for cache warming
+    this.cacheService = new MultiLayerCacheService({
+      memoryTtlMinutes: parseInt(process.env.CACHE_MEMORY_TTL_MINUTES || '60'),
+      s3TtlMinutes: parseInt(process.env.CACHE_S3_TTL_MINUTES || '60'),
+      s3BucketName: process.env.CACHE_S3_BUCKET || 'chautauqua-calendar-cache',
+      s3KeyPrefix: process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache'
+    });
   }
 
   /**
@@ -86,6 +96,12 @@ export class EventsCalendarDataSyncService {
         errors: result.errors.length
       });
 
+      // Warm S3 cache after successful sync
+      if (result.success) {
+        const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
+        await this.warmCacheAfterSync(hasDataChanges);
+      }
+
       return result;
     } catch (error) {
       const errorMessage = `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -146,6 +162,13 @@ export class EventsCalendarDataSyncService {
       result.duration = Date.now() - startTime;
 
       console.log(`Season sync completed:`, result);
+
+      // Warm S3 cache after successful sync
+      if (result.success) {
+        const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
+        await this.warmCacheAfterSync(hasDataChanges);
+      }
+
       return result;
     } catch (error) {
       const errorMessage = `Season sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -231,6 +254,13 @@ export class EventsCalendarDataSyncService {
       result.duration = Date.now() - startTime;
 
       console.log(`Hourly sync completed:`, result);
+
+      // Warm S3 cache after successful sync
+      if (result.success) {
+        const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
+        await this.warmCacheAfterSync(hasDataChanges);
+      }
+
       return result;
     } catch (error) {
       const errorMessage = `Hourly sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -305,6 +335,13 @@ export class EventsCalendarDataSyncService {
       result.duration = Date.now() - startTime;
 
       console.log(`Date range sync completed:`, result);
+
+      // Warm S3 cache after successful sync
+      if (result.success) {
+        const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
+        await this.warmCacheAfterSync(hasDataChanges);
+      }
+
       return result;
     } catch (error) {
       const errorMessage = `Date range sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -498,6 +535,144 @@ export class EventsCalendarDataSyncService {
       eventsByCategory: {},
       syncHistory: []
     };
+  }
+
+  /**
+   * Warm S3 cache with common calendar queries after data updates
+   * This ensures CloudFront can serve from S3 cache without invoking Lambda
+   */
+  private async warmCacheAfterSync(hasDataChanges: boolean): Promise<void> {
+    const CACHE_KEY_BUCKET_MINUTES = parseInt(process.env.CACHE_KEY_BUCKET_MINUTES || '15');
+    const currentTimestamp = Math.floor(Date.now() / (1000 * 60 * CACHE_KEY_BUCKET_MINUTES));
+    
+    console.log(`Starting cache warming - hasDataChanges: ${hasDataChanges}`);
+    
+    try {
+      // Common cache keys that API requests use
+      const commonCacheKeys = [
+        // All events (no filters) - most common request
+        { filters: {}, timestamp: currentTimestamp },
+        
+        // Today's events
+        { 
+          filters: { 
+            dateRange: { 
+              start: new Date().toISOString().split('T')[0],
+              end: new Date().toISOString().split('T')[0]
+            }
+          }, 
+          timestamp: currentTimestamp 
+        },
+        
+        // This week's events (next 7 days)
+        {
+          filters: {
+            dateRange: {
+              start: new Date().toISOString().split('T')[0],
+              end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+            }
+          },
+          timestamp: currentTimestamp
+        }
+      ];
+
+      for (const cacheKey of commonCacheKeys) {
+        try {
+          if (hasDataChanges) {
+            // Data changed - fetch fresh data and warm cache
+            console.log('Data changes detected - fetching fresh events for cache warming');
+            const events = await this.queryEventsForCacheWarming(cacheKey.filters);
+            await this.cacheService.set(cacheKey, events);
+            console.log(`Cache warmed for key: ${JSON.stringify(cacheKey.filters)} - ${events.length} events`);
+          } else {
+            // No data changes - just refresh cache timestamp to extend TTL
+            const existingData = await this.cacheService.get(cacheKey);
+            if (existingData) {
+              await this.cacheService.set(cacheKey, existingData);
+              console.log(`Cache timestamp refreshed for key: ${JSON.stringify(cacheKey.filters)}`);
+            } else {
+              // Cache was empty, fetch and populate
+              console.log('Cache was empty - fetching events for cache warming');
+              const events = await this.queryEventsForCacheWarming(cacheKey.filters);
+              await this.cacheService.set(cacheKey, events);
+              console.log(`Cache populated for key: ${JSON.stringify(cacheKey.filters)} - ${events.length} events`);
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to warm cache for key ${JSON.stringify(cacheKey.filters)}:`, error);
+          // Continue with next cache key even if one fails
+        }
+      }
+      
+      console.log('Cache warming completed successfully');
+    } catch (error) {
+      console.error('Cache warming failed:', error);
+      // Don't throw - cache warming is optional optimization
+    }
+  }
+
+  /**
+   * Query events for cache warming (mirrors calendar handler logic)
+   */
+  private async queryEventsForCacheWarming(filters?: any): Promise<any[]> {
+    try {
+      // Use scan command to get all events (simplified version of calendar handler logic)
+      const command = new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: '#status = :status',
+        ExpressionAttributeNames: {
+          '#status': 'status'
+        },
+        ExpressionAttributeValues: {
+          ':status': 'publish'
+        }
+      });
+
+      const response = await this.dbClient.send(command);
+      let events = response.Items || [];
+
+      // Apply basic filtering similar to calendar handler
+      if (filters?.dateRange) {
+        const startDate = new Date(filters.dateRange.start);
+        const endDate = new Date(filters.dateRange.end);
+        events = events.filter(event => {
+          const eventDate = new Date(event.startDate);
+          return eventDate >= startDate && eventDate <= endDate;
+        });
+      }
+
+      if (filters?.categories?.length > 0) {
+        events = events.filter(event => 
+          event.categories && event.categories.some((cat: any) => 
+            filters.categories.includes(cat.name) || filters.categories.includes(cat.slug)
+          )
+        );
+      }
+
+      // Transform to match API response format
+      return events.map(event => ({
+        id: event.id,
+        uid: event.uid,
+        title: event.title,
+        description: event.description,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        timezone: event.timezone || 'America/New_York',
+        venue: event.venue,
+        categories: event.categories || [],
+        tags: event.tags || [],
+        cost: event.cost,
+        image: event.image,
+        status: event.status,
+        featured: event.featured || false,
+        week: event.week,
+        confidence: event.confidence,
+        source: event.source
+      }));
+    } catch (error) {
+      console.error('Error querying events for cache warming:', error);
+      return [];
+    }
   }
 
   /**
