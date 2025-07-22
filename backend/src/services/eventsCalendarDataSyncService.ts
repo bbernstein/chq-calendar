@@ -19,7 +19,7 @@ export class EventsCalendarDataSyncService {
       throw new Error('Database client not provided');
     })();
     this.tableName = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
-    
+
     // Initialize cache service for cache warming
     this.cacheService = new MultiLayerCacheService({
       memoryTtlMinutes: parseInt(process.env.CACHE_MEMORY_TTL_MINUTES || '60'),
@@ -60,7 +60,7 @@ export class EventsCalendarDataSyncService {
         try {
           // Check if event already exists
           const existingEvent = await this.getExistingEvent(event.id);
-          
+
           if (existingEvent) {
             // Update existing event
             const updated = await this.updateEvent(existingEvent, event);
@@ -72,7 +72,7 @@ export class EventsCalendarDataSyncService {
             await this.createEvent(event);
             result.eventsCreated++;
           }
-          
+
           result.eventsProcessed++;
         } catch (error) {
           const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -106,7 +106,7 @@ export class EventsCalendarDataSyncService {
     } catch (error) {
       const errorMessage = `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(errorMessage);
-      
+
       result.errors.push(errorMessage);
       result.duration = Date.now() - startTime;
       return result;
@@ -118,13 +118,13 @@ export class EventsCalendarDataSyncService {
    */
   async syncAllSeasonEvents(year: number = 2025): Promise<SyncResult> {
     console.log(`Starting full season sync for ${year}`);
-    
+
     try {
       const apiEvents = await this.apiClient.getSeasonEvents(year);
       console.log(`Fetched ${apiEvents.length} events for season ${year}`);
 
       const transformedEvents = this.transformationService.transformApiEvents(apiEvents);
-      
+
       const result: SyncResult = {
         success: false,
         eventsProcessed: 0,
@@ -141,7 +141,7 @@ export class EventsCalendarDataSyncService {
       for (const event of transformedEvents) {
         try {
           const existingEvent = await this.getExistingEvent(event.id);
-          
+
           if (existingEvent) {
             const updated = await this.updateEvent(existingEvent, event);
             if (updated) result.eventsUpdated++;
@@ -149,7 +149,7 @@ export class EventsCalendarDataSyncService {
             await this.createEvent(event);
             result.eventsCreated++;
           }
-          
+
           result.eventsProcessed++;
         } catch (error) {
           const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -173,7 +173,7 @@ export class EventsCalendarDataSyncService {
     } catch (error) {
       const errorMessage = `Season sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(errorMessage);
-      
+
       return {
         success: false,
         eventsProcessed: 0,
@@ -191,12 +191,12 @@ export class EventsCalendarDataSyncService {
    */
   async performIncrementalSync(): Promise<SyncResult> {
     console.log('Starting incremental sync');
-    
-    // Get date range for incremental sync (last 7 days to next 30 days)
+
+    // Get date range for incremental sync (last 7 days to next 14 days)
     const now = new Date();
     const startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    
+    const endDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
     const dateRange: DateRange = {
       start: startDate.toISOString().split('T')[0],
       end: endDate.toISOString().split('T')[0]
@@ -210,13 +210,13 @@ export class EventsCalendarDataSyncService {
    */
   async performHourlySync(): Promise<SyncResult> {
     console.log('Starting hourly sync for next 7 days');
-    
+
     try {
       const apiEvents = await this.apiClient.getNext7DaysEvents();
       console.log(`Fetched ${apiEvents.length} events for next 7 days`);
 
       const transformedEvents = this.transformationService.transformApiEvents(apiEvents);
-      
+
       const result: SyncResult = {
         success: false,
         eventsProcessed: 0,
@@ -233,7 +233,7 @@ export class EventsCalendarDataSyncService {
       for (const event of transformedEvents) {
         try {
           const existingEvent = await this.getExistingEvent(event.id);
-          
+
           if (existingEvent) {
             const updated = await this.updateEvent(existingEvent, event);
             if (updated) result.eventsUpdated++;
@@ -241,7 +241,7 @@ export class EventsCalendarDataSyncService {
             await this.createEvent(event);
             result.eventsCreated++;
           }
-          
+
           result.eventsProcessed++;
         } catch (error) {
           const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -265,7 +265,7 @@ export class EventsCalendarDataSyncService {
     } catch (error) {
       const errorMessage = `Hourly sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(errorMessage);
-      
+
       return {
         success: false,
         eventsProcessed: 0,
@@ -291,13 +291,13 @@ export class EventsCalendarDataSyncService {
    */
   async syncDateRange(startDate: string, endDate: string): Promise<SyncResult> {
     console.log(`Starting sync for date range: ${startDate} to ${endDate}`);
-    
+
     try {
-      const apiEvents = await this.apiClient.getEventsWithChunking(startDate, endDate);
-      console.log(`Fetched ${apiEvents.length} events for date range`);
+      const apiEvents =  await this.apiClient.getAllEventsInRange({ start: startDate, end: endDate });
+console.log(`Fetched ${apiEvents.length} events for date range`);
 
       const transformedEvents = this.transformationService.transformApiEvents(apiEvents);
-      
+
       const result: SyncResult = {
         success: false,
         eventsProcessed: 0,
@@ -314,7 +314,7 @@ export class EventsCalendarDataSyncService {
       for (const event of transformedEvents) {
         try {
           const existingEvent = await this.getExistingEvent(event.id);
-          
+
           if (existingEvent) {
             const updated = await this.updateEvent(existingEvent, event);
             if (updated) result.eventsUpdated++;
@@ -322,7 +322,7 @@ export class EventsCalendarDataSyncService {
             await this.createEvent(event);
             result.eventsCreated++;
           }
-          
+
           result.eventsProcessed++;
         } catch (error) {
           const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -346,7 +346,7 @@ export class EventsCalendarDataSyncService {
     } catch (error) {
       const errorMessage = `Date range sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(errorMessage);
-      
+
       return {
         success: false,
         eventsProcessed: 0,
@@ -365,7 +365,7 @@ export class EventsCalendarDataSyncService {
   async getHealthStatus(): Promise<{ healthy: boolean; message: string; details?: any }> {
     try {
       const apiHealth = await this.apiClient.healthCheck();
-      
+
       if (!apiHealth.healthy) {
         return {
           healthy: false,
@@ -380,7 +380,7 @@ export class EventsCalendarDataSyncService {
       };
 
       const testResult = await this.syncEvents(testRange);
-      
+
       return {
         healthy: testResult.success,
         message: testResult.success ? 'Sync service healthy' : 'Sync service has issues',
@@ -406,7 +406,7 @@ export class EventsCalendarDataSyncService {
         TableName: this.tableName,
         Key: { id: eventId.toString() }
       });
-      
+
       const response = await this.dbClient.send(command);
       return response.Item as ChautauquaEvent | null;
     } catch (error) {
@@ -430,7 +430,7 @@ export class EventsCalendarDataSyncService {
           updatedAt: new Date().toISOString()
         }
       });
-      
+
       await this.dbClient.send(command);
       console.log(`Created new event: ${event.title} (ID: ${event.id})`);
     } catch (error) {
@@ -446,7 +446,7 @@ export class EventsCalendarDataSyncService {
     try {
       // Compare events and update if needed
       const hasChanges = this.detectChanges(existingEvent, newEvent);
-      
+
       if (hasChanges) {
         const command = new PutCommand({
           TableName: this.tableName,
@@ -458,12 +458,12 @@ export class EventsCalendarDataSyncService {
             updatedAt: new Date().toISOString()
           }
         });
-        
+
         await this.dbClient.send(command);
         console.log(`Updated event: ${newEvent.title} (ID: ${newEvent.id})`);
         return true;
       }
-      
+
       return false;
     } catch (error) {
       console.error(`Error updating event ${newEvent.id}:`, error);
@@ -477,7 +477,7 @@ export class EventsCalendarDataSyncService {
   private detectChanges(existingEvent: ChautauquaEvent, newEvent: ChautauquaEvent): boolean {
     // Compare key fields that might change
     const fieldsToCompare = [
-      'title', 'description', 'startDate', 'endDate', 
+      'title', 'description', 'startDate', 'endDate',
       'location', 'cost', 'status', 'featured'
     ];
 
@@ -544,26 +544,26 @@ export class EventsCalendarDataSyncService {
   private async warmCacheAfterSync(hasDataChanges: boolean): Promise<void> {
     const CACHE_KEY_BUCKET_MINUTES = parseInt(process.env.CACHE_KEY_BUCKET_MINUTES || '15');
     const currentTimestamp = Math.floor(Date.now() / (1000 * 60 * CACHE_KEY_BUCKET_MINUTES));
-    
+
     console.log(`Starting cache warming - hasDataChanges: ${hasDataChanges}`);
-    
+
     try {
       // Common cache keys that API requests use
       const commonCacheKeys = [
         // All events (no filters) - most common request
         { filters: {}, timestamp: currentTimestamp },
-        
+
         // Today's events
-        { 
-          filters: { 
-            dateRange: { 
+        {
+          filters: {
+            dateRange: {
               start: new Date().toISOString().split('T')[0],
               end: new Date().toISOString().split('T')[0]
             }
-          }, 
-          timestamp: currentTimestamp 
+          },
+          timestamp: currentTimestamp
         },
-        
+
         // This week's events (next 7 days)
         {
           filters: {
@@ -603,7 +603,7 @@ export class EventsCalendarDataSyncService {
           // Continue with next cache key even if one fails
         }
       }
-      
+
       console.log('Cache warming completed successfully');
     } catch (error) {
       console.error('Cache warming failed:', error);
@@ -642,8 +642,8 @@ export class EventsCalendarDataSyncService {
       }
 
       if (filters?.categories?.length > 0) {
-        events = events.filter(event => 
-          event.categories && event.categories.some((cat: any) => 
+        events = events.filter(event =>
+          event.categories && event.categories.some((cat: any) =>
             filters.categories.includes(cat.name) || filters.categories.includes(cat.slug)
           )
         );

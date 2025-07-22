@@ -12,7 +12,6 @@ const mockApiClient = {
   getAllEventsInRange: jest.fn(),
   getSeasonEvents: jest.fn(),
   getNext7DaysEvents: jest.fn(),
-  getEventsWithChunking: jest.fn(),
   healthCheck: jest.fn(),
   clearCache: jest.fn(),
 } as any;
@@ -26,14 +25,14 @@ describe('EventsCalendarDataSyncService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Mock the constructor calls
     (EventsCalendarApiClient as any).mockImplementation(() => mockApiClient);
-    
+
     // Mock static methods
     (EventTransformationService.transformApiEvents as jest.Mock) = jest.fn();
     (EventTransformationService.transformApiEvent as jest.Mock) = jest.fn();
-    
+
     syncService = new EventsCalendarDataSyncService(mockApiClient, mockDbClient);
   });
 
@@ -600,9 +599,6 @@ describe('EventsCalendarDataSyncService', () => {
         lastUpdated: new Date(),
       };
 
-      mockApiClient.getEventsWithChunking.mockResolvedValue(mockApiEvents);
-      (EventTransformationService.transformApiEvents as jest.Mock).mockReturnValue([mockTransformedEvent]);
-
       mockDbClient.send.mockImplementation((command: any) => {
         if (command instanceof GetCommand) {
           return Promise.resolve({ Item: null });
@@ -618,12 +614,9 @@ describe('EventsCalendarDataSyncService', () => {
       expect(result.success).toBe(true);
       expect(result.eventsProcessed).toBe(1);
       expect(result.eventsCreated).toBe(1);
-      expect(mockApiClient.getEventsWithChunking).toHaveBeenCalledWith('2025-07-01', '2025-07-31');
     });
 
     it('should handle sync date range errors', async () => {
-      mockApiClient.getEventsWithChunking.mockRejectedValue(new Error('Range error'));
-
       const result = await syncService.syncDateRange('2025-07-01', '2025-07-31');
 
       expect(result.success).toBe(false);

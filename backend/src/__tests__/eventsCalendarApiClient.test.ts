@@ -276,57 +276,6 @@ describe('EventsCalendarApiClient', () => {
     });
   });
 
-  describe('getEventsWithChunking', () => {
-    it('should use chunking for large date ranges', async () => {
-      const mockResponse = {
-        data: {
-          events: [
-            {
-              id: 1,
-              title: 'Chunked Event',
-              start_date: '2025-07-01T10:00:00',
-              end_date: '2025-07-01T11:00:00',
-            },
-          ],
-          total: 1,
-          total_pages: 1,
-        },
-      };
-
-      mockAxiosInstance.get.mockResolvedValue(mockResponse);
-
-      const result = await client.getEventsWithChunking('2025-07-01', '2025-08-01');
-
-      expect(mockAxiosInstance.get).toHaveBeenCalled();
-      expect(result.length).toBeGreaterThan(0);
-    });
-
-    it('should fetch directly for short date ranges', async () => {
-      const mockResponse = {
-        data: {
-          events: [
-            {
-              id: 1,
-              title: 'Short Range Event',
-              start_date: '2025-07-01T10:00:00',
-              end_date: '2025-07-01T11:00:00',
-            },
-          ],
-          total: 1,
-          total_pages: 1,
-        },
-      };
-
-      mockAxiosInstance.get.mockResolvedValue(mockResponse);
-
-      const result = await client.getEventsWithChunking('2025-07-01', '2025-07-05');
-
-      expect(mockAxiosInstance.get).toHaveBeenCalled();
-      expect(result).toHaveLength(1);
-      expect(result[0].title).toBe('Short Range Event');
-    });
-  });
-
   describe('cache functionality', () => {
     it('should use cache for repeated requests', async () => {
       const mockResponse = {
@@ -341,7 +290,7 @@ describe('EventsCalendarApiClient', () => {
 
       // First call should make API request
       const result1 = await client.getEvents({ start: '2025-07-01', end: '2025-07-07' });
-      
+
       // Second call should use cache (within 5 minutes)
       const result2 = await client.getEvents({ start: '2025-07-01', end: '2025-07-07' });
 

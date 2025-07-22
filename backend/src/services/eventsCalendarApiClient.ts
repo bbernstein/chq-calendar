@@ -10,7 +10,7 @@ export class EventsCalendarApiClient {
   constructor(baseUrl: string = 'https://www.chq.org/wp-json/tribe/events/v1') {
     this.baseUrl = baseUrl;
     this.requestCache = new Map();
-    
+
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
       timeout: 30000, // 30 seconds
@@ -51,7 +51,7 @@ export class EventsCalendarApiClient {
    */
   async getEvents(dateRange: DateRange, options: ApiOptions = {}): Promise<ApiResponse> {
     const cacheKey = `${dateRange.start}-${dateRange.end}-${options.page || 1}-${options.perPage || 100}`;
-    
+
     // Check cache first
     const cached = this.requestCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
@@ -68,7 +68,7 @@ export class EventsCalendarApiClient {
       };
 
       const response: AxiosResponse<ApiResponse> = await this.axiosInstance.get('/events', { params });
-      
+
       // Cache the response
       this.requestCache.set(cacheKey, {
         response: response.data,
@@ -109,7 +109,7 @@ export class EventsCalendarApiClient {
     while (hasMore) {
       try {
         const response = await this.getEvents(dateRange, { page, perPage });
-        
+
         if (response.events && response.events.length > 0) {
           allEvents.push(...response.events);
           console.log(`Fetched page ${page}: ${response.events.length} events (total: ${allEvents.length})`);
@@ -118,15 +118,15 @@ export class EventsCalendarApiClient {
         // Simple but reliable pagination: if we got a full page, try the next page
         // This will continue until we get fewer than perPage events or hit our safety limit
         hasMore = response.events.length === perPage;
-        
+
         console.log(`Page ${page} - Events: ${response.events.length}, Total so far: ${allEvents.length}, API Total: ${response.total || 'unknown'}, Has more: ${hasMore}`);
-        
+
         // Safety check to prevent infinite loops
         if (page > 100) {
           console.warn('Stopping pagination after 100 pages to prevent infinite loop');
           break;
         }
-        
+
         page++;
 
         // Add delay between requests to be respectful
@@ -148,9 +148,9 @@ export class EventsCalendarApiClient {
    */
   async getSeasonEvents(year: number = 2025): Promise<ApiEvent[]> {
     const seasonDates = this.getChautauquaSeasonDates(year);
-    
+
     console.log(`Fetching full season events from ${seasonDates.start.toISOString().split('T')[0]} to ${seasonDates.end.toISOString().split('T')[0]}`);
-    
+
     // Use exact season dates instead of full months
     const seasonRange: DateRange = {
       start: seasonDates.start.toISOString().split('T')[0],
@@ -168,7 +168,7 @@ export class EventsCalendarApiClient {
         console.log(`Fetching week ${index + 1}/${weeklyRanges.length}: ${range.start} to ${range.end}`);
         const weekEvents = await this.getAllEventsInRange(range);
         allEvents.push(...weekEvents);
-        
+
         // Add delay between weeks to be respectful to the API
         if (index < weeklyRanges.length - 1) {
           await this.delay(200); // 200ms delay between weeks
@@ -189,26 +189,26 @@ export class EventsCalendarApiClient {
   private splitIntoWeeklyRanges(startDate: Date, endDate: Date): DateRange[] {
     const ranges: DateRange[] = [];
     const current = new Date(startDate);
-    
+
     while (current <= endDate) {
       const weekStart = new Date(current);
       const weekEnd = new Date(current);
       weekEnd.setDate(weekEnd.getDate() + 6); // Add 6 days to get a full week
-      
+
       // Don't exceed the end date
       if (weekEnd > endDate) {
         weekEnd.setTime(endDate.getTime());
       }
-      
+
       ranges.push({
         start: weekStart.toISOString().split('T')[0],
         end: weekEnd.toISOString().split('T')[0]
       });
-      
+
       // Move to next week
       current.setDate(current.getDate() + 7);
     }
-    
+
     return ranges;
   }
 
@@ -219,12 +219,12 @@ export class EventsCalendarApiClient {
     const today = new Date();
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
-    
+
     const dateRange: DateRange = {
       start: today.toISOString().split('T')[0],
       end: nextWeek.toISOString().split('T')[0]
     };
-    
+
     console.log(`Fetching events for next 7 days: ${dateRange.start} to ${dateRange.end}`);
     return await this.getAllEventsInRange(dateRange);
   }
@@ -238,45 +238,9 @@ export class EventsCalendarApiClient {
       start: today.toISOString().split('T')[0],
       end: today.toISOString().split('T')[0]
     };
-    
+
     console.log(`Fetching events for today: ${dateRange.start}`);
     return await this.getAllEventsInRange(dateRange);
-  }
-
-  /**
-   * Get events for a specific date range with automatic chunking for large ranges
-   */
-  async getEventsWithChunking(startDate: string, endDate: string): Promise<ApiEvent[]> {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-    
-    // For ranges longer than 14 days, use weekly chunking
-    if (daysDiff > 14) {
-      console.log(`Large date range detected (${daysDiff} days), using weekly chunking`);
-      const weeklyRanges = this.splitIntoWeeklyRanges(start, end);
-      const allEvents: ApiEvent[] = [];
-      
-      for (const [index, range] of weeklyRanges.entries()) {
-        try {
-          console.log(`Fetching chunk ${index + 1}/${weeklyRanges.length}: ${range.start} to ${range.end}`);
-          const chunkEvents = await this.getAllEventsInRange(range);
-          allEvents.push(...chunkEvents);
-          
-          // Add delay between chunks
-          if (index < weeklyRanges.length - 1) {
-            await this.delay(150);
-          }
-        } catch (error) {
-          console.error(`Error fetching chunk ${index + 1}:`, error);
-        }
-      }
-      
-      return allEvents;
-    } else {
-      // For shorter ranges, fetch directly
-      return await this.getAllEventsInRange({ start: startDate, end: endDate });
-    }
   }
 
   /**
@@ -304,9 +268,9 @@ export class EventsCalendarApiClient {
     for (let i = 0; i < maxRetries; i++) {
       const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
       console.log(`Retrying request in ${delay}ms (attempt ${i + 1}/${maxRetries})`);
-      
+
       await this.delay(delay);
-      
+
       try {
         return await this.axiosInstance(config);
       } catch (error) {
@@ -367,9 +331,9 @@ export class EventsCalendarApiClient {
         start: '2025-08-01',
         end: '2025-08-02'
       };
-      
+
       const response = await this.getEvents(testRange, { perPage: 1 });
-      
+
       return {
         healthy: true,
         message: `API healthy - returned ${response.events.length} events`
