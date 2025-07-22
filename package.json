@@ -1,7 +1,7 @@
 {
   "name": "chq-calendar",
   "version": "1.0.0",
-  "description": "Dynamic calendar generator for Chautauqua Institution 2025",
+  "description": "Dynamic calendar for Chautauqua Institution 2025",
   "private": true,
   "workspaces": [
     "frontend",

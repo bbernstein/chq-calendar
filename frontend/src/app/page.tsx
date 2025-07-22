@@ -1025,6 +1025,13 @@ function HomeContent() {
                                 <div className="mb-2">
                                   {expandedDescriptions.has(event.id) ? (
                                     <div>
+                                      <button
+                                        onClick={() => toggleDescription(event.id)}
+                                        className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center gap-1"
+                                      >
+                                        <span className="text-xs">▼</span> Show less
+                                      </button>
+
                                       {/* Show description if it exists */}
                                       {event.description && (
                                         <p className="text-gray-600 text-sm mb-2">{event.description}</p>
@@ -1071,19 +1078,13 @@ function HomeContent() {
                                         })()}
                                       </div>
 
-                                      <button
-                                        onClick={() => toggleDescription(event.id)}
-                                        className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center gap-1"
-                                      >
-                                        <span className="text-xs">▼</span> Show less
-                                      </button>
                                     </div>
                                   ) : (
                                     <button
                                       onClick={() => toggleDescription(event.id)}
                                       className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center gap-1"
                                     >
-                                      <span className="text-xs">▶</span> Show details
+                                      <span className="text-xs">▶</span> Show more
                                     </button>
                                   )}
                                 </div>
