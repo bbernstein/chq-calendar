@@ -1,20 +1,24 @@
 # Data Sync Lambda Function
 resource "aws_lambda_function" "data_sync" {
-  filename         = "../backend/lambda-function.zip"
-  function_name    = "chq-calendar-data-sync"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "dist/syncHandler.scheduledSyncHandler"
-  runtime         = "nodejs18.x"
-  timeout         = 900 # 15 minutes
-  memory_size     = 1024
+  filename      = "../backend/lambda-function.zip"
+  function_name = "chq-calendar-data-sync"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "dist/syncHandler.scheduledSyncHandler"
+  runtime       = "nodejs18.x"
+  timeout       = 900 # 15 minutes
+  memory_size   = 1024
 
   environment {
     variables = {
-      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
-      DATA_SOURCES_TABLE_NAME  = aws_dynamodb_table.data_sources.name
-      SYNC_STATUS_TABLE_NAME   = aws_dynamodb_table.sync_status.name
+      EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
+      DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
+      SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       NODE_ENV                = "production"
       USE_NEW_API             = "true"
+      CACHE_S3_BUCKET         = aws_s3_bucket.cache_bucket.bucket
+      CACHE_S3_KEY_PREFIX     = "calendar-cache"
+      CACHE_MEMORY_TTL_MINUTES = "60"
+      CACHE_S3_TTL_MINUTES    = "60"
     }
   }
 
@@ -29,19 +33,19 @@ resource "aws_lambda_function" "data_sync" {
 
 # Manual Sync Lambda Function
 resource "aws_lambda_function" "manual_sync" {
-  filename         = "../backend/lambda-function.zip"
-  function_name    = "chq-calendar-manual-sync"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "dist/syncHandler.manualSyncHandler"
-  runtime         = "nodejs18.x"
-  timeout         = 900 # 15 minutes
-  memory_size     = 1024
+  filename      = "../backend/lambda-function.zip"
+  function_name = "chq-calendar-manual-sync"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "dist/syncHandler.manualSyncHandler"
+  runtime       = "nodejs18.x"
+  timeout       = 900 # 15 minutes
+  memory_size   = 1024
 
   environment {
     variables = {
-      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
-      DATA_SOURCES_TABLE_NAME  = aws_dynamodb_table.data_sources.name
-      SYNC_STATUS_TABLE_NAME   = aws_dynamodb_table.sync_status.name
+      EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
+      DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
+      SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       NODE_ENV                = "production"
       USE_NEW_API             = "true"
     }
@@ -58,19 +62,19 @@ resource "aws_lambda_function" "manual_sync" {
 
 # Sync Health Check Lambda Function
 resource "aws_lambda_function" "sync_health" {
-  filename         = "../backend/lambda-function.zip"
-  function_name    = "chq-calendar-sync-health"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "dist/syncHandler.healthCheckHandler"
-  runtime         = "nodejs18.x"
-  timeout         = 30
-  memory_size     = 256
+  filename      = "../backend/lambda-function.zip"
+  function_name = "chq-calendar-sync-health"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "dist/syncHandler.healthCheckHandler"
+  runtime       = "nodejs18.x"
+  timeout       = 30
+  memory_size   = 256
 
   environment {
     variables = {
-      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
-      DATA_SOURCES_TABLE_NAME  = aws_dynamodb_table.data_sources.name
-      SYNC_STATUS_TABLE_NAME   = aws_dynamodb_table.sync_status.name
+      EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
+      DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
+      SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       NODE_ENV                = "production"
       USE_NEW_API             = "true"
     }
@@ -87,19 +91,19 @@ resource "aws_lambda_function" "sync_health" {
 
 # Sync Status Lambda Function
 resource "aws_lambda_function" "sync_status" {
-  filename         = "../backend/lambda-function.zip"
-  function_name    = "chq-calendar-sync-status"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "dist/syncHandler.syncStatusHandler"
-  runtime         = "nodejs18.x"
-  timeout         = 30
-  memory_size     = 256
+  filename      = "../backend/lambda-function.zip"
+  function_name = "chq-calendar-sync-status"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "dist/syncHandler.syncStatusHandler"
+  runtime       = "nodejs18.x"
+  timeout       = 30
+  memory_size   = 256
 
   environment {
     variables = {
-      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
-      DATA_SOURCES_TABLE_NAME  = aws_dynamodb_table.data_sources.name
-      SYNC_STATUS_TABLE_NAME   = aws_dynamodb_table.sync_status.name
+      EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
+      DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
+      SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       NODE_ENV                = "production"
       USE_NEW_API             = "true"
     }
@@ -116,19 +120,19 @@ resource "aws_lambda_function" "sync_status" {
 
 # Sync List Lambda Function
 resource "aws_lambda_function" "sync_list" {
-  filename         = "../backend/lambda-function.zip"
-  function_name    = "chq-calendar-sync-list"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "dist/syncHandler.syncListHandler"
-  runtime         = "nodejs18.x"
-  timeout         = 30
-  memory_size     = 256
+  filename      = "../backend/lambda-function.zip"
+  function_name = "chq-calendar-sync-list"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "dist/syncHandler.syncListHandler"
+  runtime       = "nodejs18.x"
+  timeout       = 30
+  memory_size   = 256
 
   environment {
     variables = {
-      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
-      DATA_SOURCES_TABLE_NAME  = aws_dynamodb_table.data_sources.name
-      SYNC_STATUS_TABLE_NAME   = aws_dynamodb_table.sync_status.name
+      EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
+      DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
+      SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       NODE_ENV                = "production"
       USE_NEW_API             = "true"
     }
@@ -173,7 +177,7 @@ resource "aws_cloudwatch_log_group" "sync_list" {
 resource "aws_cloudwatch_event_rule" "hourly_sync" {
   name                = "chq-calendar-hourly-sync"
   description         = "Trigger hourly sync for current events"
-  schedule_expression = "rate(30 minutes)" # Every 30 minutes for current day events
+  schedule_expression = "rate(60 minutes)" # Every 60 minutes for current day events
 }
 
 resource "aws_cloudwatch_event_rule" "daily_sync" {
@@ -267,8 +271,8 @@ resource "aws_api_gateway_integration" "sync_post" {
   http_method = aws_api_gateway_method.sync_post.http_method
 
   integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.manual_sync.invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.manual_sync.invoke_arn
 }
 
 resource "aws_lambda_permission" "api_gateway_manual_sync" {
@@ -299,8 +303,8 @@ resource "aws_api_gateway_integration" "sync_health_get" {
   http_method = aws_api_gateway_method.sync_health_get.http_method
 
   integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.sync_health.invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.sync_health.invoke_arn
 }
 
 resource "aws_lambda_permission" "api_gateway_sync_health" {
@@ -337,8 +341,8 @@ resource "aws_api_gateway_integration" "sync_status_get" {
   http_method = aws_api_gateway_method.sync_status_get.http_method
 
   integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.sync_status.invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.sync_status.invoke_arn
 }
 
 resource "aws_lambda_permission" "api_gateway_sync_status" {
@@ -363,8 +367,8 @@ resource "aws_api_gateway_integration" "sync_list_get" {
   http_method = aws_api_gateway_method.sync_list_get.http_method
 
   integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.sync_list.invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.sync_list.invoke_arn
 }
 
 resource "aws_lambda_permission" "api_gateway_sync_list" {
@@ -409,9 +413,9 @@ resource "aws_cloudwatch_dashboard" "sync_monitoring" {
         height = 6
 
         properties = {
-          query   = "SOURCE '/aws/lambda/chq-calendar-data-sync' | fields @timestamp, @message | sort @timestamp desc | limit 100"
-          region  = var.aws_region
-          title   = "Recent Sync Logs"
+          query  = "SOURCE '/aws/lambda/chq-calendar-data-sync' | fields @timestamp, @message | sort @timestamp desc | limit 100"
+          region = var.aws_region
+          title  = "Recent Sync Logs"
         }
       }
     ]

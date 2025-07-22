@@ -64,6 +64,13 @@ fi
 
 print_success "Pre-flight checks passed"
 
+# Build Lambda functions first
+print_status "🔨 Building Lambda functions..."
+cd backend
+npm install
+npm run package:terraform
+cd ..
+
 # Deploy infrastructure
 print_status "📦 Deploying infrastructure..."
 cd infrastructure
