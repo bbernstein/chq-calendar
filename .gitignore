@@ -10,6 +10,7 @@ out/
 dist/
 build/
 infrastructure/github-secrets.json
+infrastructure/tfplan
 
 # Environment variables
 .env
