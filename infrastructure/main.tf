@@ -347,6 +347,16 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     }
   }
 
+  # S3 Cache origin for serving cached calendar data
+  origin {
+    domain_name = aws_s3_bucket.cache_bucket.bucket_regional_domain_name
+    origin_id   = "S3-CACHE-${aws_s3_bucket.cache_bucket.bucket}"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.cache_origin_access_identity.cloudfront_access_identity_path
+    }
+  }
+
   enabled             = true
   default_root_object = "index.html"
   aliases             = [var.domain_name, "www.${var.domain_name}"]
@@ -377,6 +387,29 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     min_ttl     = 0
     default_ttl = var.cloudfront_cache_ttl
     max_ttl     = 86400 # 24 hour max cache
+  }
+
+  # Cache behavior for S3 cached data at /cache/*
+  ordered_cache_behavior {
+    path_pattern           = "/cache/*"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    target_origin_id       = "S3-CACHE-${aws_s3_bucket.cache_bucket.bucket}"
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
+
+    forwarded_values {
+      query_string = false
+      headers      = []
+      cookies {
+        forward = "none"
+      }
+    }
+
+    # Cache for 1 hour on edge and browser
+    min_ttl     = 0
+    default_ttl = 3600  # 1 hour
+    max_ttl     = 3600  # 1 hour
   }
 
   # Admin API behavior for /auth/* and /admin/* paths
@@ -1277,6 +1310,11 @@ output "cloudfront_domain" {
   value = aws_cloudfront_distribution.frontend_distribution.domain_name
 }
 
+# CloudFront Origin Access Identity for S3 cache bucket
+resource "aws_cloudfront_origin_access_identity" "cache_origin_access_identity" {
+  comment = "OAI for S3 cache bucket"
+}
+
 # S3 bucket for caching calendar data (Layer 4: S3 File Cache)
 resource "aws_s3_bucket" "cache_bucket" {
   bucket = "chautauqua-calendar-cache-${random_string.bucket_suffix.result}"
@@ -1322,6 +1360,36 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cache_bucket_encr
       sse_algorithm = "AES256"
     }
   }
+}
+
+# S3 bucket policy for CloudFront Origin Access Identity
+resource "aws_s3_bucket_policy" "cache_bucket_policy" {
+  bucket = aws_s3_bucket.cache_bucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowCloudFrontServicePrincipal"
+        Effect    = "Allow"
+        Principal = {
+          AWS = aws_cloudfront_origin_access_identity.cache_origin_access_identity.iam_arn
+        }
+        Action   = "s3:GetObject"
+        Resource = "${aws_s3_bucket.cache_bucket.arn}/*"
+      }
+    ]
+  })
+}
+
+# Block public access to the cache bucket (only CloudFront should access it)
+resource "aws_s3_bucket_public_access_block" "cache_bucket_pab" {
+  bucket = aws_s3_bucket.cache_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 # Random suffix to ensure bucket name uniqueness
