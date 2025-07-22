@@ -15,6 +15,10 @@ resource "aws_lambda_function" "data_sync" {
       SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       NODE_ENV                = "production"
       USE_NEW_API             = "true"
+      CACHE_S3_BUCKET         = aws_s3_bucket.cache_bucket.bucket
+      CACHE_S3_KEY_PREFIX     = "calendar-cache"
+      CACHE_MEMORY_TTL_MINUTES = "60"
+      CACHE_S3_TTL_MINUTES    = "60"
     }
   }
 

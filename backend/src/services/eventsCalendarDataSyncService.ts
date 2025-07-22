@@ -192,10 +192,10 @@ export class EventsCalendarDataSyncService {
   async performIncrementalSync(): Promise<SyncResult> {
     console.log('Starting incremental sync');
 
-    // Get date range for incremental sync (last 7 days to next 14 days)
+    // Get date range for incremental sync (back 1 day to next 7 days)
     const now = new Date();
-    const startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const endDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const startDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+    const endDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const dateRange: DateRange = {
       start: startDate.toISOString().split('T')[0],
