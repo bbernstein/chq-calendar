@@ -542,37 +542,36 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
    * This ensures CloudFront can serve from S3 cache without invoking Lambda
    */
   private async warmCacheAfterSync(hasDataChanges: boolean): Promise<void> {
-    const CACHE_KEY_BUCKET_MINUTES = parseInt(process.env.CACHE_KEY_BUCKET_MINUTES || '15');
-    const currentTimestamp = Math.floor(Date.now() / (1000 * 60 * CACHE_KEY_BUCKET_MINUTES));
-
     console.log(`Starting cache warming - hasDataChanges: ${hasDataChanges}`);
 
     try {
       // Common cache keys that API requests use
+      // Using predictable cache keys for direct CloudFront access
       const commonCacheKeys = [
         // All events (no filters) - most common request
-        { filters: {}, timestamp: currentTimestamp },
+        // This will generate cache key: "all-events"
+        { filters: {} },
 
         // Today's events
+        // This will generate cache key: "events-YYYY-MM-DD"
         {
           filters: {
             dateRange: {
               start: new Date().toISOString().split('T')[0],
               end: new Date().toISOString().split('T')[0]
             }
-          },
-          timestamp: currentTimestamp
+          }
         },
 
         // This week's events (next 7 days)
+        // This will generate cache key: "events-YYYY-MM-DD-to-YYYY-MM-DD"
         {
           filters: {
             dateRange: {
               start: new Date().toISOString().split('T')[0],
               end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
             }
-          },
-          timestamp: currentTimestamp
+          }
         }
       ];
 

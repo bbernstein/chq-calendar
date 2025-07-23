@@ -1,6 +1,6 @@
-# Chautauqua Calendar Generator
+# Chautauqua Calendar
 
-A dynamic calendar generator for Chautauqua Institution 2025 season with real-time event updates.
+A dynamic calendar for Chautauqua Institution 2025 season with real-time event updates.
 
 ## Features
 - 🔄 Live data sync from official Chautauqua sources
@@ -141,4 +141,3 @@ docker-compose up -d --build
 # Remove all data (reset database)
 docker-compose down -v
 ```
-

@@ -1,8 +1,8 @@
-# Chautauqua Calendar Generator - Design Document
+# Chautauqua Calendar - Design Document
 
 ## Overview
 
-The Chautauqua Calendar Generator is a full-stack serverless application designed to provide a dynamic, filterable calendar for the 2025 Chautauqua Institution season. This document outlines the comprehensive architecture, design decisions, and assumptions that guide the development of this project.
+The Chautauqua Calendar is a full-stack serverless application designed to provide a dynamic, filterable calendar for the 2025 Chautauqua Institution season. This document outlines the comprehensive architecture, design decisions, and assumptions that guide the development of this project.
 
 ## Table of Contents
 
@@ -519,7 +519,7 @@ services:
 
 ## Conclusion
 
-This design document serves as the single source of truth for the Chautauqua Calendar Generator architecture. It should be referenced for all development decisions and updated as the system evolves. The design prioritizes simplicity, performance, and maintainability while providing a robust foundation for future enhancements.
+This design document serves as the single source of truth for the Chautauqua Calendar architecture. It should be referenced for all development decisions and updated as the system evolves. The design prioritizes simplicity, performance, and maintainability while providing a robust foundation for future enhancements.
 
 **Key Principles:**
 - Simplicity over complexity

@@ -16,7 +16,7 @@ export class EventsCalendarApiClient {
       timeout: 30000, // 30 seconds
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'Chautauqua-Calendar-Generator/1.0'
+        'User-Agent': 'Chautauqua-Calendar/1.0'
       }
     });
 

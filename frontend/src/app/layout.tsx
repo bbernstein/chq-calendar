@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chautauqua Calendar Generator | 2025 Season",
-  description: "Dynamic calendar generator for Chautauqua Institution 2025 season with real-time event updates, smart filtering, and export options.",
-  keywords: "Chautauqua, calendar, events, 2025, institution, generator, export, ics",
+  title: "Chautauqua Calendar | 2025 Season",
+  description: "Dynamic calendar for Chautauqua Institution 2025 season with real-time event updates, smart filtering, and export options.",
+  keywords: "Chautauqua, calendar, events, 2025, institution, export, ics",
   authors: [{ name: "Chautauqua Calendar Team" }],
   icons: {
     icon: [
@@ -26,14 +26,14 @@ export const metadata: Metadata = {
     apple: '/chq-calendar-icon-256.svg',
   },
   openGraph: {
-    title: "Chautauqua Calendar Generator",
+    title: "Chautauqua Calendar",
     description: "Discover and export Chautauqua Institution events with real-time updates",
     type: "website",
     url: "https://www.chqcal.org",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Chautauqua Calendar Generator",
+    title: "Chautauqua Calendar",
     description: "Dynamic calendar for Chautauqua Institution 2025 season",
   },
 };

@@ -56,8 +56,37 @@ export class MultiLayerCacheService<T = any> {
 
   /**
    * Generate a cache key based on the input parameters
+   * Uses predictable names for common queries
    */
   private generateCacheKey(keyParams: Record<string, any>): string {
+    // Handle predictable cache keys for common requests
+    if (keyParams.predictableKey) {
+      return keyParams.predictableKey;
+    }
+    
+    // Special case: empty filters = all events
+    if (keyParams.filters !== undefined && Object.keys(keyParams.filters).length === 0) {
+      return 'all-events';
+    }
+    
+    // Special case: specific date range
+    if (keyParams.filters?.dateRange) {
+      const { start, end } = keyParams.filters.dateRange;
+      if (start === end) {
+        // Single day
+        return `events-${start}`;
+      } else {
+        // Date range
+        return `events-${start}-to-${end}`;
+      }
+    }
+    
+    // Special case: category filter
+    if (keyParams.filters?.categories && keyParams.filters.categories.length === 1) {
+      return `category-${keyParams.filters.categories[0].toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+    }
+    
+    // Default: use hash for complex queries
     const sortedParams = Object.keys(keyParams)
       .sort()
       .reduce((result, key) => {

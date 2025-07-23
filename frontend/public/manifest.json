@@ -1,7 +1,7 @@
 {
-  "name": "Chautauqua Calendar Generator",
+  "name": "Chautauqua Calendar",
   "short_name": "CHQ Calendar",
-  "description": "Dynamic calendar generator for Chautauqua Institution 2025 season",
+  "description": "Dynamic calendar for Chautauqua Institution 2025 season",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#5B7F95",
