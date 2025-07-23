@@ -35,7 +35,12 @@ resource "aws_iam_policy" "github_actions" {
         ]
         Resource = [
           aws_lambda_function.calendar_generator.arn,
-          aws_lambda_function.admin_handler.arn
+          aws_lambda_function.admin_handler.arn,
+          aws_lambda_function.data_sync.arn,
+          aws_lambda_function.manual_sync.arn,
+          aws_lambda_function.sync_health.arn,
+          aws_lambda_function.sync_status.arn,
+          aws_lambda_function.sync_list.arn
         ]
       },
       {
