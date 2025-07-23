@@ -99,7 +99,7 @@ function HomeContent() {
   const apiUrl = useMemo(() =>
     process.env.NODE_ENV === 'development'
       ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
-      : '/api'
+      : ''  // Use root domain for cache path
   , []);
 
   console.log('API URL:', apiUrl, 'NODE_ENV:', process.env.NODE_ENV);
@@ -569,7 +569,7 @@ function HomeContent() {
     try {
       console.log('Loading all events for the season...');
 
-      const response = await fetch(`${apiUrl}/calendar?format=json`, {
+      const response = await fetch(`${apiUrl}/cache/calendar-cache/all-events.json`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -578,7 +578,7 @@ function HomeContent() {
 
       if (response.ok) {
         const data = await response.json();
-        const rawEvents = data.events || [];
+        const rawEvents = data.data || [];
         // Decode HTML entities for all events
         const fetchedEvents = rawEvents.map(decodeEventHtmlEntities);
         console.log('Loaded all events:', fetchedEvents.length, 'events');
