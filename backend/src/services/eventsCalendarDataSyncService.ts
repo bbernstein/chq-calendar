@@ -2,7 +2,7 @@ import { EventsCalendarApiClient } from './eventsCalendarApiClient';
 import { EventTransformationService } from './eventTransformationService';
 import { MultiLayerCacheService } from './multiLayerCacheService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand, WriteRequest } from '@aws-sdk/lib-dynamodb';
 
 export class EventsCalendarDataSyncService {
   private apiClient: EventsCalendarApiClient;
@@ -10,6 +10,10 @@ export class EventsCalendarDataSyncService {
   private dbClient: DynamoDBDocumentClient;
   private tableName: string;
   private cacheService: MultiLayerCacheService;
+
+  // AWS service limits
+  private static readonly DYNAMODB_BATCH_WRITE_LIMIT = 25;
+  private static readonly DYNAMODB_BATCH_GET_LIMIT = 100;
 
   constructor(apiClient?: EventsCalendarApiClient, dbClient?: DynamoDBDocumentClient) {
     // Configure API client with parallelization settings from environment
@@ -352,7 +356,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     updated: number;
     errors: string[];
   }> {
-    const batchSize = 25; // DynamoDB batch write limit
+    const batchSize = EventsCalendarDataSyncService.DYNAMODB_BATCH_WRITE_LIMIT;
     const errors: string[] = [];
     let processed = 0;
     let created = 0;
@@ -387,8 +391,8 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
   private async getExistingEventsInBulk(eventIds: number[]): Promise<Map<string, ChautauquaEvent>> {
     const existingEvents = new Map<string, ChautauquaEvent>();
     
-    // Process in batches of 100 (DynamoDB BatchGet limit)
-    const batchSize = 100;
+    // Process in batches using DynamoDB BatchGet limit
+    const batchSize = EventsCalendarDataSyncService.DYNAMODB_BATCH_GET_LIMIT;
     
     for (let i = 0; i < eventIds.length; i += batchSize) {
       const batch = eventIds.slice(i, i + batchSize);
@@ -439,7 +443,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     updated: number;
     errors: string[];
   }> {
-    const writeRequests: any[] = [];
+    const writeRequests: WriteRequest[] = [];
     const errors: string[] = [];
     let created = 0;
     let updated = 0;

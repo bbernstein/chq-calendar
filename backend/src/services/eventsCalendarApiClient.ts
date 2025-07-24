@@ -9,6 +9,12 @@ export class EventsCalendarApiClient {
   private maxConcurrentRequests: number = 10; // Configurable parallelization
   private requestDelayMs: number = 100; // Delay between batches
 
+  // Configuration constants
+  private static readonly MIN_CONCURRENT_REQUESTS = 1;
+  private static readonly MAX_CONCURRENT_REQUESTS = 20;
+  private static readonly MAX_PAGES_SAFETY_LIMIT = 100;
+  private static readonly INITIAL_BATCH_LIMIT = 20;
+
   constructor(baseUrl: string = 'https://www.chq.org/wp-json/tribe/events/v1', options: {
     maxConcurrentRequests?: number;
     requestDelayMs?: number;
@@ -138,7 +144,7 @@ export class EventsCalendarApiClient {
     const pagesToFetch: number[] = [];
     let currentPage = 2;
     let consecutiveEmptyPages = 0;
-    const maxPages = 100; // Safety limit
+    const maxPages = EventsCalendarApiClient.MAX_PAGES_SAFETY_LIMIT;
 
     // Generate page numbers to fetch
     while (currentPage <= maxPages && consecutiveEmptyPages < 3) {
@@ -146,7 +152,7 @@ export class EventsCalendarApiClient {
       currentPage++;
       
       // We'll break out of this when we process the results
-      if (pagesToFetch.length >= 20) { // Initial batch limit
+      if (pagesToFetch.length >= EventsCalendarApiClient.INITIAL_BATCH_LIMIT) {
         break;
       }
     }
@@ -286,7 +292,10 @@ export class EventsCalendarApiClient {
    * Update parallelization settings
    */
   updateParallelizationSettings(maxConcurrentRequests: number, requestDelayMs: number = 100): void {
-    this.maxConcurrentRequests = Math.max(1, Math.min(20, maxConcurrentRequests)); // Limit between 1-20
+    this.maxConcurrentRequests = Math.max(
+      EventsCalendarApiClient.MIN_CONCURRENT_REQUESTS, 
+      Math.min(EventsCalendarApiClient.MAX_CONCURRENT_REQUESTS, maxConcurrentRequests)
+    );
     this.requestDelayMs = Math.max(0, requestDelayMs);
     console.log(`Updated parallelization: ${this.maxConcurrentRequests} concurrent requests, ${this.requestDelayMs}ms delay`);
   }
