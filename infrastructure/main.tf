@@ -79,7 +79,7 @@ variable "recaptcha_site_key" {
 variable "cloudfront_cache_ttl" {
   description = "Default TTL (in seconds) for CloudFront cache behavior"
   type        = number
-  default     = 3600  # 1 hour
+  default     = 3600 # 1 hour
 }
 
 # DynamoDB Tables
@@ -293,8 +293,8 @@ resource "aws_s3_bucket_policy" "frontend_bucket_policy" {
         Resource  = "${aws_s3_bucket.frontend_bucket.arn}/*"
       },
       {
-        Sid       = "AllowCloudFrontServicePrincipal"
-        Effect    = "Allow"
+        Sid    = "AllowCloudFrontServicePrincipal"
+        Effect = "Allow"
         Principal = {
           Service = "cloudfront.amazonaws.com"
         }
@@ -408,27 +408,27 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   }
 
   # Cache behavior for S3 cached data at /cache/*
-  ordered_cache_behavior {
-    path_pattern           = "/cache/*"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS"]
-    target_origin_id       = "S3-REST-${aws_s3_bucket.frontend_bucket.bucket}"
-    compress               = true
-    viewer_protocol_policy = "redirect-to-https"
+  # ordered_cache_behavior {
+  #   path_pattern           = "/cache/*"
+  #   allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+  #   cached_methods         = ["GET", "HEAD", "OPTIONS"]
+  #   target_origin_id       = "S3-REST-${aws_s3_bucket.frontend_bucket.bucket}"
+  #   compress               = true
+  #   viewer_protocol_policy = "redirect-to-https"
 
-    forwarded_values {
-      query_string = false
-      headers      = ["Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"]
-      cookies {
-        forward = "none"
-      }
-    }
+  #   forwarded_values {
+  #     query_string = false
+  #     headers      = ["Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"]
+  #     cookies {
+  #       forward = "none"
+  #     }
+  #   }
 
-    # Cache for 1 hour on edge and browser
-    min_ttl     = 0
-    default_ttl = 3600  # 1 hour
-    max_ttl     = 3600  # 1 hour
-  }
+  #   # Cache for 1 hour on edge and browser
+  #   min_ttl     = 0
+  #   default_ttl = 3600  # 1 hour
+  #   max_ttl     = 3600  # 1 hour
+  # }
 
   # Admin API behavior for /auth/* and /admin/* paths
   ordered_cache_behavior {
@@ -617,17 +617,17 @@ resource "aws_lambda_function" "calendar_generator" {
 
   environment {
     variables = {
-      EVENTS_TABLE_NAME       = aws_dynamodb_table.events.name
-      DATA_SOURCES_TABLE_NAME = aws_dynamodb_table.data_sources.name
-      SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
-      FEEDBACK_TABLE_NAME     = aws_dynamodb_table.feedback.name
-      ENVIRONMENT             = var.environment
-      USE_NEW_API             = "true"
-      RECAPTCHA_SECRET_KEY    = var.recaptcha_secret_key
-      CACHE_S3_BUCKET         = aws_s3_bucket.cache_bucket.bucket
+      EVENTS_TABLE_NAME        = aws_dynamodb_table.events.name
+      DATA_SOURCES_TABLE_NAME  = aws_dynamodb_table.data_sources.name
+      SYNC_STATUS_TABLE_NAME   = aws_dynamodb_table.sync_status.name
+      FEEDBACK_TABLE_NAME      = aws_dynamodb_table.feedback.name
+      ENVIRONMENT              = var.environment
+      USE_NEW_API              = "true"
+      RECAPTCHA_SECRET_KEY     = var.recaptcha_secret_key
+      CACHE_S3_BUCKET          = aws_s3_bucket.cache_bucket.bucket
       CACHE_MEMORY_TTL_MINUTES = "60"
-      CACHE_S3_TTL_MINUTES    = "60"
-      CACHE_S3_KEY_PREFIX     = "calendar-cache"
+      CACHE_S3_TTL_MINUTES     = "60"
+      CACHE_S3_KEY_PREFIX      = "calendar-cache"
     }
   }
 }
@@ -644,13 +644,13 @@ resource "aws_lambda_function" "admin_handler" {
 
   environment {
     variables = {
-      FEEDBACK_TABLE_NAME     = aws_dynamodb_table.feedback.name
-      ENVIRONMENT             = var.environment
-      NEXTAUTH_SECRET         = var.nextauth_secret
-      GOOGLE_CLIENT_ID        = var.google_client_id
-      GOOGLE_CLIENT_SECRET    = var.google_client_secret
-      ADMIN_EMAIL_WHITELIST   = var.admin_email_whitelist
-      ADMIN_API_URL           = "https://admin-api.${var.domain_name}"
+      FEEDBACK_TABLE_NAME   = aws_dynamodb_table.feedback.name
+      ENVIRONMENT           = var.environment
+      NEXTAUTH_SECRET       = var.nextauth_secret
+      GOOGLE_CLIENT_ID      = var.google_client_id
+      GOOGLE_CLIENT_SECRET  = var.google_client_secret
+      ADMIN_EMAIL_WHITELIST = var.admin_email_whitelist
+      ADMIN_API_URL         = "https://admin-api.${var.domain_name}"
     }
   }
 }
@@ -1177,27 +1177,27 @@ resource "aws_api_gateway_stage" "calendar_stage" {
   deployment_id = aws_api_gateway_deployment.calendar_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.main.id
   stage_name    = var.environment
-  
+
   xray_tracing_enabled = true
-  
+
   depends_on = [aws_api_gateway_account.main]
-  
+
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.main_api_gateway_logs.arn
     format = jsonencode({
-      requestId      = "$context.requestId"
+      requestId         = "$context.requestId"
       extendedRequestId = "$context.extendedRequestId"
-      ip             = "$context.identity.sourceIp"
-      caller         = "$context.identity.caller"
-      user           = "$context.identity.user"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      resourcePath   = "$context.resourcePath"
-      status         = "$context.status"
-      protocol       = "$context.protocol"
-      responseLength = "$context.responseLength"
-      error          = "$context.error.message"
-      integrationError = "$context.integrationErrorMessage"
+      ip                = "$context.identity.sourceIp"
+      caller            = "$context.identity.caller"
+      user              = "$context.identity.user"
+      requestTime       = "$context.requestTime"
+      httpMethod        = "$context.httpMethod"
+      resourcePath      = "$context.resourcePath"
+      status            = "$context.status"
+      protocol          = "$context.protocol"
+      responseLength    = "$context.responseLength"
+      error             = "$context.error.message"
+      integrationError  = "$context.integrationErrorMessage"
     })
   }
 }
@@ -1206,27 +1206,27 @@ resource "aws_api_gateway_stage" "admin_stage" {
   deployment_id = aws_api_gateway_deployment.admin_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.admin.id
   stage_name    = var.environment
-  
+
   xray_tracing_enabled = true
-  
+
   depends_on = [aws_api_gateway_account.main]
-  
+
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.admin_api_gateway_logs.arn
     format = jsonencode({
-      requestId      = "$context.requestId"
+      requestId         = "$context.requestId"
       extendedRequestId = "$context.extendedRequestId"
-      ip             = "$context.identity.sourceIp"
-      caller         = "$context.identity.caller"
-      user           = "$context.identity.user"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      resourcePath   = "$context.resourcePath"
-      status         = "$context.status"
-      protocol       = "$context.protocol"
-      responseLength = "$context.responseLength"
-      error          = "$context.error.message"
-      integrationError = "$context.integrationErrorMessage"
+      ip                = "$context.identity.sourceIp"
+      caller            = "$context.identity.caller"
+      user              = "$context.identity.user"
+      requestTime       = "$context.requestTime"
+      httpMethod        = "$context.httpMethod"
+      resourcePath      = "$context.resourcePath"
+      status            = "$context.status"
+      protocol          = "$context.protocol"
+      responseLength    = "$context.responseLength"
+      error             = "$context.error.message"
+      integrationError  = "$context.integrationErrorMessage"
     })
   }
 }
@@ -1276,7 +1276,7 @@ resource "aws_iam_role_policy" "api_gateway_cloudwatch" {
 # API Gateway account configuration to enable CloudWatch logging
 resource "aws_api_gateway_account" "main" {
   cloudwatch_role_arn = aws_iam_role.api_gateway_cloudwatch.arn
-  
+
   depends_on = [aws_iam_role_policy.api_gateway_cloudwatch]
 }
 
@@ -1359,8 +1359,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "cache_bucket_lifecycle" {
   bucket = aws_s3_bucket.cache_bucket.id
 
   rule {
-    id      = "cache_cleanup"
-    status  = "Enabled"
+    id     = "cache_cleanup"
+    status = "Enabled"
 
     filter {
       prefix = "" # Apply to all objects
@@ -1407,8 +1407,8 @@ resource "aws_s3_bucket_policy" "cache_bucket_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid       = "AllowCloudFrontServicePrincipal"
-        Effect    = "Allow"
+        Sid    = "AllowCloudFrontServicePrincipal"
+        Effect = "Allow"
         Principal = {
           Service = "cloudfront.amazonaws.com"
         }
@@ -1421,8 +1421,8 @@ resource "aws_s3_bucket_policy" "cache_bucket_policy" {
         }
       },
       {
-        Sid       = "AllowCloudFrontListBucket"
-        Effect    = "Allow"
+        Sid    = "AllowCloudFrontListBucket"
+        Effect = "Allow"
         Principal = {
           Service = "cloudfront.amazonaws.com"
         }
@@ -1478,6 +1478,6 @@ output "s3_bucket_name" {
 }
 
 output "cache_s3_bucket_name" {
-  value = aws_s3_bucket.cache_bucket.bucket
+  value       = aws_s3_bucket.cache_bucket.bucket
   description = "S3 bucket name for calendar caching"
 }
