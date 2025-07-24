@@ -268,11 +268,7 @@ jobs:
           --payload '{"detail-type":"Deployment Sync","source":"github.deployment"}' \
           /tmp/sync-response.json
         
-        echo "Calendar sync triggered successfully"
-        
-        # Optional: Wait a moment and check if sync completed
-        sleep 10
-        echo "Sync should be running in background to refresh cache data"
+        echo "Calendar sync triggered successfully - running in background to refresh cache data"
     
     - name: Notify deployment success
       if: success()
