@@ -24,10 +24,11 @@ if [ ! -f "infrastructure/.terraform/terraform.tfstate" ] && [ ! -f "infrastruct
     exit 1
 fi
 
-# Get S3 bucket name from Terraform output
+# Get S3 bucket name and API URL from Terraform output
 cd infrastructure
 S3_BUCKET=$(terraform output -raw s3_bucket_name 2>/dev/null)
 CLOUDFRONT_DISTRIBUTION_ID=$(terraform output -raw cloudfront_distribution_id 2>/dev/null)
+API_URL=$(terraform output -raw api_url 2>/dev/null)
 cd ..
 
 if [ -z "$S3_BUCKET" ]; then
@@ -58,7 +59,7 @@ if [ ! -f "next.config.ts.backup" ]; then
     echo "⚙️  Configuring Next.js for static export..."
     cp next.config.ts next.config.ts.backup
 
-    cat > next.config.ts << 'EOF'
+    cat > next.config.ts << EOF
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -69,7 +70,7 @@ const nextConfig: NextConfig = {
   },
   assetPrefix: process.env.NODE_ENV === 'production' ? 'https://www.chqcal.org' : '',
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://2jjx0zum0c.execute-api.us-east-1.amazonaws.com/prod'
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '$API_URL'
   }
 };
 

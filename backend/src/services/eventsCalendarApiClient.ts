@@ -157,60 +157,14 @@ export class EventsCalendarApiClient {
       end: seasonDates.end.toISOString().split('T')[0]
     };
 
-    // For large date ranges, split into weekly chunks for better performance
-    const weeklyRanges = this.splitIntoWeeklyRanges(seasonDates.start, seasonDates.end);
-    const allEvents: ApiEvent[] = [];
-
-    console.log(`Splitting season into ${weeklyRanges.length} weekly chunks for efficient loading`);
-
-    for (const [index, range] of weeklyRanges.entries()) {
-      try {
-        console.log(`Fetching week ${index + 1}/${weeklyRanges.length}: ${range.start} to ${range.end}`);
-        const weekEvents = await this.getAllEventsInRange(range);
-        allEvents.push(...weekEvents);
-
-        // Add delay between weeks to be respectful to the API
-        if (index < weeklyRanges.length - 1) {
-          await this.delay(200); // 200ms delay between weeks
-        }
-      } catch (error) {
-        console.error(`Error fetching events for week ${index + 1} (${range.start} to ${range.end}):`, error);
-        // Continue with other weeks even if one fails
-      }
-    }
-
+    // Fetch all events for the entire season using pagination (50 events per page)
+    console.log(`Fetching all events for season: ${seasonRange.start} to ${seasonRange.end}`);
+    const allEvents = await this.getAllEventsInRange(seasonRange);
+    
     console.log(`Total events fetched for season: ${allEvents.length}`);
     return allEvents;
   }
 
-  /**
-   * Split a date range into weekly chunks for efficient loading
-   */
-  private splitIntoWeeklyRanges(startDate: Date, endDate: Date): DateRange[] {
-    const ranges: DateRange[] = [];
-    const current = new Date(startDate);
-
-    while (current <= endDate) {
-      const weekStart = new Date(current);
-      const weekEnd = new Date(current);
-      weekEnd.setDate(weekEnd.getDate() + 6); // Add 6 days to get a full week
-
-      // Don't exceed the end date
-      if (weekEnd > endDate) {
-        weekEnd.setTime(endDate.getTime());
-      }
-
-      ranges.push({
-        start: weekStart.toISOString().split('T')[0],
-        end: weekEnd.toISOString().split('T')[0]
-      });
-
-      // Move to next week
-      current.setDate(current.getDate() + 7);
-    }
-
-    return ranges;
-  }
 
   /**
    * Get events for the next 7 days (for hourly updates)

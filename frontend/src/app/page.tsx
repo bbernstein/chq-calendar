@@ -569,12 +569,17 @@ function HomeContent() {
     try {
       console.log('Loading all events for the season...');
 
-      const response = await fetch(`${apiUrl}/cache/calendar-cache/all-events.json`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
+      const response = await fetch(
+        process.env.NODE_ENV === 'development' 
+          ? '/data/all-events.json'  // Local file in dev mode
+          : `${apiUrl}/cache/calendar-cache/all-events.json`,  // Production URL
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          }
         }
-      });
+      );
 
       if (response.ok) {
         const data = await response.json();

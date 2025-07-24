@@ -170,9 +170,9 @@ describe('EventsCalendarApiClient', () => {
 
       const result = await client.getSeasonEvents(2025);
 
-      // The service uses weekly chunking, so we expect multiple calls
+      // The service uses pagination (50 events per page), so we expect at least one call
       expect(mockAxiosInstance.get).toHaveBeenCalled();
-      expect(result).toHaveLength(9); // 9 weeks * 1 event per week = 9 events
+      expect(result).toHaveLength(1); // Events returned from API
       expect(result.every(event => event.title === 'Season Event')).toBe(true);
     });
   });

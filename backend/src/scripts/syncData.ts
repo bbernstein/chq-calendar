@@ -1,6 +1,11 @@
 import { EventsCalendarDataSyncService } from '../services/eventsCalendarDataSyncService';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Load environment variables from .env file
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 async function main() {
   // Initialize DynamoDB client
