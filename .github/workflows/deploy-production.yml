@@ -258,6 +258,22 @@ jobs:
         echo "  2. CloudFront behavior rules for API paths"
         echo "  3. Lambda function URL configuration"
     
+    - name: Trigger calendar data sync
+      continue-on-error: true
+      run: |
+        echo "Triggering calendar data sync to refresh cache..."
+        aws lambda invoke \
+          --function-name chq-calendar-data-sync \
+          --invocation-type Event \
+          --payload '{"detail-type":"Deployment Sync","source":"github.deployment"}' \
+          /tmp/sync-response.json
+        
+        echo "Calendar sync triggered successfully"
+        
+        # Optional: Wait a moment and check if sync completed
+        sleep 10
+        echo "Sync should be running in background to refresh cache data"
+    
     - name: Notify deployment success
       if: success()
       run: |
