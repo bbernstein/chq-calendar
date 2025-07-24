@@ -292,6 +292,20 @@ resource "aws_s3_bucket_policy" "frontend_bucket_policy" {
         Action    = "s3:GetObject"
         Resource  = "${aws_s3_bucket.frontend_bucket.arn}/*"
       },
+      {
+        Sid       = "AllowCloudFrontServicePrincipal"
+        Effect    = "Allow"
+        Principal = {
+          Service = "cloudfront.amazonaws.com"
+        }
+        Action   = "s3:GetObject"
+        Resource = "${aws_s3_bucket.frontend_bucket.arn}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.frontend_distribution.arn
+          }
+        }
+      }
     ]
   })
 }
@@ -349,12 +363,16 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
 
   # S3 Cache origin for serving cached calendar data
   origin {
-    domain_name = aws_s3_bucket.cache_bucket.bucket_regional_domain_name
-    origin_id   = "S3-CACHE-${aws_s3_bucket.cache_bucket.bucket}"
+    domain_name              = aws_s3_bucket.cache_bucket.bucket_regional_domain_name
+    origin_id                = "S3-CACHE-${aws_s3_bucket.cache_bucket.bucket}"
+    origin_access_control_id = aws_cloudfront_origin_access_control.cache_origin_access_control.id
+  }
 
-    s3_origin_config {
-      origin_access_identity = aws_cloudfront_origin_access_identity.cache_origin_access_identity.cloudfront_access_identity_path
-    }
+  # Frontend S3 REST API origin for direct file access (cache files)
+  origin {
+    domain_name              = aws_s3_bucket.frontend_bucket.bucket_regional_domain_name
+    origin_id                = "S3-REST-${aws_s3_bucket.frontend_bucket.bucket}"
+    origin_access_control_id = aws_cloudfront_origin_access_control.cache_origin_access_control.id
   }
 
   enabled             = true
@@ -394,13 +412,13 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     path_pattern           = "/cache/*"
     allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD", "OPTIONS"]
-    target_origin_id       = "S3-CACHE-${aws_s3_bucket.cache_bucket.bucket}"
+    target_origin_id       = "S3-REST-${aws_s3_bucket.frontend_bucket.bucket}"
     compress               = true
     viewer_protocol_policy = "redirect-to-https"
 
     forwarded_values {
       query_string = false
-      headers      = []
+      headers      = ["Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"]
       cookies {
         forward = "none"
       }
@@ -492,10 +510,12 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
+  # Custom error response for SPA routing (only for 404s from frontend bucket)
   custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 300
   }
 }
 
@@ -1310,9 +1330,13 @@ output "cloudfront_domain" {
   value = aws_cloudfront_distribution.frontend_distribution.domain_name
 }
 
-# CloudFront Origin Access Identity for S3 cache bucket
-resource "aws_cloudfront_origin_access_identity" "cache_origin_access_identity" {
-  comment = "OAI for S3 cache bucket"
+# CloudFront Origin Access Control for S3 cache bucket
+resource "aws_cloudfront_origin_access_control" "cache_origin_access_control" {
+  name                              = "${var.app_name}-cache-oac"
+  description                       = "OAC for S3 cache bucket"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
 }
 
 # S3 bucket for caching calendar data (Layer 4: S3 File Cache)
@@ -1362,7 +1386,20 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cache_bucket_encr
   }
 }
 
-# S3 bucket policy for CloudFront Origin Access Identity
+# CORS configuration for S3 cache bucket
+resource "aws_s3_bucket_cors_configuration" "cache_bucket_cors" {
+  bucket = aws_s3_bucket.cache_bucket.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3600
+  }
+}
+
+# S3 bucket policy for CloudFront Origin Access Control
 resource "aws_s3_bucket_policy" "cache_bucket_policy" {
   bucket = aws_s3_bucket.cache_bucket.id
 
@@ -1373,23 +1410,43 @@ resource "aws_s3_bucket_policy" "cache_bucket_policy" {
         Sid       = "AllowCloudFrontServicePrincipal"
         Effect    = "Allow"
         Principal = {
-          AWS = aws_cloudfront_origin_access_identity.cache_origin_access_identity.iam_arn
+          Service = "cloudfront.amazonaws.com"
         }
         Action   = "s3:GetObject"
         Resource = "${aws_s3_bucket.cache_bucket.arn}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.frontend_distribution.arn
+          }
+        }
+      },
+      {
+        Sid       = "AllowCloudFrontListBucket"
+        Effect    = "Allow"
+        Principal = {
+          Service = "cloudfront.amazonaws.com"
+        }
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.cache_bucket.arn
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.frontend_distribution.arn
+          }
+        }
       }
     ]
   })
 }
 
 # Block public access to the cache bucket (only CloudFront should access it)
+# Note: block_public_policy and restrict_public_buckets must be false for OAC
 resource "aws_s3_bucket_public_access_block" "cache_bucket_pab" {
   bucket = aws_s3_bucket.cache_bucket.id
 
   block_public_acls       = true
-  block_public_policy     = true
+  block_public_policy     = false
   ignore_public_acls      = true
-  restrict_public_buckets = true
+  restrict_public_buckets = false
 }
 
 # Random suffix to ensure bucket name uniqueness
