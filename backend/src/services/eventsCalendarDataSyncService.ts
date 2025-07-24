@@ -2,7 +2,7 @@ import { EventsCalendarApiClient } from './eventsCalendarApiClient';
 import { EventTransformationService } from './eventTransformationService';
 import { MultiLayerCacheService } from './multiLayerCacheService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand, WriteRequest } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 
 export class EventsCalendarDataSyncService {
   private apiClient: EventsCalendarApiClient;
@@ -443,7 +443,14 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     updated: number;
     errors: string[];
   }> {
-    const writeRequests: WriteRequest[] = [];
+    const writeRequests: Array<{
+      PutRequest?: {
+        Item: any;
+      };
+      DeleteRequest?: {
+        Key: any;
+      };
+    }> = [];
     const errors: string[] = [];
     let created = 0;
     let updated = 0;
