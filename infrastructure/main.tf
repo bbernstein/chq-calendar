@@ -592,14 +592,14 @@ resource "aws_iam_role_policy" "lambda_s3_cache" {
           "s3:PutObject",
           "s3:DeleteObject"
         ]
-        Resource = "${aws_s3_bucket.cache_bucket.arn}/*"
+        Resource = "${aws_s3_bucket.frontend_bucket.arn}/*"
       },
       {
         Effect = "Allow"
         Action = [
           "s3:ListBucket"
         ]
-        Resource = aws_s3_bucket.cache_bucket.arn
+        Resource = aws_s3_bucket.frontend_bucket.arn
       }
     ]
   })
