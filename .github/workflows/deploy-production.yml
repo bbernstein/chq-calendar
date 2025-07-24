@@ -262,11 +262,11 @@ jobs:
       continue-on-error: true
       run: |
         echo "Triggering calendar data sync to refresh cache..."
-        echo '{"detail-type":"Deployment Sync","source":"github.deployment"}' | base64 | tr -d '\n' > /tmp/payload.b64
+        PAYLOAD_B64=$(echo -n '{"detail-type":"Deployment Sync","source":"github.deployment"}' | base64 -w 0)
         aws lambda invoke \
           --function-name chq-calendar-data-sync \
           --invocation-type Event \
-          --payload fileb:///tmp/payload.b64 \
+          --payload "$PAYLOAD_B64" \
           /tmp/sync-response.json
         
         echo "Calendar sync triggered successfully - running in background to refresh cache data"
