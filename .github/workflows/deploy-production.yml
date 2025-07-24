@@ -2,11 +2,11 @@ name: Deploy to Production
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
     inputs:
       force_deploy:
-        description: 'Force deployment even if tests fail'
+        description: "Force deployment even if tests fail"
         type: boolean
         default: false
 
@@ -14,268 +14,269 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Use Node.js 24
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24'
-        cache: 'npm'
-        cache-dependency-path: package-lock.json
-    
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
-    
-    - name: Install dependencies
-      run: npm ci
-    
-    - name: Build backend
-      run: npm run build:prod --workspace=backend
-    
-    - name: Build frontend
-      run: npm run build --workspace=frontend
-      env:
-        NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
-        NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
-    
-    - name: Deploy calendar Lambda function
-      working-directory: ./backend
-      run: |
-        # Clean any previous build artifacts
-        rm -rf lambda-function.zip
-        
-        # Build the Lambda functions
-        npm run build:prod
-        
-        # Install only the required production dependencies (external from esbuild)
-        npm ci --omit=dev
-        
-        # Create a minimal package with only required dependencies
-        mkdir -p package_temp/node_modules
-        
-        # Check where node_modules is located
-        echo "Checking node_modules location..."
-        if [ -d "node_modules" ]; then
-          NODE_MODULES_PATH="node_modules"
-          echo "Found node_modules in current directory"
-        elif [ -d "../node_modules" ]; then
-          NODE_MODULES_PATH="../node_modules"
-          echo "Found node_modules in parent directory"
-        else
-          echo "Error: node_modules not found!"
-          ls -la
-          exit 1
-        fi
-        
-        # Use npm to install only externalized dependencies with their transitive deps
-        echo "Installing externalized dependencies with all transitive dependencies..."
-        cd package_temp
-        
-        # Create a minimal package.json with only externalized dependencies (using same versions as main package.json)
-        cat > package.json << 'EOF'
-        {
-          "name": "lambda-calendar",
-          "version": "1.0.0",
-          "dependencies": {
-            "@aws-sdk/client-dynamodb": "^3.0.0",
-            "@aws-sdk/client-s3": "^3.0.0",
-            "@aws-sdk/lib-dynamodb": "^3.0.0",
-            "ical-generator": "^4.1.0",
-            "date-fns": "^2.29.3",
-            "cheerio": "^1.0.0-rc.12",
-            "axios": "^1.6.0",
-            "uuid": "^9.0.0",
-            "node-fetch": "^2.7.0"
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build:prod --workspace=backend
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
+
+      - name: Deploy calendar Lambda function
+        working-directory: ./backend
+        run: |
+          # Clean any previous build artifacts
+          rm -rf lambda-function.zip
+
+          # Build the Lambda functions
+          npm run build:prod
+
+          # Install only the required production dependencies (external from esbuild)
+          npm ci --omit=dev
+
+          # Create a minimal package with only required dependencies
+          mkdir -p package_temp/node_modules
+
+          # Check where node_modules is located
+          echo "Checking node_modules location..."
+          if [ -d "node_modules" ]; then
+            NODE_MODULES_PATH="node_modules"
+            echo "Found node_modules in current directory"
+          elif [ -d "../node_modules" ]; then
+            NODE_MODULES_PATH="../node_modules"
+            echo "Found node_modules in parent directory"
+          else
+            echo "Error: node_modules not found!"
+            ls -la
+            exit 1
+          fi
+
+          # Use npm to install only externalized dependencies with their transitive deps
+          echo "Installing externalized dependencies with all transitive dependencies..."
+          cd package_temp
+
+          # Create a minimal package.json with only externalized dependencies (using same versions as main package.json)
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-calendar",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/client-s3": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0",
+              "ical-generator": "^4.1.0",
+              "date-fns": "^2.29.3",
+              "cheerio": "^1.0.0-rc.12",
+              "axios": "^1.6.0",
+              "uuid": "^9.0.0",
+              "node-fetch": "^2.7.0"
+            }
           }
-        }
-        EOF
-        
-        # Install all dependencies (this will get all transitive deps)
-        npm install --omit=dev --no-package-lock
-        
-        cd ..
-        
-        # Copy the original package.json back
-        cp package.json package_temp/package.json
-        
-        # List what we installed for debugging
-        echo "Installed dependencies:"
-        ls package_temp/node_modules/ | head -20
-        
-        # Create package for calendar handler (package.json already copied above)
-        mkdir -p package_temp/dist
-        cp dist/calendarHandler.js package_temp/dist/
-        
-        cd package_temp
-        zip -r ../lambda-calendar.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
-        cd ..
-        
-        # Deploy calendar Lambda
-        aws lambda update-function-code \
-          --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-          --zip-file fileb://lambda-calendar.zip
-        
-        # Wait for the code update to complete
-        echo "Waiting for calendar Lambda function to finish updating..."
-        aws lambda wait function-updated \
-          --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
-        
-        # Update environment variables for calendar Lambda
-        echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","RECAPTCHA_SECRET_KEY":"${{ secrets.RECAPTCHA_SECRET_KEY }}","USE_NEW_API":"true","CACHE_S3_BUCKET":"${{ secrets.CACHE_S3_BUCKET }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache"}}' > env.json
-        aws lambda update-function-configuration \
-          --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-          --environment file://env.json
-        
-        # Clean up
-        rm -rf package_temp lambda-calendar.zip
-    
-    - name: Deploy admin Lambda function
-      working-directory: ./backend
-      run: |
-        # Create a minimal package for admin handler with required dependencies
-        mkdir -p package_temp/node_modules
-        
-        # Install admin handler dependencies with all transitive deps
-        echo "Installing admin handler dependencies with all transitive dependencies..."
-        cd package_temp
-        
-        # Create a minimal package.json with only admin externalized dependencies (using same versions as main package.json)
-        cat > package.json << 'EOF'
-        {
-          "name": "lambda-admin",
-          "version": "1.0.0",
-          "dependencies": {
-            "@aws-sdk/client-dynamodb": "^3.0.0",
-            "@aws-sdk/lib-dynamodb": "^3.0.0",
-            "googleapis": "^153.0.0",
-            "jsonwebtoken": "^9.0.2",
-            "node-fetch": "^2.7.0",
-            "uuid": "^9.0.0"
+          EOF
+
+          # Install all dependencies (this will get all transitive deps)
+          npm install --omit=dev --no-package-lock
+
+          cd ..
+
+          # Copy the original package.json back
+          cp package.json package_temp/package.json
+
+          # List what we installed for debugging
+          echo "Installed dependencies:"
+          ls package_temp/node_modules/ | head -20
+
+          # Create package for calendar handler (package.json already copied above)
+          mkdir -p package_temp/dist
+          cp dist/calendarHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-calendar.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          # Deploy calendar Lambda
+          aws lambda update-function-code \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://lambda-calendar.zip
+
+          # Wait for the code update to complete
+          echo "Waiting for calendar Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
+
+          # Update environment variables for calendar Lambda
+          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","DYNAMODB_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","RECAPTCHA_SECRET_KEY":"${{ secrets.RECAPTCHA_SECRET_KEY }}","USE_NEW_API":"true","CACHE_S3_BUCKET":"${{ secrets.CACHE_S3_BUCKET }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache"}}' > env.json
+          aws lambda update-function-configuration \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --environment file://env.json
+
+          # Clean up
+          rm -rf package_temp lambda-calendar.zip
+
+      - name: Deploy admin Lambda function
+        working-directory: ./backend
+        run: |
+          # Create a minimal package for admin handler with required dependencies
+          mkdir -p package_temp/node_modules
+
+          # Install admin handler dependencies with all transitive deps
+          echo "Installing admin handler dependencies with all transitive dependencies..."
+          cd package_temp
+
+          # Create a minimal package.json with only admin externalized dependencies (using same versions as main package.json)
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-admin",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0",
+              "googleapis": "^153.0.0",
+              "jsonwebtoken": "^9.0.2",
+              "node-fetch": "^2.7.0",
+              "uuid": "^9.0.0"
+            }
           }
-        }
-        EOF
-        
-        # Install all dependencies (this will get all transitive deps)
-        npm install --omit=dev --no-package-lock
-        
-        cd ..
-        
-        # Copy the original package.json back
-        cp package.json package_temp/package.json
-        
-        # Create package for admin handler (package.json already copied above)
-        mkdir -p package_temp/dist
-        cp dist/adminHandler.js package_temp/dist/
-        
-        cd package_temp
-        zip -r ../lambda-admin.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
-        cd ..
-        
-        # Deploy admin Lambda (assuming the admin function name is stored in secrets)
-        aws lambda update-function-code \
-          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
-          --zip-file fileb://lambda-admin.zip
-        
-        # Wait for the code update to complete
-        echo "Waiting for admin Lambda function to finish updating..."
-        aws lambda wait function-updated \
-          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }}
-        
-        # Update environment variables for admin Lambda
-        echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","NEXTAUTH_SECRET":"${{ secrets.NEXTAUTH_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
-        aws lambda update-function-configuration \
-          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
-          --environment file://admin-env.json
-        
-        # Clean up
-        rm -rf package_temp lambda-admin.zip admin-env.json
-    
-    - name: Deploy frontend to S3 and CloudFront
-      working-directory: ./frontend
-      run: |
-        # Sync to S3 bucket
-        aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
-          --delete \
-          --exclude "*.map" \
-          --cache-control "public, max-age=31536000, immutable" \
-          --metadata-directive REPLACE
-        
-        # Update HTML files with shorter cache
-        aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
-          --exclude "*" \
-          --include "*.html" \
-          --cache-control "public, max-age=3600" \
-          --metadata-directive REPLACE
-        
-        # Invalidate CloudFront cache
-        aws cloudfront create-invalidation \
-          --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-          --paths "/*"
-    
-    - name: Update Lambda function URL (if using Function URL)
-      run: |
-        # Update API Gateway or Lambda Function URL if needed
-        echo "Backend deployed to Lambda function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
-        echo "Frontend deployed to: https://www.chqcal.org"
-    
-    - name: Run post-deployment tests
-      continue-on-error: true
-      run: |
-        # Wait for deployment to propagate
-        sleep 30
-        
-        # Test production API
-        echo "Testing production API..."
-        echo "URL: https://www.chqcal.org/api/health"
-        curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
-        
-        # Test calendar endpoint
-        EVENTS_COUNT=$(curl -s "https://www.chqcal.org/api/calendar?format=json" \
-          -H "Accept: application/json" | jq '.events | length' || echo "0")
-        
-        if [ "$EVENTS_COUNT" -gt "0" ]; then
-          echo "✅ Production API returning $EVENTS_COUNT events"
-        else
-          echo "❌ Production API not returning events"
-          exit 1
-        fi
-        
-        # Test frontend
-        echo "Testing production frontend..."
-        curl -f "https://www.chqcal.org" || exit 1
-        
-        echo "🎉 Production deployment successful!"
-        
-        echo ""
-        echo "⚠️  Note: If API tests failed with 403, check:"
-        echo "  1. API Gateway configuration for /api/* routes"
-        echo "  2. CloudFront behavior rules for API paths"
-        echo "  3. Lambda function URL configuration"
-    
-    - name: Trigger calendar data sync
-      continue-on-error: true
-      run: |
-        echo "Triggering calendar data sync to refresh cache..."
-        aws lambda invoke \
-          --function-name chq-calendar-data-sync \
-          --invocation-type Event \
-          --payload '{"detail-type":"Deployment Sync","source":"github.deployment"}' \
-          /tmp/sync-response.json
-        
-        echo "Calendar sync triggered successfully - running in background to refresh cache data"
-    
-    - name: Notify deployment success
-      if: success()
-      run: |
-        echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
-    
-    - name: Notify deployment failure
-      if: failure()
-      run: |
-        echo "::error title=Deployment Failed::Production deployment failed. Check logs for details."
+          EOF
+
+          # Install all dependencies (this will get all transitive deps)
+          npm install --omit=dev --no-package-lock
+
+          cd ..
+
+          # Copy the original package.json back
+          cp package.json package_temp/package.json
+
+          # Create package for admin handler (package.json already copied above)
+          mkdir -p package_temp/dist
+          cp dist/adminHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-admin.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          # Deploy admin Lambda (assuming the admin function name is stored in secrets)
+          aws lambda update-function-code \
+            --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://lambda-admin.zip
+
+          # Wait for the code update to complete
+          echo "Waiting for admin Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }}
+
+          # Update environment variables for admin Lambda
+          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","NEXTAUTH_SECRET":"${{ secrets.NEXTAUTH_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
+          aws lambda update-function-configuration \
+            --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
+            --environment file://admin-env.json
+
+          # Clean up
+          rm -rf package_temp lambda-admin.zip admin-env.json
+
+      - name: Deploy frontend to S3 and CloudFront
+        working-directory: ./frontend
+        run: |
+          # Sync to S3 bucket
+          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+            --delete \
+            --exclude "*.map" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --metadata-directive REPLACE
+
+          # Update HTML files with shorter cache
+          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+            --exclude "*" \
+            --include "*.html" \
+            --cache-control "public, max-age=3600" \
+            --metadata-directive REPLACE
+
+          # Invalidate CloudFront cache
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+      - name: Update Lambda function URL (if using Function URL)
+        run: |
+          # Update API Gateway or Lambda Function URL if needed
+          echo "Backend deployed to Lambda function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
+          echo "Frontend deployed to: https://www.chqcal.org"
+
+      - name: Run post-deployment tests
+        continue-on-error: true
+        run: |
+          # Wait for deployment to propagate
+          sleep 30
+
+          # Test production API
+          echo "Testing production API..."
+          echo "URL: https://www.chqcal.org/api/health"
+          curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
+
+          # Test calendar endpoint
+          EVENTS_COUNT=$(curl -s "https://www.chqcal.org/api/calendar?format=json" \
+            -H "Accept: application/json" | jq '.events | length' || echo "0")
+
+          if [ "$EVENTS_COUNT" -gt "0" ]; then
+            echo "✅ Production API returning $EVENTS_COUNT events"
+          else
+            echo "❌ Production API not returning events"
+            exit 1
+          fi
+
+          # Test frontend
+          echo "Testing production frontend..."
+          curl -f "https://www.chqcal.org" || exit 1
+
+          echo "🎉 Production deployment successful!"
+
+          echo ""
+          echo "⚠️  Note: If API tests failed with 403, check:"
+          echo "  1. API Gateway configuration for /api/* routes"
+          echo "  2. CloudFront behavior rules for API paths"
+          echo "  3. Lambda function URL configuration"
+
+      - name: Trigger calendar data sync
+        continue-on-error: true
+        run: |
+          echo "Triggering calendar data sync to refresh cache..."
+          PAYLOAD_B64=$(echo -n '{"detail-type":"Daily Sync","source":"github.deployment"}' | base64 -w 0)
+          aws lambda invoke \
+            --function-name chq-calendar-data-sync \
+            --invocation-type Event \
+            --payload "$PAYLOAD_B64" \
+            /tmp/sync-response.json
+
+          echo "Calendar sync triggered successfully - running in background to refresh cache data"
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "::error title=Deployment Failed::Production deployment failed. Check logs for details."
