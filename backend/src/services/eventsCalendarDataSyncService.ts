@@ -2,7 +2,7 @@ import { EventsCalendarApiClient } from './eventsCalendarApiClient';
 import { EventTransformationService } from './eventTransformationService';
 import { MultiLayerCacheService } from './multiLayerCacheService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 
 export class EventsCalendarDataSyncService {
   private apiClient: EventsCalendarApiClient;
@@ -12,7 +12,14 @@ export class EventsCalendarDataSyncService {
   private cacheService: MultiLayerCacheService;
 
   constructor(apiClient?: EventsCalendarApiClient, dbClient?: DynamoDBDocumentClient) {
-    this.apiClient = apiClient || new EventsCalendarApiClient();
+    // Configure API client with parallelization settings from environment
+    const maxConcurrentRequests = parseInt(process.env.API_MAX_CONCURRENT_REQUESTS || '10');
+    const requestDelayMs = parseInt(process.env.API_REQUEST_DELAY_MS || '100');
+    
+    this.apiClient = apiClient || new EventsCalendarApiClient(
+      'https://www.chq.org/wp-json/tribe/events/v1',
+      { maxConcurrentRequests, requestDelayMs }
+    );
     this.transformationService = EventTransformationService;
     this.dbClient = dbClient || (() => {
       // This will be injected from server.ts
@@ -55,31 +62,12 @@ export class EventsCalendarDataSyncService {
       const transformedEvents = this.transformationService.transformApiEvents(apiEvents);
       console.log(`Transformed ${transformedEvents.length} events`);
 
-      // Process each event
-      for (const event of transformedEvents) {
-        try {
-          // Check if event already exists
-          const existingEvent = await this.getExistingEvent(event.id);
-
-          if (existingEvent) {
-            // Update existing event
-            const updated = await this.updateEvent(existingEvent, event);
-            if (updated) {
-              result.eventsUpdated++;
-            }
-          } else {
-            // Create new event
-            await this.createEvent(event);
-            result.eventsCreated++;
-          }
-
-          result.eventsProcessed++;
-        } catch (error) {
-          const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          console.error(errorMessage);
-          result.errors.push(errorMessage);
-        }
-      }
+      // Process events in bulk for better performance
+      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      result.eventsProcessed = processedEvents.processed;
+      result.eventsCreated = processedEvents.created;
+      result.eventsUpdated = processedEvents.updated;
+      result.errors.push(...processedEvents.errors);
 
       // Clean up old events that are no longer in the API
       const deletedCount = await this.cleanupOldEvents(dateRange, transformedEvents);
@@ -137,26 +125,12 @@ export class EventsCalendarDataSyncService {
 
       const startTime = Date.now();
 
-      // Process all events
-      for (const event of transformedEvents) {
-        try {
-          const existingEvent = await this.getExistingEvent(event.id);
-
-          if (existingEvent) {
-            const updated = await this.updateEvent(existingEvent, event);
-            if (updated) result.eventsUpdated++;
-          } else {
-            await this.createEvent(event);
-            result.eventsCreated++;
-          }
-
-          result.eventsProcessed++;
-        } catch (error) {
-          const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          console.error(errorMessage);
-          result.errors.push(errorMessage);
-        }
-      }
+      // Process events in bulk for better performance
+      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      result.eventsProcessed = processedEvents.processed;
+      result.eventsCreated = processedEvents.created;
+      result.eventsUpdated = processedEvents.updated;
+      result.errors.push(...processedEvents.errors);
 
       result.success = result.errors.length === 0;
       result.duration = Date.now() - startTime;
@@ -229,26 +203,12 @@ export class EventsCalendarDataSyncService {
 
       const startTime = Date.now();
 
-      // Process all events
-      for (const event of transformedEvents) {
-        try {
-          const existingEvent = await this.getExistingEvent(event.id);
-
-          if (existingEvent) {
-            const updated = await this.updateEvent(existingEvent, event);
-            if (updated) result.eventsUpdated++;
-          } else {
-            await this.createEvent(event);
-            result.eventsCreated++;
-          }
-
-          result.eventsProcessed++;
-        } catch (error) {
-          const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          console.error(errorMessage);
-          result.errors.push(errorMessage);
-        }
-      }
+      // Process events in bulk for better performance
+      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      result.eventsProcessed = processedEvents.processed;
+      result.eventsCreated = processedEvents.created;
+      result.eventsUpdated = processedEvents.updated;
+      result.errors.push(...processedEvents.errors);
 
       result.success = result.errors.length === 0;
       result.duration = Date.now() - startTime;
@@ -310,26 +270,12 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
 
       const startTime = Date.now();
 
-      // Process all events
-      for (const event of transformedEvents) {
-        try {
-          const existingEvent = await this.getExistingEvent(event.id);
-
-          if (existingEvent) {
-            const updated = await this.updateEvent(existingEvent, event);
-            if (updated) result.eventsUpdated++;
-          } else {
-            await this.createEvent(event);
-            result.eventsCreated++;
-          }
-
-          result.eventsProcessed++;
-        } catch (error) {
-          const errorMessage = `Error processing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          console.error(errorMessage);
-          result.errors.push(errorMessage);
-        }
-      }
+      // Process events in bulk for better performance
+      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      result.eventsProcessed = processedEvents.processed;
+      result.eventsCreated = processedEvents.created;
+      result.eventsUpdated = processedEvents.updated;
+      result.errors.push(...processedEvents.errors);
 
       result.success = result.errors.length === 0;
       result.duration = Date.now() - startTime;
@@ -395,6 +341,187 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         message: `Health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
     }
+  }
+
+  /**
+   * Process events in bulk with batch operations for better performance
+   */
+  private async bulkProcessEvents(events: ChautauquaEvent[], result: SyncResult): Promise<{
+    processed: number;
+    created: number;
+    updated: number;
+    errors: string[];
+  }> {
+    const batchSize = 25; // DynamoDB batch write limit
+    const errors: string[] = [];
+    let processed = 0;
+    let created = 0;
+    let updated = 0;
+
+    // First, get all existing events in bulk
+    const existingEventsMap = await this.getExistingEventsInBulk(events.map(e => e.id));
+
+    // Process events in batches
+    for (let i = 0; i < events.length; i += batchSize) {
+      const batch = events.slice(i, i + batchSize);
+      
+      try {
+        const batchResult = await this.processBatch(batch, existingEventsMap);
+        processed += batchResult.processed;
+        created += batchResult.created;
+        updated += batchResult.updated;
+        errors.push(...batchResult.errors);
+      } catch (error) {
+        const errorMessage = `Error processing batch ${Math.floor(i / batchSize) + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        console.error(errorMessage);
+        errors.push(errorMessage);
+      }
+    }
+
+    return { processed, created, updated, errors };
+  }
+
+  /**
+   * Get multiple existing events in bulk
+   */
+  private async getExistingEventsInBulk(eventIds: number[]): Promise<Map<string, ChautauquaEvent>> {
+    const existingEvents = new Map<string, ChautauquaEvent>();
+    
+    // Process in batches of 100 (DynamoDB BatchGet limit)
+    const batchSize = 100;
+    
+    for (let i = 0; i < eventIds.length; i += batchSize) {
+      const batch = eventIds.slice(i, i + batchSize);
+      
+      try {
+        // Use individual GetCommand calls in parallel instead of BatchGetCommand
+        // This is more reliable and simpler to implement
+        const promises = batch.map(async (eventId) => {
+          try {
+            const command = new GetCommand({
+              TableName: this.tableName,
+              Key: { id: eventId.toString() }
+            });
+            
+            const response = await this.dbClient.send(command);
+            if (response.Item) {
+              return { id: eventId.toString(), event: response.Item as ChautauquaEvent };
+            }
+            return null;
+          } catch (error) {
+            console.error(`Error getting event ${eventId}:`, error);
+            return null;
+          }
+        });
+        
+        const results = await Promise.all(promises);
+        
+        // Add successful results to the map
+        results.forEach(result => {
+          if (result) {
+            existingEvents.set(result.id, result.event);
+          }
+        });
+      } catch (error) {
+        console.error(`Error in bulk get batch:`, error);
+      }
+    }
+    
+    return existingEvents;
+  }
+
+  /**
+   * Process a batch of events using batch write
+   */
+  private async processBatch(events: ChautauquaEvent[], existingEventsMap: Map<string, ChautauquaEvent>): Promise<{
+    processed: number;
+    created: number; 
+    updated: number;
+    errors: string[];
+  }> {
+    const writeRequests: any[] = [];
+    const errors: string[] = [];
+    let created = 0;
+    let updated = 0;
+
+    // Prepare write requests for this batch
+    for (const event of events) {
+      try {
+        const eventId = event.id.toString();
+        const existingEvent = existingEventsMap.get(eventId);
+
+        if (existingEvent) {
+          // Check if update is needed
+          const hasChanges = this.detectChanges(existingEvent, event);
+          if (hasChanges) {
+            writeRequests.push({
+              PutRequest: {
+                Item: {
+                  ...event,
+                  id: eventId,
+                  lastUpdated: event.lastUpdated.toISOString(),
+                  createdAt: existingEvent.createdAt, // Preserve creation time
+                  updatedAt: new Date().toISOString()
+                }
+              }
+            });
+            updated++;
+          }
+        } else {
+          // New event
+          writeRequests.push({
+            PutRequest: {
+              Item: {
+                ...event,
+                id: eventId,
+                lastUpdated: event.lastUpdated.toISOString(),
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }
+            }
+          });
+          created++;
+        }
+      } catch (error) {
+        const errorMessage = `Error preparing event ${event.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        console.error(errorMessage);
+        errors.push(errorMessage);
+      }
+    }
+
+    // Execute batch write if there are requests
+    if (writeRequests.length > 0) {
+      try {
+        const command = new BatchWriteCommand({
+          RequestItems: {
+            [this.tableName]: writeRequests
+          }
+        });
+
+        const response = await this.dbClient.send(command);
+        
+        // Handle unprocessed items (retry logic could be added here)
+        if (response.UnprocessedItems && Object.keys(response.UnprocessedItems).length > 0) {
+          console.warn(`Some items were not processed in batch write:`, response.UnprocessedItems);
+          // For now, we'll count these as errors
+          const unprocessedCount = response.UnprocessedItems[this.tableName]?.length || 0;
+          errors.push(`${unprocessedCount} items were not processed in batch write`);
+        }
+
+        console.log(`Batch processed: ${created} created, ${updated} updated`);
+      } catch (error) {
+        const errorMessage = `Batch write failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        console.error(errorMessage);
+        errors.push(errorMessage);
+      }
+    }
+
+    return {
+      processed: events.length,
+      created,
+      updated,
+      errors
+    };
   }
 
   /**

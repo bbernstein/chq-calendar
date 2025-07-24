@@ -6,10 +6,17 @@ export class EventsCalendarApiClient {
   private baseUrl: string;
   private requestCache: Map<string, { response: ApiResponse; timestamp: number }>;
   private cacheTimeout: number = 5 * 60 * 1000; // 5 minutes
+  private maxConcurrentRequests: number = 10; // Configurable parallelization
+  private requestDelayMs: number = 100; // Delay between batches
 
-  constructor(baseUrl: string = 'https://www.chq.org/wp-json/tribe/events/v1') {
+  constructor(baseUrl: string = 'https://www.chq.org/wp-json/tribe/events/v1', options: {
+    maxConcurrentRequests?: number;
+    requestDelayMs?: number;
+  } = {}) {
     this.baseUrl = baseUrl;
     this.requestCache = new Map();
+    this.maxConcurrentRequests = options.maxConcurrentRequests || 10;
+    this.requestDelayMs = options.requestDelayMs || 100;
 
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
@@ -77,8 +84,13 @@ export class EventsCalendarApiClient {
 
       return response.data;
     } catch (error) {
-      console.error('Error fetching events:', error);
-      throw new Error(`Failed to fetch events: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Handle expected pagination 404s more quietly
+      if (this.isPaginationEndError(error)) {
+        throw new Error(`Pagination end: ${error instanceof Error ? error.message : 'Page not found'}`);
+      } else {
+        console.error('Error fetching events:', error);
+        throw new Error(`Failed to fetch events: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   }
 
@@ -96,46 +108,119 @@ export class EventsCalendarApiClient {
   }
 
   /**
-   * Get all events in a date range, handling pagination automatically
+   * Get all events in a date range, handling pagination automatically with parallel requests
    */
   async getAllEventsInRange(dateRange: DateRange): Promise<ApiEvent[]> {
     const allEvents: ApiEvent[] = [];
-    let page = 1;
-    let hasMore = true;
     const perPage = 50; // Use 50 per page to match what API actually returns
 
-    console.log(`Fetching all events from ${dateRange.start} to ${dateRange.end}`);
+    console.log(`Fetching all events from ${dateRange.start} to ${dateRange.end} with up to ${this.maxConcurrentRequests} parallel requests`);
 
-    while (hasMore) {
+    // First, make a single request to determine total pages needed
+    const firstResponse = await this.getEvents(dateRange, { page: 1, perPage });
+    
+    if (!firstResponse.events || firstResponse.events.length === 0) {
+      console.log('No events found in date range');
+      return allEvents;
+    }
+
+    allEvents.push(...firstResponse.events);
+    console.log(`First page fetched: ${firstResponse.events.length} events`);
+
+    // If we got less than a full page, we're done
+    if (firstResponse.events.length < perPage) {
+      console.log(`Total events fetched: ${allEvents.length}`);
+      return allEvents;
+    }
+
+    // Estimate total pages needed based on first response
+    // We'll fetch additional pages until we get less than a full page
+    const pagesToFetch: number[] = [];
+    let currentPage = 2;
+    let consecutiveEmptyPages = 0;
+    const maxPages = 100; // Safety limit
+
+    // Generate page numbers to fetch
+    while (currentPage <= maxPages && consecutiveEmptyPages < 3) {
+      pagesToFetch.push(currentPage);
+      currentPage++;
+      
+      // We'll break out of this when we process the results
+      if (pagesToFetch.length >= 20) { // Initial batch limit
+        break;
+      }
+    }
+
+    // Process pages in parallel batches
+    while (pagesToFetch.length > 0) {
+      const currentBatch = pagesToFetch.splice(0, this.maxConcurrentRequests);
+      
       try {
-        const response = await this.getEvents(dateRange, { page, perPage });
+        console.log(`Fetching batch of ${currentBatch.length} pages: ${currentBatch.join(', ')}`);
+        
+        // Make parallel requests for this batch
+        const batchPromises = currentBatch.map(page => 
+          this.getEvents(dateRange, { page, perPage })
+            .catch(error => {
+              // Handle expected pagination 404s more quietly
+              if (this.isPaginationEndError(error) || error.message?.includes('Pagination end:')) {
+                console.log(`Page ${page}: No more events (end of pagination)`);
+              } else {
+                console.error(`Error fetching page ${page}:`, error);
+              }
+              return null; // Return null for failed requests
+            })
+        );
 
-        if (response.events && response.events.length > 0) {
-          allEvents.push(...response.events);
-          console.log(`Fetched page ${page}: ${response.events.length} events (total: ${allEvents.length})`);
+        const batchResponses = await Promise.all(batchPromises);
+        
+        let foundIncompletePages = false;
+        
+        // Process results from this batch
+        for (let i = 0; i < batchResponses.length; i++) {
+          const response = batchResponses[i];
+          const pageNumber = currentBatch[i];
+          
+          if (response && response.events && response.events.length > 0) {
+            allEvents.push(...response.events);
+            console.log(`Page ${pageNumber}: ${response.events.length} events (total: ${allEvents.length})`);
+            
+            // If this page had fewer events than expected, we're near the end
+            if (response.events.length < perPage) {
+              foundIncompletePages = true;
+            }
+            
+            consecutiveEmptyPages = 0;
+          } else {
+            console.log(`Page ${pageNumber}: No events or error`);
+            consecutiveEmptyPages++;
+          }
         }
 
-        // Simple but reliable pagination: if we got a full page, try the next page
-        // This will continue until we get fewer than perPage events or hit our safety limit
-        hasMore = response.events.length === perPage;
-
-        console.log(`Page ${page} - Events: ${response.events.length}, Total so far: ${allEvents.length}, API Total: ${response.total || 'unknown'}, Has more: ${hasMore}`);
-
-        // Safety check to prevent infinite loops
-        if (page > 100) {
-          console.warn('Stopping pagination after 100 pages to prevent infinite loop');
+        // If we found incomplete pages or too many empty pages, stop fetching more
+        if (foundIncompletePages || consecutiveEmptyPages >= 3) {
+          console.log(`Stopping pagination - found incomplete pages or too many empty pages`);
           break;
         }
 
-        page++;
-
-        // Add delay between requests to be respectful
-        if (hasMore) {
-          await this.delay(100); // 100ms delay
+        // Add more pages to fetch if we haven't hit our limits
+        if (pagesToFetch.length === 0 && currentPage <= maxPages) {
+          const additionalPages = Math.min(10, maxPages - currentPage + 1);
+          for (let i = 0; i < additionalPages; i++) {
+            if (currentPage <= maxPages) {
+              pagesToFetch.push(currentPage++);
+            }
+          }
         }
+
+        // Add delay between batches to be respectful to the API
+        if (pagesToFetch.length > 0) {
+          await this.delay(this.requestDelayMs);
+        }
+        
       } catch (error) {
-        console.error(`Error fetching page ${page}:`, error);
-        throw error;
+        console.error(`Error in batch processing:`, error);
+        // Continue with remaining batches even if one fails
       }
     }
 
@@ -198,6 +283,25 @@ export class EventsCalendarApiClient {
   }
 
   /**
+   * Update parallelization settings
+   */
+  updateParallelizationSettings(maxConcurrentRequests: number, requestDelayMs: number = 100): void {
+    this.maxConcurrentRequests = Math.max(1, Math.min(20, maxConcurrentRequests)); // Limit between 1-20
+    this.requestDelayMs = Math.max(0, requestDelayMs);
+    console.log(`Updated parallelization: ${this.maxConcurrentRequests} concurrent requests, ${this.requestDelayMs}ms delay`);
+  }
+
+  /**
+   * Get current parallelization settings
+   */
+  getParallelizationSettings(): { maxConcurrentRequests: number; requestDelayMs: number } {
+    return {
+      maxConcurrentRequests: this.maxConcurrentRequests,
+      requestDelayMs: this.requestDelayMs
+    };
+  }
+
+  /**
    * Clear the request cache
    */
   clearCache(): void {
@@ -239,6 +343,15 @@ export class EventsCalendarApiClient {
    */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Check if an error is an expected pagination end (404 page not found)
+   */
+  private isPaginationEndError(error: any): boolean {
+    // Check if it's a 404 error with the specific pagination error code
+    return error?.response?.status === 404 && 
+           error?.response?.data?.code === 'event-archive-page-not-found';
   }
 
   /**

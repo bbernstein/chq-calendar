@@ -10,6 +10,12 @@ interface Event {
   startDate: string;
   endDate: string;
   location?: string;
+  venue?: {
+    name: string;
+    id?: number;
+    address?: string;
+    showMap?: boolean;
+  };
   category?: string;
   originalCategories?: string[];
   tags?: string[];
@@ -145,11 +151,16 @@ function HomeContent() {
     if (decodedCategories) allTags.push(...decodedCategories);
     const _tagsLowerSet = new Set(allTags.map(tag => tag.toLowerCase()));
 
+    // Extract location from venue if it exists, otherwise use location field
+    const location = event.venue?.name 
+      ? decodeHtmlEntities(event.venue.name) || event.venue.name
+      : decodeHtmlEntities(event.location) || event.location;
+
     return {
       ...event,
       title: decodeHtmlEntities(event.title) || event.title,
       description: decodeHtmlEntities(event.description) || event.description,
-      location: decodeHtmlEntities(event.location) || event.location,
+      location: location,
       presenter: decodeHtmlEntities(event.presenter) || event.presenter,
       category: decodeHtmlEntities(event.category) || event.category,
       originalCategories: decodedCategories,
