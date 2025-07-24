@@ -754,19 +754,34 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
   private async queryEventsForCacheWarming(filters?: any): Promise<any[]> {
     try {
       // Use scan command to get all events (simplified version of calendar handler logic)
-      const command = new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: '#status = :status',
-        ExpressionAttributeNames: {
-          '#status': 'status'
-        },
-        ExpressionAttributeValues: {
-          ':status': 'publish'
-        }
-      });
+      const allEvents: any[] = [];
+      let lastEvaluatedKey: any = undefined;
 
-      const response = await this.dbClient.send(command);
-      let events = response.Items || [];
+      // Paginate through all results to handle DynamoDB 1MB scan limit
+      do {
+        const command = new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: '#status = :status',
+          ExpressionAttributeNames: {
+            '#status': 'status'
+          },
+          ExpressionAttributeValues: {
+            ':status': 'publish'
+          },
+          ExclusiveStartKey: lastEvaluatedKey
+        });
+
+        const response = await this.dbClient.send(command);
+        
+        if (response.Items) {
+          allEvents.push(...response.Items);
+        }
+        
+        lastEvaluatedKey = response.LastEvaluatedKey;
+      } while (lastEvaluatedKey);
+
+      console.log(`Cache warming: Retrieved ${allEvents.length} total events from DynamoDB`);
+      let events = allEvents;
 
       // Apply basic filtering similar to calendar handler
       if (filters?.dateRange) {
