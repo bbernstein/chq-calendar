@@ -19,10 +19,10 @@ function handler(event) {
             for (var param in request.querystring) {
                 if (request.querystring[param].multiValue) {
                     request.querystring[param].multiValue.forEach(function(val) {
-                        queryString.push(param + '=' + encodeURIComponent(val.value));
+                        queryString.push(encodeURIComponent(param) + '=' + encodeURIComponent(val.value));
                     });
                 } else {
-                    queryString.push(param + '=' + encodeURIComponent(request.querystring[param].value));
+                    queryString.push(encodeURIComponent(param) + '=' + encodeURIComponent(request.querystring[param].value));
                 }
             }
             response.headers.location.value += '?' + queryString.join('&');
