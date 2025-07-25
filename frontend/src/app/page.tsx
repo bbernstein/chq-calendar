@@ -95,7 +95,7 @@ function HomeContent() {
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -152,7 +152,7 @@ function HomeContent() {
     const _tagsLowerSet = new Set(allTags.map(tag => tag.toLowerCase()));
 
     // Extract location from venue if it exists, otherwise use location field
-    const location = event.venue?.name 
+    const location = event.venue?.name
       ? decodeHtmlEntities(event.venue.name) || event.venue.name
       : decodeHtmlEntities(event.location) || event.location;
 
@@ -235,6 +235,7 @@ function HomeContent() {
 
   const isNext = (dateString: string) => {
     const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const eventDate = new Date(dateString);
 
     // Calculate 6 days in future
@@ -242,8 +243,8 @@ function HomeContent() {
     nextWeek.setDate(now.getDate() + 6);
     nextWeek.setHours(23, 59, 59, 999);
 
-    // Show events that start after the current time through the end of this week
-    return eventDate >= now && eventDate <= nextWeek;
+    // Show events from one hour ago through 6 days in the future
+    return eventDate >= oneHourAgo && eventDate <= nextWeek;
   };
 
   const isThisWeek = (dateString: string) => {
@@ -581,7 +582,7 @@ function HomeContent() {
       console.log('Loading all events for the season...');
 
       const response = await fetch(
-        process.env.NODE_ENV === 'development' 
+        process.env.NODE_ENV === 'development'
           ? '/data/all-events.json'  // Local file in dev mode
           : `${apiUrl}/cache/calendar-cache/all-events.json`,  // Production URL
         {
@@ -728,7 +729,7 @@ function HomeContent() {
                 className="w-8 h-8 sm:w-10 sm:h-10 mr-2 sm:mr-3"
               />
               <h1 className="text-lg sm:text-2xl font-bold text-gray-900">
-                Chautauqua Calendar
+                CHQ Calendar
               </h1>
               <span className="ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 text-blue-800 text-xs sm:text-sm font-medium rounded-full">
                 2025 Season
@@ -771,6 +772,22 @@ function HomeContent() {
                 {/* Quick Date Filters */}
                 <button
                   onClick={() => {
+                    setDateFilter(dateFilter === 'next' ? 'all' : 'next');
+                    if (dateFilter !== 'next') {
+                      setSelectedWeeks([]); // Clear week selection when selecting "Next"
+                    }
+                  }}
+                  title="Show events starting after the current time through the end of this week"
+                  className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
+                    dateFilter === 'next'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  Now
+                </button>
+                <button
+                  onClick={() => {
                     setDateFilter(dateFilter === 'today' ? 'all' : 'today');
                     if (dateFilter !== 'today') {
                       setSelectedWeeks([]); // Clear week selection when selecting "Today"
@@ -784,22 +801,6 @@ function HomeContent() {
                   }`}
                 >
                   Today
-                </button>
-                <button
-                  onClick={() => {
-                    setDateFilter(dateFilter === 'next' ? 'all' : 'next');
-                    if (dateFilter !== 'next') {
-                      setSelectedWeeks([]); // Clear week selection when selecting "Next"
-                    }
-                  }}
-                  title="Show events starting after the current time through the end of this week"
-                  className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
-                    dateFilter === 'next'
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                  }`}
-                >
-                  Next
                 </button>
                 <button
                   onClick={() => {
