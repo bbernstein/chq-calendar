@@ -183,7 +183,7 @@ function HomeContent() {
     [selectedTags]
   );
 
-  // Calculate Chautauqua season weeks (9 weeks starting from 4th Sunday of June)
+  // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
     // Start from June 1st and find the 4th Sunday
     const june1 = new Date(year, 5, 1); // June 1st
@@ -208,16 +208,24 @@ function HomeContent() {
       fourthSunday = new Date(2025, 5, 22);
     }
 
+    // Find the Saturday before the 4th Sunday, and set it to noon
+    // This will be the start of Week 1 at Saturday noon
+    const firstWeekStart = new Date(fourthSunday);
+    firstWeekStart.setDate(fourthSunday.getDate() - 1); // Go back to Saturday
+    firstWeekStart.setHours(12, 0, 0, 0); // Set to noon
+
     const weeks = [];
     for (let i = 0; i < 9; i++) {
-      const weekStart = new Date(fourthSunday.getTime() + (i * 7 * 24 * 60 * 60 * 1000));
-      const weekEnd = new Date(weekStart.getTime() + (6 * 24 * 60 * 60 * 1000));
+      const weekStart = new Date(firstWeekStart);
+      weekStart.setDate(firstWeekStart.getDate() + (i * 7));
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 7); // Next Saturday at noon
 
       weeks.push({
         number: i + 1,
         start: weekStart,
         end: weekEnd,
-        label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+        label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm)`
       });
     }
 
@@ -262,11 +270,9 @@ function HomeContent() {
     const eventDate = new Date(dateString);
     const week = seasonWeeks[weekNumber - 1];
 
-    // Create end of day for proper comparison
-    const weekEndInclusive = new Date(week.end);
-    weekEndInclusive.setHours(23, 59, 59, 999);
-
-    return eventDate >= week.start && eventDate <= weekEndInclusive;
+    // Week ends at Saturday noon, so we don't need to include the end boundary
+    // since week.end is already the next Saturday at noon
+    return eventDate >= week.start && eventDate < week.end;
   };
 
   // Week selection handlers
