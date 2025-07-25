@@ -160,123 +160,123 @@ jobs:
             }
           }
           EOF
-          
+
           # Install all dependencies (this will get all transitive deps)
           npm install --omit=dev --no-package-lock
-          
+
           cd ..
-          
+
           # Copy the original package.json back
           cp package.json package_temp/package.json
-          
+
           # Create package for admin handler (package.json already copied above)
           mkdir -p package_temp/dist
           cp dist/adminHandler.js package_temp/dist/
-          
+
           cd package_temp
           zip -r ../lambda-admin.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
           cd ..
-          
+
           # Deploy admin Lambda (assuming the admin function name is stored in secrets)
           aws lambda update-function-code \
             --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
             --zip-file fileb://lambda-admin.zip
-          
+
           # Wait for the code update to complete
           echo "Waiting for admin Lambda function to finish updating..."
           aws lambda wait function-updated \
             --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }}
-          
+
           # Update environment variables for admin Lambda
           echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","NEXTAUTH_SECRET":"${{ secrets.NEXTAUTH_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
           aws lambda update-function-configuration \
             --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
             --environment file://admin-env.json
-          
+
           # Clean up
           rm -rf package_temp lambda-admin.zip admin-env.json
-    
-    - name: Deploy frontend to S3 and CloudFront
-      working-directory: ./frontend
-      run: |
-        # Sync to S3 bucket
-        aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
-          --delete \
-          --exclude "*.map" \
-          --cache-control "public, max-age=31536000, immutable" \
-          --metadata-directive REPLACE
-        
-        # Update HTML files with shorter cache
-        aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
-          --exclude "*" \
-          --include "*.html" \
-          --cache-control "public, max-age=3600" \
-          --metadata-directive REPLACE
-        
-        # Invalidate CloudFront cache
-        aws cloudfront create-invalidation \
-          --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-          --paths "/*"
-    
-    - name: Update Lambda function URL (if using Function URL)
-      run: |
-        # Update API Gateway or Lambda Function URL if needed
-        echo "Backend deployed to Lambda function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
-        echo "Frontend deployed to: https://www.chqcal.org"
-    
-    - name: Run post-deployment tests
-      continue-on-error: true
-      run: |
-        # Wait for deployment to propagate
-        sleep 30
-        
-        # Test production API
-        echo "Testing production API..."
-        echo "URL: https://www.chqcal.org/api/health"
-        curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
-        
-        # Test calendar endpoint
-        EVENTS_COUNT=$(curl -s "https://www.chqcal.org/api/calendar?format=json" \
-          -H "Accept: application/json" | jq '.events | length' || echo "0")
-        
-        if [ "$EVENTS_COUNT" -gt "0" ]; then
-          echo "✅ Production API returning $EVENTS_COUNT events"
-        else
-          echo "❌ Production API not returning events"
-          exit 1
-        fi
-        
-        # Test frontend
-        echo "Testing production frontend..."
-        curl -f "https://www.chqcal.org" || exit 1
-        
-        echo "🎉 Production deployment successful!"
-        
-        echo ""
-        echo "⚠️  Note: If API tests failed with 403, check:"
-        echo "  1. API Gateway configuration for /api/* routes"
-        echo "  2. CloudFront behavior rules for API paths"
-        echo "  3. Lambda function URL configuration"
-    
-    - name: Trigger calendar data sync
-      continue-on-error: true
-      run: |
-        echo "Triggering calendar data sync to refresh cache..."
-        PAYLOAD_B64=$(echo -n '{"detail-type":"Daily Sync","source":"github.deployment"}' | base64 -w 0)
-        aws lambda invoke \
-          --function-name chq-calendar-data-sync \
-          --invocation-type Event \
-          --payload "$PAYLOAD_B64" \
-          /tmp/sync-response.json
-        
-        echo "Calendar sync triggered successfully - running in background to refresh cache data"
-    
-    - name: Notify deployment success
-      if: success()
-      run: |
-        echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
-    
-    - name: Notify deployment failure
-      if: failure()
-      run: |
-        echo "::error title=Deployment Failed::Production deployment failed. Check logs for details."
+
+      - name: Deploy frontend to S3 and CloudFront
+        working-directory: ./frontend
+        run: |
+          # Sync to S3 bucket
+          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+            --delete \
+            --exclude "*.map" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --metadata-directive REPLACE
+
+          # Update HTML files with shorter cache
+          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+            --exclude "*" \
+            --include "*.html" \
+            --cache-control "public, max-age=3600" \
+            --metadata-directive REPLACE
+
+          # Invalidate CloudFront cache
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+      - name: Update Lambda function URL (if using Function URL)
+        run: |
+          # Update API Gateway or Lambda Function URL if needed
+          echo "Backend deployed to Lambda function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
+          echo "Frontend deployed to: https://www.chqcal.org"
+
+      - name: Run post-deployment tests
+        continue-on-error: true
+        run: |
+          # Wait for deployment to propagate
+          sleep 30
+
+          # Test production API
+          echo "Testing production API..."
+          echo "URL: https://www.chqcal.org/api/health"
+          curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
+
+          # Test calendar endpoint
+          EVENTS_COUNT=$(curl -s "https://www.chqcal.org/api/calendar?format=json" \
+            -H "Accept: application/json" | jq '.events | length' || echo "0")
+
+          if [ "$EVENTS_COUNT" -gt "0" ]; then
+            echo "✅ Production API returning $EVENTS_COUNT events"
+          else
+            echo "❌ Production API not returning events"
+            exit 1
+          fi
+
+          # Test frontend
+          echo "Testing production frontend..."
+          curl -f "https://www.chqcal.org" || exit 1
+
+          echo "🎉 Production deployment successful!"
+
+          echo ""
+          echo "⚠️  Note: If API tests failed with 403, check:"
+          echo "  1. API Gateway configuration for /api/* routes"
+          echo "  2. CloudFront behavior rules for API paths"
+          echo "  3. Lambda function URL configuration"
+
+      - name: Trigger calendar data sync
+        continue-on-error: true
+        run: |
+          echo "Triggering calendar data sync to refresh cache..."
+          PAYLOAD_B64=$(echo -n '{"detail-type":"Daily Sync","source":"github.deployment"}' | base64 -w 0)
+          aws lambda invoke \
+            --function-name chq-calendar-data-sync \
+            --invocation-type Event \
+            --payload "$PAYLOAD_B64" \
+            /tmp/sync-response.json
+
+          echo "Calendar sync triggered successfully - running in background to refresh cache data"
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "::error title=Deployment Failed::Production deployment failed. Check logs for details."
