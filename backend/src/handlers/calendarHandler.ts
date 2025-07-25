@@ -148,12 +148,22 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
       }),
     });
 
-    const result = await response.json() as { success: boolean; score?: number; action?: string };
+    const result = await response.json() as { 
+      success: boolean; 
+      score?: number; 
+      action?: string; 
+      'error-codes'?: string[];
+      challenge_ts?: string;
+      hostname?: string;
+    };
     
     console.log(`reCAPTCHA verification result:`, {
       success: result.success,
       score: result.score,
-      action: result.action || 'submit_feedback'
+      action: result.action || 'submit_feedback',
+      errorCodes: result['error-codes'],
+      challengeTimestamp: result.challenge_ts,
+      hostname: result.hostname
     });
     
     // For reCAPTCHA v3, we should check the score as well

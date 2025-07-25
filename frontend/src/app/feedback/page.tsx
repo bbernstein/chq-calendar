@@ -79,9 +79,12 @@ export default function FeedbackPage() {
       let captchaToken = '';
       if (!!RECAPTCHA_SITE_KEY && captchaReady && window.grecaptcha) {
         try {
+          console.log('Executing reCAPTCHA with site key:', RECAPTCHA_SITE_KEY);
+          console.log('Browser User Agent:', navigator.userAgent);
           captchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {
             action: 'submit_feedback'
           });
+          console.log('reCAPTCHA token generated:', captchaToken ? `${captchaToken.substring(0, 20)}...` : 'empty');
         } catch (captchaError) {
           console.warn('CAPTCHA execution failed:', captchaError);
           // Continue without CAPTCHA - backend will handle validation
