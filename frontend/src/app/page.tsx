@@ -779,7 +779,49 @@ function HomeContent() {
               />
             </div>
 
-            {/* Date and Week Filters */}
+            {/* Week Range Selector - Mobile: Below search, Desktop: With date filters */}
+            <div className="mb-2 sm:mb-0 block sm:hidden">
+              <div className="flex items-center gap-1 sm:gap-2 justify-center">
+                <span className="text-xs text-gray-600 whitespace-nowrap mr-2">Weeks:</span>
+                <div
+                  className={`flex border border-gray-300 rounded-md overflow-hidden select-none ${
+                    isDragging ? 'cursor-grabbing' : 'cursor-pointer'
+                  }`}
+                >
+                  {seasonWeeks.map((week) => {
+                    const isPast = isWeekInPast(week.number);
+                    const isSelected = selectedWeeks.includes(week.number);
+                    
+                    return (
+                      <div
+                        key={week.number}
+                        className={`w-6 h-6 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
+                          isPast
+                            ? isSelected
+                              ? 'bg-gray-400 text-white' // Past and selected
+                              : 'bg-gray-100 text-gray-400 hover:bg-gray-200' // Past but not selected
+                            : isSelected
+                            ? 'bg-blue-600 text-white' // Current/future and selected
+                            : 'bg-white text-gray-700 hover:bg-blue-50' // Current/future and not selected
+                        }`}
+                        onMouseDown={() => handleWeekMouseDown(week.number)}
+                        onMouseEnter={() => handleWeekMouseEnter(week.number)}
+                        onMouseUp={() => handleWeekMouseUp(week.number)}
+                        onTouchStart={(e) => {
+                          e.preventDefault(); // Prevent mouse events from also firing
+                          handleWeekTap(week.number);
+                        }}
+                        title={week.label}
+                      >
+                        {week.number}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Date Filters */}
             <div className="mb-2 sm:mb-4">
               <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
                 {/* Quick Date Filters */}
@@ -832,9 +874,9 @@ function HomeContent() {
                   This Week
                 </button>
 
-                {/* Week Range Selector */}
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <span className="hidden sm:inline text-xs sm:text-sm text-gray-600 whitespace-nowrap">Weeks:</span>
+                {/* Week Range Selector - Desktop: Inline with date filters */}
+                <div className="hidden sm:flex items-center gap-1 sm:gap-2">
+                  <span className="text-xs sm:text-sm text-gray-600 whitespace-nowrap">Weeks:</span>
                   <div
                     className={`flex border border-gray-300 rounded-md overflow-hidden select-none ${
                       isDragging ? 'cursor-grabbing' : 'cursor-pointer'
@@ -847,7 +889,7 @@ function HomeContent() {
                       return (
                         <div
                           key={week.number}
-                          className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
+                          className={`w-8 h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                             isPast
                               ? isSelected
                                 ? 'bg-gray-400 text-white' // Past and selected
