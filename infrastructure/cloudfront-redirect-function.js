@@ -19,7 +19,9 @@ function handler(event) {
             for (var param in request.querystring) {
                 if (request.querystring[param].multiValue) {
                     request.querystring[param].multiValue.forEach(function(val) {
-                        queryString.push(encodeURIComponent(param) + '=' + encodeURIComponent(val.value));
+                        if (val && val.value) {
+                            queryString.push(encodeURIComponent(param) + '=' + encodeURIComponent(val.value));
+                        }
                     });
                 } else {
                     queryString.push(encodeURIComponent(param) + '=' + encodeURIComponent(request.querystring[param].value));
