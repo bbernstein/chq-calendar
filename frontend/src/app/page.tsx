@@ -183,7 +183,7 @@ function HomeContent() {
     [selectedTags]
   );
 
-  // Calculate Chautauqua season weeks (9 weeks starting from 4th Sunday of June)
+  // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
     // Start from June 1st and find the 4th Sunday
     const june1 = new Date(year, 5, 1); // June 1st
@@ -208,16 +208,24 @@ function HomeContent() {
       fourthSunday = new Date(2025, 5, 22);
     }
 
+    // Find the Saturday before the 4th Sunday, and set it to noon
+    // This will be the start of Week 1 at Saturday noon
+    const firstWeekStart = new Date(fourthSunday);
+    firstWeekStart.setDate(fourthSunday.getDate() - 1); // Go back to Saturday
+    firstWeekStart.setHours(12, 0, 0, 0); // Set to noon
+
     const weeks = [];
     for (let i = 0; i < 9; i++) {
-      const weekStart = new Date(fourthSunday.getTime() + (i * 7 * 24 * 60 * 60 * 1000));
-      const weekEnd = new Date(weekStart.getTime() + (6 * 24 * 60 * 60 * 1000));
+      const weekStart = new Date(firstWeekStart);
+      weekStart.setDate(firstWeekStart.getDate() + (i * 7));
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 7); // Next Saturday at noon
 
       weeks.push({
         number: i + 1,
         start: weekStart,
         end: weekEnd,
-        label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+        label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm)`
       });
     }
 
@@ -262,11 +270,27 @@ function HomeContent() {
     const eventDate = new Date(dateString);
     const week = seasonWeeks[weekNumber - 1];
 
-    // Create end of day for proper comparison
-    const weekEndInclusive = new Date(week.end);
-    weekEndInclusive.setHours(23, 59, 59, 999);
+    // Week ends at Saturday noon, so we don't need to include the end boundary
+    // since week.end is already the next Saturday at noon
+    return eventDate >= week.start && eventDate < week.end;
+  };
 
-    return eventDate >= week.start && eventDate <= weekEndInclusive;
+  const isWeekInPast = (weekNumber: number) => {
+    const week = seasonWeeks[weekNumber - 1];
+    const now = new Date();
+    // A week is in the past if its end time (Saturday noon) is before now
+    return week.end <= now;
+  };
+
+  const getWeekNumberForDate = (date: Date): number | null => {
+    // Find which Chautauqua week this date falls into
+    for (let i = 0; i < seasonWeeks.length; i++) {
+      const week = seasonWeeks[i];
+      if (date >= week.start && date < week.end) {
+        return week.number;
+      }
+    }
+    return null; // Date is outside the season
   };
 
   // Week selection handlers
@@ -477,12 +501,18 @@ function HomeContent() {
 
     events.forEach(event => {
       const eventDate = new Date(event.startDate);
-      const dayKey = eventDate.toLocaleDateString('en-US', {
+      const baseDayKey = eventDate.toLocaleDateString('en-US', {
         weekday: 'long',
         year: 'numeric',
         month: 'long',
         day: 'numeric'
       });
+
+      // Add week number to the day label
+      const weekNumber = getWeekNumberForDate(eventDate);
+      const dayKey = weekNumber 
+        ? `${baseDayKey} - Week ${weekNumber}`
+        : baseDayKey;
 
       if (!grouped[dayKey]) {
         grouped[dayKey] = [];
@@ -766,7 +796,49 @@ function HomeContent() {
               />
             </div>
 
-            {/* Date and Week Filters */}
+            {/* Week Range Selector - Mobile: Below search, Desktop: With date filters */}
+            <div className="mb-2 sm:mb-0 block sm:hidden">
+              <div className="flex items-center gap-1 sm:gap-2 justify-center">
+                <span className="text-xs text-gray-600 whitespace-nowrap mr-2">Weeks:</span>
+                <div
+                  className={`flex border border-gray-300 rounded-md overflow-hidden select-none ${
+                    isDragging ? 'cursor-grabbing' : 'cursor-pointer'
+                  }`}
+                >
+                  {seasonWeeks.map((week) => {
+                    const isPast = isWeekInPast(week.number);
+                    const isSelected = selectedWeeks.includes(week.number);
+                    
+                    return (
+                      <div
+                        key={week.number}
+                        className={`w-6 h-6 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
+                          isPast
+                            ? isSelected
+                              ? 'bg-gray-400 text-white' // Past and selected
+                              : 'bg-gray-100 text-gray-400 hover:bg-gray-200' // Past but not selected
+                            : isSelected
+                            ? 'bg-blue-600 text-white' // Current/future and selected
+                            : 'bg-white text-gray-700 hover:bg-blue-50' // Current/future and not selected
+                        }`}
+                        onMouseDown={() => handleWeekMouseDown(week.number)}
+                        onMouseEnter={() => handleWeekMouseEnter(week.number)}
+                        onMouseUp={() => handleWeekMouseUp(week.number)}
+                        onTouchStart={(e) => {
+                          e.preventDefault(); // Prevent mouse events from also firing
+                          handleWeekTap(week.number);
+                        }}
+                        title={week.label}
+                      >
+                        {week.number}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Date Filters */}
             <div className="mb-2 sm:mb-4">
               <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
                 {/* Quick Date Filters */}
@@ -819,34 +891,43 @@ function HomeContent() {
                   This Week
                 </button>
 
-                {/* Week Range Selector */}
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <span className="hidden sm:inline text-xs sm:text-sm text-gray-600 whitespace-nowrap">Weeks:</span>
+                {/* Week Range Selector - Desktop: Inline with date filters */}
+                <div className="hidden sm:flex items-center gap-1 sm:gap-2">
+                  <span className="text-xs sm:text-sm text-gray-600 whitespace-nowrap">Weeks:</span>
                   <div
                     className={`flex border border-gray-300 rounded-md overflow-hidden select-none ${
                       isDragging ? 'cursor-grabbing' : 'cursor-pointer'
                     }`}
                   >
-                    {seasonWeeks.map((week) => (
-                      <div
-                        key={week.number}
-                        className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
-                          selectedWeeks.includes(week.number)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white text-gray-700 hover:bg-blue-50'
-                        }`}
-                        onMouseDown={() => handleWeekMouseDown(week.number)}
-                        onMouseEnter={() => handleWeekMouseEnter(week.number)}
-                        onMouseUp={() => handleWeekMouseUp(week.number)}
-                        onTouchStart={(e) => {
-                          e.preventDefault(); // Prevent mouse events from also firing
-                          handleWeekTap(week.number);
-                        }}
-                        title={week.label}
-                      >
-                        {week.number}
-                      </div>
-                    ))}
+                    {seasonWeeks.map((week) => {
+                      const isPast = isWeekInPast(week.number);
+                      const isSelected = selectedWeeks.includes(week.number);
+                      
+                      return (
+                        <div
+                          key={week.number}
+                          className={`w-8 h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
+                            isPast
+                              ? isSelected
+                                ? 'bg-gray-400 text-white' // Past and selected
+                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200' // Past but not selected
+                              : isSelected
+                              ? 'bg-blue-600 text-white' // Current/future and selected
+                              : 'bg-white text-gray-700 hover:bg-blue-50' // Current/future and not selected
+                          }`}
+                          onMouseDown={() => handleWeekMouseDown(week.number)}
+                          onMouseEnter={() => handleWeekMouseEnter(week.number)}
+                          onMouseUp={() => handleWeekMouseUp(week.number)}
+                          onTouchStart={(e) => {
+                            e.preventDefault(); // Prevent mouse events from also firing
+                            handleWeekTap(week.number);
+                          }}
+                          title={week.label}
+                        >
+                          {week.number}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

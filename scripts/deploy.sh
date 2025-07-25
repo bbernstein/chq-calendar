@@ -128,6 +128,14 @@ cd ..
 
 print_success "Backend deployed"
 
+print_status "starting data sync"
+PAYLOAD_B64=$(echo -n '{"detail-type":"Daily Sync","source":"github.deployment"}' | base64 -w 0)
+aws lambda invoke \
+    --function-name chq-calendar-data-sync \
+    --invocation-type Event \
+    --payload "$PAYLOAD_B64" \
+    /tmp/sync-response.json
+
 # Deploy frontend using our specialized script
 print_status "🎨 Deploying frontend..."
 if [ -f "scripts/deploy-frontend.sh" ]; then

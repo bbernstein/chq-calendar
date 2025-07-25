@@ -350,6 +350,7 @@ export class EventTransformationService {
 
   /**
    * Calculate Chautauqua week number
+   * Weeks start and end at noon on Saturday
    */
   private static calculateWeek(eventDate: Date): number {
     const year = eventDate.getFullYear();
@@ -376,8 +377,16 @@ export class EventTransformationService {
       return 1;
     }
 
-    // Calculate week number
-    const timeDiff = eventDate.getTime() - fourthSunday.getTime();
+    // Find the Saturday before the 4th Sunday, and set it to noon
+    // This will be the start of Week 1 at Saturday noon
+    const firstWeekStart = new Date(fourthSunday);
+    firstWeekStart.setDate(fourthSunday.getDate() - 1); // Go back to Saturday
+    firstWeekStart.setHours(12, 0, 0, 0); // Set to noon
+
+    // Calculate time difference from the event date to the first week start
+    const timeDiff = eventDate.getTime() - firstWeekStart.getTime();
+    
+    // Each week is 7 days (7 * 24 * 60 * 60 * 1000 milliseconds)
     const weekNumber = Math.floor(timeDiff / (7 * 24 * 60 * 60 * 1000)) + 1;
     
     return Math.max(1, Math.min(9, weekNumber));
