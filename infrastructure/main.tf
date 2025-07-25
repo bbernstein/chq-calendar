@@ -319,6 +319,15 @@ resource "aws_cloudfront_function" "api_rewrite" {
   code    = file("${path.module}/cloudfront-function.js")
 }
 
+# CloudFront Function for redirecting non-www to www
+resource "aws_cloudfront_function" "www_redirect" {
+  name    = "www-redirect"
+  runtime = "cloudfront-js-1.0"
+  comment = "Redirect non-www domain to www"
+  publish = true
+  code    = file("${path.module}/cloudfront-redirect-function.js")
+}
+
 # CloudFront Distribution
 resource "aws_cloudfront_distribution" "frontend_distribution" {
   origin {
@@ -495,6 +504,11 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
       cookies {
         forward = "none"
       }
+    }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.www_redirect.arn
     }
   }
 
