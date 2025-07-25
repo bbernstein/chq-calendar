@@ -319,6 +319,15 @@ resource "aws_cloudfront_function" "api_rewrite" {
   code    = file("${path.module}/cloudfront-function.js")
 }
 
+# CloudFront Function for redirecting non-www to www
+resource "aws_cloudfront_function" "www_redirect" {
+  name    = "www-redirect"
+  runtime = "cloudfront-js-1.0"
+  comment = "Redirect non-www domain to www"
+  publish = true
+  code    = file("${path.module}/cloudfront-redirect-function.js")
+}
+
 # CloudFront Distribution
 resource "aws_cloudfront_distribution" "frontend_distribution" {
   origin {
@@ -496,6 +505,11 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
         forward = "none"
       }
     }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.www_redirect.arn
+    }
   }
 
   restrictions {
@@ -508,14 +522,6 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     acm_certificate_arn      = aws_acm_certificate_validation.cert_validation.certificate_arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
-  }
-
-  # Custom error response for SPA routing (only for 404s from frontend bucket)
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 300
   }
 }
 
