@@ -275,6 +275,13 @@ function HomeContent() {
     return eventDate >= week.start && eventDate < week.end;
   };
 
+  const isWeekInPast = (weekNumber: number) => {
+    const week = seasonWeeks[weekNumber - 1];
+    const now = new Date();
+    // A week is in the past if its end time (Saturday noon) is before now
+    return week.end <= now;
+  };
+
   // Week selection handlers
   const handleWeekMouseDown = (weekNum: number) => {
     if (process.env.NODE_ENV === 'development') {
@@ -833,26 +840,35 @@ function HomeContent() {
                       isDragging ? 'cursor-grabbing' : 'cursor-pointer'
                     }`}
                   >
-                    {seasonWeeks.map((week) => (
-                      <div
-                        key={week.number}
-                        className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
-                          selectedWeeks.includes(week.number)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white text-gray-700 hover:bg-blue-50'
-                        }`}
-                        onMouseDown={() => handleWeekMouseDown(week.number)}
-                        onMouseEnter={() => handleWeekMouseEnter(week.number)}
-                        onMouseUp={() => handleWeekMouseUp(week.number)}
-                        onTouchStart={(e) => {
-                          e.preventDefault(); // Prevent mouse events from also firing
-                          handleWeekTap(week.number);
-                        }}
-                        title={week.label}
-                      >
-                        {week.number}
-                      </div>
-                    ))}
+                    {seasonWeeks.map((week) => {
+                      const isPast = isWeekInPast(week.number);
+                      const isSelected = selectedWeeks.includes(week.number);
+                      
+                      return (
+                        <div
+                          key={week.number}
+                          className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
+                            isPast
+                              ? isSelected
+                                ? 'bg-gray-400 text-white' // Past and selected
+                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200' // Past but not selected
+                              : isSelected
+                              ? 'bg-blue-600 text-white' // Current/future and selected
+                              : 'bg-white text-gray-700 hover:bg-blue-50' // Current/future and not selected
+                          }`}
+                          onMouseDown={() => handleWeekMouseDown(week.number)}
+                          onMouseEnter={() => handleWeekMouseEnter(week.number)}
+                          onMouseUp={() => handleWeekMouseUp(week.number)}
+                          onTouchStart={(e) => {
+                            e.preventDefault(); // Prevent mouse events from also firing
+                            handleWeekTap(week.number);
+                          }}
+                          title={week.label}
+                        >
+                          {week.number}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
