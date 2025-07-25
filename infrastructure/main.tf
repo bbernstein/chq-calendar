@@ -523,14 +523,6 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
-
-  # Custom error response for SPA routing (only for 404s from frontend bucket)
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 300
-  }
 }
 
 # IAM Role for Lambda
