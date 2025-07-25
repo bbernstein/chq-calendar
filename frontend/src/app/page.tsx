@@ -282,6 +282,17 @@ function HomeContent() {
     return week.end <= now;
   };
 
+  const getWeekNumberForDate = (date: Date): number | null => {
+    // Find which Chautauqua week this date falls into
+    for (let i = 0; i < seasonWeeks.length; i++) {
+      const week = seasonWeeks[i];
+      if (date >= week.start && date < week.end) {
+        return week.number;
+      }
+    }
+    return null; // Date is outside the season
+  };
+
   // Week selection handlers
   const handleWeekMouseDown = (weekNum: number) => {
     if (process.env.NODE_ENV === 'development') {
@@ -490,12 +501,18 @@ function HomeContent() {
 
     events.forEach(event => {
       const eventDate = new Date(event.startDate);
-      const dayKey = eventDate.toLocaleDateString('en-US', {
+      const baseDayKey = eventDate.toLocaleDateString('en-US', {
         weekday: 'long',
         year: 'numeric',
         month: 'long',
         day: 'numeric'
       });
+
+      // Add week number to the day label
+      const weekNumber = getWeekNumberForDate(eventDate);
+      const dayKey = weekNumber 
+        ? `${baseDayKey} - Week ${weekNumber}`
+        : baseDayKey;
 
       if (!grouped[dayKey]) {
         grouped[dayKey] = [];
