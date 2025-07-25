@@ -24,7 +24,9 @@ function handler(event) {
                         }
                     });
                 } else {
-                    queryString.push(encodeURIComponent(param) + '=' + encodeURIComponent(request.querystring[param].value));
+                    if (request.querystring[param].value !== undefined && request.querystring[param].value !== null) {
+                        queryString.push(encodeURIComponent(param) + '=' + encodeURIComponent(request.querystring[param].value));
+                    }
                 }
             }
             response.headers.location.value += '?' + queryString.join('&');
