@@ -160,41 +160,41 @@ jobs:
             }
           }
           EOF
-        
-        # Install all dependencies (this will get all transitive deps)
-        npm install --omit=dev --no-package-lock
-        
-        cd ..
-        
-        # Copy the original package.json back
-        cp package.json package_temp/package.json
-        
-        # Create package for admin handler (package.json already copied above)
-        mkdir -p package_temp/dist
-        cp dist/adminHandler.js package_temp/dist/
-        
-        cd package_temp
-        zip -r ../lambda-admin.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
-        cd ..
-        
-        # Deploy admin Lambda (assuming the admin function name is stored in secrets)
-        aws lambda update-function-code \
-          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
-          --zip-file fileb://lambda-admin.zip
-        
-        # Wait for the code update to complete
-        echo "Waiting for admin Lambda function to finish updating..."
-        aws lambda wait function-updated \
-          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }}
-        
-        # Update environment variables for admin Lambda
-        echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","NEXTAUTH_SECRET":"${{ secrets.NEXTAUTH_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
-        aws lambda update-function-configuration \
-          --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
-          --environment file://admin-env.json
-        
-        # Clean up
-        rm -rf package_temp lambda-admin.zip admin-env.json
+          
+          # Install all dependencies (this will get all transitive deps)
+          npm install --omit=dev --no-package-lock
+          
+          cd ..
+          
+          # Copy the original package.json back
+          cp package.json package_temp/package.json
+          
+          # Create package for admin handler (package.json already copied above)
+          mkdir -p package_temp/dist
+          cp dist/adminHandler.js package_temp/dist/
+          
+          cd package_temp
+          zip -r ../lambda-admin.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+          
+          # Deploy admin Lambda (assuming the admin function name is stored in secrets)
+          aws lambda update-function-code \
+            --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://lambda-admin.zip
+          
+          # Wait for the code update to complete
+          echo "Waiting for admin Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }}
+          
+          # Update environment variables for admin Lambda
+          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","NEXTAUTH_SECRET":"${{ secrets.NEXTAUTH_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
+          aws lambda update-function-configuration \
+            --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
+            --environment file://admin-env.json
+          
+          # Clean up
+          rm -rf package_temp lambda-admin.zip admin-env.json
     
     - name: Deploy frontend to S3 and CloudFront
       working-directory: ./frontend
