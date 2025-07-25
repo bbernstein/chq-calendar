@@ -19,18 +19,24 @@ const getChautauquaSeasonWeeks = (year = 2025) => {
     fourthSunday = new Date(2025, 5, 22);
   }
   
+  // Find the Saturday before the 4th Sunday, and set it to noon
+  // This will be the start of Week 1 at Saturday noon
+  const firstWeekStart = new Date(fourthSunday);
+  firstWeekStart.setDate(fourthSunday.getDate() - 1); // Go back to Saturday
+  firstWeekStart.setHours(12, 0, 0, 0); // Set to noon
+  
   const weeks = [];
   for (let i = 0; i < 9; i++) {
-    const weekStart = new Date(fourthSunday);
-    weekStart.setDate(fourthSunday.getDate() + (i * 7));
+    const weekStart = new Date(firstWeekStart);
+    weekStart.setDate(firstWeekStart.getDate() + (i * 7));
     const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setDate(weekStart.getDate() + 7); // Next Saturday at noon
     
     weeks.push({
       number: i + 1,
       start: weekStart,
       end: weekEnd,
-      label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+      label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm)`
     });
   }
   
