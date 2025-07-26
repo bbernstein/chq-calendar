@@ -43,3 +43,80 @@ details summary svg {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;  /* Safari and Chrome */
 }
+
+/* Scrollable pills container with fade gradients */
+.pills-scroll-container {
+  position: relative;
+}
+
+/* Add cursor pointer hint when scrollable */
+.pills-scroll-container .scrollbar-hide {
+  cursor: grab;
+}
+
+.pills-scroll-container .scrollbar-hide:active {
+  cursor: grabbing;
+}
+
+/* Left fade gradient */
+.pills-scroll-container::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(to right, 
+    rgba(255, 255, 255, 1) 0%, 
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+/* Right fade gradient */
+.pills-scroll-container::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(to left, 
+    rgba(255, 255, 255, 1) 0%, 
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+/* Dark mode gradients */
+@media (prefers-color-scheme: dark) {
+  .pills-scroll-container::before {
+    background: linear-gradient(to right, 
+      rgba(31, 41, 55, 1) 0%, 
+      rgba(31, 41, 55, 0) 100%
+    );
+  }
+  
+  .pills-scroll-container::after {
+    background: linear-gradient(to left, 
+      rgba(31, 41, 55, 1) 0%, 
+      rgba(31, 41, 55, 0) 100%
+    );
+  }
+}
+
+/* Show left gradient when scrolled */
+.pills-scroll-container.scrolled-right::before {
+  opacity: 1;
+}
+
+/* Hide right gradient when scrolled to end */
+.pills-scroll-container.scrolled-to-end::after {
+  opacity: 0;
+}

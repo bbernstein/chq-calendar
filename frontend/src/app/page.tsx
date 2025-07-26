@@ -99,6 +99,8 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
+  const locationScrollRef = useRef<HTMLDivElement>(null);
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -110,6 +112,8 @@ function HomeContent() {
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
   const [recentLocations, setRecentLocations] = useState<string[]>([]);
   const [recentCategories, setRecentCategories] = useState<string[]>([]);
+  const [locationScrollState, setLocationScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
+  const [categoryScrollState, setCategoryScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
@@ -245,6 +249,23 @@ function HomeContent() {
     }
   }, [toggleLocationBase, addToRecentLocations, isLocationSelected]);
 
+  // Scroll detection for recent pills containers
+  const updateScrollState = useCallback((element: HTMLElement, setState: React.Dispatch<React.SetStateAction<{ canScrollLeft: boolean; canScrollRight: boolean }>>) => {
+    const { scrollLeft, scrollWidth, clientWidth } = element;
+    const canScrollLeft = scrollLeft > 0;
+    const canScrollRight = scrollLeft < scrollWidth - clientWidth - 1; // -1 for rounding
+    setState({ canScrollLeft, canScrollRight });
+  }, []);
+
+  const handleScrollEvent = useCallback((e: React.UIEvent<HTMLDivElement>, type: 'location' | 'category') => {
+    const element = e.currentTarget;
+    if (type === 'location') {
+      updateScrollState(element, setLocationScrollState);
+    } else {
+      updateScrollState(element, setCategoryScrollState);
+    }
+  }, [updateScrollState]);
+
   // Memoize lowercase selected tags as a Set for O(1) lookup performance
   const selectedTagsLowerSet = useMemo(() =>
     new Set(selectedTags.map(tag => tag.toLowerCase())),
@@ -333,6 +354,19 @@ function HomeContent() {
     // Mark state as initialized to enable auto-saving
     setStateInitialized(true);
   }, [loadUserState]);
+
+  // Update scroll indicators when recent items change
+  useEffect(() => {
+    if (locationScrollRef.current) {
+      updateScrollState(locationScrollRef.current, setLocationScrollState);
+    }
+  }, [recentLocations, updateScrollState]);
+
+  useEffect(() => {
+    if (categoryScrollRef.current) {
+      updateScrollState(categoryScrollRef.current, setCategoryScrollState);
+    }
+  }, [recentCategories, updateScrollState]);
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -1281,8 +1315,12 @@ function HomeContent() {
                     Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
                   </span>
                   {recentLocations.length > 0 && (
-                    <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
-                      <div className="flex gap-2 pb-1">
+                    <div className={`flex-1 min-w-0 pills-scroll-container ${locationScrollState.canScrollLeft ? 'scrolled-right' : ''} ${!locationScrollState.canScrollRight ? 'scrolled-to-end' : ''}`}>
+                      <div 
+                        ref={locationScrollRef}
+                        className="flex gap-2 pb-1 overflow-x-auto overflow-y-hidden scrollbar-hide pr-4"
+                        onScroll={(e) => handleScrollEvent(e, 'location')}
+                      >
                         {recentLocations.map(location => (
                           <button
                             key={`recent-${location}`}
@@ -1334,8 +1372,12 @@ function HomeContent() {
                     Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
                   </span>
                   {recentCategories.length > 0 && (
-                    <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
-                      <div className="flex gap-2 pb-1">
+                    <div className={`flex-1 min-w-0 pills-scroll-container ${categoryScrollState.canScrollLeft ? 'scrolled-right' : ''} ${!categoryScrollState.canScrollRight ? 'scrolled-to-end' : ''}`}>
+                      <div 
+                        ref={categoryScrollRef}
+                        className="flex gap-2 pb-1 overflow-x-auto overflow-y-hidden scrollbar-hide pr-4"
+                        onScroll={(e) => handleScrollEvent(e, 'category')}
+                      >
                         {recentCategories.map(category => (
                           <button
                             key={`recent-${category}`}
