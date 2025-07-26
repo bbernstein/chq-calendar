@@ -198,9 +198,11 @@ function HomeContent() {
     [selectedLocations]
   );
 
-  // Memoize selected categories and tags counts to avoid repeated filter operations
+  // Memoize selected categories count to avoid repeated filter operations (excluding Week categories)
   const selectedCategoriesCount = useMemo(() =>
-    selectedTags.filter(tag => availableCategories.includes(tag)).length,
+    selectedTags.filter(tag => 
+      availableCategories.includes(tag) && !tag.startsWith('Week ')
+    ).length,
     [selectedTags, availableCategories]
   );
 
@@ -1170,7 +1172,9 @@ function HomeContent() {
                 </summary>
                 <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1 sm:gap-2">
-                    {availableCategories.map(category => (
+                    {availableCategories
+                      .filter(category => !category.startsWith('Week '))
+                      .map(category => (
                       <button
                         key={category}
                         onClick={() => toggleTag(category)}
