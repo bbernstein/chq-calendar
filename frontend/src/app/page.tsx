@@ -268,7 +268,7 @@ function HomeContent() {
     return null; // Not in season
   };
 
-  const currentWeekNumber = useMemo(() => getCurrentChautauquaWeek(), [seasonWeeks]);
+  const currentWeekNumber = useMemo(() => getCurrentChautauquaWeek(), []);
 
   const isThisWeek = (dateString: string) => {
     const eventDate = new Date(dateString);
