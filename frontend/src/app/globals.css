@@ -120,3 +120,100 @@ details summary svg {
 .pills-scroll-container.scrolled-to-end::after {
   opacity: 0;
 }
+
+/* Vertical scroll indicators for filter lists */
+.filter-list-container {
+  position: relative;
+}
+
+/* Top fade gradient for vertical scrolling */
+.filter-list-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: linear-gradient(to bottom, 
+    rgba(255, 255, 255, 1) 0%, 
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+/* Bottom fade gradient for vertical scrolling */
+.filter-list-container::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: linear-gradient(to top, 
+    rgba(255, 255, 255, 1) 0%, 
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+/* Dark mode gradients for vertical scrolling */
+@media (prefers-color-scheme: dark) {
+  .filter-list-container::before {
+    background: linear-gradient(to bottom, 
+      rgba(31, 41, 55, 1) 0%, 
+      rgba(31, 41, 55, 0) 100%
+    );
+  }
+  
+  .filter-list-container::after {
+    background: linear-gradient(to top, 
+      rgba(31, 41, 55, 1) 0%, 
+      rgba(31, 41, 55, 0) 100%
+    );
+  }
+}
+
+/* Show top gradient when scrolled down */
+.filter-list-container.scrolled-down::before {
+  opacity: 1;
+}
+
+/* Hide bottom gradient when scrolled to bottom */
+.filter-list-container.scrolled-to-bottom::after {
+  opacity: 0;
+}
+
+/* Add subtle scroll hint styling */
+.filter-list-container .scrollable-list {
+  cursor: default;
+}
+
+.filter-list-container .scrollable-list:hover {
+  /* Slightly show scrollbar on hover for additional hint */
+  scrollbar-width: thin;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar {
+  width: 4px;
+  display: block;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.5);
+}

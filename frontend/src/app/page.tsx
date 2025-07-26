@@ -101,6 +101,8 @@ function HomeContent() {
   const isLoadingRef = useRef(false);
   const locationScrollRef = useRef<HTMLDivElement>(null);
   const categoryScrollRef = useRef<HTMLDivElement>(null);
+  const locationListRef = useRef<HTMLDivElement>(null);
+  const categoryListRef = useRef<HTMLDivElement>(null);
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -114,6 +116,8 @@ function HomeContent() {
   const [recentCategories, setRecentCategories] = useState<string[]>([]);
   const [locationScrollState, setLocationScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
   const [categoryScrollState, setCategoryScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
+  const [locationListScrollState, setLocationListScrollState] = useState({ canScrollUp: false, canScrollDown: false });
+  const [categoryListScrollState, setCategoryListScrollState] = useState({ canScrollUp: false, canScrollDown: false });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
@@ -266,6 +270,23 @@ function HomeContent() {
     }
   }, [updateScrollState]);
 
+  // Vertical scroll detection for filter lists
+  const updateVerticalScrollState = useCallback((element: HTMLElement, setState: React.Dispatch<React.SetStateAction<{ canScrollUp: boolean; canScrollDown: boolean }>>) => {
+    const { scrollTop, scrollHeight, clientHeight } = element;
+    const canScrollUp = scrollTop > 0;
+    const canScrollDown = scrollTop < scrollHeight - clientHeight - 1; // -1 for rounding
+    setState({ canScrollUp, canScrollDown });
+  }, []);
+
+  const handleVerticalScrollEvent = useCallback((e: React.UIEvent<HTMLDivElement>, type: 'locationList' | 'categoryList') => {
+    const element = e.currentTarget;
+    if (type === 'locationList') {
+      updateVerticalScrollState(element, setLocationListScrollState);
+    } else {
+      updateVerticalScrollState(element, setCategoryListScrollState);
+    }
+  }, [updateVerticalScrollState]);
+
   // Memoize lowercase selected tags as a Set for O(1) lookup performance
   const selectedTagsLowerSet = useMemo(() =>
     new Set(selectedTags.map(tag => tag.toLowerCase())),
@@ -367,6 +388,19 @@ function HomeContent() {
       updateScrollState(categoryScrollRef.current, setCategoryScrollState);
     }
   }, [recentCategories, updateScrollState]);
+
+  // Update scroll indicators for filter lists when content changes
+  useEffect(() => {
+    if (locationListRef.current) {
+      updateVerticalScrollState(locationListRef.current, setLocationListScrollState);
+    }
+  }, [availableLocations, updateVerticalScrollState]);
+
+  useEffect(() => {
+    if (categoryListRef.current) {
+      updateVerticalScrollState(categoryListRef.current, setCategoryListScrollState);
+    }
+  }, [availableCategories, updateVerticalScrollState]);
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -1343,9 +1377,14 @@ function HomeContent() {
                     </div>
                   )}
                 </summary>
-                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1 sm:gap-2">
-                    {availableLocations.map(location => (
+                <div className={`filter-list-container mb-2 ${locationListScrollState.canScrollUp ? 'scrolled-down' : ''} ${!locationListScrollState.canScrollDown ? 'scrolled-to-bottom' : ''}`}>
+                  <div 
+                    ref={locationListRef}
+                    className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"
+                    onScroll={(e) => handleVerticalScrollEvent(e, 'locationList')}
+                  >
+                    <div className="flex flex-wrap gap-1 sm:gap-2">
+                      {availableLocations.map(location => (
                       <button
                         key={location}
                         onClick={() => toggleLocation(location)}
@@ -1358,6 +1397,7 @@ function HomeContent() {
                         {location}
                       </button>
                     ))}
+                    </div>
                   </div>
                 </div>
               </details>
@@ -1400,11 +1440,16 @@ function HomeContent() {
                     </div>
                   )}
                 </summary>
-                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1 sm:gap-2">
-                    {availableCategories
-                      .filter(category => !category.startsWith('Week '))
-                      .map(category => (
+                <div className={`filter-list-container mb-2 ${categoryListScrollState.canScrollUp ? 'scrolled-down' : ''} ${!categoryListScrollState.canScrollDown ? 'scrolled-to-bottom' : ''}`}>
+                  <div 
+                    ref={categoryListRef}
+                    className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"
+                    onScroll={(e) => handleVerticalScrollEvent(e, 'categoryList')}
+                  >
+                    <div className="flex flex-wrap gap-1 sm:gap-2">
+                      {availableCategories
+                        .filter(category => !category.startsWith('Week '))
+                        .map(category => (
                       <button
                         key={category}
                         onClick={() => toggleTag(category)}
@@ -1417,6 +1462,7 @@ function HomeContent() {
                         {category}
                       </button>
                     ))}
+                    </div>
                   </div>
                 </div>
               </details>
