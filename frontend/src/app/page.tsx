@@ -1377,7 +1377,7 @@ function HomeContent() {
                     </div>
                   )}
                 </summary>
-                <div className={`filter-list-container mb-2 ${locationListScrollState.canScrollUp ? 'scrolled-down' : ''} ${!locationListScrollState.canScrollDown ? 'scrolled-to-bottom' : ''}`}>
+                <div className={`filter-list-container mb-2 ${locationListScrollState.canScrollUp ? 'scrolled-down' : ''} ${locationListScrollState.canScrollDown ? 'can-scroll-down' : ''}`}>
                   <div 
                     ref={locationListRef}
                     className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"
@@ -1440,7 +1440,7 @@ function HomeContent() {
                     </div>
                   )}
                 </summary>
-                <div className={`filter-list-container mb-2 ${categoryListScrollState.canScrollUp ? 'scrolled-down' : ''} ${!categoryListScrollState.canScrollDown ? 'scrolled-to-bottom' : ''}`}>
+                <div className={`filter-list-container mb-2 ${categoryListScrollState.canScrollUp ? 'scrolled-down' : ''} ${categoryListScrollState.canScrollDown ? 'can-scroll-down' : ''}`}>
                   <div 
                     ref={categoryListRef}
                     className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"

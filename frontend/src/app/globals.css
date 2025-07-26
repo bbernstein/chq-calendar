@@ -126,67 +126,50 @@ details summary svg {
   position: relative;
 }
 
-/* Top fade gradient for vertical scrolling */
+/* Top scroll indicator (up arrow) */
 .filter-list-container::before {
-  content: '';
+  content: '▲';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 8px;
-  background: linear-gradient(to bottom, 
-    rgba(255, 255, 255, 1) 0%, 
-    rgba(255, 255, 255, 0) 100%
-  );
-  pointer-events: none;
-  z-index: 1;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: rgba(59, 130, 246, 0.7);
   opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-/* Bottom fade gradient for vertical scrolling */
-.filter-list-container::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 8px;
-  background: linear-gradient(to top, 
-    rgba(255, 255, 255, 1) 0%, 
-    rgba(255, 255, 255, 0) 100%
-  );
+  z-index: 10;
   pointer-events: none;
-  z-index: 1;
-  opacity: 1;
   transition: opacity 0.2s ease;
 }
 
-/* Dark mode gradients for vertical scrolling */
-@media (prefers-color-scheme: dark) {
-  .filter-list-container::before {
-    background: linear-gradient(to bottom, 
-      rgba(31, 41, 55, 1) 0%, 
-      rgba(31, 41, 55, 0) 100%
-    );
-  }
-  
-  .filter-list-container::after {
-    background: linear-gradient(to top, 
-      rgba(31, 41, 55, 1) 0%, 
-      rgba(31, 41, 55, 0) 100%
-    );
-  }
+/* Bottom scroll indicator (down arrow) */
+.filter-list-container::after {
+  content: '▼';
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: rgba(59, 130, 246, 0.7);
+  opacity: 0;
+  z-index: 10;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
 }
 
-/* Show top gradient when scrolled down */
+/* Show top arrow when scrolled down */
 .filter-list-container.scrolled-down::before {
   opacity: 1;
 }
 
-/* Hide bottom gradient when scrolled to bottom */
-.filter-list-container.scrolled-to-bottom::after {
-  opacity: 0;
+/* Show bottom arrow when can scroll down */
+.filter-list-container.can-scroll-down::after {
+  opacity: 1;
+}
+
+/* Dark mode arrow colors */
+@media (prefers-color-scheme: dark) {
+  .filter-list-container::before,
+  .filter-list-container::after {
+    color: rgba(147, 197, 253, 0.8);
+  }
 }
 
 /* Add subtle scroll hint styling */
