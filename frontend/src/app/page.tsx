@@ -745,9 +745,9 @@ function HomeContent() {
   }, [isDragging]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       {/* Header */}
-      <header className="bg-white shadow-lg">
+      <header className="bg-white dark:bg-gray-800 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-2 sm:py-4">
             <div className="flex items-center">
@@ -758,10 +758,10 @@ function HomeContent() {
                 height={40}
                 className="w-8 h-8 sm:w-10 sm:h-10 mr-2 sm:mr-3"
               />
-              <h1 className="text-lg sm:text-2xl font-bold text-gray-900">
+              <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">
                 CHQ Calendar
               </h1>
-              <span className="ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 text-blue-800 text-xs sm:text-sm font-medium rounded-full">
+              <span className="ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs sm:text-sm font-medium rounded-full">
                 2025 Season
               </span>
             </div>
@@ -772,7 +772,7 @@ function HomeContent() {
               >
                 Feedback
               </button>
-              <div className="text-xs sm:text-sm text-gray-600 font-medium">
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 font-medium">
                 {filterEvents(events).length > 0 && `Events (${filterEvents(events).length})`}
               </div>
             </div>
@@ -783,14 +783,14 @@ function HomeContent() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
 
         {/* Main Filter Panel - Compact on mobile */}
-        <div className="bg-white rounded-lg shadow mb-4 sm:mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6">
           <div className="p-2 sm:p-4">
             {/* Search Bar */}
             <div className="mb-2 sm:mb-4">
               <input
                 type="text"
                 placeholder="Search events..."
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm sm:text-base"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm sm:text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -799,9 +799,9 @@ function HomeContent() {
             {/* Week Range Selector - Mobile: Below search, Desktop: With date filters */}
             <div className="mb-2 sm:mb-0 block sm:hidden">
               <div className="flex items-center gap-1 sm:gap-2 justify-center">
-                <span className="text-xs text-gray-600 whitespace-nowrap mr-2">Weeks:</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap mr-2">Weeks:</span>
                 <div
-                  className={`flex border border-gray-300 rounded-md overflow-hidden select-none ${
+                  className={`flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden select-none ${
                     isDragging ? 'cursor-grabbing' : 'cursor-pointer'
                   }`}
                 >
@@ -812,14 +812,14 @@ function HomeContent() {
                     return (
                       <div
                         key={week.number}
-                        className={`w-6 h-6 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
+                        className={`w-6 h-6 flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                           isPast
                             ? isSelected
-                              ? 'bg-gray-400 text-white' // Past and selected
-                              : 'bg-gray-100 text-gray-400 hover:bg-gray-200' // Past but not selected
+                              ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
                             : isSelected
                             ? 'bg-blue-600 text-white' // Current/future and selected
-                            : 'bg-white text-gray-700 hover:bg-blue-50' // Current/future and not selected
+                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                         }`}
                         onMouseDown={() => handleWeekMouseDown(week.number)}
                         onMouseEnter={() => handleWeekMouseEnter(week.number)}
@@ -853,7 +853,7 @@ function HomeContent() {
                   className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
                     dateFilter === 'next'
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-gray-600'
                   }`}
                 >
                   Now
@@ -869,7 +869,7 @@ function HomeContent() {
                   className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
                     dateFilter === 'today'
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-gray-600'
                   }`}
                 >
                   Today
@@ -885,7 +885,7 @@ function HomeContent() {
                   className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
                     dateFilter === 'this-week'
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-gray-600'
                   }`}
                 >
                   This Week
@@ -893,9 +893,9 @@ function HomeContent() {
 
                 {/* Week Range Selector - Desktop: Inline with date filters */}
                 <div className="hidden sm:flex items-center gap-1 sm:gap-2">
-                  <span className="text-xs sm:text-sm text-gray-600 whitespace-nowrap">Weeks:</span>
+                  <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">Weeks:</span>
                   <div
-                    className={`flex border border-gray-300 rounded-md overflow-hidden select-none ${
+                    className={`flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden select-none ${
                       isDragging ? 'cursor-grabbing' : 'cursor-pointer'
                     }`}
                   >
@@ -906,14 +906,14 @@ function HomeContent() {
                       return (
                         <div
                           key={week.number}
-                          className={`w-8 h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 last:border-r-0 transition-all text-xs flex-shrink-0 ${
+                          className={`w-8 h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                             isPast
                               ? isSelected
-                                ? 'bg-gray-400 text-white' // Past and selected
-                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200' // Past but not selected
+                                ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
                               : isSelected
                               ? 'bg-blue-600 text-white' // Current/future and selected
-                              : 'bg-white text-gray-700 hover:bg-blue-50' // Current/future and not selected
+                              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                           }`}
                           onMouseDown={() => handleWeekMouseDown(week.number)}
                           onMouseEnter={() => handleWeekMouseEnter(week.number)}
@@ -934,7 +934,7 @@ function HomeContent() {
 
               {/* Show selected filter info - more compact */}
               {(selectedWeeks.length > 0 || dateFilter !== 'all') && (
-                <div className="mt-1 text-xs sm:text-sm text-gray-600">
+                <div className="mt-1 text-xs sm:text-sm text-gray-600 dark:text-gray-300">
                   Selected: {(() => {
                     if (dateFilter === 'today') {
                       const today = new Date();
@@ -1049,7 +1049,7 @@ function HomeContent() {
                     setDateFilter('all');
                     setSelectedWeeks([]);
                   }}
-                  className="px-3 py-1 sm:px-4 sm:py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                  className="px-3 py-1 sm:px-4 sm:py-2 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
                   Clear All Filters
                 </button>
@@ -1060,18 +1060,18 @@ function HomeContent() {
 
 
         {/* Events Section */}
-        <div className="bg-white rounded-lg shadow">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
             {loading ? (
               <div className="text-center py-8">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-2 text-gray-600">Loading events...</p>
+                <p className="mt-2 text-gray-600 dark:text-gray-300">Loading events...</p>
               </div>
             ) : filterEvents(events).length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🎭</div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
-                <p className="text-gray-600 mb-4">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No events found</h3>
+                <p className="text-gray-600 dark:text-gray-300 mb-4">
                   Try adjusting your filters or search terms.
                 </p>
               </div>
@@ -1080,18 +1080,18 @@ function HomeContent() {
                 {groupEventsByDay(filterEvents(events)).map((dayGroup) => (
                   <div key={dayGroup.day}>
                     {/* Day Header - more compact on mobile */}
-                    <div className="sticky top-0 bg-white z-10 border-b border-gray-200 pb-1 sm:pb-2 mb-2 sm:mb-4">
-                      <h3 className="text-lg sm:text-xl font-bold text-gray-900">{dayGroup.day}</h3>
+                    <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4">
+                      <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">{dayGroup.day}</h3>
                     </div>
 
                     {/* Events for this day */}
                     <div className="space-y-1">
                       {dayGroup.events.map((event, index) => (
-                        <div key={event.id} className={`py-2 sm:py-3 ${index > 0 ? 'border-t border-gray-200' : ''} hover:bg-gray-50 transition-colors`}>
+                        <div key={event.id} className={`py-2 sm:py-3 ${index > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors`}>
                           <div className="flex justify-between items-start gap-2 sm:gap-4">
                             <div className="flex-1 min-w-0">
                               {/* Time and location above title */}
-                              <div className="text-xs sm:text-sm text-gray-500 mb-1">
+                              <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mb-1">
                                 🕐 {new Date(event.startDate).toLocaleTimeString([], {
                                   hour: 'numeric',
                                   minute: '2-digit',
@@ -1103,13 +1103,13 @@ function HomeContent() {
                               </div>
 
                               {/* Event title */}
-                              <h4 className="text-sm sm:text-lg font-semibold text-gray-900 mb-1 leading-tight">
+                              <h4 className="text-sm sm:text-lg font-semibold text-gray-900 dark:text-white mb-1 leading-tight">
                                 {event.url ? (
                                   <a
                                     href={event.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
                                   >
                                     {event.title} 🔗
                                   </a>
@@ -1125,14 +1125,14 @@ function HomeContent() {
                                     <div>
                                       <button
                                         onClick={() => toggleDescription(event.id)}
-                                        className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center gap-1"
+                                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-xs font-medium flex items-center gap-1"
                                       >
                                         <span className="text-xs">▼</span> Show less
                                       </button>
 
                                       {/* Show description if it exists */}
                                       {event.description && (
-                                        <p className="text-gray-600 text-sm mb-2">{event.description}</p>
+                                        <p className="text-gray-600 dark:text-gray-300 text-sm mb-2">{event.description}</p>
                                       )}
 
                                       {/* Show all tags and categories when expanded */}
@@ -1167,7 +1167,7 @@ function HomeContent() {
                                               className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
                                                 isTagSelected(tag)
                                                   ? 'bg-blue-600 text-white'
-                                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                                               }`}
                                             >
                                               {tag}
@@ -1180,7 +1180,7 @@ function HomeContent() {
                                   ) : (
                                     <button
                                       onClick={() => toggleDescription(event.id)}
-                                      className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center gap-1"
+                                      className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-xs font-medium flex items-center gap-1"
                                     >
                                       <span className="text-xs">▶</span> Show more
                                     </button>
@@ -1190,7 +1190,7 @@ function HomeContent() {
 
                               {/* Compact event info - only show presenter */}
                               {event.presenter && (
-                                <div className="flex flex-wrap gap-2 text-xs sm:text-sm text-gray-500">
+                                <div className="flex flex-wrap gap-2 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
                                   <span>👤 {event.presenter}</span>
                                 </div>
                               )}
