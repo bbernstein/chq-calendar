@@ -107,6 +107,7 @@ function HomeContent() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
+  const [stateInitialized, setStateInitialized] = useState(false);
 
   const apiUrl = useMemo(() =>
     process.env.NODE_ENV === 'development'
@@ -247,10 +248,12 @@ function HomeContent() {
     return null;
   }, []);
 
-  // Save user state to localStorage whenever filter state changes
+  // Save user state to localStorage whenever filter state changes (only after initialization)
   useEffect(() => {
-    saveUserState();
-  }, [saveUserState]);
+    if (stateInitialized) {
+      saveUserState();
+    }
+  }, [saveUserState, stateInitialized]);
 
   // Restore user state from localStorage on component mount
   useEffect(() => {
@@ -263,6 +266,8 @@ function HomeContent() {
       setSelectedWeeks(savedState.selectedWeeks);
       setExpandedDescriptions(savedState.expandedDescriptions);
     }
+    // Mark state as initialized to enable auto-saving
+    setStateInitialized(true);
   }, [loadUserState]);
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
