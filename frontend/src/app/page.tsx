@@ -111,6 +111,26 @@ function HomeContent() {
   const [wasDragged, setWasDragged] = useState(false);
   const [stateInitialized, setStateInitialized] = useState(false);
 
+  // Shortcut alias maps for pills - easily editable
+  const locationShortcuts: Record<string, string> = {
+    "Elizabeth S. Lenna Hall": "Lenna Hall",
+    "AAHH African American Heritage House": "AAHH",
+  };
+
+  const categoryShortcuts: Record<string, string> = {
+    "Chautauqua Symphony Orchestra/Classical Conserts": "CSO",
+    "Chautauqua Lecture Series": "CHQ Lecture",
+  };
+
+  // Helper functions to get display names and full names
+  const getLocationDisplayName = (location: string): string => {
+    return locationShortcuts[location] || location;
+  };
+
+  const getCategoryDisplayName = (category: string): string => {
+    return categoryShortcuts[category] || category;
+  };
+
   const apiUrl = useMemo(() =>
     process.env.NODE_ENV === 'development'
       ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
@@ -1259,6 +1279,7 @@ function HomeContent() {
                         {recentLocations.map(location => (
                           <button
                             key={`recent-${location}`}
+                            title={location} // Tooltip showing full name
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -1270,7 +1291,7 @@ function HomeContent() {
                                 : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
                             }`}
                           >
-                            {location}
+                            {getLocationDisplayName(location)}
                           </button>
                         ))}
                       </div>
@@ -1311,6 +1332,7 @@ function HomeContent() {
                         {recentCategories.map(category => (
                           <button
                             key={`recent-${category}`}
+                            title={category} // Tooltip showing full name
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -1322,7 +1344,7 @@ function HomeContent() {
                                 : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
                             }`}
                           >
-                            {category}
+                            {getCategoryDisplayName(category)}
                           </button>
                         ))}
                       </div>
