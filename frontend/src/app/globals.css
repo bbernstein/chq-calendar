@@ -24,3 +24,22 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Chevron rotation for expandable sections */
+details[open] summary svg {
+  transform: rotate(90deg);
+}
+
+details summary svg {
+  transition: transform 0.2s ease;
+}
+
+/* Hide scrollbars for recent pills containers */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Safari and Chrome */
+}

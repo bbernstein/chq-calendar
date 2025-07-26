@@ -1246,25 +1246,36 @@ function HomeContent() {
             <div className="space-y-3">
               {/* Locations - Desktop */}
               <details>
-                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 overflow-hidden">
-                  <span className="flex-shrink-0">Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}</span>
-                  {recentLocations.map(location => (
-                    <button
-                      key={`recent-${location}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleLocation(location);
-                      }}
-                      className={`flex-shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
-                        isLocationSelected(location)
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
-                      }`}
-                    >
-                      {location}
-                    </button>
-                  ))}
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 min-w-0">
+                  <span className="flex-shrink-0 flex items-center gap-1">
+                    <svg className="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
+                  </span>
+                  {recentLocations.length > 0 && (
+                    <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
+                      <div className="flex gap-2 pb-1">
+                        {recentLocations.map(location => (
+                          <button
+                            key={`recent-${location}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleLocation(location);
+                            }}
+                            className={`flex-shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                              isLocationSelected(location)
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
+                            }`}
+                          >
+                            {location}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </summary>
                 <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1 sm:gap-2">
@@ -1287,25 +1298,36 @@ function HomeContent() {
 
               {/* Categories - Desktop */}
               <details>
-                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 overflow-hidden">
-                  <span className="flex-shrink-0">Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}</span>
-                  {recentCategories.map(category => (
-                    <button
-                      key={`recent-${category}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        toggleTag(category);
-                      }}
-                      className={`flex-shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
-                        isTagSelected(category)
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
-                      }`}
-                    >
-                      {category}
-                    </button>
-                  ))}
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 min-w-0">
+                  <span className="flex-shrink-0 flex items-center gap-1">
+                    <svg className="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
+                  </span>
+                  {recentCategories.length > 0 && (
+                    <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
+                      <div className="flex gap-2 pb-1">
+                        {recentCategories.map(category => (
+                          <button
+                            key={`recent-${category}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleTag(category);
+                            }}
+                            className={`flex-shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                              isTagSelected(category)
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
+                            }`}
+                          >
+                            {category}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </summary>
                 <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1 sm:gap-2">
