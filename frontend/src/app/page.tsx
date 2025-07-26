@@ -100,6 +100,7 @@ function HomeContent() {
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
+  const [wasDragged, setWasDragged] = useState(false);
 
   const apiUrl = useMemo(() =>
     process.env.NODE_ENV === 'development'
@@ -398,16 +399,13 @@ function HomeContent() {
       return;
     }
 
-    // If clicking the current week without modifiers, activate "This Week" filter instead
-    if (weekNum === currentWeekNumber && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-      setDateFilter('this-week');
-      setSelectedWeeks([]);
-      return;
-    }
-
-    // Regular click or drag start
+    // Regular click or drag start (don't handle current week "This Week" logic here - wait for mouse-up)
     setIsDragging(true);
     setDragStart(weekNum);
+    setWasDragged(false);
+    
+    // For regular clicks, start with the clicked week selected
+    // For current week, this will be overridden in mouse-up if it wasn't dragged
     setSelectedWeeks([weekNum]);
 
     // Prevent text selection during potential drag
@@ -416,6 +414,7 @@ function HomeContent() {
 
   const handleWeekMouseEnter = (weekNum: number) => {
     if (isDragging && dragStart !== null) {
+      setWasDragged(true); // Mark that we've dragged
       const start = Math.min(dragStart, weekNum);
       const end = Math.max(dragStart, weekNum);
       const range = [];
@@ -429,14 +428,20 @@ function HomeContent() {
     }
   };
 
-  const handleWeekMouseUp = () => {
+  const handleWeekMouseUp = (weekNum: number) => {
     if (isDragging && dragStart !== null) {
-      // Selection is handled in handleWeekMouseDown and handleWeekMouseEnter
-      // No additional logic needed here for the new interaction modes
+      // If this was a click (not drag) on the current week without modifiers,
+      // activate "This Week" filter instead of regular selection
+      if (!wasDragged && weekNum === currentWeekNumber && weekNum === dragStart) {
+        setDateFilter('this-week');
+        setSelectedWeeks([]);
+      }
+      // Otherwise, selection was already handled in handleWeekMouseDown and handleWeekMouseEnter
     }
 
     setIsDragging(false);
     setDragStart(null);
+    setWasDragged(false);
     // Restore text selection
     document.body.style.userSelect = '';
   };
@@ -839,6 +844,7 @@ function HomeContent() {
       if (isDragging) {
         setIsDragging(false);
         setDragStart(null);
+        setWasDragged(false);
         // Restore text selection
         document.body.style.userSelect = '';
       }
@@ -925,7 +931,7 @@ function HomeContent() {
                         }`}
                         onMouseDown={(e) => handleWeekMouseDown(week.number, e)}
                         onMouseEnter={() => handleWeekMouseEnter(week.number)}
-                        onMouseUp={handleWeekMouseUp}
+                        onMouseUp={() => handleWeekMouseUp(week.number)}
                         onTouchStart={(e) => {
                           e.preventDefault(); // Prevent mouse events from also firing
                           handleWeekTap(week.number);
@@ -1020,7 +1026,7 @@ function HomeContent() {
                           }`}
                           onMouseDown={(e) => handleWeekMouseDown(week.number, e)}
                           onMouseEnter={() => handleWeekMouseEnter(week.number)}
-                          onMouseUp={handleWeekMouseUp}
+                          onMouseUp={() => handleWeekMouseUp(week.number)}
                           onTouchStart={(e) => {
                             e.preventDefault(); // Prevent mouse events from also firing
                             handleWeekTap(week.number);
