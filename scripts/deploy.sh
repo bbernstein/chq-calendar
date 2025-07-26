@@ -152,9 +152,27 @@ else
     # Build
     npm run build
 
-    # Upload to S3
+    # Upload to S3 with proper cache headers and cache directory exclusion
     if [ -d "out" ]; then
-        aws s3 sync out/ s3://$S3_BUCKET --delete
+        print_status "Syncing frontend to S3 with optimized cache headers..."
+        
+        # Sync all files except source maps and HTML with long cache
+        aws s3 sync out/ s3://$S3_BUCKET/ \
+            --delete \
+            --exclude "cache/*" \
+            --exclude "*.map" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --metadata-directive REPLACE
+
+        # Update HTML files with shorter cache
+        aws s3 sync out/ s3://$S3_BUCKET/ \
+            --exclude "*" \
+            --exclude "cache/*" \
+            --include "*.html" \
+            --cache-control "public, max-age=3600" \
+            --metadata-directive REPLACE
+            
+        print_success "Frontend synced to S3 (cache directory preserved)"
     else
         print_error "Frontend build output not found"
         exit 1

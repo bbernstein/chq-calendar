@@ -199,16 +199,18 @@ jobs:
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
-          # Sync to S3 bucket
+          # Sync to S3 bucket (exclude cache directory to preserve backend-generated cache files)
           aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
             --delete \
+            --exclude "cache/*" \
             --exclude "*.map" \
             --cache-control "public, max-age=31536000, immutable" \
             --metadata-directive REPLACE
 
-          # Update HTML files with shorter cache
+          # Update HTML files with shorter cache (also exclude cache directory)
           aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
             --exclude "*" \
+            --exclude "cache/*" \
             --include "*.html" \
             --cache-control "public, max-age=3600" \
             --metadata-directive REPLACE
