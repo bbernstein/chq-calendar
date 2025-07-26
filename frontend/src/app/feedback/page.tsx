@@ -122,11 +122,11 @@ export default function FeedbackPage() {
 
   if (isSubmitted) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 max-w-md w-full text-center">
-          <div className="text-green-600 text-5xl mb-4">✓</div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Thank You!</h1>
-          <p className="text-gray-600 mb-6">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 sm:p-8 max-w-md w-full text-center">
+          <div className="text-green-600 dark:text-green-400 text-5xl mb-4">✓</div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Thank You!</h1>
+          <p className="text-gray-600 dark:text-gray-300 mb-6">
             Your feedback has been submitted successfully. We appreciate your input and will review it carefully.
           </p>
           <button
@@ -150,9 +150,9 @@ export default function FeedbackPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       {/* Header */}
-      <header className="bg-white shadow-lg">
+      <header className="bg-white dark:bg-gray-800 shadow-lg">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center py-4">
             <Image
@@ -162,7 +162,7 @@ export default function FeedbackPage() {
               height={32}
               className="w-8 h-8 mr-3"
             />
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               Feedback
             </h1>
           </div>
@@ -171,19 +171,19 @@ export default function FeedbackPage() {
 
       {/* Main Content */}
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 sm:p-8">
           <div className="mb-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
               We would love Your Feedback
             </h2>
-            <p className="text-gray-600">
+            <p className="text-gray-600 dark:text-gray-300">
               Help us improve the Chautauqua Calendar experience. Your comments and suggestions are valuable to us.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="feedback" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="feedback" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Please enter comments/feedback. Include contact info if you would like a response.
               </label>
               <textarea
@@ -191,14 +191,14 @@ export default function FeedbackPage() {
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 rows={6}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Your feedback, comments, or suggestions..."
                 required
               />
             </div>
 
             <div>
-              <label htmlFor="contactInfo" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="contactInfo" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Contact Information (Optional)
               </label>
               <input
@@ -206,14 +206,14 @@ export default function FeedbackPage() {
                 id="contactInfo"
                 value={contactInfo}
                 onChange={(e) => setContactInfo(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Email or phone number (if you would like a response)"
               />
             </div>
 
             {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-red-600 text-sm">{error}</p>
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
               </div>
             )}
 
@@ -235,13 +235,13 @@ export default function FeedbackPage() {
             </div>
 
             {!!RECAPTCHA_SITE_KEY && (
-              <div className="text-xs text-gray-500 mt-4">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-4">
                 This site is protected by reCAPTCHA and the Google{' '}
-                <a href="https://policies.google.com/privacy" className="text-blue-600 hover:underline">
+                <a href="https://policies.google.com/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">
                   Privacy Policy
                 </a>{' '}
                 and{' '}
-                <a href="https://policies.google.com/terms" className="text-blue-600 hover:underline">
+                <a href="https://policies.google.com/terms" className="text-blue-600 dark:text-blue-400 hover:underline">
                   Terms of Service
                 </a>{' '}
                 apply.
@@ -254,7 +254,7 @@ export default function FeedbackPage() {
         <div className="mt-8 flex justify-center">
           <a
             href="/admin/login/"
-            className="inline-flex items-center px-3 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            className="inline-flex items-center px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
             title="Admin Login"
           >
             <svg
