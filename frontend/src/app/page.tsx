@@ -219,7 +219,7 @@ function HomeContent() {
 
   // Use the tag selection hook with recent tracking
   const { toggleTag: toggleTagBase, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
-  
+
   const toggleTag = useCallback((tag: string) => {
     const wasSelected = isTagSelected(tag);
     toggleTagBase(tag);
@@ -228,10 +228,10 @@ function HomeContent() {
       addToRecentCategories(tag);
     }
   }, [toggleTagBase, addToRecentCategories, availableCategories, isTagSelected]);
-  
+
   // Use the location selection hook with recent tracking
   const { toggleTag: toggleLocationBase, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
-  
+
   const toggleLocation = useCallback((location: string) => {
     const wasSelected = isLocationSelected(location);
     toggleLocationBase(location);
@@ -255,7 +255,7 @@ function HomeContent() {
 
   // Memoize selected categories count to avoid repeated filter operations (excluding Week categories)
   const selectedCategoriesCount = useMemo(() =>
-    selectedTags.filter(tag => 
+    selectedTags.filter(tag =>
       availableCategories.includes(tag) && !tag.startsWith('Week ')
     ).length,
     [selectedTags, availableCategories]
@@ -405,7 +405,7 @@ function HomeContent() {
   // Get current Chautauqua week number (1-9) or null if not in season
   const currentWeekNumber = useMemo(() => {
     const now = new Date();
-    
+
     for (let i = 0; i < seasonWeeks.length; i++) {
       const week = seasonWeeks[i];
       if (now >= week.start && now <= week.end) {
@@ -428,11 +428,11 @@ function HomeContent() {
 
   const isThisWeek = (dateString: string) => {
     const eventDate = new Date(dateString);
-    
+
     if (currentWeekNumber === null) {
       return false; // Not in season
     }
-    
+
     const currentWeek = seasonWeeks[currentWeekNumber - 1];
     return eventDate >= currentWeek.start && eventDate <= currentWeek.end;
   };
@@ -472,7 +472,7 @@ function HomeContent() {
 
     // Prevent default to avoid text selection
     event.preventDefault();
-    
+
     // Clear "This Week" filter when selecting weeks (except for current week without modifiers)
     if (!(weekNum === currentWeekNumber && !event.shiftKey && !event.metaKey && !event.ctrlKey)) {
       setDateFilter('all');
@@ -486,7 +486,7 @@ function HomeContent() {
         // treat it as if it were selected
         const isCurrentWeekActive = weekNum === currentWeekNumber && dateFilter === 'this-week';
         const isInSelection = prev.includes(weekNum) || isCurrentWeekActive;
-        
+
         return isInSelection
           ? prev.filter(w => w !== weekNum) // Remove if selected (will be empty if it was only "This Week")
           : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
@@ -497,22 +497,22 @@ function HomeContent() {
 
     // Check if we have existing selections - either in selectedWeeks or via "This Week" filter
     const hasExistingSelection = selectedWeeks.length > 0 || (dateFilter === 'this-week' && currentWeekNumber !== null);
-    
+
     if (event.shiftKey && hasExistingSelection) {
       // Shift-Click: Extend selection to nearest existing week (including current week)
       const existingWeeks = [...selectedWeeks];
-      
+
       // If current week is active via "This Week" filter, include it in existing weeks
       if (dateFilter === 'this-week' && currentWeekNumber !== null && !existingWeeks.includes(currentWeekNumber)) {
         existingWeeks.push(currentWeekNumber);
       }
-      
+
       existingWeeks.sort((a, b) => a - b);
       const minExisting = existingWeeks[0];
       const maxExisting = existingWeeks[existingWeeks.length - 1];
-      
+
       const newRange: number[] = [];
-      
+
       if (weekNum < minExisting) {
         // Extend from clicked week to minimum existing week
         for (let i = weekNum; i <= maxExisting; i++) {
@@ -527,7 +527,7 @@ function HomeContent() {
         // Click is within existing range, extend to nearest boundary
         const distanceToMin = Math.abs(weekNum - minExisting);
         const distanceToMax = Math.abs(weekNum - maxExisting);
-        
+
         if (distanceToMin <= distanceToMax) {
           // Extend from clicked week to max
           for (let i = weekNum; i <= maxExisting; i++) {
@@ -540,7 +540,7 @@ function HomeContent() {
           }
         }
       }
-      
+
       setSelectedWeeks(newRange);
       setDateFilter('all'); // Always clear "This Week" filter for shift-click
       return;
@@ -550,7 +550,7 @@ function HomeContent() {
     setIsDragging(true);
     setDragStart(weekNum);
     setWasDragged(false);
-    
+
     // For regular clicks, start with the clicked week selected
     // For current week, this will be overridden in mouse-up if it wasn't dragged
     setSelectedWeeks([weekNum]);
@@ -777,7 +777,7 @@ function HomeContent() {
 
       // Add week number to the day label
       const weekNumber = getWeekNumberForDate(eventDate);
-      const dayKey = weekNumber 
+      const dayKey = weekNumber
         ? `${baseDayKey} - Week ${weekNumber}`
         : baseDayKey;
 
@@ -1085,7 +1085,7 @@ function HomeContent() {
                     const isPast = isWeekInPast(week.number);
                     const isSelected = selectedWeeks.includes(week.number);
                     const isHighlighted = isWeekHighlighted(week.number, isSelected);
-                    
+
                     return (
                       <div
                         key={week.number}
@@ -1180,7 +1180,7 @@ function HomeContent() {
                       const isPast = isWeekInPast(week.number);
                       const isSelected = selectedWeeks.includes(week.number);
                       const isHighlighted = isWeekHighlighted(week.number, isSelected);
-                      
+
                       return (
                         <div
                           key={week.number}
@@ -1235,11 +1235,11 @@ function HomeContent() {
                       if (currentWeekNumber === null) {
                         return 'This Week (Not in season)';
                       }
-                      
+
                       const currentWeek = seasonWeeks[currentWeekNumber - 1];
                       const startStr = currentWeek.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                       const endStr = currentWeek.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                      
+
                       return `This Week (${startStr} 12pm - ${endStr} 12pm)`;
                     } else if (selectedWeeks.length === 1) {
                       const weekNum = selectedWeeks[0];
@@ -1383,7 +1383,7 @@ function HomeContent() {
                     const filteredCount = filterEvents(events).length;
                     const totalCount = events.length;
                     const hasFilters = searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
-                    
+
                     if (hasFilters) {
                       return `Events (${filteredCount}/${totalCount})`;
                     } else {
