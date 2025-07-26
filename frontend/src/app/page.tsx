@@ -772,9 +772,6 @@ function HomeContent() {
               >
                 Feedback
               </button>
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 font-medium">
-                {filterEvents(events).length > 0 && `Events (${filterEvents(events).length})`}
-              </div>
             </div>
           </div>
         </div>
@@ -1040,21 +1037,37 @@ function HomeContent() {
             </div>
 
             {/* Clear Filters */}
-            {(searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0) && (
-              <div className="mt-2 sm:mt-4 pt-2 sm:pt-3 border-t border-gray-200">
-                <button
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSelectedTags([]);
-                    setDateFilter('all');
-                    setSelectedWeeks([]);
-                  }}
-                  className="px-3 py-1 sm:px-4 sm:py-2 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Clear All Filters
-                </button>
+            {/* Event count and clear filters */}
+            <div className="mt-2 sm:mt-4 pt-2 sm:pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+                  {(() => {
+                    const filteredCount = filterEvents(events).length;
+                    const totalCount = events.length;
+                    const hasFilters = searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
+                    
+                    if (hasFilters) {
+                      return `Events (${filteredCount}/${totalCount})`;
+                    } else {
+                      return `Events (${totalCount})`;
+                    }
+                  })()}
+                </div>
+                {(searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0) && (
+                  <button
+                    onClick={() => {
+                      setSearchTerm('');
+                      setSelectedTags([]);
+                      setDateFilter('all');
+                      setSelectedWeeks([]);
+                    }}
+                    className="px-3 py-1 sm:px-4 sm:py-2 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    Clear All Filters
+                  </button>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
 
