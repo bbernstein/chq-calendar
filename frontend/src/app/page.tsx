@@ -118,7 +118,7 @@ function HomeContent() {
   };
 
   const categoryShortcuts: Record<string, string> = {
-    "Chautauqua Symphony Orchestra/Classical Conserts": "CSO",
+    "Chautauqua Symphony Orchestra/Classical Concerts": "CSO",
     "Chautauqua Lecture Series": "CHQ Lecture",
   };
 
