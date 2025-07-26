@@ -22,10 +22,7 @@ jobs:
       - name: Install all workspace dependencies
         run: npm ci
 
-      - name: Run backend tests
-        run: npm run test:ci --workspace=backend
-
-      - name: Build backend Lambda handlers
+      - name: Build backend Lambda handlers (includes tests)
         run: npm run build --workspace=backend
 
       - name: Upload backend coverage

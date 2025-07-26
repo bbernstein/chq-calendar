@@ -35,6 +35,7 @@ interface Event {
 interface GlobalEventData {
   events: Event[] | null;
   categories: string[];
+  locations: string[];
   tags: string[];
   weeks: number[];
   loadedAt: number | null;
@@ -74,6 +75,7 @@ function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
   const [globalEventData, setGlobalEventData] = useState<GlobalEventData>({
     events: null,
     categories: [],
+    locations: [],
     tags: [],
     weeks: [],
     loadedAt: null,
@@ -95,9 +97,13 @@ function HomeContent() {
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [availableLocations, setAvailableLocations] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
@@ -176,12 +182,30 @@ function HomeContent() {
 
   // Use the tag selection hook
   const { toggleTag, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
+  
+  // Use the location selection hook
+  const { toggleTag: toggleLocation, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
 
   // Memoize lowercase selected tags as a Set for O(1) lookup performance
   const selectedTagsLowerSet = useMemo(() =>
     new Set(selectedTags.map(tag => tag.toLowerCase())),
     [selectedTags]
   );
+
+  // Memoize lowercase selected locations as a Set for O(1) lookup performance
+  const selectedLocationsLowerSet = useMemo(() =>
+    new Set(selectedLocations.map(location => location.toLowerCase())),
+    [selectedLocations]
+  );
+
+  // Memoize selected categories count to avoid repeated filter operations (excluding Week categories)
+  const selectedCategoriesCount = useMemo(() =>
+    selectedTags.filter(tag => 
+      availableCategories.includes(tag) && !tag.startsWith('Week ')
+    ).length,
+    [selectedTags, availableCategories]
+  );
+
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -570,6 +594,16 @@ function HomeContent() {
       );
     }
 
+    // Location filter - case insensitive
+    if (selectedLocationsLowerSet.size > 0) {
+      filtered = filtered.filter(event => {
+        if (event.location) {
+          return selectedLocationsLowerSet.has(event.location.toLowerCase());
+        }
+        return false;
+      });
+    }
+
     // Tag filter - case insensitive (using pre-computed Sets for O(1) lookups)
     if (selectedTagsLowerSet.size > 0) {
       filtered = filtered.filter(event => {
@@ -659,10 +693,10 @@ function HomeContent() {
     // Clear cache if we're forcing refresh to ensure clean data
     if (forceRefresh) {
       try {
-        sessionStorage.removeItem('chq-calendar-events');
-        console.log('Cleared session storage cache');
+        localStorage.removeItem('chq-calendar-events');
+        console.log('Cleared local storage cache');
       } catch (e) {
-        console.warn('Failed to clear sessionStorage:', e);
+        console.warn('Failed to clear localStorage:', e);
       }
     }
 
@@ -672,6 +706,8 @@ function HomeContent() {
       // Decode HTML entities for global events in case they weren't decoded when stored
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
+      setAvailableCategories(globalEventData.categories);
+      setAvailableLocations(globalEventData.locations || []);
       setAvailableTags(globalEventData.tags);
       setDataLoaded(true);
       return;
@@ -691,29 +727,31 @@ function HomeContent() {
 
     isLoadingRef.current = true;
 
-    // Check sessionStorage first (unless forcing refresh)
+    // Check localStorage first (unless forcing refresh)
     if (!forceRefresh) {
       try {
-        const cachedData = sessionStorage.getItem('chq-calendar-events');
+        const cachedData = localStorage.getItem('chq-calendar-events');
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           // Check if cache is less than 1 hour old AND has the correct version
           if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000 && parsed.version === 'v2-decoded') {
-            console.log('Loading events from session cache (v2-decoded)');
+            console.log('Loading events from local cache (v2-decoded)');
             // Events should already be decoded, but decode again as safety measure
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
+            setAvailableCategories(parsed.categories);
+            setAvailableLocations(parsed.locations || []);
             setAvailableTags(parsed.tags);
             setDataLoaded(true);
             isLoadingRef.current = false;
             return;
           } else {
             console.log('Invalidating old cache (missing version or expired)');
-            sessionStorage.removeItem('chq-calendar-events');
+            localStorage.removeItem('chq-calendar-events');
           }
         }
       } catch (e) {
-        console.warn('Failed to load from sessionStorage:', e);
+        console.warn('Failed to load from localStorage:', e);
       }
     }
 
@@ -746,11 +784,14 @@ function HomeContent() {
         // Extract unique categories for filter options
         const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
 
-        // Extract all unique tags from both tags and originalCategories with deduplication
-        const allTagsAndCategories: string[] = [];
+        // Extract unique locations for filter options
+        const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
+
+        // Extract tags separately (event.tags and event.originalCategories)
+        const allTags: string[] = [];
         fetchedEvents.forEach((event: Event) => {
-          if (event.tags) allTagsAndCategories.push(...event.tags);
-          if (event.originalCategories) allTagsAndCategories.push(...event.originalCategories);
+          if (event.tags) allTags.push(...event.tags);
+          if (event.originalCategories) allTags.push(...event.originalCategories);
         });
 
         // Deduplicate tags using the same logic as event display
@@ -759,7 +800,7 @@ function HomeContent() {
         const uniqueTags: string[] = [];
 
         // Sort by preference: prefer tags with spaces and proper capitalization
-        const sortedByPreference = allTagsAndCategories.sort((a, b) => {
+        const sortedByPreference = allTags.sort((a, b) => {
           // Prefer tags with spaces over dashes
           const aHasSpaces = a.includes(' ');
           const bHasSpaces = b.includes(' ');
@@ -786,9 +827,12 @@ function HomeContent() {
         }
 
         const sortedCategories = categories.sort();
+        const sortedLocations = locations.sort();
         const sortedTags = uniqueTags.sort();
         const weeks = seasonWeeks.map(w => w.number);
 
+        setAvailableCategories(sortedCategories);
+        setAvailableLocations(sortedLocations);
         setAvailableTags(sortedTags);
 
         // Update global store
@@ -796,24 +840,26 @@ function HomeContent() {
           globalEventData.setGlobalEventData({
             events: fetchedEvents,
             categories: sortedCategories,
+            locations: sortedLocations,
             tags: sortedTags,
             weeks: weeks,
             loadedAt: Date.now()
           });
         }
 
-        // Cache in sessionStorage - include a version marker to invalidate old cache
+        // Cache in localStorage - include a version marker to invalidate old cache
         try {
-          sessionStorage.setItem('chq-calendar-events', JSON.stringify({
+          localStorage.setItem('chq-calendar-events', JSON.stringify({
             events: fetchedEvents,
             categories: categories.sort(),
+            locations: locations.sort(),
             tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
             version: 'v2-decoded' // Version marker to invalidate old cache with HTML entities
           }));
         } catch (e) {
-          console.warn('Failed to save to sessionStorage:', e);
+          console.warn('Failed to save to localStorage:', e);
         }
       } else {
         console.error('Failed to fetch events');
@@ -1093,58 +1139,58 @@ function HomeContent() {
               )}
             </div>
 
-            {/* All Tags - Collapsible on mobile */}
-            <div className="sm:block">
-              <details className="sm:hidden">
+            {/* Locations and Categories - Expandable Sections (All Screen Sizes) */}
+            <div className="space-y-3">
+              {/* Locations - Desktop */}
+              <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Tags & Categories {selectedTags.length > 0 && `(${selectedTags.length} selected)`}
+                  Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
                 </summary>
-                <div className="max-h-24 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1">
-                    {availableTags
-                      .filter(tag => !tag.startsWith('Week '))
-                      .map(tag => (
+                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
+                  <div className="flex flex-wrap gap-1 sm:gap-2">
+                    {availableLocations.map(location => (
                       <button
-                        key={tag}
-                        onClick={() => toggleTag(tag)}
-                        className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
-                          isTagSelected(tag)
+                        key={location}
+                        onClick={() => toggleLocation(location)}
+                        className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                          isLocationSelected(location)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {tag}
+                        {location}
                       </button>
                     ))}
                   </div>
                 </div>
               </details>
 
-              {/* Desktop tags */}
-              <div className="hidden sm:block">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  All Tags & Categories
-                </label>
-                <div className="max-h-32 overflow-y-auto">
-                  <div className="flex flex-wrap gap-2">
-                    {availableTags
-                      .filter(tag => !tag.startsWith('Week '))
-                      .map(tag => (
+              {/* Categories - Desktop */}
+              <details>
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
+                  Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
+                </summary>
+                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
+                  <div className="flex flex-wrap gap-1 sm:gap-2">
+                    {availableCategories
+                      .filter(category => !category.startsWith('Week '))
+                      .map(category => (
                       <button
-                        key={tag}
-                        onClick={() => toggleTag(tag)}
-                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          isTagSelected(tag)
+                        key={category}
+                        onClick={() => toggleTag(category)}
+                        className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                          isTagSelected(category)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {tag}
+                        {category}
                       </button>
                     ))}
                   </div>
                 </div>
-              </div>
+              </details>
+
             </div>
 
             {/* Clear Filters */}
@@ -1155,7 +1201,7 @@ function HomeContent() {
                   {(() => {
                     const filteredCount = filterEvents(events).length;
                     const totalCount = events.length;
-                    const hasFilters = searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
+                    const hasFilters = searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
                     
                     if (hasFilters) {
                       return `Events (${filteredCount}/${totalCount})`;
@@ -1164,11 +1210,12 @@ function HomeContent() {
                     }
                   })()}
                 </div>
-                {(searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0) && (
+                {(searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0) && (
                   <button
                     onClick={() => {
                       setSearchTerm('');
                       setSelectedTags([]);
+                      setSelectedLocations([]);
                       setDateFilter('all');
                       setSelectedWeeks([]);
                     }}
@@ -1243,7 +1290,7 @@ function HomeContent() {
                               </h4>
 
                               {/* Description with disclosure widget */}
-                              {(event.description || event.category || (event.originalCategories && event.originalCategories.length > 0)) && (
+                              {(event.description || event.category) && (
                                 <div className="mb-2">
                                   {expandedDescriptions.has(event.id) ? (
                                     <div>
@@ -1259,45 +1306,20 @@ function HomeContent() {
                                         <p className="text-gray-600 dark:text-gray-300 text-sm mb-2">{event.description}</p>
                                       )}
 
-                                      {/* Show all tags and categories when expanded */}
+                                      {/* Show category when expanded */}
                                       <div className="mb-2 flex flex-wrap gap-1">
-                                        {(() => {
-                                          // Collect all tags and categories
-                                          const allTagsAndCategories = [
-                                            ...(event.category ? [event.category] : []),
-                                            ...(event.originalCategories || []),
-                                            ...(event.tags || [])
-                                          ];
-
-                                          // Filter out Week tags and deduplicate
-                                          const normalizeTag = (tag: string) => tag.toLowerCase().replace(/[-\s]+/g, ' ').trim();
-                                          const seenNormalized = new Set();
-                                          const uniqueTags = [];
-
-                                          for (const tag of allTagsAndCategories) {
-                                            if (!tag.startsWith('Week ')) {
-                                              const normalized = normalizeTag(tag);
-                                              if (!seenNormalized.has(normalized)) {
-                                                seenNormalized.add(normalized);
-                                                uniqueTags.push(tag);
-                                              }
-                                            }
-                                          }
-
-                                          return uniqueTags.map((tag, index) => (
-                                            <button
-                                              key={`${tag}-${index}`}
-                                              onClick={() => toggleTag(tag)}
-                                              className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                                isTagSelected(tag)
-                                                  ? 'bg-blue-600 text-white'
-                                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                                              }`}
-                                            >
-                                              {tag}
-                                            </button>
-                                          ));
-                                        })()}
+                                        {event.category && (
+                                          <button
+                                            onClick={() => toggleTag(event.category!)}
+                                            className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
+                                              isTagSelected(event.category!)
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                            }`}
+                                          >
+                                            {event.category}
+                                          </button>
+                                        )}
                                       </div>
 
                                     </div>
