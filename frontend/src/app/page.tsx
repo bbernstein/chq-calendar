@@ -693,10 +693,10 @@ function HomeContent() {
     // Clear cache if we're forcing refresh to ensure clean data
     if (forceRefresh) {
       try {
-        sessionStorage.removeItem('chq-calendar-events');
-        console.log('Cleared session storage cache');
+        localStorage.removeItem('chq-calendar-events');
+        console.log('Cleared local storage cache');
       } catch (e) {
-        console.warn('Failed to clear sessionStorage:', e);
+        console.warn('Failed to clear localStorage:', e);
       }
     }
 
@@ -727,15 +727,15 @@ function HomeContent() {
 
     isLoadingRef.current = true;
 
-    // Check sessionStorage first (unless forcing refresh)
+    // Check localStorage first (unless forcing refresh)
     if (!forceRefresh) {
       try {
-        const cachedData = sessionStorage.getItem('chq-calendar-events');
+        const cachedData = localStorage.getItem('chq-calendar-events');
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           // Check if cache is less than 1 hour old AND has the correct version
           if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000 && parsed.version === 'v2-decoded') {
-            console.log('Loading events from session cache (v2-decoded)');
+            console.log('Loading events from local cache (v2-decoded)');
             // Events should already be decoded, but decode again as safety measure
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
@@ -747,11 +747,11 @@ function HomeContent() {
             return;
           } else {
             console.log('Invalidating old cache (missing version or expired)');
-            sessionStorage.removeItem('chq-calendar-events');
+            localStorage.removeItem('chq-calendar-events');
           }
         }
       } catch (e) {
-        console.warn('Failed to load from sessionStorage:', e);
+        console.warn('Failed to load from localStorage:', e);
       }
     }
 
@@ -847,9 +847,9 @@ function HomeContent() {
           });
         }
 
-        // Cache in sessionStorage - include a version marker to invalidate old cache
+        // Cache in localStorage - include a version marker to invalidate old cache
         try {
-          sessionStorage.setItem('chq-calendar-events', JSON.stringify({
+          localStorage.setItem('chq-calendar-events', JSON.stringify({
             events: fetchedEvents,
             categories: categories.sort(),
             locations: locations.sort(),
@@ -859,7 +859,7 @@ function HomeContent() {
             version: 'v2-decoded' // Version marker to invalidate old cache with HTML entities
           }));
         } catch (e) {
-          console.warn('Failed to save to sessionStorage:', e);
+          console.warn('Failed to save to localStorage:', e);
         }
       } else {
         console.error('Failed to fetch events');
