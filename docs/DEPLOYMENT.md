@@ -5,23 +5,24 @@ This guide covers all deployment options for the Chautauqua Calendar application
 ## 📋 Overview
 
 The application consists of three main components:
-- **Infrastructure**: AWS resources (Terraform)
-- **Backend**: Lambda functions (Node.js/TypeScript)
-- **Frontend**: Next.js static site (React/TypeScript)
+- **Infrastructure**: AWS resources (S3, CloudFront, Lambda, DynamoDB)
+- **Backend**: Two Lambda functions (calendar handler and admin handler)
+- **Frontend**: Next.js 15.3.5 static site with React 19 and TypeScript
+- **Data Sync**: Automated Lambda function for calendar data synchronization
 
 ## 🚀 Quick Deployment
 
-### Complete Deployment (Recommended)
-```bash
-# Deploy everything at once
-./scripts/deploy.sh
-```
+### Automated Deployment (GitHub Actions)
 
-This script will:
-1. Deploy infrastructure with Terraform
-2. Build and deploy the backend Lambda
-3. Build and deploy the frontend to S3/CloudFront
-4. Run health checks
+The application deploys automatically via GitHub Actions when code is pushed to the `main` branch:
+
+1. **Automated Build**: Node.js 24, TypeScript compilation
+2. **Backend Deploy**: Calendar and admin Lambda functions with dependencies
+3. **Frontend Deploy**: Static Next.js build to S3 + CloudFront invalidation
+4. **Health Checks**: API endpoint testing and event count validation
+5. **Cache Warming**: Automatic calendar data sync trigger
+
+Manual deployment can be triggered via GitHub Actions "workflow_dispatch".
 
 ## 🔧 Individual Component Deployment
 
@@ -58,10 +59,11 @@ docker-compose up -d --build
 ```
 
 ### Local Services
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:3001
-- **DynamoDB**: http://localhost:8000
+- **Frontend**: http://localhost:3000 (Next.js with hot reloading)
+- **Admin Panel**: http://localhost:3000/admin/feedback (dev mode)
+- **DynamoDB Local**: http://localhost:8000
 - **DynamoDB Admin**: http://localhost:8001
+- **Backend**: Uses production AWS Lambda endpoints
 
 ### Manual Local Setup
 ```bash
@@ -88,41 +90,45 @@ npm run dev
 
 ### Production
 - **Website**: https://www.chqcal.org
-- **API**: https://2jjx0zum0c.execute-api.us-east-1.amazonaws.com/prod
+- **API**: https://www.chqcal.org/api (via CloudFront)
+- **Admin API**: https://admin-api.chqcal.org
+- **Feedback**: https://www.chqcal.org/feedback
 
 ### Local Development
 - **Website**: http://localhost:3000
-- **API**: http://localhost:3001
+- **API**: Uses production endpoints (https://www.chqcal.org/api)
 
 ## 📋 Prerequisites
 
-### For AWS Deployment
-- [AWS CLI](https://aws.amazon.com/cli/) configured
-- [Terraform](https://terraform.io) >= 1.0
-- [Node.js](https://nodejs.org) >= 18
-- AWS credentials with appropriate permissions
+### For Production Deployment
+- GitHub repository with Actions enabled
+- AWS credentials configured as GitHub secrets
+- Node.js 24+ (handled by GitHub Actions)
+- Domain configured in AWS Route 53
 
 ### For Local Development
 - [Docker](https://docker.com) and Docker Compose
-- [Node.js](https://nodejs.org) >= 18 (optional)
+- [Node.js](https://nodejs.org) >= 18 (optional for running outside Docker)
+- Access to production AWS endpoints (no local backend server)
 
 ## 🔍 Health Checks
 
 ### API Health Check
 ```bash
-curl https://2jjx0zum0c.execute-api.us-east-1.amazonaws.com/prod/health
+curl https://www.chqcal.org/api/health
 ```
 
-### Create Sample Data
+### Get Calendar Events
 ```bash
-curl -X POST https://2jjx0zum0c.execute-api.us-east-1.amazonaws.com/prod/calendar/sample-data
-```
-
-### Generate Calendar
-```bash
-curl -X POST https://2jjx0zum0c.execute-api.us-east-1.amazonaws.com/prod/calendar \
+curl -X POST https://www.chqcal.org/api/calendar \
   -H "Content-Type: application/json" \
-  -d '{"format":"json"}'
+  -d '{"filters": {}}'
+```
+
+### Test Admin API (requires authentication)
+```bash
+curl https://admin-api.chqcal.org/admin/api/feedback \
+  -H "X-Auth-Token: <your-token>"
 ```
 
 ## 🛠 Troubleshooting
@@ -176,43 +182,27 @@ aws dynamodb list-tables
 
 ## 🔄 CI/CD Integration
 
-### GitHub Actions Example
-```yaml
-name: Deploy Chautauqua Calendar
-on:
-  push:
-    branches: [main]
+### Current GitHub Actions Workflow
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-          
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          
-      - name: Deploy
-        run: ./scripts/deploy.sh
-```
+The production deployment workflow (`.github/workflows/deploy-production.yml`) includes:
+
+- **Node.js 24** with npm workspace support
+- **Separate Lambda functions** for calendar and admin handlers
+- **Frontend build** with environment variables
+- **S3 deployment** with CloudFront invalidation
+- **Health checks** and API testing
+- **Automatic calendar sync** triggering
+- **Error handling** and deployment notifications
+
+The workflow is triggered on pushes to `main` branch or manual dispatch.
 
 ## 📊 Monitoring & Logs
 
 ### CloudWatch Logs
-- Lambda logs: `/aws/lambda/chautauqua-calendar-generator`
-- API Gateway logs: (if enabled in stage settings)
+- Calendar Lambda: `/aws/lambda/chq-calendar-generator` 
+- Admin Lambda: `/aws/lambda/chq-calendar-admin`
+- Data Sync Lambda: `/aws/lambda/chq-calendar-data-sync`
+- CloudFront logs: Available in S3 if enabled
 
 ### Monitoring Commands
 ```bash
@@ -231,13 +221,14 @@ aws logs describe-log-groups --log-group-name-prefix "API-Gateway"
 - Local development uses dummy values
 
 ### IAM Permissions
-The deployment requires permissions for:
-- Lambda (create, update, invoke)
-- DynamoDB (create, read, write)
-- S3 (create, read, write, delete)
-- CloudFront (create, invalidate)
-- Route 53 (create, update records)
-- ACM (create, validate certificates)
+The deployment requires GitHub Actions to have permissions for:
+- **Lambda**: Function updates, environment variable management
+- **S3**: Frontend deployment and cache bucket operations
+- **CloudFront**: Cache invalidation and distribution management
+- **DynamoDB**: Table access for the application (handled by Lambda execution roles)
+- **EventBridge**: Calendar sync scheduling (handled by Lambda)
+
+Lambda execution roles include permissions for DynamoDB, S3 cache bucket, and CloudWatch logs.
 
 ## 📈 Performance
 
@@ -261,4 +252,4 @@ For issues or questions:
 
 ---
 
-Last updated: July 2025
+Last updated: July 26, 2025

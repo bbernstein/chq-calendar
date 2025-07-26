@@ -74,19 +74,21 @@ src/app/
 
 1. **Mobile-First Responsive Design**
    - Adaptive UI for mobile, tablet, and desktop
-   - Touch-friendly interactions
-   - Progressive enhancement
+   - Touch-friendly interactions with horizontal scrolling
+   - Progressive enhancement with scroll indicators
 
 2. **Client-Side Performance**
    - All filtering happens client-side for instant results
    - Memoized components to prevent unnecessary re-renders
-   - Efficient state management with React hooks
+   - Efficient state management with React hooks and localStorage persistence
+   - FIFO recent items tracking (10 most recent, display 3+ as pills)
 
 3. **User Experience**
-   - Intuitive week-based navigation
-   - Smart search with shortcut recognition
-   - Visual feedback for all interactions
-   - Accessibility compliance
+   - Intuitive week-based navigation with visual feedback
+   - Smart search with location/category shortcuts and aliases
+   - HTML entity decoding for proper text display
+   - Expandable filter sections with chevron animations
+   - Recent items pills with responsive design and overflow scrolling
 
 ### State Management
 
@@ -376,14 +378,14 @@ services:
 ### Frontend Technology Choices
 
 **Next.js vs. React SPA:**
-- **Chosen**: Next.js with static export
-- **Rationale**: SEO benefits, better performance, development experience
+- **Chosen**: Next.js 15.3.5 with React 19 and static export
+- **Rationale**: SEO benefits, better performance, development experience, modern React features
 - **Trade-offs**: Slight complexity increase, static build constraints
 
 **Client-Side vs. Server-Side Filtering:**
-- **Chosen**: Client-side filtering
-- **Rationale**: Instant results, reduced API calls, better UX
-- **Trade-offs**: Larger initial payload, memory usage
+- **Chosen**: Client-side filtering with intelligent state management
+- **Rationale**: Instant results, reduced API calls, better UX, FIFO recent items tracking
+- **Trade-offs**: Larger initial payload, memory usage, but offset by local state persistence
 
 ### Backend Architecture Decisions
 
@@ -530,6 +532,6 @@ This design document serves as the single source of truth for the Chautauqua Cal
 
 ---
 
-*Last Updated: July 16, 2025*
-*Version: 1.0*
-*Next Review: August 2025*
+*Last Updated: July 26, 2025*
+*Version: 1.1*
+*Next Review: September 2025*
