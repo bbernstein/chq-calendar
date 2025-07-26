@@ -1303,7 +1303,6 @@ function HomeContent() {
                       </div>
                     </div>
                   )}
-                </summary>
                 <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1 sm:gap-2">
                     {availableLocations.map(location => (
@@ -1356,7 +1355,6 @@ function HomeContent() {
                       </div>
                     </div>
                   )}
-                </summary>
                 <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1 sm:gap-2">
                     {availableCategories
