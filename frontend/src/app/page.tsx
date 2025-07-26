@@ -17,6 +17,7 @@ interface Event {
     showMap?: boolean;
   };
   category?: string;
+  categories?: Array<{ name: string }>;
   originalCategories?: string[];
   tags?: string[];
   presenter?: string;
@@ -172,7 +173,7 @@ function HomeContent() {
   // Decode HTML entities for an entire event object and pre-compute lowercase tags
   const decodeEventHtmlEntities = useCallback((event: Event): Event => {
     const decodedTags = event.tags?.map(tag => decodeHtmlEntities(tag) || tag);
-    const decodedCategories = event.originalCategories?.map(cat => decodeHtmlEntities(cat) || cat);
+    const decodedCategories = event.categories?.map(cat => decodeHtmlEntities(cat.name) || cat.name);
 
     // Pre-compute lowercase tag set for efficient filtering
     const allTags: string[] = [];
@@ -634,7 +635,7 @@ function HomeContent() {
       // Combine all tags and categories for searching
       const allTags = [
         ...(event.tags || []),
-        ...(event.originalCategories || [])
+        ...(event.categories?.map(cat => cat.name) || [])
       ].map(tag => tag.toLowerCase());
 
       let score = 0;
@@ -745,9 +746,9 @@ function HomeContent() {
             }
           }
         }
-        if (event.originalCategories) {
-          for (const eventCat of event.originalCategories) {
-            if (selectedTagsLowerSet.has(eventCat.toLowerCase())) {
+        if (event.categories) {
+          for (const eventCat of event.categories) {
+            if (selectedTagsLowerSet.has(eventCat.name.toLowerCase())) {
               return true;
             }
           }
@@ -901,11 +902,11 @@ function HomeContent() {
         setEvents(fetchedEvents);
         setDataLoaded(true);
 
-        // Extract unique categories for filter options from originalCategories (with fallback to category)
+        // Extract unique categories for filter options from categories array
         const allCategories: string[] = [];
         fetchedEvents.forEach((event: Event) => {
-          if (event.originalCategories && event.originalCategories.length > 0) {
-            allCategories.push(...event.originalCategories);
+          if (event.categories && event.categories.length > 0) {
+            allCategories.push(...event.categories.map(cat => cat.name));
           } else if (event.category) {
             allCategories.push(event.category);
           }
@@ -915,11 +916,11 @@ function HomeContent() {
         // Extract unique locations for filter options
         const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
 
-        // Extract tags separately (event.tags and event.originalCategories)
+        // Extract tags separately (event.tags and event.categories)
         const allTags: string[] = [];
         fetchedEvents.forEach((event: Event) => {
           if (event.tags) allTags.push(...event.tags);
-          if (event.originalCategories) allTags.push(...event.originalCategories);
+          if (event.categories) allTags.push(...event.categories.map(cat => cat.name));
         });
 
         // Deduplicate tags using the same logic as event display
@@ -1476,7 +1477,7 @@ function HomeContent() {
                               </h4>
 
                               {/* Description with disclosure widget */}
-                              {(event.description || (event.originalCategories && event.originalCategories.filter(cat => !cat.startsWith('Week ')).length > 0)) && (
+                              {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0)) && (
                                 <div className="mb-2">
                                   {expandedDescriptions.has(event.id) ? (
                                     <div>
@@ -1494,17 +1495,17 @@ function HomeContent() {
 
                                       {/* Show all categories when expanded (excluding Week categories) */}
                                       <div className="mb-2 flex flex-wrap gap-1">
-                                        {event.originalCategories?.filter(category => !category.startsWith('Week ')).map((category, index) => (
+                                        {event.categories?.filter(cat => !cat.name.startsWith('Week ')).map((category, index) => (
                                           <button
                                             key={`${event.id}-category-${index}`}
-                                            onClick={() => toggleTag(category)}
+                                            onClick={() => toggleTag(category.name)}
                                             className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                              isTagSelected(category)
+                                              isTagSelected(category.name)
                                                 ? 'bg-blue-600 text-white'
                                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                                             }`}
                                           >
-                                            {getCategoryDisplayName(category)}
+                                            {getCategoryDisplayName(category.name)}
                                           </button>
                                         ))}
                                       </div>
