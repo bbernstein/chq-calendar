@@ -988,7 +988,7 @@ function HomeContent() {
             {/* All Tags - Collapsible on mobile */}
             <div className="sm:block">
               <details className="sm:hidden">
-                <summary className="text-sm font-medium text-gray-700 mb-2 cursor-pointer">
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
                   Tags & Categories {selectedTags.length > 0 && `(${selectedTags.length} selected)`}
                 </summary>
                 <div className="max-h-24 overflow-y-auto mb-2">
@@ -1002,7 +1002,7 @@ function HomeContent() {
                         className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(tag)
                             ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
                         {tag}
@@ -1014,7 +1014,7 @@ function HomeContent() {
 
               {/* Desktop tags */}
               <div className="hidden sm:block">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   All Tags & Categories
                 </label>
                 <div className="max-h-32 overflow-y-auto">
@@ -1028,7 +1028,7 @@ function HomeContent() {
                         className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(tag)
                             ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
                         {tag}
