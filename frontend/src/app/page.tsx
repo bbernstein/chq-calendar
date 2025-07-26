@@ -912,8 +912,6 @@ function HomeContent() {
           }
         });
         const categories = [...new Set(allCategories.filter(Boolean))] as string[];
-        console.log('Extracted categories for filters:', categories.length, categories);
-        console.log('Sample events with categories:', fetchedEvents.slice(0, 2).map(e => ({ id: e.id, categoriesCount: e.categories?.length })));
 
         // Extract unique locations for filter options
         const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
