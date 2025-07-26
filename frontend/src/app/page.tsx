@@ -790,7 +790,7 @@ function HomeContent() {
               <input
                 type="text"
                 placeholder="Search events..."
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm sm:text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm sm:text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -816,7 +816,7 @@ function HomeContent() {
                           isPast
                             ? isSelected
                               ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
-                              : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
                             : isSelected
                             ? 'bg-blue-600 text-white' // Current/future and selected
                             : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
@@ -910,7 +910,7 @@ function HomeContent() {
                             isPast
                               ? isSelected
                                 ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
-                                : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
                               : isSelected
                               ? 'bg-blue-600 text-white' // Current/future and selected
                               : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
@@ -1002,7 +1002,7 @@ function HomeContent() {
                         className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(tag)
                             ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
                         {tag}
@@ -1028,7 +1028,7 @@ function HomeContent() {
                         className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(tag)
                             ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
                         {tag}
@@ -1065,13 +1065,13 @@ function HomeContent() {
             {loading ? (
               <div className="text-center py-8">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-2 text-gray-600 dark:text-gray-300">Loading events...</p>
+                <p className="mt-2 text-gray-600 dark:text-gray-200">Loading events...</p>
               </div>
             ) : filterEvents(events).length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🎭</div>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No events found</h3>
-                <p className="text-gray-600 dark:text-gray-300 mb-4">
+                <p className="text-gray-600 dark:text-gray-200 mb-4">
                   Try adjusting your filters or search terms.
                 </p>
               </div>
@@ -1109,7 +1109,7 @@ function HomeContent() {
                                     href={event.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
+                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
                                   >
                                     {event.title} 🔗
                                   </a>
@@ -1167,7 +1167,7 @@ function HomeContent() {
                                               className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
                                                 isTagSelected(tag)
                                                   ? 'bg-blue-600 text-white'
-                                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                                               }`}
                                             >
                                               {tag}
