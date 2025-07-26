@@ -100,6 +100,7 @@ function HomeContent() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
@@ -203,10 +204,6 @@ function HomeContent() {
     [selectedTags, availableCategories]
   );
 
-  const selectedTagsFilteredCount = useMemo(() =>
-    selectedTags.filter(tag => availableTags.includes(tag)).length,
-    [selectedTags, availableTags]
-  );
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -1140,7 +1137,7 @@ function HomeContent() {
               )}
             </div>
 
-            {/* Locations, Categories and Tags - Expandable Sections (All Screen Sizes) */}
+            {/* Locations and Categories - Expandable Sections (All Screen Sizes) */}
             <div className="space-y-3">
               {/* Locations - Desktop */}
               <details>
@@ -1190,31 +1187,6 @@ function HomeContent() {
                 </div>
               </details>
 
-              {/* Tags - Desktop */}
-              <details>
-                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Tags {selectedTagsFilteredCount > 0 && `(${selectedTagsFilteredCount} selected)`}
-                </summary>
-                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1 sm:gap-2">
-                    {availableTags
-                      .filter(tag => !tag.startsWith('Week '))
-                      .map(tag => (
-                      <button
-                        key={tag}
-                        onClick={() => toggleTag(tag)}
-                        className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
-                          isTagSelected(tag)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </details>
             </div>
 
             {/* Clear Filters */}
@@ -1314,7 +1286,7 @@ function HomeContent() {
                               </h4>
 
                               {/* Description with disclosure widget */}
-                              {(event.description || event.category || (event.originalCategories && event.originalCategories.length > 0)) && (
+                              {(event.description || event.category) && (
                                 <div className="mb-2">
                                   {expandedDescriptions.has(event.id) ? (
                                     <div>
@@ -1330,45 +1302,20 @@ function HomeContent() {
                                         <p className="text-gray-600 dark:text-gray-300 text-sm mb-2">{event.description}</p>
                                       )}
 
-                                      {/* Show all tags and categories when expanded */}
+                                      {/* Show category when expanded */}
                                       <div className="mb-2 flex flex-wrap gap-1">
-                                        {(() => {
-                                          // Collect all tags and categories
-                                          const allTagsAndCategories = [
-                                            ...(event.category ? [event.category] : []),
-                                            ...(event.originalCategories || []),
-                                            ...(event.tags || [])
-                                          ];
-
-                                          // Filter out Week tags and deduplicate
-                                          const normalizeTag = (tag: string) => tag.toLowerCase().replace(/[-\s]+/g, ' ').trim();
-                                          const seenNormalized = new Set();
-                                          const uniqueTags = [];
-
-                                          for (const tag of allTagsAndCategories) {
-                                            if (!tag.startsWith('Week ')) {
-                                              const normalized = normalizeTag(tag);
-                                              if (!seenNormalized.has(normalized)) {
-                                                seenNormalized.add(normalized);
-                                                uniqueTags.push(tag);
-                                              }
-                                            }
-                                          }
-
-                                          return uniqueTags.map((tag, index) => (
-                                            <button
-                                              key={`${tag}-${index}`}
-                                              onClick={() => toggleTag(tag)}
-                                              className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                                isTagSelected(tag)
-                                                  ? 'bg-blue-600 text-white'
-                                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                                              }`}
-                                            >
-                                              {tag}
-                                            </button>
-                                          ));
-                                        })()}
+                                        {event.category && (
+                                          <button
+                                            onClick={() => toggleTag(event.category!)}
+                                            className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
+                                              isTagSelected(event.category!)
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                            }`}
+                                          >
+                                            {event.category}
+                                          </button>
+                                        )}
                                       </div>
 
                                     </div>
