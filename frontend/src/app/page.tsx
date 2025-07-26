@@ -197,6 +197,17 @@ function HomeContent() {
     [selectedLocations]
   );
 
+  // Memoize selected categories and tags counts to avoid repeated filter operations
+  const selectedCategoriesCount = useMemo(() =>
+    selectedTags.filter(tag => availableCategories.includes(tag)).length,
+    [selectedTags, availableCategories]
+  );
+
+  const selectedTagsFilteredCount = useMemo(() =>
+    selectedTags.filter(tag => availableTags.includes(tag)).length,
+    [selectedTags, availableTags]
+  );
+
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
     // Start from June 1st and find the 4th Sunday
@@ -1138,7 +1149,7 @@ function HomeContent() {
                 </summary>
                 <div className="max-h-24 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1">
-                    {(availableLocations || []).map(location => (
+                    {availableLocations.map(location => (
                       <button
                         key={location}
                         onClick={() => toggleLocation(location)}
@@ -1158,7 +1169,7 @@ function HomeContent() {
               {/* Categories - Mobile */}
               <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Categories {selectedTags.filter(tag => availableCategories.includes(tag)).length > 0 && `(${selectedTags.filter(tag => availableCategories.includes(tag)).length} selected)`}
+                  Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
                 </summary>
                 <div className="max-h-24 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1">
@@ -1182,7 +1193,7 @@ function HomeContent() {
               {/* Tags - Mobile */}
               <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Tags {selectedTags.filter(tag => availableTags.includes(tag)).length > 0 && `(${selectedTags.filter(tag => availableTags.includes(tag)).length} selected)`}
+                  Tags {selectedTagsFilteredCount > 0 && `(${selectedTagsFilteredCount} selected)`}
                 </summary>
                 <div className="max-h-24 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1">
@@ -1215,7 +1226,7 @@ function HomeContent() {
                 </label>
                 <div className="max-h-24 overflow-y-auto">
                   <div className="flex flex-wrap gap-2">
-                    {(availableLocations || []).map(location => (
+                    {availableLocations.map(location => (
                       <button
                         key={location}
                         onClick={() => toggleLocation(location)}
