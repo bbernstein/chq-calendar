@@ -267,6 +267,17 @@ function HomeContent() {
     return null; // Not in season
   }, [seasonWeeks]);
 
+  // Helper functions for UI state
+  const isThisWeekButtonActive = () => {
+    return dateFilter === 'this-week' || (currentWeekNumber !== null && selectedWeeks.length === 1 && selectedWeeks[0] === currentWeekNumber);
+  };
+
+  const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => {
+    const isCurrent = currentWeekNumber === weekNumber;
+    const isCurrentWeekFilterActive = dateFilter === 'this-week' && isCurrent;
+    return isSelected || isCurrentWeekFilterActive;
+  };
+
   const isThisWeek = (dateString: string) => {
     const eventDate = new Date(dateString);
     
@@ -883,18 +894,17 @@ function HomeContent() {
                   {seasonWeeks.map((week) => {
                     const isPast = isWeekInPast(week.number);
                     const isSelected = selectedWeeks.includes(week.number);
-                    const isCurrent = currentWeekNumber === week.number;
-                    const isCurrentWeekFilterActive = dateFilter === 'this-week' && isCurrent;
+                    const isHighlighted = isWeekHighlighted(week.number, isSelected);
                     
                     return (
                       <div
                         key={week.number}
                         className={`w-6 h-6 flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                           isPast
-                            ? isSelected || isCurrentWeekFilterActive
+                            ? isHighlighted
                               ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
                               : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
-                            : isSelected || isCurrentWeekFilterActive
+                            : isHighlighted
                             ? 'bg-blue-600 text-white' // Current/future and selected
                             : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                         }`}
@@ -960,7 +970,7 @@ function HomeContent() {
                   }}
                   title="Show events for this week"
                   className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
-                    dateFilter === 'this-week' || (currentWeekNumber !== null && selectedWeeks.length === 1 && selectedWeeks[0] === currentWeekNumber)
+                    isThisWeekButtonActive()
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-gray-600'
                   }`}
@@ -979,18 +989,17 @@ function HomeContent() {
                     {seasonWeeks.map((week) => {
                       const isPast = isWeekInPast(week.number);
                       const isSelected = selectedWeeks.includes(week.number);
-                      const isCurrent = currentWeekNumber === week.number;
-                      const isCurrentWeekFilterActive = dateFilter === 'this-week' && isCurrent;
+                      const isHighlighted = isWeekHighlighted(week.number, isSelected);
                       
                       return (
                         <div
                           key={week.number}
                           className={`w-8 h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                             isPast
-                              ? isSelected || isCurrentWeekFilterActive
+                              ? isHighlighted
                                 ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
-                              : isSelected || isCurrentWeekFilterActive
+                              : isHighlighted
                               ? 'bg-blue-600 text-white' // Current/future and selected
                               : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                           }`}
