@@ -798,7 +798,7 @@ function HomeContent() {
 
             {/* Week Range Selector - Mobile: Below search, Desktop: With date filters */}
             <div className="mb-2 sm:mb-0 block sm:hidden">
-              <div className="flex items-center gap-1 sm:gap-2 justify-center">
+              <div className="flex items-center gap-1 sm:gap-2 justify-start">
                 <span className="text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap mr-2">Weeks:</span>
                 <div
                   className={`flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden select-none ${
