@@ -855,8 +855,8 @@ function HomeContent() {
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           // Check if cache is less than 1 hour old AND has the correct version
-          if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000 && parsed.version === 'v2-decoded') {
-            console.log('Loading events from local cache (v2-decoded)');
+          if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000 && parsed.version === 'v3-categories') {
+            console.log('Loading events from local cache (v3-categories)');
             // Events should already be decoded, but decode again as safety measure
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
@@ -912,6 +912,8 @@ function HomeContent() {
           }
         });
         const categories = [...new Set(allCategories.filter(Boolean))] as string[];
+        console.log('Extracted categories for filters:', categories.length, categories);
+        console.log('Sample events with categories:', fetchedEvents.slice(0, 2).map(e => ({ id: e.id, categoriesCount: e.categories?.length })));
 
         // Extract unique locations for filter options
         const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
@@ -980,12 +982,12 @@ function HomeContent() {
         try {
           localStorage.setItem('chq-calendar-events', JSON.stringify({
             events: fetchedEvents,
-            categories: categories.sort(),
+            categories: sortedCategories,
             locations: locations.sort(),
             tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
-            version: 'v2-decoded' // Version marker to invalidate old cache with HTML entities
+            version: 'v3-categories' // Version marker to invalidate old cache with correct categories
           }));
         } catch (e) {
           console.warn('Failed to save to localStorage:', e);
