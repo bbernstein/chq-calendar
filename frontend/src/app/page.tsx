@@ -1140,20 +1140,20 @@ function HomeContent() {
               )}
             </div>
 
-            {/* Locations, Categories and Tags - Mobile Expandable Sections */}
-            <div className="sm:hidden space-y-3">
-              {/* Locations - Mobile */}
+            {/* Locations, Categories and Tags - Expandable Sections (All Screen Sizes) */}
+            <div className="space-y-3">
+              {/* Locations - Desktop */}
               <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
                   Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
                 </summary>
-                <div className="max-h-24 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1">
+                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
+                  <div className="flex flex-wrap gap-1 sm:gap-2">
                     {availableLocations.map(location => (
                       <button
                         key={location}
                         onClick={() => toggleLocation(location)}
-                        className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                        className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
                           isLocationSelected(location)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -1166,18 +1166,18 @@ function HomeContent() {
                 </div>
               </details>
 
-              {/* Categories - Mobile */}
+              {/* Categories - Desktop */}
               <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
                   Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
                 </summary>
-                <div className="max-h-24 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1">
+                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
+                  <div className="flex flex-wrap gap-1 sm:gap-2">
                     {availableCategories.map(category => (
                       <button
                         key={category}
                         onClick={() => toggleTag(category)}
-                        className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                        className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(category)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -1190,20 +1190,20 @@ function HomeContent() {
                 </div>
               </details>
 
-              {/* Tags - Mobile */}
+              {/* Tags - Desktop */}
               <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
                   Tags {selectedTagsFilteredCount > 0 && `(${selectedTagsFilteredCount} selected)`}
                 </summary>
-                <div className="max-h-24 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1">
+                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
+                  <div className="flex flex-wrap gap-1 sm:gap-2">
                     {availableTags
                       .filter(tag => !tag.startsWith('Week '))
                       .map(tag => (
                       <button
                         key={tag}
                         onClick={() => toggleTag(tag)}
-                        className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                        className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(tag)
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -1215,83 +1215,6 @@ function HomeContent() {
                   </div>
                 </div>
               </details>
-            </div>
-
-            {/* Locations, Categories and Tags - Desktop Stacked Sections */}
-            <div className="hidden sm:block space-y-4">
-              {/* Locations - Desktop */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Locations
-                </label>
-                <div className="max-h-24 overflow-y-auto">
-                  <div className="flex flex-wrap gap-2">
-                    {availableLocations.map(location => (
-                      <button
-                        key={location}
-                        onClick={() => toggleLocation(location)}
-                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          isLocationSelected(location)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {location}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Categories - Desktop */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Categories
-                </label>
-                <div className="max-h-24 overflow-y-auto">
-                  <div className="flex flex-wrap gap-2">
-                    {availableCategories.map(category => (
-                      <button
-                        key={category}
-                        onClick={() => toggleTag(category)}
-                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          isTagSelected(category)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {category}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Tags - Desktop */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Tags
-                </label>
-                <div className="max-h-32 overflow-y-auto">
-                  <div className="flex flex-wrap gap-2">
-                    {availableTags
-                      .filter(tag => !tag.startsWith('Week '))
-                      .map(tag => (
-                      <button
-                        key={tag}
-                        onClick={() => toggleTag(tag)}
-                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                          isTagSelected(tag)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Clear Filters */}
