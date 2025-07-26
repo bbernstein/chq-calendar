@@ -24,3 +24,179 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Chevron rotation for expandable sections */
+details[open] summary svg {
+  transform: rotate(90deg);
+}
+
+details summary svg {
+  transition: transform 0.2s ease;
+}
+
+/* Hide scrollbars for recent pills containers */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Safari and Chrome */
+}
+
+/* Scrollable pills container with fade gradients */
+.pills-scroll-container {
+  position: relative;
+}
+
+/* Add cursor pointer hint when scrollable */
+.pills-scroll-container .scrollbar-hide {
+  cursor: grab;
+}
+
+.pills-scroll-container .scrollbar-hide:active {
+  cursor: grabbing;
+}
+
+/* Left fade gradient */
+.pills-scroll-container::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(to right, 
+    rgba(255, 255, 255, 1) 0%, 
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+/* Right fade gradient */
+.pills-scroll-container::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(to left, 
+    rgba(255, 255, 255, 1) 0%, 
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+/* Dark mode gradients */
+@media (prefers-color-scheme: dark) {
+  .pills-scroll-container::before {
+    background: linear-gradient(to right, 
+      rgba(31, 41, 55, 1) 0%, 
+      rgba(31, 41, 55, 0) 100%
+    );
+  }
+  
+  .pills-scroll-container::after {
+    background: linear-gradient(to left, 
+      rgba(31, 41, 55, 1) 0%, 
+      rgba(31, 41, 55, 0) 100%
+    );
+  }
+}
+
+/* Show left gradient when scrolled */
+.pills-scroll-container.scrolled-right::before {
+  opacity: 1;
+}
+
+/* Hide right gradient when scrolled to end */
+.pills-scroll-container.scrolled-to-end::after {
+  opacity: 0;
+}
+
+/* Vertical scroll indicators for filter lists */
+.filter-list-container {
+  position: relative;
+}
+
+/* Top scroll indicator (up arrow) */
+.filter-list-container::before {
+  content: '▲';
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: rgba(59, 130, 246, 0.7);
+  opacity: 0;
+  z-index: 10;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* Bottom scroll indicator (down arrow) */
+.filter-list-container::after {
+  content: '▼';
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: rgba(59, 130, 246, 0.7);
+  opacity: 0;
+  z-index: 10;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* Show top arrow when scrolled down */
+.filter-list-container.scrolled-down::before {
+  opacity: 1;
+}
+
+/* Show bottom arrow when can scroll down */
+.filter-list-container.can-scroll-down::after {
+  opacity: 1;
+}
+
+/* Dark mode arrow colors */
+@media (prefers-color-scheme: dark) {
+  .filter-list-container::before,
+  .filter-list-container::after {
+    color: rgba(147, 197, 253, 0.8);
+  }
+}
+
+/* Add subtle scroll hint styling */
+.filter-list-container .scrollable-list {
+  cursor: default;
+}
+
+.filter-list-container .scrollable-list:hover {
+  /* Slightly show scrollbar on hover for additional hint */
+  scrollbar-width: thin;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar {
+  width: 4px;
+  display: block;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
+}
+
+.filter-list-container .scrollable-list:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.5);
+}

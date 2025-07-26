@@ -17,6 +17,7 @@ interface Event {
     showMap?: boolean;
   };
   category?: string;
+  categories?: Array<{ name: string }>;
   originalCategories?: string[];
   tags?: string[];
   presenter?: string;
@@ -89,24 +90,69 @@ function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
 }
 
 function HomeContent() {
+  // Constants for cache and state management
+  const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
+  const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+
   const globalEventData = useGlobalEventData();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
+  const locationScrollRef = useRef<HTMLDivElement>(null);
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
+  const locationListRef = useRef<HTMLDivElement>(null);
+  const categoryListRef = useRef<HTMLDivElement>(null);
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  // const [availableTags, setAvailableTags] = useState<string[]>([]); // Currently unused
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
+  const [recentLocations, setRecentLocations] = useState<string[]>([]);
+  const [recentCategories, setRecentCategories] = useState<string[]>([]);
+  const [locationScrollState, setLocationScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
+  const [categoryScrollState, setCategoryScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
+  const [locationListScrollState, setLocationListScrollState] = useState({ canScrollUp: false, canScrollDown: false });
+  const [categoryListScrollState, setCategoryListScrollState] = useState({ canScrollUp: false, canScrollDown: false });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
+  const [stateInitialized, setStateInitialized] = useState(false);
+
+  // Shortcut alias maps for pills - easily editable
+  const locationShortcuts: Record<string, string> = {
+    "Elizabeth S. Lenna Hall": "Lenna Hall",
+    "AAHH African American Heritage House": "AAHH",
+    "Fletcher Music Hall": "Fletcher Hall",
+    "Smith Wilkes Hall": "Smith Wilkes",
+    "Alumni Hall Ballroom": "Alumni Hall",
+    "Chabad Jewish House": "Chabad House",
+    "Fowler-Kellogg Art Center 2nd floor": "Fowler-Kellogg 2nd Floor",
+    "Fowler-Kellogg Art Center: 1st Floor": "Fowler-Kellogg 1st Floor",
+    "Everett Jewish Life Center": "Everett Jewish Center",
+    "Hall of Christ: Sanctuary": "Hall of Christ",
+    "Denominational Houses (Selected)": "Denominational Houses",
+  };
+
+  const categoryShortcuts: Record<string, string> = {
+    "Chautauqua Symphony Orchestra/Classical Concerts": "CSO",
+    "Chautauqua Institution Program": "CHQ Program",
+    "Chautauqua Literary and Scientific Circle (CLSC)": "CLSC",
+    "Climate Change Initiative Program": "Climate Change Program",
+  };
+
+  // Helper functions to get display names and full names
+  const getLocationDisplayName = (location: string): string => {
+    return locationShortcuts[location] || location;
+  };
+
+  const getCategoryDisplayName = (category: string): string => {
+    return categoryShortcuts[category] || category;
+  };
 
   const apiUrl = useMemo(() =>
     process.env.NODE_ENV === 'development'
@@ -149,7 +195,7 @@ function HomeContent() {
   // Decode HTML entities for an entire event object and pre-compute lowercase tags
   const decodeEventHtmlEntities = useCallback((event: Event): Event => {
     const decodedTags = event.tags?.map(tag => decodeHtmlEntities(tag) || tag);
-    const decodedCategories = event.originalCategories?.map(cat => decodeHtmlEntities(cat) || cat);
+    const decodedCategories = event.categories?.map(cat => decodeHtmlEntities(cat.name) || cat.name);
 
     // Pre-compute lowercase tag set for efficient filtering
     const allTags: string[] = [];
@@ -159,8 +205,8 @@ function HomeContent() {
 
     // Extract location from venue if it exists, otherwise use location field
     const location = event.venue?.name
-      ? decodeHtmlEntities(event.venue.name) || event.venue.name
-      : decodeHtmlEntities(event.location) || event.location;
+      ? (decodeHtmlEntities(event.venue.name) || event.venue.name)
+      : (decodeHtmlEntities(event.location) || event.location);
 
     return {
       ...event,
@@ -169,7 +215,7 @@ function HomeContent() {
       location: location,
       presenter: decodeHtmlEntities(event.presenter) || event.presenter,
       category: decodeHtmlEntities(event.category) || event.category,
-      originalCategories: decodedCategories,
+      originalCategories: decodedCategories || [],
       tags: decodedTags,
       // Also decode attachment types in case they contain HTML entities
       attachments: event.attachments?.map(att => ({
@@ -180,11 +226,77 @@ function HomeContent() {
     };
   }, []);
 
-  // Use the tag selection hook
-  const { toggleTag, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
-  
-  // Use the location selection hook
-  const { toggleTag: toggleLocation, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
+  // FIFO utility functions for managing recent items
+  const addToRecentItems = useCallback((item: string, recentItems: string[], maxItems: number = 10): string[] => {
+    const filtered = recentItems.filter(existing => existing !== item);
+    return [item, ...filtered].slice(0, maxItems);
+  }, []);
+
+  const addToRecentLocations = useCallback((location: string) => {
+    setRecentLocations(prev => addToRecentItems(location, prev));
+  }, [addToRecentItems]);
+
+  const addToRecentCategories = useCallback((category: string) => {
+    setRecentCategories(prev => addToRecentItems(category, prev));
+  }, [addToRecentItems]);
+
+  // Use the tag selection hook with recent tracking
+  const { toggleTag: toggleTagBase, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
+
+  const toggleTag = useCallback((tag: string) => {
+    const wasSelected = isTagSelected(tag);
+    toggleTagBase(tag);
+    // Only track categories when they are being selected (not deselected)
+    if (availableCategories.includes(tag) && !wasSelected) {
+      addToRecentCategories(tag);
+    }
+  }, [toggleTagBase, addToRecentCategories, availableCategories, isTagSelected]);
+
+  // Use the location selection hook with recent tracking
+  const { toggleTag: toggleLocationBase, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
+
+  const toggleLocation = useCallback((location: string) => {
+    const wasSelected = isLocationSelected(location);
+    toggleLocationBase(location);
+    // Only track locations when they are being selected (not deselected)
+    if (!wasSelected) {
+      addToRecentLocations(location);
+    }
+  }, [toggleLocationBase, addToRecentLocations, isLocationSelected]);
+
+  // Scroll detection for recent pills containers
+  const updateScrollState = useCallback((element: HTMLElement, setState: React.Dispatch<React.SetStateAction<{ canScrollLeft: boolean; canScrollRight: boolean }>>) => {
+    const { scrollLeft, scrollWidth, clientWidth } = element;
+    const canScrollLeft = scrollLeft > 0;
+    const canScrollRight = scrollLeft < scrollWidth - clientWidth - 1; // -1 for rounding
+    setState({ canScrollLeft, canScrollRight });
+  }, []);
+
+  const handleScrollEvent = useCallback((e: React.UIEvent<HTMLDivElement>, type: 'location' | 'category') => {
+    const element = e.currentTarget;
+    if (type === 'location') {
+      updateScrollState(element, setLocationScrollState);
+    } else {
+      updateScrollState(element, setCategoryScrollState);
+    }
+  }, [updateScrollState]);
+
+  // Vertical scroll detection for filter lists
+  const updateVerticalScrollState = useCallback((element: HTMLElement, setState: React.Dispatch<React.SetStateAction<{ canScrollUp: boolean; canScrollDown: boolean }>>) => {
+    const { scrollTop, scrollHeight, clientHeight } = element;
+    const canScrollUp = scrollTop > 0;
+    const canScrollDown = scrollTop < scrollHeight - clientHeight - 1; // -1 for rounding
+    setState({ canScrollUp, canScrollDown });
+  }, []);
+
+  const handleVerticalScrollEvent = useCallback((e: React.UIEvent<HTMLDivElement>, type: 'locationList' | 'categoryList') => {
+    const element = e.currentTarget;
+    if (type === 'locationList') {
+      updateVerticalScrollState(element, setLocationListScrollState);
+    } else {
+      updateVerticalScrollState(element, setCategoryListScrollState);
+    }
+  }, [updateVerticalScrollState]);
 
   // Memoize lowercase selected tags as a Set for O(1) lookup performance
   const selectedTagsLowerSet = useMemo(() =>
@@ -200,12 +312,106 @@ function HomeContent() {
 
   // Memoize selected categories count to avoid repeated filter operations (excluding Week categories)
   const selectedCategoriesCount = useMemo(() =>
-    selectedTags.filter(tag => 
+    selectedTags.filter(tag =>
       availableCategories.includes(tag) && !tag.startsWith('Week ')
     ).length,
     [selectedTags, availableCategories]
   );
 
+  // localStorage utilities for persisting user state
+  const saveUserState = useCallback(() => {
+    try {
+      const userState = {
+        searchTerm,
+        selectedTags,
+        selectedLocations,
+        dateFilter,
+        selectedWeeks,
+        expandedDescriptions: Array.from(expandedDescriptions),
+        recentLocations,
+        recentCategories,
+        lastSaved: Date.now()
+      };
+      localStorage.setItem('chq-calendar-user-state', JSON.stringify(userState));
+    } catch (e) {
+      console.warn('Failed to save user state to localStorage:', e);
+    }
+  }, [searchTerm, selectedTags, selectedLocations, dateFilter, selectedWeeks, expandedDescriptions, recentLocations, recentCategories]);
+
+  const loadUserState = useCallback(() => {
+    try {
+      const savedState = localStorage.getItem('chq-calendar-user-state');
+      if (savedState) {
+        const parsed = JSON.parse(savedState);
+        // Only load state if it's less than 30 days old
+        if (parsed.lastSaved && Date.now() - parsed.lastSaved < USER_STATE_EXPIRY_MS) {
+          return {
+            searchTerm: parsed.searchTerm || '',
+            selectedTags: parsed.selectedTags || [],
+            selectedLocations: parsed.selectedLocations || [],
+            dateFilter: parsed.dateFilter || 'next',
+            selectedWeeks: parsed.selectedWeeks || [],
+            expandedDescriptions: new Set<string>(parsed.expandedDescriptions || []),
+            recentLocations: parsed.recentLocations || [],
+            recentCategories: parsed.recentCategories || []
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load user state from localStorage:', e);
+    }
+    return null;
+  }, [USER_STATE_EXPIRY_MS]);
+
+  // Save user state to localStorage whenever filter state changes (only after initialization)
+  useEffect(() => {
+    if (stateInitialized) {
+      saveUserState();
+    }
+  }, [saveUserState, stateInitialized]);
+
+  // Restore user state from localStorage on component mount
+  useEffect(() => {
+    const savedState = loadUserState();
+    if (savedState) {
+      setSearchTerm(savedState.searchTerm);
+      setSelectedTags(savedState.selectedTags);
+      setSelectedLocations(savedState.selectedLocations);
+      setDateFilter(savedState.dateFilter);
+      setSelectedWeeks(savedState.selectedWeeks);
+      setExpandedDescriptions(savedState.expandedDescriptions);
+      setRecentLocations(savedState.recentLocations);
+      setRecentCategories(savedState.recentCategories);
+    }
+    // Mark state as initialized to enable auto-saving
+    setStateInitialized(true);
+  }, [loadUserState]);
+
+  // Update scroll indicators when recent items change
+  useEffect(() => {
+    if (locationScrollRef.current) {
+      updateScrollState(locationScrollRef.current, setLocationScrollState);
+    }
+  }, [recentLocations, updateScrollState]);
+
+  useEffect(() => {
+    if (categoryScrollRef.current) {
+      updateScrollState(categoryScrollRef.current, setCategoryScrollState);
+    }
+  }, [recentCategories, updateScrollState]);
+
+  // Update scroll indicators for filter lists when content changes
+  useEffect(() => {
+    if (locationListRef.current) {
+      updateVerticalScrollState(locationListRef.current, setLocationListScrollState);
+    }
+  }, [availableLocations, updateVerticalScrollState]);
+
+  useEffect(() => {
+    if (categoryListRef.current) {
+      updateVerticalScrollState(categoryListRef.current, setCategoryListScrollState);
+    }
+  }, [availableCategories, updateVerticalScrollState]);
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
@@ -282,7 +488,7 @@ function HomeContent() {
   // Get current Chautauqua week number (1-9) or null if not in season
   const currentWeekNumber = useMemo(() => {
     const now = new Date();
-    
+
     for (let i = 0; i < seasonWeeks.length; i++) {
       const week = seasonWeeks[i];
       if (now >= week.start && now <= week.end) {
@@ -305,11 +511,11 @@ function HomeContent() {
 
   const isThisWeek = (dateString: string) => {
     const eventDate = new Date(dateString);
-    
+
     if (currentWeekNumber === null) {
       return false; // Not in season
     }
-    
+
     const currentWeek = seasonWeeks[currentWeekNumber - 1];
     return eventDate >= currentWeek.start && eventDate <= currentWeek.end;
   };
@@ -349,7 +555,7 @@ function HomeContent() {
 
     // Prevent default to avoid text selection
     event.preventDefault();
-    
+
     // Clear "This Week" filter when selecting weeks (except for current week without modifiers)
     if (!(weekNum === currentWeekNumber && !event.shiftKey && !event.metaKey && !event.ctrlKey)) {
       setDateFilter('all');
@@ -363,7 +569,7 @@ function HomeContent() {
         // treat it as if it were selected
         const isCurrentWeekActive = weekNum === currentWeekNumber && dateFilter === 'this-week';
         const isInSelection = prev.includes(weekNum) || isCurrentWeekActive;
-        
+
         return isInSelection
           ? prev.filter(w => w !== weekNum) // Remove if selected (will be empty if it was only "This Week")
           : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
@@ -374,22 +580,22 @@ function HomeContent() {
 
     // Check if we have existing selections - either in selectedWeeks or via "This Week" filter
     const hasExistingSelection = selectedWeeks.length > 0 || (dateFilter === 'this-week' && currentWeekNumber !== null);
-    
+
     if (event.shiftKey && hasExistingSelection) {
       // Shift-Click: Extend selection to nearest existing week (including current week)
       const existingWeeks = [...selectedWeeks];
-      
+
       // If current week is active via "This Week" filter, include it in existing weeks
       if (dateFilter === 'this-week' && currentWeekNumber !== null && !existingWeeks.includes(currentWeekNumber)) {
         existingWeeks.push(currentWeekNumber);
       }
-      
+
       existingWeeks.sort((a, b) => a - b);
       const minExisting = existingWeeks[0];
       const maxExisting = existingWeeks[existingWeeks.length - 1];
-      
+
       const newRange: number[] = [];
-      
+
       if (weekNum < minExisting) {
         // Extend from clicked week to minimum existing week
         for (let i = weekNum; i <= maxExisting; i++) {
@@ -404,7 +610,7 @@ function HomeContent() {
         // Click is within existing range, extend to nearest boundary
         const distanceToMin = Math.abs(weekNum - minExisting);
         const distanceToMax = Math.abs(weekNum - maxExisting);
-        
+
         if (distanceToMin <= distanceToMax) {
           // Extend from clicked week to max
           for (let i = weekNum; i <= maxExisting; i++) {
@@ -417,7 +623,7 @@ function HomeContent() {
           }
         }
       }
-      
+
       setSelectedWeeks(newRange);
       setDateFilter('all'); // Always clear "This Week" filter for shift-click
       return;
@@ -427,7 +633,7 @@ function HomeContent() {
     setIsDragging(true);
     setDragStart(weekNum);
     setWasDragged(false);
-    
+
     // For regular clicks, start with the clicked week selected
     // For current week, this will be overridden in mouse-up if it wasn't dragged
     setSelectedWeeks([weekNum]);
@@ -506,14 +712,14 @@ function HomeContent() {
       const description = (event.description || '').toLowerCase();
       const presenter = (event.presenter || '').toLowerCase();
       const location = (event.location || '').toLowerCase();
-      const category = (event.category || '').toLowerCase();
 
 
       // Combine all tags and categories for searching
-      const allTags = [
+      // Use pre-computed lowercase tags set for better performance
+      const allTagsLower = event._tagsLowerSet || new Set([
         ...(event.tags || []),
-        ...(event.originalCategories || [])
-      ].map(tag => tag.toLowerCase());
+        ...(event.categories?.map(cat => cat.name) || [])
+      ].map(tag => tag.toLowerCase()));
 
       let score = 0;
 
@@ -522,25 +728,13 @@ function HomeContent() {
 
         // Exact phrase matches (highest priority)
         if (title.includes(currentTerm)) score += 100;
-
-        if (currentTerm === 'amp') {
-          if (location.includes('amphitheater')) score += 100;
-        } else {
-          if (location.includes(currentTerm)) score += 90;
-        }
-
+        if (location.includes(currentTerm)) score += 90;
         if (description.includes(currentTerm)) score += 50;
-        if (category.includes(currentTerm)) score += 80;
         if (presenter.includes(currentTerm)) score += 25;
 
         // Tag matching (including partial matches for Symphony Orchestra)
-        allTags.forEach(tag => {
+        allTagsLower.forEach(tag => {
           if (tag.includes(currentTerm)) score += 85;
-          // Special case: "cso" or "symphony" should match "Chautauqua Symphony Orchestra/Classical Concerts"
-          if ((currentTerm === 'cso' || currentTerm === 'symphony') &&
-              tag.includes('chautauqua symphony orchestra/classical concerts')) {
-            score += 95;
-          }
         });
 
         // Word matches (lower priority)
@@ -550,10 +744,9 @@ function HomeContent() {
             if (title.includes(word)) score += 10;
             if (location.includes(word)) score += 9;
             if (description.includes(word)) score += 5;
-            if (category.includes(word)) score += 8;
             if (presenter.includes(word)) score += 3;
 
-            allTags.forEach(tag => {
+            allTagsLower.forEach(tag => {
               if (tag.includes(word)) score += 7;
             });
           }
@@ -625,9 +818,9 @@ function HomeContent() {
             }
           }
         }
-        if (event.originalCategories) {
-          for (const eventCat of event.originalCategories) {
-            if (selectedTagsLowerSet.has(eventCat.toLowerCase())) {
+        if (event.categories) {
+          for (const eventCat of event.categories) {
+            if (selectedTagsLowerSet.has(eventCat.name.toLowerCase())) {
               return true;
             }
           }
@@ -654,7 +847,7 @@ function HomeContent() {
 
       // Add week number to the day label
       const weekNumber = getWeekNumberForDate(eventDate);
-      const dayKey = weekNumber 
+      const dayKey = weekNumber
         ? `${baseDayKey} - Week ${weekNumber}`
         : baseDayKey;
 
@@ -706,9 +899,8 @@ function HomeContent() {
       // Decode HTML entities for global events in case they weren't decoded when stored
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
-      setAvailableCategories(globalEventData.categories);
-      setAvailableLocations(globalEventData.locations || []);
-      setAvailableTags(globalEventData.tags);
+      setAvailableCategories(globalEventData.categories.map(cat => decodeHtmlEntities(cat) || cat));
+      setAvailableLocations((globalEventData.locations || []).map(loc => decodeHtmlEntities(loc) || loc));
       setDataLoaded(true);
       return;
     }
@@ -734,14 +926,13 @@ function HomeContent() {
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           // Check if cache is less than 1 hour old AND has the correct version
-          if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000 && parsed.version === 'v2-decoded') {
-            console.log('Loading events from local cache (v2-decoded)');
+          if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v3-categories') {
+            console.log('Loading events from local cache (v3-categories)');
             // Events should already be decoded, but decode again as safety measure
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
-            setAvailableCategories(parsed.categories);
-            setAvailableLocations(parsed.locations || []);
-            setAvailableTags(parsed.tags);
+            setAvailableCategories(parsed.categories.map((cat: string) => decodeHtmlEntities(cat) || cat));
+            setAvailableLocations((parsed.locations || []).map((loc: string) => decodeHtmlEntities(loc) || loc));
             setDataLoaded(true);
             isLoadingRef.current = false;
             return;
@@ -781,17 +972,25 @@ function HomeContent() {
         setEvents(fetchedEvents);
         setDataLoaded(true);
 
-        // Extract unique categories for filter options
-        const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
+        // Extract unique categories for filter options from categories array
+        const allCategories: string[] = [];
+        fetchedEvents.forEach((event: Event) => {
+          if (event.categories && event.categories.length > 0) {
+            allCategories.push(...event.categories.map(cat => cat.name));
+          } else if (event.category) {
+            allCategories.push(event.category);
+          }
+        });
+        const categories = [...new Set(allCategories.filter(Boolean).map(cat => decodeHtmlEntities(cat) || cat))] as string[];
 
         // Extract unique locations for filter options
-        const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
+        const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean).map((loc: string) => decodeHtmlEntities(loc) || loc))] as string[];
 
-        // Extract tags separately (event.tags and event.originalCategories)
+        // Extract tags separately (event.tags and event.categories)
         const allTags: string[] = [];
         fetchedEvents.forEach((event: Event) => {
-          if (event.tags) allTags.push(...event.tags);
-          if (event.originalCategories) allTags.push(...event.originalCategories);
+          if (event.tags) allTags.push(...event.tags.map(tag => decodeHtmlEntities(tag) || tag));
+          if (event.categories) allTags.push(...event.categories.map(cat => decodeHtmlEntities(cat.name) || cat.name));
         });
 
         // Deduplicate tags using the same logic as event display
@@ -833,7 +1032,6 @@ function HomeContent() {
 
         setAvailableCategories(sortedCategories);
         setAvailableLocations(sortedLocations);
-        setAvailableTags(sortedTags);
 
         // Update global store
         if (globalEventData.setGlobalEventData) {
@@ -851,12 +1049,12 @@ function HomeContent() {
         try {
           localStorage.setItem('chq-calendar-events', JSON.stringify({
             events: fetchedEvents,
-            categories: categories.sort(),
+            categories: sortedCategories,
             locations: locations.sort(),
             tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
-            version: 'v2-decoded' // Version marker to invalidate old cache with HTML entities
+            version: 'v3-categories' // Version marker to invalidate old cache with correct categories
           }));
         } catch (e) {
           console.warn('Failed to save to localStorage:', e);
@@ -962,7 +1160,7 @@ function HomeContent() {
                     const isPast = isWeekInPast(week.number);
                     const isSelected = selectedWeeks.includes(week.number);
                     const isHighlighted = isWeekHighlighted(week.number, isSelected);
-                    
+
                     return (
                       <div
                         key={week.number}
@@ -1057,7 +1255,7 @@ function HomeContent() {
                       const isPast = isWeekInPast(week.number);
                       const isSelected = selectedWeeks.includes(week.number);
                       const isHighlighted = isWeekHighlighted(week.number, isSelected);
-                      
+
                       return (
                         <div
                           key={week.number}
@@ -1112,11 +1310,11 @@ function HomeContent() {
                       if (currentWeekNumber === null) {
                         return 'This Week (Not in season)';
                       }
-                      
+
                       const currentWeek = seasonWeeks[currentWeekNumber - 1];
                       const startStr = currentWeek.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                       const endStr = currentWeek.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                      
+
                       return `This Week (${startStr} 12pm - ${endStr} 12pm)`;
                     } else if (selectedWeeks.length === 1) {
                       const weekNum = selectedWeeks[0];
@@ -1143,14 +1341,53 @@ function HomeContent() {
             <div className="space-y-3">
               {/* Locations - Desktop */}
               <details>
-                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 min-w-0">
+                  <span className="flex-shrink-0 flex items-center gap-1">
+                    <svg className="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
+                  </span>
+                  {recentLocations.length > 0 && (
+                    <div className={`flex-1 min-w-0 pills-scroll-container ${locationScrollState.canScrollLeft ? 'scrolled-right' : ''} ${!locationScrollState.canScrollRight ? 'scrolled-to-end' : ''}`}>
+                      <div
+                        ref={locationScrollRef}
+                        className="flex gap-2 pb-1 overflow-x-auto overflow-y-hidden scrollbar-hide pr-4"
+                        onScroll={(e) => handleScrollEvent(e, 'location')}
+                      >
+                        {recentLocations.map(location => (
+                          <button
+                            key={`recent-${location}`}
+                            title={location} // Tooltip showing full name
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleLocation(location);
+                            }}
+                            className={`flex-shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                              isLocationSelected(location)
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
+                            }`}
+                          >
+                            {getLocationDisplayName(location)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </summary>
-                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1 sm:gap-2">
-                    {availableLocations.map(location => (
+                <div className={`filter-list-container mb-2 ${locationListScrollState.canScrollUp ? 'scrolled-down' : ''} ${locationListScrollState.canScrollDown ? 'can-scroll-down' : ''}`}>
+                  <div
+                    ref={locationListRef}
+                    className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"
+                    onScroll={(e) => handleVerticalScrollEvent(e, 'locationList')}
+                  >
+                    <div className="flex flex-wrap gap-1 sm:gap-2">
+                      {availableLocations.map(location => (
                       <button
                         key={location}
+                        title={location} // Tooltip showing full name
                         onClick={() => toggleLocation(location)}
                         className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
                           isLocationSelected(location)
@@ -1158,25 +1395,65 @@ function HomeContent() {
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {location}
+                        {getLocationDisplayName(location)}
                       </button>
                     ))}
+                    </div>
                   </div>
                 </div>
               </details>
 
               {/* Categories - Desktop */}
               <details>
-                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 min-w-0">
+                  <span className="flex-shrink-0 flex items-center gap-1">
+                    <svg className="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
+                  </span>
+                  {recentCategories.length > 0 && (
+                    <div className={`flex-1 min-w-0 pills-scroll-container ${categoryScrollState.canScrollLeft ? 'scrolled-right' : ''} ${!categoryScrollState.canScrollRight ? 'scrolled-to-end' : ''}`}>
+                      <div
+                        ref={categoryScrollRef}
+                        className="flex gap-2 pb-1 overflow-x-auto overflow-y-hidden scrollbar-hide pr-4"
+                        onScroll={(e) => handleScrollEvent(e, 'category')}
+                      >
+                        {recentCategories.map(category => (
+                          <button
+                            key={`recent-${category}`}
+                            title={category} // Tooltip showing full name
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleTag(category);
+                            }}
+                            className={`flex-shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                              isTagSelected(category)
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
+                            }`}
+                          >
+                            {getCategoryDisplayName(category)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </summary>
-                <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
-                  <div className="flex flex-wrap gap-1 sm:gap-2">
-                    {availableCategories
-                      .filter(category => !category.startsWith('Week '))
-                      .map(category => (
+                <div className={`filter-list-container mb-2 ${categoryListScrollState.canScrollUp ? 'scrolled-down' : ''} ${categoryListScrollState.canScrollDown ? 'can-scroll-down' : ''}`}>
+                  <div
+                    ref={categoryListRef}
+                    className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"
+                    onScroll={(e) => handleVerticalScrollEvent(e, 'categoryList')}
+                  >
+                    <div className="flex flex-wrap gap-1 sm:gap-2">
+                      {availableCategories
+                        .filter(category => !category.startsWith('Week '))
+                        .map(category => (
                       <button
                         key={category}
+                        title={category} // Tooltip showing full name
                         onClick={() => toggleTag(category)}
                         className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(category)
@@ -1184,9 +1461,10 @@ function HomeContent() {
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {category}
+                        {getCategoryDisplayName(category)}
                       </button>
                     ))}
+                    </div>
                   </div>
                 </div>
               </details>
@@ -1202,7 +1480,7 @@ function HomeContent() {
                     const filteredCount = filterEvents(events).length;
                     const totalCount = events.length;
                     const hasFilters = searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
-                    
+
                     if (hasFilters) {
                       return `Events (${filteredCount}/${totalCount})`;
                     } else {
@@ -1290,7 +1568,7 @@ function HomeContent() {
                               </h4>
 
                               {/* Description with disclosure widget */}
-                              {(event.description || event.category) && (
+                              {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0)) && (
                                 <div className="mb-2">
                                   {expandedDescriptions.has(event.id) ? (
                                     <div>
@@ -1306,20 +1584,21 @@ function HomeContent() {
                                         <p className="text-gray-600 dark:text-gray-300 text-sm mb-2">{event.description}</p>
                                       )}
 
-                                      {/* Show category when expanded */}
+                                      {/* Show all categories when expanded (excluding Week categories) */}
                                       <div className="mb-2 flex flex-wrap gap-1">
-                                        {event.category && (
+                                        {event.categories?.filter(cat => !cat.name.startsWith('Week ')).map((category, index) => (
                                           <button
-                                            onClick={() => toggleTag(event.category!)}
+                                            key={`${event.id}-category-${index}`}
+                                            onClick={() => toggleTag(category.name)}
                                             className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                              isTagSelected(event.category!)
+                                              isTagSelected(category.name)
                                                 ? 'bg-blue-600 text-white'
                                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                                             }`}
                                           >
-                                            {event.category}
+                                            {getCategoryDisplayName(category.name)}
                                           </button>
-                                        )}
+                                        ))}
                                       </div>
 
                                     </div>
