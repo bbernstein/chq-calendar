@@ -100,7 +100,6 @@ function HomeContent() {
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
-  const [hasMouseMoved, setHasMouseMoved] = useState(false);
 
   const apiUrl = useMemo(() =>
     process.env.NODE_ENV === 'development'
@@ -256,7 +255,7 @@ function HomeContent() {
   };
 
   // Get current Chautauqua week number (1-9) or null if not in season
-  const getCurrentChautauquaWeek = () => {
+  const currentWeekNumber = useMemo(() => {
     const now = new Date();
     
     for (let i = 0; i < seasonWeeks.length; i++) {
@@ -266,9 +265,7 @@ function HomeContent() {
       }
     }
     return null; // Not in season
-  };
-
-  const currentWeekNumber = useMemo(() => getCurrentChautauquaWeek(), []);
+  }, [seasonWeeks]);
 
   const isThisWeek = (dateString: string) => {
     const eventDate = new Date(dateString);
@@ -309,24 +306,83 @@ function HomeContent() {
   };
 
   // Week selection handlers
-  const handleWeekMouseDown = (weekNum: number) => {
+  const handleWeekMouseDown = (weekNum: number, event: React.MouseEvent) => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('handleWeekMouseDown called for week', weekNum);
+      console.log('handleWeekMouseDown called for week', weekNum, { shift: event.shiftKey, cmd: event.metaKey || event.ctrlKey });
     }
 
-    // If clicking the current week, activate "This Week" filter instead
-    if (weekNum === currentWeekNumber) {
+    // Prevent default to avoid text selection
+    event.preventDefault();
+    
+    // Clear "This Week" filter when selecting weeks (except for current week without modifiers)
+    if (!(weekNum === currentWeekNumber && !event.shiftKey && !event.metaKey && !event.ctrlKey)) {
+      setDateFilter('all');
+    }
+
+    // Handle different click types - modifier keys take precedence over current week logic
+    if (event.metaKey || event.ctrlKey) {
+      // CMD/CTRL-Click: Toggle individual week (including current week)
+      setSelectedWeeks(prev => {
+        return prev.includes(weekNum)
+          ? prev.filter(w => w !== weekNum)
+          : [...prev, weekNum].sort((a, b) => a - b);
+      });
+      setDateFilter('all'); // Always clear "This Week" filter for cmd-click
+      return;
+    }
+
+    if (event.shiftKey && selectedWeeks.length > 0) {
+      // Shift-Click: Extend selection to nearest existing week (including current week)
+      const existingWeeks = [...selectedWeeks].sort((a, b) => a - b);
+      const minExisting = existingWeeks[0];
+      const maxExisting = existingWeeks[existingWeeks.length - 1];
+      
+      const newRange: number[] = [];
+      
+      if (weekNum < minExisting) {
+        // Extend from clicked week to minimum existing week
+        for (let i = weekNum; i <= maxExisting; i++) {
+          newRange.push(i);
+        }
+      } else if (weekNum > maxExisting) {
+        // Extend from minimum existing week to clicked week
+        for (let i = minExisting; i <= weekNum; i++) {
+          newRange.push(i);
+        }
+      } else {
+        // Click is within existing range, extend to nearest boundary
+        const distanceToMin = Math.abs(weekNum - minExisting);
+        const distanceToMax = Math.abs(weekNum - maxExisting);
+        
+        if (distanceToMin <= distanceToMax) {
+          // Extend from clicked week to max
+          for (let i = weekNum; i <= maxExisting; i++) {
+            newRange.push(i);
+          }
+        } else {
+          // Extend from min to clicked week
+          for (let i = minExisting; i <= weekNum; i++) {
+            newRange.push(i);
+          }
+        }
+      }
+      
+      setSelectedWeeks(newRange);
+      setDateFilter('all'); // Always clear "This Week" filter for shift-click
+      return;
+    }
+
+    // If clicking the current week without modifiers, activate "This Week" filter instead
+    if (weekNum === currentWeekNumber && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
       setDateFilter('this-week');
       setSelectedWeeks([]);
       return;
     }
 
-    // Batch state updates to reduce re-renders
+    // Regular click or drag start
     setIsDragging(true);
     setDragStart(weekNum);
-    setHasMouseMoved(false);
     setSelectedWeeks([weekNum]);
-    setDateFilter('all'); // Clear date filter when selecting weeks
 
     // Prevent text selection during potential drag
     document.body.style.userSelect = 'none';
@@ -334,7 +390,6 @@ function HomeContent() {
 
   const handleWeekMouseEnter = (weekNum: number) => {
     if (isDragging && dragStart !== null) {
-      setHasMouseMoved(true);
       const start = Math.min(dragStart, weekNum);
       const end = Math.max(dragStart, weekNum);
       const range = [];
@@ -348,48 +403,34 @@ function HomeContent() {
     }
   };
 
-  const handleWeekMouseUp = (weekNum: number) => {
+  const handleWeekMouseUp = () => {
     if (isDragging && dragStart !== null) {
-      if (!hasMouseMoved) {
-        // This was a click, not a drag
-        if (weekNum === currentWeekNumber) {
-          // If clicking the current week, activate "This Week" filter instead
-          setDateFilter('this-week');
-          setSelectedWeeks([]);
-        } else {
-          // Select only this week
-          setSelectedWeeks([weekNum]);
-          setDateFilter('all');
-        }
-      } else {
-        // If hasMouseMoved is true, the selection was already set in handleWeekMouseEnter
-        // Clear date filter when selecting weeks via drag
-        setDateFilter('all');
-      }
+      // Selection is handled in handleWeekMouseDown and handleWeekMouseEnter
+      // No additional logic needed here for the new interaction modes
     }
 
     setIsDragging(false);
     setDragStart(null);
-    setHasMouseMoved(false);
     // Restore text selection
     document.body.style.userSelect = '';
   };
 
   // Mobile-friendly tap-to-toggle handler
   const handleWeekTap = (weekNum: number) => {
-    // If clicking the current week, activate "This Week" filter instead
-    if (weekNum === currentWeekNumber) {
+    // If tapping the current week and no other weeks selected, activate "This Week" filter
+    if (weekNum === currentWeekNumber && selectedWeeks.length === 0) {
       setDateFilter('this-week');
       setSelectedWeeks([]);
       return;
     }
 
+    // Otherwise, toggle the week in the selection (including current week if already selected)
     setSelectedWeeks(prev => {
       const newSelection = prev.includes(weekNum)
         ? prev.filter(w => w !== weekNum) // Remove if already selected
         : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
 
-      // Clear date filter when selecting weeks
+      // Clear "This Week" date filter when selecting weeks
       if (newSelection.length > 0) {
         setDateFilter('all');
       }
@@ -772,7 +813,6 @@ function HomeContent() {
       if (isDragging) {
         setIsDragging(false);
         setDragStart(null);
-        setHasMouseMoved(false);
         // Restore text selection
         document.body.style.userSelect = '';
       }
@@ -858,9 +898,9 @@ function HomeContent() {
                             ? 'bg-blue-600 text-white' // Current/future and selected
                             : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                         }`}
-                        onMouseDown={() => handleWeekMouseDown(week.number)}
+                        onMouseDown={(e) => handleWeekMouseDown(week.number, e)}
                         onMouseEnter={() => handleWeekMouseEnter(week.number)}
-                        onMouseUp={() => handleWeekMouseUp(week.number)}
+                        onMouseUp={handleWeekMouseUp}
                         onTouchStart={(e) => {
                           e.preventDefault(); // Prevent mouse events from also firing
                           handleWeekTap(week.number);
@@ -954,9 +994,9 @@ function HomeContent() {
                               ? 'bg-blue-600 text-white' // Current/future and selected
                               : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                           }`}
-                          onMouseDown={() => handleWeekMouseDown(week.number)}
+                          onMouseDown={(e) => handleWeekMouseDown(week.number, e)}
                           onMouseEnter={() => handleWeekMouseEnter(week.number)}
-                          onMouseUp={() => handleWeekMouseUp(week.number)}
+                          onMouseUp={handleWeekMouseUp}
                           onTouchStart={(e) => {
                             e.preventDefault(); // Prevent mouse events from also firing
                             handleWeekTap(week.number);
