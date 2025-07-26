@@ -201,20 +201,25 @@ function HomeContent() {
   const { toggleTag: toggleTagBase, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
   
   const toggleTag = useCallback((tag: string) => {
+    const wasSelected = isTagSelected(tag);
     toggleTagBase(tag);
-    // Only track categories (not other types of tags)
-    if (availableCategories.includes(tag)) {
+    // Only track categories when they are being selected (not deselected)
+    if (availableCategories.includes(tag) && !wasSelected) {
       addToRecentCategories(tag);
     }
-  }, [toggleTagBase, addToRecentCategories, availableCategories]);
+  }, [toggleTagBase, addToRecentCategories, availableCategories, isTagSelected]);
   
   // Use the location selection hook with recent tracking
   const { toggleTag: toggleLocationBase, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
   
   const toggleLocation = useCallback((location: string) => {
+    const wasSelected = isLocationSelected(location);
     toggleLocationBase(location);
-    addToRecentLocations(location);
-  }, [toggleLocationBase, addToRecentLocations]);
+    // Only track locations when they are being selected (not deselected)
+    if (!wasSelected) {
+      addToRecentLocations(location);
+    }
+  }, [toggleLocationBase, addToRecentLocations, isLocationSelected]);
 
   // Memoize lowercase selected tags as a Set for O(1) lookup performance
   const selectedTagsLowerSet = useMemo(() =>
