@@ -140,7 +140,9 @@ function HomeContent() {
 
   const categoryShortcuts: Record<string, string> = {
     "Chautauqua Symphony Orchestra/Classical Concerts": "CSO",
-    "Chautauqua Lecture Series": "CHQ Lecture",
+    "Chautauqua Institution Program": "CHQ Program",
+    "Chautauqua Literary and Scientific Circle (CLSC)": "CLSC",
+    "Climate Change Initiative Program": "Climate Change Program",
   };
 
   // Helper functions to get display names and full names
@@ -897,8 +899,8 @@ function HomeContent() {
       // Decode HTML entities for global events in case they weren't decoded when stored
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
-      setAvailableCategories(globalEventData.categories);
-      setAvailableLocations(globalEventData.locations || []);
+      setAvailableCategories(globalEventData.categories.map(cat => decodeHtmlEntities(cat) || cat));
+      setAvailableLocations((globalEventData.locations || []).map(loc => decodeHtmlEntities(loc) || loc));
       setDataLoaded(true);
       return;
     }
@@ -929,8 +931,8 @@ function HomeContent() {
             // Events should already be decoded, but decode again as safety measure
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
-            setAvailableCategories(parsed.categories);
-            setAvailableLocations(parsed.locations || []);
+            setAvailableCategories(parsed.categories.map((cat: string) => decodeHtmlEntities(cat) || cat));
+            setAvailableLocations((parsed.locations || []).map((loc: string) => decodeHtmlEntities(loc) || loc));
             setDataLoaded(true);
             isLoadingRef.current = false;
             return;
@@ -979,16 +981,16 @@ function HomeContent() {
             allCategories.push(event.category);
           }
         });
-        const categories = [...new Set(allCategories.filter(Boolean))] as string[];
+        const categories = [...new Set(allCategories.filter(Boolean).map(cat => decodeHtmlEntities(cat) || cat))] as string[];
 
         // Extract unique locations for filter options
-        const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
+        const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean).map((loc: string) => decodeHtmlEntities(loc) || loc))] as string[];
 
         // Extract tags separately (event.tags and event.categories)
         const allTags: string[] = [];
         fetchedEvents.forEach((event: Event) => {
-          if (event.tags) allTags.push(...event.tags);
-          if (event.categories) allTags.push(...event.categories.map(cat => cat.name));
+          if (event.tags) allTags.push(...event.tags.map(tag => decodeHtmlEntities(tag) || tag));
+          if (event.categories) allTags.push(...event.categories.map(cat => decodeHtmlEntities(cat.name) || cat.name));
         });
 
         // Deduplicate tags using the same logic as event display
