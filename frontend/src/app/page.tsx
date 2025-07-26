@@ -104,6 +104,8 @@ function HomeContent() {
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
+  const [recentLocations, setRecentLocations] = useState<string[]>([]);
+  const [recentCategories, setRecentCategories] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
@@ -181,11 +183,38 @@ function HomeContent() {
     };
   }, []);
 
-  // Use the tag selection hook
-  const { toggleTag, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
+  // FIFO utility functions for managing recent items
+  const addToRecentItems = useCallback((item: string, recentItems: string[], maxItems: number = 10): string[] => {
+    const filtered = recentItems.filter(existing => existing !== item);
+    return [item, ...filtered].slice(0, maxItems);
+  }, []);
+
+  const addToRecentLocations = useCallback((location: string) => {
+    setRecentLocations(prev => addToRecentItems(location, prev));
+  }, [addToRecentItems]);
+
+  const addToRecentCategories = useCallback((category: string) => {
+    setRecentCategories(prev => addToRecentItems(category, prev));
+  }, [addToRecentItems]);
+
+  // Use the tag selection hook with recent tracking
+  const { toggleTag: toggleTagBase, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
   
-  // Use the location selection hook
-  const { toggleTag: toggleLocation, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
+  const toggleTag = useCallback((tag: string) => {
+    toggleTagBase(tag);
+    // Only track categories (not other types of tags)
+    if (availableCategories.includes(tag)) {
+      addToRecentCategories(tag);
+    }
+  }, [toggleTagBase, addToRecentCategories, availableCategories]);
+  
+  // Use the location selection hook with recent tracking
+  const { toggleTag: toggleLocationBase, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
+  
+  const toggleLocation = useCallback((location: string) => {
+    toggleLocationBase(location);
+    addToRecentLocations(location);
+  }, [toggleLocationBase, addToRecentLocations]);
 
   // Memoize lowercase selected tags as a Set for O(1) lookup performance
   const selectedTagsLowerSet = useMemo(() =>
@@ -217,13 +246,15 @@ function HomeContent() {
         dateFilter,
         selectedWeeks,
         expandedDescriptions: Array.from(expandedDescriptions),
+        recentLocations,
+        recentCategories,
         lastSaved: Date.now()
       };
       localStorage.setItem('chq-calendar-user-state', JSON.stringify(userState));
     } catch (e) {
       console.warn('Failed to save user state to localStorage:', e);
     }
-  }, [searchTerm, selectedTags, selectedLocations, dateFilter, selectedWeeks, expandedDescriptions]);
+  }, [searchTerm, selectedTags, selectedLocations, dateFilter, selectedWeeks, expandedDescriptions, recentLocations, recentCategories]);
 
   const loadUserState = useCallback(() => {
     try {
@@ -238,7 +269,9 @@ function HomeContent() {
             selectedLocations: parsed.selectedLocations || [],
             dateFilter: parsed.dateFilter || 'next',
             selectedWeeks: parsed.selectedWeeks || [],
-            expandedDescriptions: new Set<string>(parsed.expandedDescriptions || [])
+            expandedDescriptions: new Set<string>(parsed.expandedDescriptions || []),
+            recentLocations: parsed.recentLocations || [],
+            recentCategories: parsed.recentCategories || []
           };
         }
       }
@@ -265,6 +298,8 @@ function HomeContent() {
       setDateFilter(savedState.dateFilter);
       setSelectedWeeks(savedState.selectedWeeks);
       setExpandedDescriptions(savedState.expandedDescriptions);
+      setRecentLocations(savedState.recentLocations);
+      setRecentCategories(savedState.recentCategories);
     }
     // Mark state as initialized to enable auto-saving
     setStateInitialized(true);
@@ -1206,8 +1241,25 @@ function HomeContent() {
             <div className="space-y-3">
               {/* Locations - Desktop */}
               <details>
-                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 flex-wrap">
+                  <span>Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}</span>
+                  {recentLocations.slice(0, 3).map(location => (
+                    <button
+                      key={`recent-${location}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleLocation(location);
+                      }}
+                      className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                        isLocationSelected(location)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
+                      }`}
+                    >
+                      {location}
+                    </button>
+                  ))}
                 </summary>
                 <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1 sm:gap-2">
@@ -1230,8 +1282,25 @@ function HomeContent() {
 
               {/* Categories - Desktop */}
               <details>
-                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer flex items-center gap-2 flex-wrap">
+                  <span>Categories {selectedCategoriesCount > 0 && `(${selectedCategoriesCount} selected)`}</span>
+                  {recentCategories.slice(0, 3).map(category => (
+                    <button
+                      key={`recent-${category}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleTag(category);
+                      }}
+                      className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
+                        isTagSelected(category)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500'
+                      }`}
+                    >
+                      {category}
+                    </button>
+                  ))}
                 </summary>
                 <div className="max-h-24 sm:max-h-32 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1 sm:gap-2">
