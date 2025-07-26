@@ -35,6 +35,7 @@ interface Event {
 interface GlobalEventData {
   events: Event[] | null;
   categories: string[];
+  locations: string[];
   tags: string[];
   weeks: number[];
   loadedAt: number | null;
@@ -74,6 +75,7 @@ function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
   const [globalEventData, setGlobalEventData] = useState<GlobalEventData>({
     events: null,
     categories: [],
+    locations: [],
     tags: [],
     weeks: [],
     loadedAt: null,
@@ -95,10 +97,12 @@ function HomeContent() {
   const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [availableLocations, setAvailableLocations] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
@@ -177,11 +181,20 @@ function HomeContent() {
 
   // Use the tag selection hook
   const { toggleTag, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
+  
+  // Use the location selection hook
+  const { toggleTag: toggleLocation, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
 
   // Memoize lowercase selected tags as a Set for O(1) lookup performance
   const selectedTagsLowerSet = useMemo(() =>
     new Set(selectedTags.map(tag => tag.toLowerCase())),
     [selectedTags]
+  );
+
+  // Memoize lowercase selected locations as a Set for O(1) lookup performance
+  const selectedLocationsLowerSet = useMemo(() =>
+    new Set(selectedLocations.map(location => location.toLowerCase())),
+    [selectedLocations]
   );
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
@@ -571,6 +584,16 @@ function HomeContent() {
       );
     }
 
+    // Location filter - case insensitive
+    if (selectedLocationsLowerSet.size > 0) {
+      filtered = filtered.filter(event => {
+        if (event.location) {
+          return selectedLocationsLowerSet.has(event.location.toLowerCase());
+        }
+        return false;
+      });
+    }
+
     // Tag filter - case insensitive (using pre-computed Sets for O(1) lookups)
     if (selectedTagsLowerSet.size > 0) {
       filtered = filtered.filter(event => {
@@ -674,6 +697,7 @@ function HomeContent() {
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
       setAvailableCategories(globalEventData.categories);
+      setAvailableLocations(globalEventData.locations);
       setAvailableTags(globalEventData.tags);
       setDataLoaded(true);
       return;
@@ -706,6 +730,7 @@ function HomeContent() {
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
             setAvailableCategories(parsed.categories);
+            setAvailableLocations(parsed.locations);
             setAvailableTags(parsed.tags);
             setDataLoaded(true);
             isLoadingRef.current = false;
@@ -749,6 +774,9 @@ function HomeContent() {
         // Extract unique categories for filter options
         const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
 
+        // Extract unique locations for filter options
+        const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
+
         // Extract tags separately (event.tags and event.originalCategories)
         const allTags: string[] = [];
         fetchedEvents.forEach((event: Event) => {
@@ -789,10 +817,12 @@ function HomeContent() {
         }
 
         const sortedCategories = categories.sort();
+        const sortedLocations = locations.sort();
         const sortedTags = uniqueTags.sort();
         const weeks = seasonWeeks.map(w => w.number);
 
         setAvailableCategories(sortedCategories);
+        setAvailableLocations(sortedLocations);
         setAvailableTags(sortedTags);
 
         // Update global store
@@ -800,6 +830,7 @@ function HomeContent() {
           globalEventData.setGlobalEventData({
             events: fetchedEvents,
             categories: sortedCategories,
+            locations: sortedLocations,
             tags: sortedTags,
             weeks: weeks,
             loadedAt: Date.now()
@@ -811,6 +842,7 @@ function HomeContent() {
           sessionStorage.setItem('chq-calendar-events', JSON.stringify({
             events: fetchedEvents,
             categories: categories.sort(),
+            locations: locations.sort(),
             tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
@@ -1097,8 +1129,32 @@ function HomeContent() {
               )}
             </div>
 
-            {/* Categories and Tags - Mobile Expandable Sections */}
+            {/* Locations, Categories and Tags - Mobile Expandable Sections */}
             <div className="sm:hidden space-y-3">
+              {/* Locations - Mobile */}
+              <details>
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
+                  Locations {selectedLocations.length > 0 && `(${selectedLocations.length} selected)`}
+                </summary>
+                <div className="max-h-24 overflow-y-auto mb-2">
+                  <div className="flex flex-wrap gap-1">
+                    {availableLocations.map(location => (
+                      <button
+                        key={location}
+                        onClick={() => toggleLocation(location)}
+                        className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                          isLocationSelected(location)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {location}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </details>
+
               {/* Categories - Mobile */}
               <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
@@ -1150,8 +1206,32 @@ function HomeContent() {
               </details>
             </div>
 
-            {/* Categories and Tags - Desktop Stacked Sections */}
+            {/* Locations, Categories and Tags - Desktop Stacked Sections */}
             <div className="hidden sm:block space-y-4">
+              {/* Locations - Desktop */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Locations
+                </label>
+                <div className="max-h-24 overflow-y-auto">
+                  <div className="flex flex-wrap gap-2">
+                    {availableLocations.map(location => (
+                      <button
+                        key={location}
+                        onClick={() => toggleLocation(location)}
+                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                          isLocationSelected(location)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {location}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               {/* Categories - Desktop */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1211,7 +1291,7 @@ function HomeContent() {
                   {(() => {
                     const filteredCount = filterEvents(events).length;
                     const totalCount = events.length;
-                    const hasFilters = searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
+                    const hasFilters = searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
                     
                     if (hasFilters) {
                       return `Events (${filteredCount}/${totalCount})`;
@@ -1220,11 +1300,12 @@ function HomeContent() {
                     }
                   })()}
                 </div>
-                {(searchTerm || selectedTags.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0) && (
+                {(searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0) && (
                   <button
                     onClick={() => {
                       setSearchTerm('');
                       setSelectedTags([]);
+                      setSelectedLocations([]);
                       setDateFilter('all');
                       setSelectedWeeks([]);
                     }}
