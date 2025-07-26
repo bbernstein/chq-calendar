@@ -98,6 +98,7 @@ function HomeContent() {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
@@ -672,6 +673,7 @@ function HomeContent() {
       // Decode HTML entities for global events in case they weren't decoded when stored
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
+      setAvailableCategories(globalEventData.categories);
       setAvailableTags(globalEventData.tags);
       setDataLoaded(true);
       return;
@@ -703,6 +705,7 @@ function HomeContent() {
             // Events should already be decoded, but decode again as safety measure
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
+            setAvailableCategories(parsed.categories);
             setAvailableTags(parsed.tags);
             setDataLoaded(true);
             isLoadingRef.current = false;
@@ -746,11 +749,11 @@ function HomeContent() {
         // Extract unique categories for filter options
         const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
 
-        // Extract all unique tags from both tags and originalCategories with deduplication
-        const allTagsAndCategories: string[] = [];
+        // Extract tags separately (event.tags and event.originalCategories)
+        const allTags: string[] = [];
         fetchedEvents.forEach((event: Event) => {
-          if (event.tags) allTagsAndCategories.push(...event.tags);
-          if (event.originalCategories) allTagsAndCategories.push(...event.originalCategories);
+          if (event.tags) allTags.push(...event.tags);
+          if (event.originalCategories) allTags.push(...event.originalCategories);
         });
 
         // Deduplicate tags using the same logic as event display
@@ -759,7 +762,7 @@ function HomeContent() {
         const uniqueTags: string[] = [];
 
         // Sort by preference: prefer tags with spaces and proper capitalization
-        const sortedByPreference = allTagsAndCategories.sort((a, b) => {
+        const sortedByPreference = allTags.sort((a, b) => {
           // Prefer tags with spaces over dashes
           const aHasSpaces = a.includes(' ');
           const bHasSpaces = b.includes(' ');
@@ -789,6 +792,7 @@ function HomeContent() {
         const sortedTags = uniqueTags.sort();
         const weeks = seasonWeeks.map(w => w.number);
 
+        setAvailableCategories(sortedCategories);
         setAvailableTags(sortedTags);
 
         // Update global store
@@ -1093,11 +1097,36 @@ function HomeContent() {
               )}
             </div>
 
-            {/* All Tags - Collapsible on mobile */}
-            <div className="sm:block">
-              <details className="sm:hidden">
+            {/* Categories and Tags - Mobile Expandable Sections */}
+            <div className="sm:hidden space-y-3">
+              {/* Categories - Mobile */}
+              <details>
                 <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
-                  Tags & Categories {selectedTags.length > 0 && `(${selectedTags.length} selected)`}
+                  Categories {selectedTags.filter(tag => availableCategories.includes(tag)).length > 0 && `(${selectedTags.filter(tag => availableCategories.includes(tag)).length} selected)`}
+                </summary>
+                <div className="max-h-24 overflow-y-auto mb-2">
+                  <div className="flex flex-wrap gap-1">
+                    {availableCategories.map(category => (
+                      <button
+                        key={category}
+                        onClick={() => toggleTag(category)}
+                        className={`px-1 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                          isTagSelected(category)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {category}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </details>
+
+              {/* Tags - Mobile */}
+              <details>
+                <summary className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 cursor-pointer">
+                  Tags {selectedTags.filter(tag => availableTags.includes(tag)).length > 0 && `(${selectedTags.filter(tag => availableTags.includes(tag)).length} selected)`}
                 </summary>
                 <div className="max-h-24 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1">
@@ -1119,11 +1148,38 @@ function HomeContent() {
                   </div>
                 </div>
               </details>
+            </div>
 
-              {/* Desktop tags */}
-              <div className="hidden sm:block">
+            {/* Categories and Tags - Desktop Stacked Sections */}
+            <div className="hidden sm:block space-y-4">
+              {/* Categories - Desktop */}
+              <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  All Tags & Categories
+                  Categories
+                </label>
+                <div className="max-h-24 overflow-y-auto">
+                  <div className="flex flex-wrap gap-2">
+                    {availableCategories.map(category => (
+                      <button
+                        key={category}
+                        onClick={() => toggleTag(category)}
+                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                          isTagSelected(category)
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {category}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags - Desktop */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Tags
                 </label>
                 <div className="max-h-32 overflow-y-auto">
                   <div className="flex flex-wrap gap-2">
