@@ -255,15 +255,30 @@ function HomeContent() {
     return eventDate >= oneHourAgo && eventDate <= nextWeek;
   };
 
+  // Get current Chautauqua week number (1-9) or null if not in season
+  const getCurrentChautauquaWeek = () => {
+    const now = new Date();
+    
+    for (let i = 0; i < seasonWeeks.length; i++) {
+      const week = seasonWeeks[i];
+      if (now >= week.start && now <= week.end) {
+        return week.number;
+      }
+    }
+    return null; // Not in season
+  };
+
+  const currentWeekNumber = useMemo(() => getCurrentChautauquaWeek(), [seasonWeeks]);
+
   const isThisWeek = (dateString: string) => {
-    const today = new Date();
     const eventDate = new Date(dateString);
-    const dayOfWeek = today.getDay();
-    const sunday = new Date(today);
-    sunday.setDate(today.getDate() - dayOfWeek - 1);
-    const saturday = new Date(today);
-    saturday.setDate(today.getDate() - dayOfWeek + 6);
-    return eventDate >= sunday && eventDate <= saturday;
+    
+    if (currentWeekNumber === null) {
+      return false; // Not in season
+    }
+    
+    const currentWeek = seasonWeeks[currentWeekNumber - 1];
+    return eventDate >= currentWeek.start && eventDate <= currentWeek.end;
   };
 
   const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
@@ -299,11 +314,19 @@ function HomeContent() {
       console.log('handleWeekMouseDown called for week', weekNum);
     }
 
+    // If clicking the current week, activate "This Week" filter instead
+    if (weekNum === currentWeekNumber) {
+      setDateFilter('this-week');
+      setSelectedWeeks([]);
+      return;
+    }
+
     // Batch state updates to reduce re-renders
     setIsDragging(true);
     setDragStart(weekNum);
     setHasMouseMoved(false);
     setSelectedWeeks([weekNum]);
+    setDateFilter('all'); // Clear date filter when selecting weeks
 
     // Prevent text selection during potential drag
     document.body.style.userSelect = 'none';
@@ -328,13 +351,21 @@ function HomeContent() {
   const handleWeekMouseUp = (weekNum: number) => {
     if (isDragging && dragStart !== null) {
       if (!hasMouseMoved) {
-        // This was a click, not a drag - select only this week
-        setSelectedWeeks([weekNum]);
+        // This was a click, not a drag
+        if (weekNum === currentWeekNumber) {
+          // If clicking the current week, activate "This Week" filter instead
+          setDateFilter('this-week');
+          setSelectedWeeks([]);
+        } else {
+          // Select only this week
+          setSelectedWeeks([weekNum]);
+          setDateFilter('all');
+        }
+      } else {
+        // If hasMouseMoved is true, the selection was already set in handleWeekMouseEnter
+        // Clear date filter when selecting weeks via drag
+        setDateFilter('all');
       }
-      // If hasMouseMoved is true, the selection was already set in handleWeekMouseEnter
-
-      // Clear date filter when selecting weeks
-      setDateFilter('all');
     }
 
     setIsDragging(false);
@@ -346,6 +377,13 @@ function HomeContent() {
 
   // Mobile-friendly tap-to-toggle handler
   const handleWeekTap = (weekNum: number) => {
+    // If clicking the current week, activate "This Week" filter instead
+    if (weekNum === currentWeekNumber) {
+      setDateFilter('this-week');
+      setSelectedWeeks([]);
+      return;
+    }
+
     setSelectedWeeks(prev => {
       const newSelection = prev.includes(weekNum)
         ? prev.filter(w => w !== weekNum) // Remove if already selected
@@ -805,16 +843,18 @@ function HomeContent() {
                   {seasonWeeks.map((week) => {
                     const isPast = isWeekInPast(week.number);
                     const isSelected = selectedWeeks.includes(week.number);
+                    const isCurrent = currentWeekNumber === week.number;
+                    const isCurrentWeekFilterActive = dateFilter === 'this-week' && isCurrent;
                     
                     return (
                       <div
                         key={week.number}
                         className={`w-6 h-6 flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                           isPast
-                            ? isSelected
+                            ? isSelected || isCurrentWeekFilterActive
                               ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
                               : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
-                            : isSelected
+                            : isSelected || isCurrentWeekFilterActive
                             ? 'bg-blue-600 text-white' // Current/future and selected
                             : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                         }`}
@@ -880,7 +920,7 @@ function HomeContent() {
                   }}
                   title="Show events for this week"
                   className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
-                    dateFilter === 'this-week'
+                    dateFilter === 'this-week' || (currentWeekNumber !== null && selectedWeeks.length === 1 && selectedWeeks[0] === currentWeekNumber)
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-gray-600'
                   }`}
@@ -899,16 +939,18 @@ function HomeContent() {
                     {seasonWeeks.map((week) => {
                       const isPast = isWeekInPast(week.number);
                       const isSelected = selectedWeeks.includes(week.number);
+                      const isCurrent = currentWeekNumber === week.number;
+                      const isCurrentWeekFilterActive = dateFilter === 'this-week' && isCurrent;
                       
                       return (
                         <div
                           key={week.number}
                           className={`w-8 h-8 flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                             isPast
-                              ? isSelected
+                              ? isSelected || isCurrentWeekFilterActive
                                 ? 'bg-gray-400 dark:bg-gray-500 text-white' // Past and selected
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600' // Past but not selected
-                              : isSelected
+                              : isSelected || isCurrentWeekFilterActive
                               ? 'bg-blue-600 text-white' // Current/future and selected
                               : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700' // Current/future and not selected
                           }`}
@@ -951,16 +993,15 @@ function HomeContent() {
                       });
                       return `Next events after ${timeString}`;
                     } else if (dateFilter === 'this-week') {
-                      const today = new Date();
-                      const dayOfWeek = today.getDay();
-                      const sunday = new Date(today);
-                      sunday.setDate(today.getDate() - dayOfWeek);
-                      const saturday = new Date(today);
-                      saturday.setDate(today.getDate() - dayOfWeek + 6);
-
-                      const sundayStr = sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                      const saturdayStr = saturday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                      return `This Week (${sundayStr} - ${saturdayStr})`;
+                      if (currentWeekNumber === null) {
+                        return 'This Week (Not in season)';
+                      }
+                      
+                      const currentWeek = seasonWeeks[currentWeekNumber - 1];
+                      const startStr = currentWeek.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      const endStr = currentWeek.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      
+                      return `This Week (${startStr} 12pm - ${endStr} 12pm)`;
                     } else if (selectedWeeks.length === 1) {
                       const weekNum = selectedWeeks[0];
                       const week = seasonWeeks[weekNum - 1];
