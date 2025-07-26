@@ -192,7 +192,7 @@ function HomeContent() {
       location: location,
       presenter: decodeHtmlEntities(event.presenter) || event.presenter,
       category: decodeHtmlEntities(event.category) || event.category,
-      originalCategories: decodedCategories,
+      originalCategories: decodedCategories || (event.category ? [event.category] : []),
       tags: decodedTags,
       // Also decode attachment types in case they contain HTML entities
       attachments: event.attachments?.map(att => ({
@@ -629,7 +629,6 @@ function HomeContent() {
       const description = (event.description || '').toLowerCase();
       const presenter = (event.presenter || '').toLowerCase();
       const location = (event.location || '').toLowerCase();
-      const category = (event.category || '').toLowerCase();
 
 
       // Combine all tags and categories for searching
@@ -653,7 +652,6 @@ function HomeContent() {
         }
 
         if (description.includes(currentTerm)) score += 50;
-        if (category.includes(currentTerm)) score += 80;
         if (presenter.includes(currentTerm)) score += 25;
 
         // Tag matching (including partial matches for Symphony Orchestra)
@@ -673,7 +671,6 @@ function HomeContent() {
             if (title.includes(word)) score += 10;
             if (location.includes(word)) score += 9;
             if (description.includes(word)) score += 5;
-            if (category.includes(word)) score += 8;
             if (presenter.includes(word)) score += 3;
 
             allTags.forEach(tag => {
@@ -904,8 +901,16 @@ function HomeContent() {
         setEvents(fetchedEvents);
         setDataLoaded(true);
 
-        // Extract unique categories for filter options
-        const categories = [...new Set(fetchedEvents.map((e: Event) => e.category).filter(Boolean))] as string[];
+        // Extract unique categories for filter options from originalCategories (with fallback to category)
+        const allCategories: string[] = [];
+        fetchedEvents.forEach((event: Event) => {
+          if (event.originalCategories && event.originalCategories.length > 0) {
+            allCategories.push(...event.originalCategories);
+          } else if (event.category) {
+            allCategories.push(event.category);
+          }
+        });
+        const categories = [...new Set(allCategories.filter(Boolean))] as string[];
 
         // Extract unique locations for filter options
         const locations = [...new Set(fetchedEvents.map((e: Event) => e.location).filter(Boolean))] as string[];
@@ -1471,7 +1476,7 @@ function HomeContent() {
                               </h4>
 
                               {/* Description with disclosure widget */}
-                              {(event.description || event.category) && (
+                              {(event.description || (event.originalCategories && event.originalCategories.filter(cat => !cat.startsWith('Week ')).length > 0)) && (
                                 <div className="mb-2">
                                   {expandedDescriptions.has(event.id) ? (
                                     <div>
@@ -1487,20 +1492,21 @@ function HomeContent() {
                                         <p className="text-gray-600 dark:text-gray-300 text-sm mb-2">{event.description}</p>
                                       )}
 
-                                      {/* Show category when expanded */}
+                                      {/* Show all categories when expanded (excluding Week categories) */}
                                       <div className="mb-2 flex flex-wrap gap-1">
-                                        {event.category && (
+                                        {event.originalCategories?.filter(category => !category.startsWith('Week ')).map((category, index) => (
                                           <button
-                                            onClick={() => toggleTag(event.category!)}
+                                            key={`${event.id}-category-${index}`}
+                                            onClick={() => toggleTag(category)}
                                             className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                                              isTagSelected(event.category!)
+                                              isTagSelected(category)
                                                 ? 'bg-blue-600 text-white'
                                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                                             }`}
                                           >
-                                            {event.category}
+                                            {getCategoryDisplayName(category)}
                                           </button>
-                                        )}
+                                        ))}
                                       </div>
 
                                     </div>
