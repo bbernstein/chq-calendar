@@ -206,6 +206,64 @@ function HomeContent() {
     [selectedTags, availableCategories]
   );
 
+  // localStorage utilities for persisting user state
+  const saveUserState = useCallback(() => {
+    try {
+      const userState = {
+        searchTerm,
+        selectedTags,
+        selectedLocations,
+        dateFilter,
+        selectedWeeks,
+        expandedDescriptions: Array.from(expandedDescriptions),
+        lastSaved: Date.now()
+      };
+      localStorage.setItem('chq-calendar-user-state', JSON.stringify(userState));
+    } catch (e) {
+      console.warn('Failed to save user state to localStorage:', e);
+    }
+  }, [searchTerm, selectedTags, selectedLocations, dateFilter, selectedWeeks, expandedDescriptions]);
+
+  const loadUserState = useCallback(() => {
+    try {
+      const savedState = localStorage.getItem('chq-calendar-user-state');
+      if (savedState) {
+        const parsed = JSON.parse(savedState);
+        // Only load state if it's less than 30 days old
+        if (parsed.lastSaved && Date.now() - parsed.lastSaved < 30 * 24 * 60 * 60 * 1000) {
+          return {
+            searchTerm: parsed.searchTerm || '',
+            selectedTags: parsed.selectedTags || [],
+            selectedLocations: parsed.selectedLocations || [],
+            dateFilter: parsed.dateFilter || 'next',
+            selectedWeeks: parsed.selectedWeeks || [],
+            expandedDescriptions: new Set<string>(parsed.expandedDescriptions || [])
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load user state from localStorage:', e);
+    }
+    return null;
+  }, []);
+
+  // Save user state to localStorage whenever filter state changes
+  useEffect(() => {
+    saveUserState();
+  }, [saveUserState]);
+
+  // Restore user state from localStorage on component mount
+  useEffect(() => {
+    const savedState = loadUserState();
+    if (savedState) {
+      setSearchTerm(savedState.searchTerm);
+      setSelectedTags(savedState.selectedTags);
+      setSelectedLocations(savedState.selectedLocations);
+      setDateFilter(savedState.dateFilter);
+      setSelectedWeeks(savedState.selectedWeeks);
+      setExpandedDescriptions(savedState.expandedDescriptions);
+    }
+  }, [loadUserState]);
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
   const getChautauquaSeasonWeeks = (year: number = 2025) => {
