@@ -93,7 +93,7 @@ function HomeContent() {
   // Constants for cache and state management
   const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
   const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
-  
+
   const globalEventData = useGlobalEventData();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
@@ -127,6 +127,15 @@ function HomeContent() {
   const locationShortcuts: Record<string, string> = {
     "Elizabeth S. Lenna Hall": "Lenna Hall",
     "AAHH African American Heritage House": "AAHH",
+    "Fletcher Music Hall": "Fletcher Hall",
+    "Smith Wilkes Hall": "Smith Wilkes",
+    "Alumni Hall Ballroom": "Alumni Hall",
+    "Chabad Jewish House": "Chabad House",
+    "Fowler-Kellogg Art Center 2nd floor": "Fowler-Kellogg 2nd Floor",
+    "Fowler-Kellogg Art Center: 1st floor": "Fowler-Kellogg 1st Floor",
+    "Everett Jewish Life Center": "Everett Jewish Center",
+    "Hall of Christ: Sanctuary": "Hall of Christ",
+    "Denominational Houses (Selected)": "Denominational Houses",
   };
 
   const categoryShortcuts: Record<string, string> = {
@@ -717,24 +726,13 @@ function HomeContent() {
 
         // Exact phrase matches (highest priority)
         if (title.includes(currentTerm)) score += 100;
-
-        if (currentTerm === 'amp') {
-          if (location.includes('amphitheater')) score += 100;
-        } else {
-          if (location.includes(currentTerm)) score += 90;
-        }
-
+        if (location.includes(currentTerm)) score += 90;
         if (description.includes(currentTerm)) score += 50;
         if (presenter.includes(currentTerm)) score += 25;
 
         // Tag matching (including partial matches for Symphony Orchestra)
         allTagsLower.forEach(tag => {
           if (tag.includes(currentTerm)) score += 85;
-          // Special case: "cso" or "symphony" should match "Chautauqua Symphony Orchestra/Classical Concerts"
-          if ((currentTerm === 'cso' || currentTerm === 'symphony') &&
-              tag.includes('chautauqua symphony orchestra/classical concerts')) {
-            score += 95;
-          }
         });
 
         // Word matches (lower priority)
@@ -1350,7 +1348,7 @@ function HomeContent() {
                   </span>
                   {recentLocations.length > 0 && (
                     <div className={`flex-1 min-w-0 pills-scroll-container ${locationScrollState.canScrollLeft ? 'scrolled-right' : ''} ${!locationScrollState.canScrollRight ? 'scrolled-to-end' : ''}`}>
-                      <div 
+                      <div
                         ref={locationScrollRef}
                         className="flex gap-2 pb-1 overflow-x-auto overflow-y-hidden scrollbar-hide pr-4"
                         onScroll={(e) => handleScrollEvent(e, 'location')}
@@ -1378,7 +1376,7 @@ function HomeContent() {
                   )}
                 </summary>
                 <div className={`filter-list-container mb-2 ${locationListScrollState.canScrollUp ? 'scrolled-down' : ''} ${locationListScrollState.canScrollDown ? 'can-scroll-down' : ''}`}>
-                  <div 
+                  <div
                     ref={locationListRef}
                     className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"
                     onScroll={(e) => handleVerticalScrollEvent(e, 'locationList')}
@@ -1387,6 +1385,7 @@ function HomeContent() {
                       {availableLocations.map(location => (
                       <button
                         key={location}
+                        title={location} // Tooltip showing full name
                         onClick={() => toggleLocation(location)}
                         className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
                           isLocationSelected(location)
@@ -1394,7 +1393,7 @@ function HomeContent() {
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {location}
+                        {getLocationDisplayName(location)}
                       </button>
                     ))}
                     </div>
@@ -1413,7 +1412,7 @@ function HomeContent() {
                   </span>
                   {recentCategories.length > 0 && (
                     <div className={`flex-1 min-w-0 pills-scroll-container ${categoryScrollState.canScrollLeft ? 'scrolled-right' : ''} ${!categoryScrollState.canScrollRight ? 'scrolled-to-end' : ''}`}>
-                      <div 
+                      <div
                         ref={categoryScrollRef}
                         className="flex gap-2 pb-1 overflow-x-auto overflow-y-hidden scrollbar-hide pr-4"
                         onScroll={(e) => handleScrollEvent(e, 'category')}
@@ -1441,7 +1440,7 @@ function HomeContent() {
                   )}
                 </summary>
                 <div className={`filter-list-container mb-2 ${categoryListScrollState.canScrollUp ? 'scrolled-down' : ''} ${categoryListScrollState.canScrollDown ? 'can-scroll-down' : ''}`}>
-                  <div 
+                  <div
                     ref={categoryListRef}
                     className="max-h-24 sm:max-h-32 overflow-y-auto scrollable-list"
                     onScroll={(e) => handleVerticalScrollEvent(e, 'categoryList')}
@@ -1452,6 +1451,7 @@ function HomeContent() {
                         .map(category => (
                       <button
                         key={category}
+                        title={category} // Tooltip showing full name
                         onClick={() => toggleTag(category)}
                         className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs font-medium transition-colors ${
                           isTagSelected(category)
@@ -1459,7 +1459,7 @@ function HomeContent() {
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {category}
+                        {getCategoryDisplayName(category)}
                       </button>
                     ))}
                     </div>
