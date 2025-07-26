@@ -132,7 +132,7 @@ function HomeContent() {
     "Alumni Hall Ballroom": "Alumni Hall",
     "Chabad Jewish House": "Chabad House",
     "Fowler-Kellogg Art Center 2nd floor": "Fowler-Kellogg 2nd Floor",
-    "Fowler-Kellogg Art Center: 1st floor": "Fowler-Kellogg 1st Floor",
+    "Fowler-Kellogg Art Center: 1st Floor": "Fowler-Kellogg 1st Floor",
     "Everett Jewish Life Center": "Everett Jewish Center",
     "Hall of Christ: Sanctuary": "Hall of Christ",
     "Denominational Houses (Selected)": "Denominational Houses",
