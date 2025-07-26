@@ -334,17 +334,32 @@ function HomeContent() {
     if (event.metaKey || event.ctrlKey) {
       // CMD/CTRL-Click: Toggle individual week (including current week)
       setSelectedWeeks(prev => {
-        return prev.includes(weekNum)
-          ? prev.filter(w => w !== weekNum)
-          : [...prev, weekNum].sort((a, b) => a - b);
+        // If current week is active via "This Week" filter but not in selectedWeeks,
+        // treat it as if it were selected
+        const isCurrentWeekActive = weekNum === currentWeekNumber && dateFilter === 'this-week';
+        const isInSelection = prev.includes(weekNum) || isCurrentWeekActive;
+        
+        return isInSelection
+          ? prev.filter(w => w !== weekNum) // Remove if selected (will be empty if it was only "This Week")
+          : [...prev, weekNum].sort((a, b) => a - b); // Add if not selected
       });
       setDateFilter('all'); // Always clear "This Week" filter for cmd-click
       return;
     }
 
-    if (event.shiftKey && selectedWeeks.length > 0) {
+    // Check if we have existing selections - either in selectedWeeks or via "This Week" filter
+    const hasExistingSelection = selectedWeeks.length > 0 || (dateFilter === 'this-week' && currentWeekNumber !== null);
+    
+    if (event.shiftKey && hasExistingSelection) {
       // Shift-Click: Extend selection to nearest existing week (including current week)
-      const existingWeeks = [...selectedWeeks].sort((a, b) => a - b);
+      const existingWeeks = [...selectedWeeks];
+      
+      // If current week is active via "This Week" filter, include it in existing weeks
+      if (dateFilter === 'this-week' && currentWeekNumber !== null && !existingWeeks.includes(currentWeekNumber)) {
+        existingWeeks.push(currentWeekNumber);
+      }
+      
+      existingWeeks.sort((a, b) => a - b);
       const minExisting = existingWeeks[0];
       const maxExisting = existingWeeks[existingWeeks.length - 1];
       
