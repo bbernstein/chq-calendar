@@ -90,6 +90,10 @@ function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
 }
 
 function HomeContent() {
+  // Constants for cache and state management
+  const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
+  const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+  
   const globalEventData = useGlobalEventData();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
@@ -101,8 +105,7 @@ function HomeContent() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  // const [availableTags, setAvailableTags] = useState<string[]>([]); // Currently unused
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
   const [recentLocations, setRecentLocations] = useState<string[]>([]);
@@ -183,8 +186,8 @@ function HomeContent() {
 
     // Extract location from venue if it exists, otherwise use location field
     const location = event.venue?.name
-      ? decodeHtmlEntities(event.venue.name) || event.venue.name
-      : decodeHtmlEntities(event.location) || event.location;
+      ? (decodeHtmlEntities(event.venue.name) || event.venue.name)
+      : (decodeHtmlEntities(event.location) || event.location);
 
     return {
       ...event,
@@ -193,7 +196,7 @@ function HomeContent() {
       location: location,
       presenter: decodeHtmlEntities(event.presenter) || event.presenter,
       category: decodeHtmlEntities(event.category) || event.category,
-      originalCategories: decodedCategories || (event.categories?.map(cat => cat.name) || (event.category ? [event.category] : [])),
+      originalCategories: decodedCategories || [],
       tags: decodedTags,
       // Also decode attachment types in case they contain HTML entities
       attachments: event.attachments?.map(att => ({
@@ -288,7 +291,7 @@ function HomeContent() {
       if (savedState) {
         const parsed = JSON.parse(savedState);
         // Only load state if it's less than 30 days old
-        if (parsed.lastSaved && Date.now() - parsed.lastSaved < 30 * 24 * 60 * 60 * 1000) {
+        if (parsed.lastSaved && Date.now() - parsed.lastSaved < USER_STATE_EXPIRY_MS) {
           return {
             searchTerm: parsed.searchTerm || '',
             selectedTags: parsed.selectedTags || [],
@@ -305,7 +308,7 @@ function HomeContent() {
       console.warn('Failed to load user state from localStorage:', e);
     }
     return null;
-  }, []);
+  }, [USER_STATE_EXPIRY_MS]);
 
   // Save user state to localStorage whenever filter state changes (only after initialization)
   useEffect(() => {
@@ -633,10 +636,11 @@ function HomeContent() {
 
 
       // Combine all tags and categories for searching
-      const allTags = [
+      // Use pre-computed lowercase tags set for better performance
+      const allTagsLower = event._tagsLowerSet || new Set([
         ...(event.tags || []),
         ...(event.categories?.map(cat => cat.name) || [])
-      ].map(tag => tag.toLowerCase());
+      ].map(tag => tag.toLowerCase()));
 
       let score = 0;
 
@@ -656,7 +660,7 @@ function HomeContent() {
         if (presenter.includes(currentTerm)) score += 25;
 
         // Tag matching (including partial matches for Symphony Orchestra)
-        allTags.forEach(tag => {
+        allTagsLower.forEach(tag => {
           if (tag.includes(currentTerm)) score += 85;
           // Special case: "cso" or "symphony" should match "Chautauqua Symphony Orchestra/Classical Concerts"
           if ((currentTerm === 'cso' || currentTerm === 'symphony') &&
@@ -674,7 +678,7 @@ function HomeContent() {
             if (description.includes(word)) score += 5;
             if (presenter.includes(word)) score += 3;
 
-            allTags.forEach(tag => {
+            allTagsLower.forEach(tag => {
               if (tag.includes(word)) score += 7;
             });
           }
@@ -829,7 +833,6 @@ function HomeContent() {
       setEvents(decodedEvents);
       setAvailableCategories(globalEventData.categories);
       setAvailableLocations(globalEventData.locations || []);
-      setAvailableTags(globalEventData.tags);
       setDataLoaded(true);
       return;
     }
@@ -855,14 +858,13 @@ function HomeContent() {
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           // Check if cache is less than 1 hour old AND has the correct version
-          if (parsed.timestamp && Date.now() - parsed.timestamp < 3600000 && parsed.version === 'v3-categories') {
+          if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v3-categories') {
             console.log('Loading events from local cache (v3-categories)');
             // Events should already be decoded, but decode again as safety measure
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
             setAvailableCategories(parsed.categories);
             setAvailableLocations(parsed.locations || []);
-            setAvailableTags(parsed.tags);
             setDataLoaded(true);
             isLoadingRef.current = false;
             return;
@@ -962,7 +964,6 @@ function HomeContent() {
 
         setAvailableCategories(sortedCategories);
         setAvailableLocations(sortedLocations);
-        setAvailableTags(sortedTags);
 
         // Update global store
         if (globalEventData.setGlobalEventData) {
