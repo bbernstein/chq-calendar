@@ -697,7 +697,7 @@ function HomeContent() {
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
       setAvailableCategories(globalEventData.categories);
-      setAvailableLocations(globalEventData.locations);
+      setAvailableLocations(globalEventData.locations || []);
       setAvailableTags(globalEventData.tags);
       setDataLoaded(true);
       return;
@@ -730,7 +730,7 @@ function HomeContent() {
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
             setAvailableCategories(parsed.categories);
-            setAvailableLocations(parsed.locations);
+            setAvailableLocations(parsed.locations || []);
             setAvailableTags(parsed.tags);
             setDataLoaded(true);
             isLoadingRef.current = false;
@@ -1138,7 +1138,7 @@ function HomeContent() {
                 </summary>
                 <div className="max-h-24 overflow-y-auto mb-2">
                   <div className="flex flex-wrap gap-1">
-                    {availableLocations.map(location => (
+                    {(availableLocations || []).map(location => (
                       <button
                         key={location}
                         onClick={() => toggleLocation(location)}
@@ -1215,7 +1215,7 @@ function HomeContent() {
                 </label>
                 <div className="max-h-24 overflow-y-auto">
                   <div className="flex flex-wrap gap-2">
-                    {availableLocations.map(location => (
+                    {(availableLocations || []).map(location => (
                       <button
                         key={location}
                         onClick={() => toggleLocation(location)}
