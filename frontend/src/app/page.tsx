@@ -193,7 +193,7 @@ function HomeContent() {
       location: location,
       presenter: decodeHtmlEntities(event.presenter) || event.presenter,
       category: decodeHtmlEntities(event.category) || event.category,
-      originalCategories: decodedCategories || (event.category ? [event.category] : []),
+      originalCategories: decodedCategories || (event.categories?.map(cat => cat.name) || (event.category ? [event.category] : [])),
       tags: decodedTags,
       // Also decode attachment types in case they contain HTML entities
       attachments: event.attachments?.map(att => ({
