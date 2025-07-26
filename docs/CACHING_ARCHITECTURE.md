@@ -116,10 +116,23 @@ resource "aws_s3_bucket" "cache_bucket" {
 
 ### Cache Key Generation
 ```typescript
-const cacheKey = {
-  filters: filters || {},
-  timestamp: Math.floor(Date.now() / (1000 * 60 * TTL_MINUTES))
-};
+// Predictable keys for common queries
+if (keyParams.filters !== undefined && Object.keys(keyParams.filters).length === 0) {
+  return 'all-events';
+}
+
+// Date range queries
+if (keyParams.filters?.dateRange) {
+  const { start, end } = keyParams.filters.dateRange;
+  return start === end ? `events-${start}` : `events-${start}-to-${end}`;
+}
+
+// Category-specific queries
+if (keyParams.filters?.categories && keyParams.filters.categories.length === 1) {
+  return `category-${keyParams.filters.categories[0].toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+}
+
+// Complex queries use hashed keys
 const hashedKey = crypto.createHash('sha256')
   .update(JSON.stringify(sortedParams))
   .digest('hex')

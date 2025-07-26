@@ -1,13 +1,16 @@
 # Chautauqua Calendar
 
-A dynamic calendar for Chautauqua Institution 2025 season with real-time event updates.
+A dynamic, filterable calendar application for the Chautauqua Institution 2025 season. Features intelligent filtering by week, location, category, and search with responsive design optimized for all devices.
 
 ## Features
-- 🔄 Live data sync from official Chautauqua sources
-- 🎯 Smart multi-dimensional filtering
-- 📅 Export to Google Calendar, Outlook, or .ics files
-- 📱 Mobile-responsive interface
-- 🔔 Real-time update notifications
+- 🔄 Automated data sync from official Chautauqua sources
+- 🎯 Smart multi-dimensional filtering (week, location, category, search)
+- 📝 Community feedback system with admin management
+- 📱 Mobile-first responsive design with horizontal scrolling
+- 🏷️ Recent items tracking with FIFO system (10 most recent)
+- 🔍 Intelligent search with location/category shortcuts
+- 📊 Visual scroll indicators and expandable filter sections
+- 🌐 HTML entity decoding for proper text display
 
 ## Documentation
 
@@ -16,6 +19,8 @@ A dynamic calendar for Chautauqua Institution 2025 season with real-time event u
 - [API Integration Design](docs/API_INTEGRATION_DESIGN.md) - Technical architecture and API details
 - [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment instructions
 - [System Design](docs/DESIGN.md) - Overall system architecture and design decisions
+- [Caching Architecture](docs/CACHING_ARCHITECTURE.md) - Data caching and performance optimization
+- [OAuth Setup](docs/OAuth-Setup.md) - Authentication configuration for admin features
 
 ## Development Workflow
 
@@ -80,15 +85,17 @@ cd backend && npm run deploy
 ./scripts/deploy-frontend.sh
 ```
 
-📋 **For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md)**
+📋 **For detailed deployment instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**
 
 ## Architecture
-- **Frontend**: Next.js with TypeScript and Tailwind CSS (static export to S3)
+- **Frontend**: Next.js 15.3.5 with React 19, TypeScript, and Tailwind CSS 4 (static export to S3)
 - **Backend**: Serverless AWS Lambda functions with TypeScript
-  - `calendar_generator`: Public calendar and feedback endpoints
-  - `admin_handler`: OAuth authentication and admin management
+  - `calendarHandler`: Public calendar endpoints with intelligent filtering
+  - `adminHandler`: OAuth authentication and feedback management
+  - `syncHandler`: Automated data synchronization from Chautauqua sources
 - **Infrastructure**: AWS (S3, CloudFront, API Gateway, Lambda, DynamoDB)
-- **Data Sources**: Chautauqua API, RSS feeds, iCal feeds, web scraping
+- **Data Sources**: Chautauqua Institution ICS calendar feeds
+- **Database**: DynamoDB with optimized indexes for filtering and search
 
 ## Local Development
 
@@ -108,18 +115,22 @@ docker-compose up -d --build
 ```
 
 ### Local Services
-- **Frontend**: http://localhost:3000 (Next.js)
+- **Frontend**: http://localhost:3000 (Next.js with hot reloading)
 - **DynamoDB Local**: http://localhost:8000
 - **DynamoDB Admin**: http://localhost:8001
+- **Backend**: Runs on AWS Lambda (production endpoints)
+- **Admin Panel**: http://localhost:3000/admin/feedback (development mode)
 
-**Note**: Backend now runs as serverless Lambda functions in AWS. For local development, admin features require deploying Lambda functions to AWS or using production endpoints.
+**Note**: The application uses AWS Lambda functions for backend services. Local development connects to production endpoints for API calls while providing a local admin interface for development.
 
 ### Local Development Features
-- Hot reloading for frontend
-- Local DynamoDB with persistent data
+- Hot reloading for frontend with instant filter updates
+- Local DynamoDB with persistent data storage
 - DynamoDB Admin UI for database management
-- Frontend connects to production Lambda functions for admin features
-- Environment variables configured for local development
+- Development mode authentication bypass for admin features
+- State persistence in localStorage with cache versioning
+- Real-time scroll indicators and responsive pill display
+- FIFO recent items tracking for improved user experience
 
 ### Useful Commands
 ```bash
