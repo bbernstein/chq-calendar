@@ -4,11 +4,11 @@ This guide covers all deployment options for the Chautauqua Calendar application
 
 ## 📋 Overview
 
-The application consists of three main components:
+The application consists of four main components:
 - **Infrastructure**: AWS resources (S3, CloudFront, Lambda, DynamoDB)
-- **Backend**: Two Lambda functions (calendar handler and admin handler)
+- **Backend**: Lambda functions (data sync, feedback, admin, and health handlers)
 - **Frontend**: Next.js 15.3.5 static site with React 19 and TypeScript
-- **Data Sync**: Automated Lambda function for calendar data synchronization
+- **Static Data**: JSON file generation and CloudFront distribution
 
 ## 🚀 Quick Deployment
 
@@ -17,10 +17,10 @@ The application consists of three main components:
 The application deploys automatically via GitHub Actions when code is pushed to the `main` branch:
 
 1. **Automated Build**: Node.js 24, TypeScript compilation
-2. **Backend Deploy**: Calendar and admin Lambda functions with dependencies
+2. **Backend Deploy**: Data sync, feedback, admin, and health Lambda functions
 3. **Frontend Deploy**: Static Next.js build to S3 + CloudFront invalidation
-4. **Health Checks**: API endpoint testing and event count validation
-5. **Cache Warming**: Automatic calendar data sync trigger
+4. **Health Checks**: Static file validation and API endpoint testing
+5. **Data Sync**: Automatic event data sync and static file generation
 
 Manual deployment can be triggered via GitHub Actions "workflow_dispatch".
 
@@ -90,13 +90,14 @@ npm run dev
 
 ### Production
 - **Website**: https://www.chqcal.org
-- **API**: https://www.chqcal.org/api (via CloudFront)
+- **Event Data**: https://www.chqcal.org/cache/calendar-cache/all-events.json
 - **Admin API**: https://admin-api.chqcal.org
 - **Feedback**: https://www.chqcal.org/feedback
 
 ### Local Development
 - **Website**: http://localhost:3000
-- **API**: Uses production endpoints (https://www.chqcal.org/api)
+- **Event Data**: Uses production static file endpoint
+- **Feedback/Admin**: Uses production API endpoints
 
 ## 📋 Prerequisites
 
@@ -113,16 +114,18 @@ npm run dev
 
 ## 🔍 Health Checks
 
+### Static Event Data Check
+```bash
+# Check if event data file exists and is fresh
+curl -I https://www.chqcal.org/cache/calendar-cache/all-events.json
+
+# Verify event data structure and count
+curl -s https://www.chqcal.org/cache/calendar-cache/all-events.json | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
+```
+
 ### API Health Check
 ```bash
 curl https://www.chqcal.org/api/health
-```
-
-### Get Calendar Events
-```bash
-curl -X POST https://www.chqcal.org/api/calendar \
-  -H "Content-Type: application/json" \
-  -d '{"filters": {}}'
 ```
 
 ### Test Admin API (requires authentication)
@@ -199,9 +202,10 @@ The workflow is triggered on pushes to `main` branch or manual dispatch.
 ## 📊 Monitoring & Logs
 
 ### CloudWatch Logs
-- Calendar Lambda: `/aws/lambda/chq-calendar-generator` 
-- Admin Lambda: `/aws/lambda/chq-calendar-admin`
 - Data Sync Lambda: `/aws/lambda/chq-calendar-data-sync`
+- Feedback Lambda: `/aws/lambda/chq-calendar-feedback`
+- Admin Lambda: `/aws/lambda/chq-calendar-admin`
+- Health Lambda: `/aws/lambda/chq-calendar-health`
 - CloudFront logs: Available in S3 if enabled
 
 ### Monitoring Commands
@@ -222,25 +226,27 @@ aws logs describe-log-groups --log-group-name-prefix "API-Gateway"
 
 ### IAM Permissions
 The deployment requires GitHub Actions to have permissions for:
-- **Lambda**: Function updates, environment variable management
-- **S3**: Frontend deployment and cache bucket operations
+- **Lambda**: Function updates for sync, feedback, admin, and health handlers
+- **S3**: Frontend deployment and static file operations
 - **CloudFront**: Cache invalidation and distribution management
-- **DynamoDB**: Table access for the application (handled by Lambda execution roles)
-- **EventBridge**: Calendar sync scheduling (handled by Lambda)
+- **DynamoDB**: Table access for Events and Feedback tables (handled by Lambda execution roles)
+- **EventBridge**: Data sync scheduling (handled by Lambda)
 
 Lambda execution roles include permissions for DynamoDB, S3 cache bucket, and CloudWatch logs.
 
 ## 📈 Performance
 
 ### Optimization Tips
-- CloudFront caching reduces load times globally
-- DynamoDB on-demand scaling handles traffic spikes
-- Lambda cold starts optimized with smaller bundle sizes
+- Static JSON file delivery via CloudFront provides global edge caching
+- No Lambda cold starts for event data requests (99% of traffic)
+- DynamoDB on-demand scaling handles sync and feedback operations
+- Client-side filtering eliminates API latency
 
 ### Cost Optimization
-- S3 uses lifecycle policies for old assets
-- CloudFront reduces origin requests
-- DynamoDB on-demand billing only for actual usage
+- Static file approach eliminates Lambda invocation costs for events
+- CloudFront caching reduces S3 origin requests
+- DynamoDB on-demand billing only for sync and feedback operations
+- Predictable costs: storage + bandwidth for event delivery
 
 ## 📞 Support
 
