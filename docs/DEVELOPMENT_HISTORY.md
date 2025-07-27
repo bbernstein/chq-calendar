@@ -112,10 +112,10 @@ graph TB
         FetchAll4 --> APIGW4[API Gateway]
         APIGW4 --> Lambda7[Lambda]
         Lambda7 --> CacheCheck{Cache Check}
-        CacheCheck --> MemCache[1. Memory Cache - Fastest]
-        CacheCheck --> S3Cache[2. S3 Cache - Persistent]
-        CacheCheck --> DDBFallback[3. DynamoDB - Fallback]
-        MemCache --> CachedJSON[Cached Events JSON]
+        CacheCheck --> LocalCache[Local LRU Cache - Fastest]
+        CacheCheck --> S3Cache[S3 Cache - Persistent]
+        CacheCheck --> DDBFallback[DynamoDB - Fallback]
+        LocalCache --> CachedJSON[Cached Events JSON]
         S3Cache --> CachedJSON
         DDBFallback --> CachedJSON
     end
@@ -208,7 +208,7 @@ graph TB
 
 **What Changed:**
 - Added multi-layer caching to backend Lambda
-- Memory cache for warm Lambda instances
+- Local LRU cache for warm Lambda instances
 - S3 cache for persistence across Lambda cold starts
 - Batch process and frontend unchanged
 
