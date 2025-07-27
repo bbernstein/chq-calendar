@@ -23,21 +23,55 @@ The Chautauqua Calendar is a full-stack serverless application designed to provi
 
 ### High-Level Architecture
 
+```mermaid
+graph TB
+    subgraph Frontend[Frontend - Static Site]
+        NextJS[Next.js App] --> StaticFiles[Static HTML/CSS/JS]
+        StaticFiles --> CloudFront[CloudFront Distribution]
+    end
+    
+    subgraph DataLayer[Data Layer - Static + Dynamic]
+        StaticJSON[Static JSON File] --> CloudFront
+        DynamoDB[(DynamoDB)]
+        S3[S3 Bucket]
+        StaticJSON --> S3
+    end
+    
+    subgraph Backend[Backend - Lambda Functions]
+        SyncLambda[Sync Handler]
+        FeedbackLambda[Feedback Handler] 
+        AdminLambda[Admin Handler]
+        HealthLambda[Health Handler]
+    end
+    
+    subgraph External[External APIs]
+        EventsAPI[Events Calendar API]
+        reCAPTCHA[Google reCAPTCHA]
+        OAuth[Google OAuth 2.0]
+    end
+    
+    SyncLambda --> EventsAPI
+    SyncLambda --> DynamoDB
+    SyncLambda --> StaticJSON
+    FeedbackLambda --> reCAPTCHA
+    FeedbackLambda --> DynamoDB
+    AdminLambda --> OAuth
+    AdminLambda --> DynamoDB
+    
+    CloudFront --> Users[End Users]
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│                 │    │                 │    │                 │
-│    Frontend     │    │     Backend     │    │ Infrastructure  │
-│   (Next.js)     │◄──►│   (AWS Lambda)  │◄──►│     (AWS)       │
-│                 │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                        │                        │
-         │                        │                        │
-         ▼                        ▼                        ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Static Website  │    │ Express Server  │    │ Local DynamoDB  │
-│ (Development)   │    │ (Development)   │    │ (Development)   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
+
+### Development vs Production
+
+**Production:**
+- Frontend served via CloudFront CDN
+- Static event data from `/cache/calendar-cache/all-events.json`
+- Lambda functions for data sync and feedback only
+
+**Development:**
+- Local Next.js dev server
+- Production API endpoints for backend functionality
+- Local DynamoDB for testing
 
 ### Technology Stack
 
@@ -137,42 +171,48 @@ const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
 ### API Architecture
 
-**RESTful API Design:**
+**Current API Design:**
 ```
-POST /calendar     # Get filtered calendar events
-POST /sync         # Trigger manual data sync
-GET  /health       # Health check endpoint
+GET  /cache/calendar-cache/all-events.json  # Static calendar data (via CloudFront)
+POST /sync                                   # Trigger manual data sync
+GET  /health                                # Health check endpoint
+POST /feedback                              # Submit feedback (reCAPTCHA protected)
+GET  /admin/feedback                        # Admin feedback access (OAuth protected)
 ```
 
 **Handler Structure:**
 ```
 src/handlers/
-├── calendarHandler.ts    # Main calendar API
-├── syncHandler.ts        # Data synchronization
-└── healthHandler.ts      # Health monitoring
+├── syncHandler.ts        # Data synchronization and static file generation
+├── healthHandler.ts      # Health monitoring
+├── feedbackHandler.ts    # Feedback submission
+└── adminHandler.ts       # Admin authentication and feedback access
 ```
 
 ### Service Layer
 
 **Core Services:**
-1. **DataSyncService** - Manages data synchronization
-2. **ICSParserService** - Parses and processes ICS calendar data
+1. **DataSyncService** - Manages data synchronization and static file generation
+2. **EventsCalendarApiService** - Integrates with Events Calendar REST API
 3. **DatabaseService** - Abstracts DynamoDB operations
 4. **CategoryService** - Handles event categorization
+5. **FeedbackService** - Manages feedback submission and retrieval
+6. **AdminAuthService** - Handles OAuth authentication for admin access
 
 ### Data Synchronization Strategy
 
-**Proximity-Based Sync Frequency:**
-- **Current Events**: 30-minute intervals
-- **Tomorrow's Events**: 2-hour intervals
-- **Future Events**: 24-hour intervals
-- **Full Sync**: Weekly on Sundays at 2 AM UTC
+**Scheduled Sync Frequency:**
+- **Current Events**: Hourly updates via EventBridge
+- **Full Season Sync**: Daily updates for complete dataset
+- **Manual Sync**: Available via `/sync` endpoint for immediate updates
 
-**Incremental Update Process:**
-1. Fetch latest ICS data from Chautauqua.org
-2. Compare with stored events using UID and last-modified timestamps
-3. Update only changed events to minimize database operations
-4. Log changes for audit trail
+**Sync Process:**
+1. Fetch events from Events Calendar REST API
+2. Process and enrich event data (venues, categories, presenters)
+3. Store in DynamoDB Events table
+4. Generate complete static JSON file from DynamoDB data
+5. Upload `all-events.json` to S3 for CloudFront distribution
+6. Trigger CloudFront cache invalidation
 
 ### Database Design
 
@@ -181,9 +221,14 @@ src/handlers/
 Table: ChautauquaEvents
 - Partition Key: uid (string)
 - Sort Key: N/A (single-item table)
-- Attributes: title, description, startDate, endDate, location, category, tags, etc.
+- Attributes: id, title, description, startDate, endDate, venue, categories, etc.
 
-Global Secondary Indexes:
+Table: ChautauquaFeedback
+- Partition Key: id (string)
+- Sort Key: N/A
+- Attributes: message, email, timestamp, status, etc.
+
+Global Secondary Indexes (Events):
 - WeekIndex: week (PK) + startDate (SK)
 - DateIndex: startDate (PK)
 - CategoryIndex: category (PK) + startDate (SK)
@@ -191,13 +236,15 @@ Global Secondary Indexes:
 
 ### Event Processing Pipeline
 
-**ICS Parsing & Enhancement:**
-1. Parse ICS format to extract basic event data
-2. Normalize event fields (dates, locations, descriptions)
-3. Extract presenters from event titles using regex patterns
-4. Categorize events using keyword matching
-5. Generate tags from descriptions and titles
-6. Calculate Chautauqua season week numbers
+**API Integration & Enhancement:**
+1. Fetch structured event data from Events Calendar REST API
+2. Transform API response to ChautauquaEvent format
+3. Extract venue information (ID, name, address)
+4. Process hierarchical categories and relationships
+5. Extract presenters from event titles using regex patterns
+6. Generate tags from descriptions and categories
+7. Calculate Chautauqua season week numbers
+8. Enrich with additional metadata (images, cost, featured status)
 
 ---
 
@@ -383,9 +430,9 @@ services:
 - **Trade-offs**: Slight complexity increase, static build constraints
 
 **Client-Side vs. Server-Side Filtering:**
-- **Chosen**: Client-side filtering with intelligent state management
-- **Rationale**: Instant results, reduced API calls, better UX, FIFO recent items tracking
-- **Trade-offs**: Larger initial payload, memory usage, but offset by local state persistence
+- **Chosen**: Client-side filtering with static file download
+- **Rationale**: Instant results, no API calls needed, better UX, FIFO recent items tracking
+- **Trade-offs**: Larger initial download (~1470 events), but cached globally via CloudFront
 
 ### Backend Architecture Decisions
 
@@ -399,17 +446,65 @@ services:
 - **Rationale**: Serverless, predictable performance, AWS integration
 - **Trade-offs**: Query limitations, eventual consistency
 
-### Data Synchronization Strategy
+### Data Architecture Strategy
 
 **Pull vs. Push Model:**
-- **Chosen**: Pull model with scheduled sync
-- **Rationale**: Chautauqua doesn't provide webhooks, reliable scheduling
-- **Trade-offs**: Potential delay in updates, resource usage
+- **Chosen**: Pull model with scheduled sync to static files
+- **Rationale**: Chautauqua doesn't provide webhooks, static files eliminate API calls
+- **Trade-offs**: Hourly update frequency, but offset by global caching
 
-**Incremental vs. Full Sync:**
-- **Chosen**: Incremental sync with periodic full sync
-- **Rationale**: Efficiency, reduced API load, faster updates
-- **Trade-offs**: Complexity, potential for inconsistencies
+**Static File vs. Dynamic API:**
+- **Chosen**: Static file generation from complete dataset
+- **Rationale**: Maximum performance, global caching, eliminates Lambda costs
+- **Trade-offs**: Complete file regeneration needed, but only ~1470 events
+
+## Current Data Flow Architecture
+
+### Event Data Delivery
+
+```mermaid
+graph TB
+    subgraph Scheduled[Scheduled Data Sync]
+        EventBridge[EventBridge Scheduler] --> SyncLambda[Sync Lambda]
+        SyncLambda --> EventsAPI[Events Calendar API]
+        EventsAPI --> ProcessData[Process & Enrich]
+        ProcessData --> DynamoDB[(DynamoDB Events)]
+        DynamoDB --> GenerateFile[Generate all-events.json]
+        GenerateFile --> UploadS3[Upload to S3]
+    end
+    
+    subgraph StaticDelivery[Static File Delivery]
+        UploadS3 --> S3File[S3: all-events.json]
+        S3File --> CloudFront[CloudFront CDN]
+        CloudFront --> EdgeCache[400+ Edge Locations]
+        EdgeCache --> UserBrowser[User Browser]
+    end
+    
+    subgraph ClientSide[Client-Side Processing]
+        UserBrowser --> NextJS[Next.js Frontend]
+        NextJS --> ParseJSON[Parse JSON File]
+        ParseJSON --> ClientFilter[Client-Side Filtering]
+        ClientFilter --> DisplayEvents[Display Filtered Events]
+    end
+```
+
+### Feedback System Flow
+
+```mermaid
+graph TB
+    subgraph UserFeedback[User Feedback Flow]
+        FeedbackForm[Feedback Form] --> reCAPTCHA[reCAPTCHA Verification]
+        reCAPTCHA --> FeedbackLambda[Feedback Lambda]
+        FeedbackLambda --> FeedbackDB[(DynamoDB Feedback)]
+    end
+    
+    subgraph AdminAccess[Admin Access Flow]
+        AdminLogin[Admin Login] --> GoogleOAuth[Google OAuth 2.0]
+        GoogleOAuth --> AdminLambda[Admin Lambda]
+        AdminLambda --> FeedbackDB
+        AdminLambda --> AdminPanel[Admin Panel Display]
+    end
+```
 
 ---
 
@@ -417,11 +512,17 @@ services:
 
 ### Frontend Performance
 
+**Static File Advantages:**
+- Single JSON file download (~1470 events)
+- Global CDN caching via CloudFront (400+ locations)
+- No API latency for event data requests
+- Client-side filtering provides instant results
+
 **Optimization Strategies:**
 - React.memo for expensive components
 - useMemo for complex calculations
-- Lazy loading for non-critical components
 - Efficient event filtering algorithms
+- Local state persistence with localStorage
 
 **Metrics to Monitor:**
 - First Contentful Paint (FCP)
@@ -431,17 +532,23 @@ services:
 
 ### Backend Performance
 
-**Lambda Optimization:**
-- Minimize cold starts with provisioned concurrency
-- Optimize bundle size with tree shaking
+**Static File Generation:**
+- Scheduled sync eliminates real-time processing
+- Complete file regeneration from DynamoDB (~1470 events)
+- S3 upload with CloudFront cache invalidation
+- No Lambda cold starts for event data delivery
+
+**Lambda Optimization (Feedback/Admin Only):**
+- Minimal Lambda usage (only feedback and admin functions)
+- Optimized bundle size with tree shaking
 - Connection pooling for database operations
 - Efficient JSON serialization
 
 **Database Performance:**
+- DynamoDB Events table for sync operations only
+- DynamoDB Feedback table for admin functionality
 - Strategic use of Global Secondary Indexes
-- Batch operations for bulk updates
 - Query optimization with projection expressions
-- Caching strategies for frequently accessed data
 
 ---
 
@@ -450,26 +557,34 @@ services:
 ### Authentication & Authorization
 
 **Current Implementation:**
-- No user authentication required (public calendar)
-- API rate limiting through API Gateway
-- CORS restrictions for browser security
+- **Public Calendar Data**: No authentication required (static JSON file)
+- **Feedback System**: Google reCAPTCHA verification for spam protection
+- **Admin Access**: Google OAuth 2.0 authentication with whitelist validation
+- **API Rate Limiting**: Through API Gateway for feedback/admin endpoints
+- **CORS Configuration**: Secure cross-origin requests
 
-**Future Enhancements:**
-- Admin authentication for manual sync operations
-- API key management for third-party integrations
-- User preferences and personalization
+**Security Features:**
+- reCAPTCHA integration prevents automated spam
+- OAuth 2.0 with Google provides secure admin authentication
+- Email whitelist restricts admin access to authorized users
+- Static file approach eliminates most API attack vectors
 
 ### Data Security
 
 **In Transit:**
-- HTTPS everywhere with TLS 1.2+
-- Secure WebSocket connections (if implemented)
-- Certificate pinning for mobile apps
+- HTTPS everywhere with TLS 1.2+ via CloudFront
+- Secure API endpoints for feedback and admin functions
+- Certificate management via AWS Certificate Manager
 
 **At Rest:**
-- DynamoDB encryption at rest
-- S3 bucket encryption
-- CloudWatch log encryption
+- DynamoDB encryption at rest for Events and Feedback tables
+- S3 bucket encryption for static files
+- CloudWatch log encryption for Lambda functions
+
+**Static File Security:**
+- Public static files contain only non-sensitive event data
+- No user data or credentials in static JSON files
+- CloudFront security headers and HTTPS enforcement
 
 ### Infrastructure Security
 
