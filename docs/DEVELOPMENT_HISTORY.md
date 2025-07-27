@@ -97,7 +97,7 @@ graph TB
     DDB4 -.-> DDBScan3
 ```
 
-### Phase 4: Caching Layers Added
+### Phase 4: Caching Layers and Feedback System Added
 
 ```mermaid
 graph TB
@@ -106,25 +106,38 @@ graph TB
         CF4 --> S3HTML4[S3: Static HTML/JS]
         S3HTML4 --> FetchAll4[Fetches ALL Events]
         FetchAll4 --> ClientFilter4[Client-side Filtering]
+        S3HTML4 --> FeedbackPage[Feedback Page with reCAPTCHA]
+        S3HTML4 --> AdminPage[Admin Page with OAuth]
     end
 
-    subgraph Backend4[Backend]
+    subgraph Backend4[Backend Events]
         FetchAll4 --> APIGW4[API Gateway]
-        APIGW4 --> Lambda7[Lambda]
+        APIGW4 --> Lambda7[Events Lambda]
         Lambda7 --> CacheCheck{Cache Check}
         CacheCheck --> LocalCache[Local LRU Cache - Fastest]
         CacheCheck --> S3Cache[S3 Cache - Persistent]
-        CacheCheck --> DDBFallback[DynamoDB - Fallback]
+        CacheCheck --> DDBFallback[DynamoDB Events - Fallback]
         LocalCache --> CachedJSON[Cached Events JSON]
         S3Cache --> CachedJSON
         DDBFallback --> CachedJSON
+    end
+
+    subgraph Backend4Feedback[Backend Feedback]
+        FeedbackPage --> APIGW4Feedback[API Gateway]
+        AdminPage --> APIGW4Admin[API Gateway]
+        APIGW4Feedback --> Lambda7Feedback[Feedback Lambda]
+        APIGW4Admin --> Lambda7Admin[Admin Lambda]
+        Lambda7Feedback --> VerifyRecaptcha[Verify reCAPTCHA]
+        Lambda7Admin --> VerifyOAuth[Verify Google OAuth 2.0]
+        VerifyRecaptcha --> DDBFeedback[DynamoDB Feedback Table]
+        VerifyOAuth --> DDBFeedback
     end
 
     subgraph BatchProcess4[Batch Process]
         Schedule4[EventBridge] --> Lambda8[Lambda]
         Lambda8 --> EventsAPI4[Events Calendar API]
         EventsAPI4 --> Process4[Process Events]
-        Process4 --> DDB5[DynamoDB]
+        Process4 --> DDB5[DynamoDB Events]
     end
 
     DDB5 -.-> DDBFallback
@@ -139,21 +152,33 @@ graph TB
         CF5 --> S3Static[S3 Static Files]
         S3Static --> HTMLFiles[HTML/CSS/JS files]
         S3Static --> EventsJSON[all-events.json Static Data]
+        S3Static --> FeedbackPage5[Feedback Page with reCAPTCHA]
+        S3Static --> AdminPage5[Admin Page with OAuth]
         EventsJSON --> ClientFilter5[Client-side Filtering]
     end
 
-    subgraph BackendObsolete[Backend - Obsolete]
-        ObsoleteAPI[API Gateway - No longer used]
+    subgraph BackendEvents[Backend Events - Obsolete]
+        ObsoleteAPI[API Gateway for Events - No longer used]
         ObsoleteLambda[Lambda for Events - No longer used]
-        AdminLambda[Admin Lambda - Feedback management]
+    end
+
+    subgraph BackendFeedback[Backend Feedback - Active]
+        FeedbackPage5 --> APIGW5Feedback[API Gateway]
+        AdminPage5 --> APIGW5Admin[API Gateway]
+        APIGW5Feedback --> Lambda9Feedback[Feedback Lambda]
+        APIGW5Admin --> Lambda9Admin[Admin Lambda]
+        Lambda9Feedback --> VerifyRecaptcha5[Verify reCAPTCHA]
+        Lambda9Admin --> VerifyOAuth5[Verify Google OAuth 2.0]
+        VerifyRecaptcha5 --> DDBFeedback5[DynamoDB Feedback Table]
+        VerifyOAuth5 --> DDBFeedback5
     end
 
     subgraph BatchProcessEnhanced[Batch Process - Enhanced]
-        Schedule5[EventBridge] --> Lambda9[Lambda]
-        Lambda9 --> EventsAPI5[Events Calendar API]
+        Schedule5[EventBridge] --> Lambda10[Lambda]
+        Lambda10 --> EventsAPI5[Events Calendar API]
         EventsAPI5 --> Process5[Process Events]
         Process5 --> TwoOutputs{Two Outputs}
-        TwoOutputs --> DDB6[DynamoDB Admin/Backup]
+        TwoOutputs --> DDB6[DynamoDB Events Table]
         TwoOutputs --> StaticFile[S3 Static File all-events.json]
         StaticFile --> EventsJSON
     end
@@ -202,36 +227,48 @@ graph TB
 - Access to venue IDs, categories, and images
 - More reliable data structure
 
-### Phase 4: Performance Optimization via Caching
+### Phase 4: Performance Optimization via Caching + Feedback System
 
-**Realization:** All users receive identical data (no personalization).
+**Realizations:** 
+- All users receive identical event data (no personalization)
+- Need for user feedback system with bot protection and secure admin access
 
 **What Changed:**
-- Added multi-layer caching to backend Lambda
+- Added multi-layer caching to backend Lambda for events
 - Local LRU cache for warm Lambda instances
 - S3 cache for persistence across Lambda cold starts
-- Batch process and frontend unchanged
+- **NEW: Feedback system with multiple components:**
+  - Feedback form with Google reCAPTCHA verification
+  - Separate Lambda function for feedback submission
+  - Dedicated DynamoDB table for feedback storage
+  - Admin interface with Google OAuth 2.0 authentication
+  - Whitelist-based access control for admin users
+- Batch process unchanged
 
 **Benefits:**
-- Dramatic performance improvement
+- Dramatic performance improvement for events
 - Reduced DynamoDB read costs
 - Better scalability
+- **Secure feedback collection** with bot protection
+- **Protected admin access** for feedback review
 
 ### Phase 5: Architectural Simplification (Current State)
 
-**Revolutionary Insight:** If data is static and cached in S3, why use Lambda at all?
+**Revolutionary Insight:** If event data is static and cached in S3, why use Lambda at all for events?
 
 **What Changed:**
 - Batch process now generates static JSON file in S3
 - Frontend fetches `/data/all-events.json` directly from CloudFront
-- Backend Lambda for events is obsolete (admin Lambda remains)
-- No API Gateway, no Lambda execution for event data
+- Backend Lambda for events is obsolete
+- **Feedback system remains active** with API Gateway and Lambda
+- No API Gateway or Lambda execution for event data delivery
 
 **Benefits:**
-- **Performance:** Global edge caching, no compute latency
-- **Cost:** Only S3 storage and CloudFront transfer costs
-- **Reliability:** Static files are bulletproof
-- **Simplicity:** Fewer moving parts
+- **Performance:** Global edge caching for events, no compute latency
+- **Cost:** Minimal costs for event delivery (S3 + CloudFront only)
+- **Reliability:** Static files are bulletproof for core functionality
+- **Simplicity:** Fewer moving parts for event data
+- **Security:** Maintained secure feedback collection and admin access
 
 ## Current Architecture Details
 
@@ -264,39 +301,48 @@ graph LR
 
 ## Code Cleanup Opportunities
 
-### Can Be Removed
-1. **Lambda Function** (`calendarHandler`)
+### Can Be Removed (Events-Related Only)
+1. **Calendar Lambda Function** (`calendarHandler`)
    - `/api/calendar` endpoint logic
    - Event filtering code
-   - DynamoDB query logic
-   - Caching implementation
+   - DynamoDB event query logic
+   - Event caching implementation
 
-2. **API Gateway Configuration**
-   - Calendar endpoints
-   - CORS configuration for API
-   - Request/response mappings
+2. **API Gateway Configuration for Events**
+   - Calendar endpoints (`/api/calendar`)
+   - CORS configuration for event API
 
-3. **Frontend API Calls**
+3. **Frontend API Calls for Events**
    - Dynamic event fetching logic
-   - API error handling
-   - Loading states for API calls
+   - API error handling for events
+   - Loading states for event API calls
 
-### Must Be Retained
+### Must Be Retained (Active Systems)
 1. **Batch Process Lambda** (`syncHandler`)
-   - API integration
-   - Event processing
+   - API integration with Events Calendar
+   - Event processing and enrichment
    - Static file generation
    - S3 upload logic
 
-2. **Admin Lambda** (`adminHandler`)
-   - Feedback system
-   - Authentication
-   - Admin operations
+2. **Feedback System Components**
+   - **Feedback Lambda** (`feedbackHandler`) - reCAPTCHA verification and storage
+   - **Admin Lambda** (`adminHandler`) - OAuth authentication and feedback access
+   - **API Gateway** for feedback and admin endpoints
+   - **DynamoDB Feedback Table** for feedback storage
+   - **Frontend feedback pages** with reCAPTCHA integration
 
-3. **Frontend**
+3. **Frontend Core**
    - All filtering logic
-   - Static file fetching
+   - Static file fetching (`/data/all-events.json`)
    - Client-side state management
+   - Feedback form and admin interface
+
+### Why Feedback System Must Remain
+The feedback functionality requires dynamic server-side processing that cannot be replaced with static files:
+- **reCAPTCHA verification** needs server-side validation
+- **OAuth authentication** requires secure token handling
+- **Database operations** for storing and retrieving feedback
+- **Access control** via whitelist validation
 
 ## Lessons Learned
 
@@ -314,10 +360,10 @@ graph LR
 - **Instant Filtering**: All logic client-side
 
 ### Cost
-- **No Lambda Invocations**: For user requests
+- **No Lambda Invocations**: For event data requests (99% of traffic)
 - **No API Gateway Charges**: For event endpoints
-- **Minimal DynamoDB Reads**: Only for admin operations
-- **Predictable Costs**: Based on storage and bandwidth
+- **Minimal DynamoDB Reads**: Only for feedback and admin operations
+- **Predictable Costs**: Event delivery based on storage and bandwidth only
 
 ### Reliability
 - **No Single Point of Failure**: Static files are highly available
