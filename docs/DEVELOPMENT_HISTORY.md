@@ -32,7 +32,7 @@ graph TB
     end
     
     subgraph BatchProcess[Batch Process]
-        Schedule[EventBridge Schedule<br/>Hourly: Next 7 days<br/>Daily: Full season] --> Lambda2[Lambda]
+        Schedule[EventBridge Schedule - Hourly: Next 7 days - Daily: Full season] --> Lambda2[Lambda]
         Lambda2 --> iCal[chq.org iCal]
         iCal --> Parse[Parse iCal]
         Parse --> DDB2[DynamoDB]
@@ -56,7 +56,7 @@ graph TB
         FetchAll --> APIGW2[API Gateway]
         APIGW2 --> Lambda3[Lambda]
         Lambda3 --> DDBScan[DynamoDB Scan]
-        DDBScan --> AllJSON[ALL Events JSON<br/>No Filtering]
+        DDBScan --> AllJSON[ALL Events JSON - No Filtering]
     end
     
     subgraph BatchProcess2[Batch Process]
@@ -89,7 +89,7 @@ graph TB
     
     subgraph BatchProcess3[Batch Process]
         Schedule3[EventBridge] --> Lambda6[Lambda]
-        Lambda6 --> EventsAPI[Events Calendar API<br/>Direct REST API<br/>No iCal parsing]
+        Lambda6 --> EventsAPI[Events Calendar API - Direct REST API - No iCal parsing]
         EventsAPI --> Process[Process Events]
         Process --> DDB4[DynamoDB]
     end
@@ -112,9 +112,9 @@ graph TB
         FetchAll4 --> APIGW4[API Gateway]
         APIGW4 --> Lambda7[Lambda]
         Lambda7 --> CacheCheck{Cache Check}
-        CacheCheck --> MemCache[1. Memory Cache<br/>Fastest]
-        CacheCheck --> S3Cache[2. S3 Cache<br/>Persistent]
-        CacheCheck --> DDBFallback[3. DynamoDB<br/>Fallback]
+        CacheCheck --> MemCache[1. Memory Cache - Fastest]
+        CacheCheck --> S3Cache[2. S3 Cache - Persistent]
+        CacheCheck --> DDBFallback[3. DynamoDB - Fallback]
         MemCache --> CachedJSON[Cached Events JSON]
         S3Cache --> CachedJSON
         DDBFallback --> CachedJSON
@@ -137,15 +137,15 @@ graph TB
     subgraph Frontend5[Frontend]
         Browser5[Browser] --> CF5[CloudFront]
         CF5 --> S3Static[S3 Static Files]
-        S3Static --> HTMLFiles[/index.html<br/>CSS/JS files]
-        S3Static --> EventsJSON[/data/all-events.json<br/>Static Event Data]
+        S3Static --> HTMLFiles[HTML/CSS/JS files]
+        S3Static --> EventsJSON[all-events.json Static Data]
         EventsJSON --> ClientFilter5[Client-side Filtering]
     end
     
     subgraph BackendObsolete[Backend - Obsolete]
-        ObsoleteAPI[API Gateway<br/>No longer used]
-        ObsoleteLambda[Lambda for Events<br/>No longer used]
-        AdminLambda[Admin Lambda<br/>Feedback management]
+        ObsoleteAPI[API Gateway - No longer used]
+        ObsoleteLambda[Lambda for Events - No longer used]
+        AdminLambda[Admin Lambda - Feedback management]
     end
     
     subgraph BatchProcessEnhanced[Batch Process - Enhanced]
@@ -153,8 +153,8 @@ graph TB
         Lambda9 --> EventsAPI5[Events Calendar API]
         EventsAPI5 --> Process5[Process Events]
         Process5 --> TwoOutputs{Two Outputs}
-        TwoOutputs --> DDB6[DynamoDB<br/>Admin/Backup]
-        TwoOutputs --> StaticFile[S3 Static File<br/>/data/all-events.json]
+        TwoOutputs --> DDB6[DynamoDB Admin/Backup]
+        TwoOutputs --> StaticFile[S3 Static File all-events.json]
         StaticFile --> CF5
     end
 ```
@@ -239,13 +239,13 @@ graph TB
 
 ```mermaid
 graph LR
-    Schedule[Scheduled Lambda<br/>hourly/daily] --> Fetch[Fetch from<br/>Events Calendar API]
-    Fetch --> Process[Process &<br/>Enrich Data]
+    Schedule[Scheduled Lambda - hourly/daily] --> Fetch[Fetch from Events Calendar API]
+    Fetch --> Process[Process & Enrich Data]
     Process --> Split{Write to}
-    Split --> DDB[DynamoDB<br/>admin/backup]
-    Split --> S3File[S3 File<br/>/data/all-events.json]
-    S3File --> CF[CloudFront<br/>Global Cache]
-    CF --> Browser[Browser<br/>Client-side Filtering]
+    Split --> DDB[DynamoDB - admin/backup]
+    Split --> S3File[S3 File - all-events.json]
+    S3File --> CF[CloudFront - Global Cache]
+    CF --> Browser[Browser - Client-side Filtering]
 ```
 
 ### Request Path Comparison
