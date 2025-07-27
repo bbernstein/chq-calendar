@@ -143,7 +143,7 @@ After merge and automatic deployment:
 - [ ] API responds at https://www.chqcal.org/api/health
 - [ ] Calendar data loads and displays correctly
 - [ ] All filtering options work as expected
-- [ ] Admin panel accessible at production URLs
+- [ ] Admin panel accessible at https://www.chqcal.org/admin/feedback
 - [ ] Feedback form functional
 - [ ] CloudFront cache invalidation completed
 
@@ -166,7 +166,7 @@ After merge and automatic deployment:
 ### Production
 - **Website**: https://www.chqcal.org
 - **Event Data**: https://www.chqcal.org/cache/calendar-cache/all-events.json
-- **Admin**: https://admin-api.chqcal.org
+- **Admin Panel**: https://www.chqcal.org/admin/feedback
 - **Feedback**: https://www.chqcal.org/feedback
 
 ## Technology Stack
