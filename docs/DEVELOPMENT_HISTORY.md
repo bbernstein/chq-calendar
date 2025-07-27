@@ -258,7 +258,7 @@ graph TB
 
 **What Changed:**
 - Batch process now generates static JSON file in S3
-- Frontend fetches `/data/all-events.json` directly from CloudFront
+- Frontend fetches `/cache/calendar-cache/all-events.json` directly from CloudFront
 - Backend Lambda for events is obsolete
 - **Feedback system remains active** with API Gateway and Lambda
 - No API Gateway or Lambda execution for event data delivery
@@ -333,7 +333,7 @@ graph LR
 
 3. **Frontend Core**
    - All filtering logic
-   - Static file fetching (`/data/all-events.json`)
+   - Static file fetching (`/cache/calendar-cache/all-events.json`)
    - Client-side state management
    - Feedback form and admin interface
 
