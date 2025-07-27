@@ -29,7 +29,7 @@ graph LR
 - **Location**: AWS CloudFront edge locations worldwide (400+ locations)
 - **Duration**: 24 hours (configurable in Terraform)
 - **Purpose**: Serve static JSON file from edge locations closest to users
-- **File Cached**: `/data/all-events.json` (static file)
+- **File Cached**: `/cache/calendar-cache/all-events.json` (static file)
 - **Configuration**: 
   - `default_ttl = 86400` (24 hours)
   - `max_ttl = 604800` (7 days)
@@ -191,7 +191,7 @@ async function generateStaticFile() {
   // 4. Upload to S3
   await s3.putObject({
     Bucket: 'chautauqua-calendar-frontend-prod',
-    Key: 'data/all-events.json',
+    Key: 'cache/calendar-cache/all-events.json',
     Body: JSON.stringify(staticData),
     ContentType: 'application/json',
     CacheControl: 'public, max-age=86400'
@@ -205,7 +205,7 @@ All filtering and search happens client-side for instant results:
 
 ```typescript
 // Frontend fetches static file once
-const response = await fetch('/data/all-events.json');
+const response = await fetch('/cache/calendar-cache/all-events.json');
 const data = await response.json();
 
 // All subsequent filtering is client-side
@@ -333,10 +333,10 @@ The evolution from a 4-layer caching system to static files demonstrates:
 **Check File Status:**
 ```bash
 # Verify file exists and freshness
-curl -I https://www.chqcal.org/data/all-events.json
+curl -I https://www.chqcal.org/cache/calendar-cache/all-events.json
 
 # Check file content and metadata
-curl https://www.chqcal.org/data/all-events.json | jq '.metadata'
+curl https://www.chqcal.org/cache/calendar-cache/all-events.json | jq '.metadata'
 ```
 
 **CloudFront Debugging:**
