@@ -19,6 +19,7 @@ A dynamic, filterable calendar application for the Chautauqua Institution 2025 s
 - [API Integration Design](docs/API_INTEGRATION_DESIGN.md) - Technical architecture and API details
 - [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment instructions
 - [System Design](docs/DESIGN.md) - Overall system architecture and design decisions
+- [Development History](docs/DEVELOPMENT_HISTORY.md) - Architectural evolution and lessons learned
 - [Caching Architecture](docs/CACHING_ARCHITECTURE.md) - Data caching and performance optimization
 - [OAuth Setup](docs/OAuth-Setup.md) - Authentication configuration for admin features
 
