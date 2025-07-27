@@ -180,12 +180,10 @@ async function generateStaticFile() {
 
   // 3. Generate static JSON file
   const staticData = {
-    events: processedEvents,
-    lastUpdated: new Date().toISOString(),
-    metadata: {
-      totalEvents: processedEvents.length,
-      dataSource: 'events-calendar-api'
-    }
+    cacheKey: 'all-events',
+    data: processedEvents,
+    timestamp: new Date().toISOString(),
+    expiry: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
   };
 
   // 4. Upload to S3
@@ -206,10 +204,13 @@ All filtering and search happens client-side for instant results:
 ```typescript
 // Frontend fetches static file once
 const response = await fetch('/cache/calendar-cache/all-events.json');
-const data = await response.json();
+const fileData = await response.json();
+
+// Extract events from the data array
+const events = fileData.data;
 
 // All subsequent filtering is client-side
-const filteredEvents = data.events.filter(event => {
+const filteredEvents = events.filter(event => {
   return matchesSearch(event, searchTerm) &&
          matchesWeek(event, selectedWeeks) &&
          matchesCategory(event, selectedCategories);
@@ -258,7 +259,8 @@ graph LR
 - Error rate (target: <0.1%)
 
 **Data Freshness:**
-- Last sync timestamp in all-events.json
+- Last sync timestamp in all-events.json (`.timestamp` field)
+- File expiry time (`.expiry` field)
 - Sync success rate (target: 100%)
 - Time since last successful update
 
@@ -323,10 +325,10 @@ The evolution from a 4-layer caching system to static files demonstrates:
 
 ### Static File Issues
 
-1. **Stale Data**: Check sync Lambda execution and all-events.json timestamp
+1. **Stale Data**: Check sync Lambda execution and all-events.json `.timestamp` field
 2. **File Not Found**: Verify S3 bucket deployment and CloudFront configuration  
 3. **Slow Loading**: Check CloudFront cache hit ratio and edge location coverage
-4. **Large File Size**: Monitor JSON file size and consider optimization
+4. **Large File Size**: Monitor JSON file size (currently ~1470 events)
 
 ### Debug Information
 
@@ -335,8 +337,8 @@ The evolution from a 4-layer caching system to static files demonstrates:
 # Verify file exists and freshness
 curl -I https://www.chqcal.org/cache/calendar-cache/all-events.json
 
-# Check file content and metadata
-curl https://www.chqcal.org/cache/calendar-cache/all-events.json | jq '.metadata'
+# Check file content and structure
+curl https://www.chqcal.org/cache/calendar-cache/all-events.json | jq '{cacheKey, timestamp, expiry, eventCount: (.data | length)}'
 ```
 
 **CloudFront Debugging:**
