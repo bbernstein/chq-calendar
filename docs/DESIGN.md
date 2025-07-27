@@ -25,22 +25,29 @@ The Chautauqua Calendar is a full-stack serverless application designed to provi
 
 ```mermaid
 graph TB
+    subgraph Users[User Types]
+        EndUsers[End Users<br/>Browse Events & Submit Feedback]
+        AdminUsers[Admin Users<br/>Review Feedback]
+    end
+    
     subgraph Frontend[Frontend - Static Site]
         NextJS[Next.js App] --> StaticFiles[Static HTML/CSS/JS]
         StaticFiles --> CloudFront[CloudFront Distribution]
+        NextJS --> FeedbackForm[Feedback Form]
+        NextJS --> AdminPanel[Admin Panel]
     end
     
     subgraph DataLayer[Data Layer - Static + Dynamic]
         StaticJSON[Static JSON File] --> CloudFront
-        DynamoDB[(DynamoDB)]
+        DynamoDB[(DynamoDB<br/>Events & Feedback)]
         S3[S3 Bucket]
         StaticJSON --> S3
     end
     
     subgraph Backend[Backend - Lambda Functions]
-        SyncLambda[Sync Handler]
-        FeedbackLambda[Feedback Handler] 
-        AdminLambda[Admin Handler]
+        SyncLambda[Sync Handler<br/>Data Generation]
+        FeedbackLambda[Feedback Handler<br/>reCAPTCHA + Storage] 
+        AdminLambda[Admin Handler<br/>OAuth + Feedback Access]
         HealthLambda[Health Handler]
     end
     
@@ -50,15 +57,25 @@ graph TB
         OAuth[Google OAuth 2.0]
     end
     
+    %% Data flow
     SyncLambda --> EventsAPI
     SyncLambda --> DynamoDB
     SyncLambda --> StaticJSON
+    
+    %% User interactions
+    EndUsers --> CloudFront
+    EndUsers --> FeedbackForm
+    AdminUsers --> AdminPanel
+    
+    %% Feedback flow
+    FeedbackForm --> FeedbackLambda
     FeedbackLambda --> reCAPTCHA
     FeedbackLambda --> DynamoDB
+    
+    %% Admin flow
+    AdminPanel --> AdminLambda
     AdminLambda --> OAuth
     AdminLambda --> DynamoDB
-    
-    CloudFront --> Users[End Users]
 ```
 
 ### Development vs Production
