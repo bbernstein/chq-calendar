@@ -143,15 +143,25 @@ src/app/
 
 ### State Management
 
-**React Hooks Pattern:**
+**React Hooks with localStorage Persistence:**
 ```typescript
-// Main state structure
+// Main state structure with localStorage integration
 const [events, setEvents] = useState<ChautauquaEvent[]>([]);
 const [filteredEvents, setFilteredEvents] = useState<ChautauquaEvent[]>([]);
 const [selectedWeeks, setSelectedWeeks] = useState<Set<number>>(new Set());
 const [searchTerm, setSearchTerm] = useState<string>('');
 const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+
+// Recent items tracking (FIFO with localStorage persistence)
+const [recentLocations, setRecentLocations] = useState<string[]>([]);
+const [recentCategories, setRecentCategories] = useState<string[]>([]);
 ```
+
+**localStorage Integration:**
+- **Event Data**: Complete event dataset cached for offline use
+- **User Preferences**: Filter selections persist across browser sessions
+- **Recent Items**: FIFO tracking of recently-used locations and categories
+- **Session State**: Last selected filters restored on page reload
 
 ### Search & Filtering System
 
@@ -499,8 +509,11 @@ graph TB
     subgraph ClientSide[Client-Side Processing]
         UserBrowser --> NextJS[Next.js Frontend]
         NextJS --> ParseJSON[Parse JSON File]
-        ParseJSON --> ClientFilter[Client-Side Filtering]
+        ParseJSON --> LocalStorage[localStorage Cache]
+        LocalStorage --> ClientFilter[Client-Side Filtering]
         ClientFilter --> DisplayEvents[Display Filtered Events]
+        ClientFilter --> StateStorage[Store User Preferences]
+        StateStorage --> LocalStorage
     end
 ```
 
@@ -534,11 +547,17 @@ graph TB
 - No API latency for event data requests
 - Client-side filtering provides instant results
 
+**Offline Capabilities:**
+- Complete event data cached in localStorage
+- App functions without network connectivity after initial load
+- User filter preferences persist across sessions
+- Recently-used locations and categories stored locally
+
 **Optimization Strategies:**
 - React.memo for expensive components
 - useMemo for complex calculations
 - Efficient event filtering algorithms
-- Local state persistence with localStorage
+- localStorage for data persistence and state management
 
 **Metrics to Monitor:**
 - First Contentful Paint (FCP)
@@ -612,22 +631,56 @@ graph TB
 
 ---
 
+## Offline-First Architecture
+
+The application implements a robust offline-first approach that enhances user experience:
+
+### Offline Capabilities
+
+**Complete Data Persistence:**
+```typescript
+// Event data cached in localStorage
+localStorage.setItem('chq-calendar-events', JSON.stringify(events));
+localStorage.setItem('chq-calendar-timestamp', new Date().toISOString());
+
+// User preferences persistence
+localStorage.setItem('chq-calendar-filters', JSON.stringify({
+  selectedWeeks,
+  selectedCategories,
+  selectedLocations,
+  searchTerm
+}));
+
+// Recent items FIFO tracking
+localStorage.setItem('chq-calendar-recent', JSON.stringify({
+  locations: recentLocations.slice(-10), // Keep last 10
+  categories: recentCategories.slice(-10)
+}));
+```
+
+**Benefits:**
+- **Zero Network Dependency**: App functions completely offline after initial load
+- **Instant Loading**: No loading states for repeat visits
+- **State Persistence**: Users return to their exact filtering state
+- **Recent Items**: Smart suggestions based on user behavior
+- **Resilient UX**: Works during network outages or slow connections
+
 ## Future Enhancements
 
 ### Planned Features
 
-1. **User Personalization**
-   - Saved filters and preferences
-   - Personal calendar integration
-   - Notification preferences
+1. **Enhanced Offline Support**
+   - Service worker for true offline PWA functionality
+   - Background sync for updated event data
+   - Offline feedback submission queue
 
-2. **Advanced Filtering**
-   - Location-based filtering
-   - Presenter-specific views
-   - Custom tag creation
+2. **Advanced Personalization**
+   - Saved custom filter combinations
+   - Personal calendar integration
+   - Notification preferences for specific events
 
 3. **Social Features**
-   - Event sharing
+   - Event sharing with preserved filter context
    - Community recommendations
    - Social media integration
 
