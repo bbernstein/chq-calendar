@@ -61,20 +61,21 @@ docker-compose down
 
 ### Local Testing
 ```bash
-# Test production API endpoints (used by local frontend)
-curl -s -X POST 'https://www.chqcal.org/api/calendar' -H "Content-Type: application/json" -d '{"filters": {}}' | jq '.events | length'
+# Test static event data endpoint (used by local frontend)
+curl -s 'https://www.chqcal.org/cache/calendar-cache/all-events.json' | jq '.data | length'
 
-# Test specific week filtering
-curl -s -X POST 'https://www.chqcal.org/api/calendar' -H "Content-Type: application/json" -d '{"filters": {"weeks": [1]}}' | jq '.events | length'
+# Verify event data structure and freshness
+curl -s 'https://www.chqcal.org/cache/calendar-cache/all-events.json' | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
 
-# Test search functionality
-curl -s -X POST 'https://www.chqcal.org/api/calendar' -H "Content-Type: application/json" -d '{"filters": {"search": "amphitheater"}}' | jq '.events | length'
-
-# Open local frontend
+# Test local frontend filtering (client-side)
+# Note: All filtering happens in browser after downloading static file
 open http://localhost:3000
 
 # Test admin panel (development mode)
 open http://localhost:3000/admin/feedback
+
+# Test feedback form functionality
+open http://localhost:3000/feedback
 ```
 
 ### Manual Deployment (if needed)
@@ -90,7 +91,7 @@ open http://localhost:3000/admin/feedback
 ## Development Rules
 
 1. **Local Testing Required**: Always test changes locally before creating PR
-2. **Production API Integration**: Local frontend connects to production API endpoints
+2. **Static File Integration**: Local frontend connects to production static file endpoint
 3. **State Management**: Test localStorage persistence and FIFO recent items
 4. **Responsive Design**: Verify mobile, tablet, and desktop layouts
 5. **No Direct Production Deploy**: All deployments go through GitHub Actions
@@ -101,12 +102,14 @@ open http://localhost:3000/admin/feedback
 ## Pre-Merge Checklist
 
 ### Local Development
-- [ ] Local frontend connects to production API successfully
+- [ ] Local frontend connects to production static file endpoint successfully
+- [ ] Event data loads and caches in localStorage
 - [ ] All filtering functionality works (week, location, category, search)
 - [ ] Recent items FIFO system working (adds on selection, not deselection)
 - [ ] Responsive pill display with horizontal scrolling
 - [ ] State persistence in localStorage working
 - [ ] Admin panel accessible in development mode
+- [ ] Feedback form functionality working
 - [ ] No console errors in browser dev tools
 - [ ] HTML entity decoding working properly
 
@@ -136,10 +139,12 @@ After merge and automatic deployment:
 
 ### Production Health Checks
 - [ ] Website loads at https://www.chqcal.org
+- [ ] Static event data available at https://www.chqcal.org/cache/calendar-cache/all-events.json
 - [ ] API responds at https://www.chqcal.org/api/health
 - [ ] Calendar data loads and displays correctly
 - [ ] All filtering options work as expected
 - [ ] Admin panel accessible at production URLs
+- [ ] Feedback form functional
 - [ ] CloudFront cache invalidation completed
 
 ### User Experience Validation
@@ -155,11 +160,12 @@ After merge and automatic deployment:
 - **Frontend**: http://localhost:3000 (Next.js dev server)
 - **Database**: http://localhost:8000 (DynamoDB Local)
 - **Admin UI**: http://localhost:8001 (DynamoDB Admin)
-- **API**: Uses production endpoints (https://www.chqcal.org/api)
+- **Event Data**: Uses production static file endpoint
+- **Feedback/Admin APIs**: Uses production endpoints
 
 ### Production
 - **Website**: https://www.chqcal.org
-- **API**: https://www.chqcal.org/api (via CloudFront)
+- **Event Data**: https://www.chqcal.org/cache/calendar-cache/all-events.json
 - **Admin**: https://admin-api.chqcal.org
 - **Feedback**: https://www.chqcal.org/feedback
 
@@ -174,8 +180,8 @@ After merge and automatic deployment:
 ### Backend
 - AWS Lambda functions (Node.js 24)
 - TypeScript compilation with ESBuild
-- DynamoDB for data persistence
-- S3 for caching layer
+- DynamoDB for Events and Feedback data
+- S3 for static file generation and hosting
 
 ### Infrastructure
 - GitHub Actions for CI/CD
