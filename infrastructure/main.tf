@@ -257,6 +257,7 @@ resource "aws_s3_bucket" "frontend_bucket" {
   bucket = "${var.app_name}-frontend-${var.environment}"
 }
 
+
 resource "aws_s3_bucket_website_configuration" "frontend_website" {
   bucket = aws_s3_bucket.frontend_bucket.id
 
@@ -523,6 +524,126 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
+
+  tags = {
+    Name        = "${var.app_name}-distribution"
+    Environment = var.environment
+  }
+}
+
+# CloudWatch Monitoring for CloudFront
+# CloudFront automatically publishes metrics to CloudWatch, but we can add alarms
+
+resource "aws_cloudwatch_metric_alarm" "cloudfront_error_rate" {
+  alarm_name          = "${var.app_name}-cloudfront-error-rate"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "4xxErrorRate"
+  namespace           = "AWS/CloudFront"
+  period              = "300"
+  statistic           = "Average"
+  threshold           = "5"
+  alarm_description   = "This metric monitors CloudFront 4xx error rate"
+  alarm_actions       = []  # Add SNS topic ARN here if you want notifications
+
+  dimensions = {
+    DistributionId = aws_cloudfront_distribution.frontend_distribution.id
+  }
+
+  tags = {
+    Name        = "${var.app_name}-cloudfront-error-alarm"
+    Environment = var.environment
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "cloudfront_origin_latency" {
+  alarm_name          = "${var.app_name}-cloudfront-origin-latency"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "OriginLatency"
+  namespace           = "AWS/CloudFront"
+  period              = "300"
+  statistic           = "Average"
+  threshold           = "5000"  # 5 seconds
+  alarm_description   = "This metric monitors CloudFront origin latency"
+  alarm_actions       = []  # Add SNS topic ARN here if you want notifications
+
+  dimensions = {
+    DistributionId = aws_cloudfront_distribution.frontend_distribution.id
+  }
+
+  tags = {
+    Name        = "${var.app_name}-cloudfront-latency-alarm"
+    Environment = var.environment
+  }
+}
+
+# CloudWatch Dashboard for CloudFront monitoring
+resource "aws_cloudwatch_dashboard" "cloudfront_dashboard" {
+  dashboard_name = "${var.app_name}-cloudfront-monitoring"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+
+        properties = {
+          metrics = [
+            ["AWS/CloudFront", "Requests", "DistributionId", aws_cloudfront_distribution.frontend_distribution.id],
+            [".", "BytesDownloaded", ".", "."],
+            [".", "BytesUploaded", ".", "."]
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = var.aws_region
+          title   = "CloudFront Traffic"
+          period  = 300
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 6
+        width  = 12
+        height = 6
+
+        properties = {
+          metrics = [
+            ["AWS/CloudFront", "4xxErrorRate", "DistributionId", aws_cloudfront_distribution.frontend_distribution.id],
+            [".", "5xxErrorRate", ".", "."]
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = var.aws_region
+          title   = "CloudFront Error Rates"
+          period  = 300
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 12
+        width  = 12
+        height = 6
+
+        properties = {
+          metrics = [
+            ["AWS/CloudFront", "CacheHitRate", "DistributionId", aws_cloudfront_distribution.frontend_distribution.id],
+            [".", "OriginLatency", ".", "."]
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = var.aws_region
+          title   = "CloudFront Performance"
+          period  = 300
+        }
+      }
+    ]
+  })
 }
 
 # IAM Role for Lambda
@@ -1464,6 +1585,11 @@ resource "random_string" "bucket_suffix" {
 
 output "cloudfront_distribution_id" {
   value = aws_cloudfront_distribution.frontend_distribution.id
+}
+
+output "cloudfront_dashboard_url" {
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.cloudfront_dashboard.dashboard_name}"
+  description = "URL to CloudWatch dashboard for CloudFront monitoring"
 }
 
 output "name_servers" {
