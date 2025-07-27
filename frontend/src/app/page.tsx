@@ -1025,8 +1025,18 @@ function HomeContent() {
           }
         }
 
-        const sortedCategories = categories.sort();
-        const sortedLocations = locations.sort();
+        // Sort categories and locations by their display names (shortcuts), not original names
+        const sortedCategories = categories.sort((a, b) => {
+          const displayA = getCategoryDisplayName(a);
+          const displayB = getCategoryDisplayName(b);
+          return displayA.localeCompare(displayB);
+        });
+        
+        const sortedLocations = locations.sort((a, b) => {
+          const displayA = getLocationDisplayName(a);
+          const displayB = getLocationDisplayName(b);
+          return displayA.localeCompare(displayB);
+        });
         const sortedTags = uniqueTags.sort();
         const weeks = seasonWeeks.map(w => w.number);
 
@@ -1050,7 +1060,7 @@ function HomeContent() {
           localStorage.setItem('chq-calendar-events', JSON.stringify({
             events: fetchedEvents,
             categories: sortedCategories,
-            locations: locations.sort(),
+            locations: sortedLocations,
             tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
