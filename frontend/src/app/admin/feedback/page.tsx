@@ -16,6 +16,20 @@ interface FeedbackRecord {
   archivedAt?: string;
 }
 
+// Helper function to validate if a string is an email address
+function isValidEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+// Helper function to generate mailto URL
+function generateMailtoUrl(email: string, timestamp: number, feedback: string): string {
+  const subject = encodeURIComponent('chqcal feedback');
+  const date = new Date(timestamp).toLocaleString();
+  const body = encodeURIComponent(`\n\n${date}\n${feedback}`);
+  return `mailto:${email}?subject=${subject}&body=${body}`;
+}
+
 export default function FeedbackManagementPage() {
   const router = useRouter();
   const [feedbacks, setFeedbacks] = useState<FeedbackRecord[]>([]);
@@ -426,7 +440,20 @@ export default function FeedbackManagementPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {feedback.contactInfo || 'Not provided'}
+                        {feedback.contactInfo ? (
+                          isValidEmail(feedback.contactInfo) ? (
+                            <a
+                              href={generateMailtoUrl(feedback.contactInfo, feedback.timestamp, feedback.feedback)}
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
+                            >
+                              {feedback.contactInfo}
+                            </a>
+                          ) : (
+                            feedback.contactInfo
+                          )
+                        ) : (
+                          'Not provided'
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -491,7 +518,20 @@ export default function FeedbackManagementPage() {
               <div>
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Contact Information</p>
                 <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                  {selectedFeedback.contactInfo || 'Not provided'}
+                  {selectedFeedback.contactInfo ? (
+                    isValidEmail(selectedFeedback.contactInfo) ? (
+                      <a
+                        href={generateMailtoUrl(selectedFeedback.contactInfo, selectedFeedback.timestamp, selectedFeedback.feedback)}
+                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
+                      >
+                        {selectedFeedback.contactInfo}
+                      </a>
+                    ) : (
+                      selectedFeedback.contactInfo
+                    )
+                  ) : (
+                    'Not provided'
+                  )}
                 </p>
               </div>
               
