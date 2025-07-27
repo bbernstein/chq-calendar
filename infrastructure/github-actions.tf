@@ -101,9 +101,9 @@ resource "aws_iam_policy" "github_actions" {
         Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${var.app_name}*"
       },
       {
-        Sid    = "LambdaInvokeDataSync"
-        Effect = "Allow"
-        Action = "lambda:InvokeFunction"
+        Sid      = "LambdaInvokeDataSync"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
         Resource = aws_lambda_function.data_sync.arn
       }
     ]
