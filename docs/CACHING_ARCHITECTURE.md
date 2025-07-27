@@ -1,214 +1,351 @@
-# Multi-Layer Caching Architecture
+# Caching Architecture
 
-The Chautauqua Calendar application implements a comprehensive 4-layer caching system to minimize database queries, reduce API response times, and provide the best user experience possible.
+The Chautauqua Calendar application implements a streamlined 2-layer caching system optimized for static file delivery with global edge distribution.
+
+## Current Architecture Overview
+
+The application has evolved from a complex 4-layer Lambda-based caching system to a simplified static file architecture that leverages AWS CloudFront for global distribution.
+
+```mermaid
+graph LR
+    User[User Request] --> Browser[Browser Cache]
+    Browser --> CloudFront[CloudFront Edge Cache]
+    CloudFront --> S3[S3 Static File]
+    S3 --> JSON[all-events.json]
+```
 
 ## Cache Layers Overview
 
-```
-User Request → Layer 1 (Browser) → Layer 2 (CloudFront CDN) → Layer 3 (Lambda Memory) → Layer 4 (S3 File) → DynamoDB
-```
-
 ### Layer 1: Browser Cache (Client-Side)
 - **Location**: End user's browser
-- **Duration**: 1 hour (configurable via `Cache-Control` headers)
-- **Purpose**: Eliminate redundant requests for the same calendar data
-- **Implementation**: HTTP cache headers set by Lambda responses
+- **Duration**: 1 hour (via CloudFront `Cache-Control` headers)
+- **Purpose**: Eliminate redundant requests for static calendar data
+- **Implementation**: HTTP cache headers served by CloudFront
 - **Headers**: 
   - `Cache-Control: public, max-age=3600` 
   - `Expires: <timestamp>`
 
-### Layer 2: CloudFront CDN Cache
-- **Location**: AWS CloudFront edge locations worldwide
-- **Duration**: 1 hour (configurable in Terraform)
-- **Purpose**: Serve cached responses from edge locations closest to users
+### Layer 2: CloudFront CDN Cache (Global Edge)
+- **Location**: AWS CloudFront edge locations worldwide (400+ locations)
+- **Duration**: 24 hours (configurable in Terraform)
+- **Purpose**: Serve static JSON file from edge locations closest to users
+- **File Cached**: `/cache/calendar-cache/all-events.json` (static file)
 - **Configuration**: 
-  - `default_ttl = 3600` (1 hour)
-  - `max_ttl = 86400` (24 hours)
-  - Only caches GET requests for `/api/*` paths
+  - `default_ttl = 86400` (24 hours)
+  - `max_ttl = 604800` (7 days)
+  - Caches GET requests for static assets
 
-### Layer 3: Lambda Memory Cache
-- **Location**: Lambda function memory (in-process)
-- **Duration**: 1 hour (configurable via `CACHE_MEMORY_TTL_MINUTES`)
-- **Purpose**: Fastest cache layer, eliminates S3 and DynamoDB calls within same Lambda instance
-- **Implementation**: `Map<string, CachedData>` with expiration timestamps
-- **Key Generation**: SHA-256 hash of filter parameters
-- **Cleanup**: Automatic cleanup of expired entries
+## Data Flow Architecture
 
-### Layer 4: S3 File Cache
-- **Location**: Dedicated S3 bucket (`chautauqua-calendar-cache`)
-- **Duration**: 1 hour (configurable via `CACHE_S3_TTL_MINUTES`)
-- **Purpose**: Persistent cache that survives Lambda cold starts and is shared across Lambda instances
-- **File Format**: JSON files with metadata (timestamp, expiry, cache key)
-- **Lifecycle**: Automatic cleanup of files older than 7 days
+### Current Static File Architecture
 
-## Cache Flow
+```mermaid
+graph TB
+    subgraph DataGeneration[Data Generation - Batch Process]
+        Schedule[EventBridge Scheduler] --> Lambda[Sync Lambda]
+        Lambda --> API[Events Calendar API]
+        API --> Process[Process & Enrich Data]
+        Process --> DDB[DynamoDB Events Table]
+        DDB --> Generate[Generate all-events.json]
+        Generate --> Upload[Upload to S3]
+    end
+    
+    subgraph ContentDelivery[Content Delivery]
+        Upload --> S3File[S3: all-events.json]
+        S3File --> CloudFront[CloudFront Distribution]
+        CloudFront --> EdgeCache[Edge Cache - 400+ Locations]
+        EdgeCache --> Browser[User Browser]
+    end
+    
+    subgraph ClientSide[Client-Side Processing]
+        Browser --> Frontend[Next.js Frontend]
+        Frontend --> Filter[Client-Side Filtering]
+        Filter --> Display[Filtered Results]
+    end
+```
 
-### Cache Hit Flow
-1. **Memory Check**: Lambda checks in-memory cache first
-2. **S3 Check**: If memory miss, check S3 for cached file
-3. **Memory Population**: If S3 hit, populate memory cache and return data
-4. **Headers**: Return with appropriate caching headers for Layers 1 & 2
+### Request Flow Comparison
 
-### Cache Miss Flow
-1. **Database Query**: Execute optimized DynamoDB query
-2. **Cache Population**: Store results in both memory and S3 caches
-3. **Response**: Return data with caching headers
+**Previous Architecture (Phases 1-4):**
+```mermaid
+graph LR
+    User1[User] --> CF1[CloudFront] --> API[API Gateway] --> Lambda[Calendar Lambda] --> Cache{Multi-Layer Cache}
+    Cache --> Memory[Memory Cache]
+    Cache --> S3Cache[S3 Cache]
+    Cache --> DDB[DynamoDB Query]
+```
+
+**Current Architecture (Phase 5):**
+```mermaid
+graph LR
+    User2[User] --> CF2[CloudFront] --> S3[S3 Static File] --> JSON[all-events.json]
+```
 
 ## Configuration
-
-### Environment Variables
-
-```bash
-# Cache durations (in minutes)
-CACHE_MEMORY_TTL_MINUTES=60      # Layer 3: Lambda memory cache
-CACHE_S3_TTL_MINUTES=60          # Layer 4: S3 file cache
-
-# S3 Cache Configuration
-CACHE_S3_BUCKET=chautauqua-calendar-cache-xxxxxxxx
-CACHE_S3_KEY_PREFIX=calendar-cache
-```
 
 ### Terraform Configuration
 
 ```hcl
-# CloudFront API caching (Layer 2)
-ordered_cache_behavior {
-  path_pattern = "/api/*"
+# CloudFront static file caching
+default_cache_behavior {
   min_ttl     = 0
-  default_ttl = 3600   # 1 hour
-  max_ttl     = 86400  # 24 hours
+  default_ttl = 86400   # 24 hours
+  max_ttl     = 604800  # 7 days
 }
 
-# S3 Cache Bucket (Layer 4)
-resource "aws_s3_bucket" "cache_bucket" {
-  bucket = "chautauqua-calendar-cache-${random_string.bucket_suffix.result}"
+# S3 bucket for static files
+resource "aws_s3_bucket" "frontend_bucket" {
+  bucket = "chautauqua-calendar-frontend-${var.environment}"
+}
+```
+
+### CloudFront Distribution Settings
+
+```hcl
+# Optimized for static JSON file delivery
+distribution_config {
+  enabled = true
+  price_class = "PriceClass_All"  # Global distribution
+  
+  # Static file caching
+  default_cache_behavior {
+    target_origin_id = "S3-${aws_s3_bucket.frontend_bucket.bucket}"
+    viewer_protocol_policy = "redirect-to-https"
+    compress = true
+    
+    # Cache static JSON files aggressively
+    cached_methods = ["GET", "HEAD"]
+    cache_policy_id = aws_cloudfront_cache_policy.static_files.id
+  }
 }
 ```
 
 ## Cache Invalidation
 
-### Automatic Invalidation
-- **Time-based**: All caches expire after their configured TTL
-- **S3 Lifecycle**: Files older than 7 days are automatically deleted
+### Automatic Data Updates
+- **Scheduled Updates**: EventBridge triggers sync Lambda hourly for current events
+- **File Regeneration**: Complete all-events.json file regenerated from DynamoDB data
+- **Automatic Upload**: New file uploaded to S3, triggering CloudFront cache invalidation
 
-### Manual Invalidation (Future Enhancement)
-- CloudFront distribution invalidation via API
-- S3 cache clearing endpoint
-- Memory cache clearing via Lambda restart
+### Manual Invalidation
+- **CloudFront Invalidation**: Automatic via deployment scripts after new file upload
+- **Deployment Process**: GitHub Actions triggers invalidation after frontend deployment
 
 ## Performance Benefits
 
-### Expected Performance Improvements
+### Performance Improvements vs. Previous Architecture
 
-| Scenario | Before Caching | After Caching | Improvement |
-|----------|----------------|---------------|-------------|
-| Same user, same filters | ~2000ms DynamoDB scan | ~50ms browser cache | **40x faster** |
-| Different user, same filters | ~2000ms DynamoDB scan | ~100ms CloudFront edge | **20x faster** |
-| Lambda warm, same filters | ~2000ms DynamoDB scan | ~5ms memory cache | **400x faster** |
-| Lambda cold, same filters | ~2000ms DynamoDB scan | ~200ms S3 cache | **10x faster** |
+| Scenario | Previous (Lambda + Caching) | Current (Static Files) | Improvement |
+|----------|----------------------------|----------------------|-------------|
+| First-time user | ~2000ms DynamoDB + Lambda | ~50ms CloudFront edge | **40x faster** |
+| Repeat user | ~50ms browser cache | ~10ms browser cache | **5x faster** |
+| Global users | ~500ms regional Lambda | ~20ms local edge | **25x faster** |
+| High traffic | Lambda scaling delays | Instant edge serving | **Unlimited scaling** |
 
-### Cost Benefits
-- **Reduced DynamoDB Costs**: Fewer read capacity units consumed
-- **Reduced Lambda Costs**: Shorter execution times
-- **Improved User Experience**: Faster page loads, better perceived performance
+### Architectural Benefits
+
+**Performance:**
+- **Zero Compute Latency**: No Lambda cold starts for event data
+- **Global Edge Distribution**: 400+ CloudFront locations worldwide
+- **Instant Scaling**: Static files handle any traffic volume
+- **Client-Side Filtering**: All filtering happens in browser for instant results
+
+**Cost Optimization:**
+- **No Lambda Invocations**: For event data requests (99% of traffic)
+- **No API Gateway Charges**: For event endpoints
+- **Minimal DynamoDB Reads**: Only for data sync and admin operations
+- **Predictable Costs**: Storage + bandwidth only for event delivery
+
+**Reliability:**
+- **No Single Point of Failure**: Static files are highly available
+- **Graceful Degradation**: Cached data survives sync failures
+- **Simplified Architecture**: Fewer moving parts to maintain
 
 ## Implementation Details
 
-### Cache Key Generation
+### Static File Generation
+
+The current architecture eliminates complex caching logic in favor of simple static file generation:
+
 ```typescript
-// Predictable keys for common queries
-if (keyParams.filters !== undefined && Object.keys(keyParams.filters).length === 0) {
-  return 'all-events';
-}
+// Simplified data flow in sync Lambda
+async function generateStaticFile() {
+  // 1. Query all events from DynamoDB
+  const allEvents = await dynamodb.scan({
+    TableName: 'ChautauquaEvents'
+  }).promise();
 
-// Date range queries
-if (keyParams.filters?.dateRange) {
-  const { start, end } = keyParams.filters.dateRange;
-  return start === end ? `events-${start}` : `events-${start}-to-${end}`;
-}
+  // 2. Process and enrich event data
+  const processedEvents = allEvents.Items.map(processEvent);
 
-// Category-specific queries
-if (keyParams.filters?.categories && keyParams.filters.categories.length === 1) {
-  return `category-${keyParams.filters.categories[0].toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
-}
+  // 3. Generate static JSON file
+  const staticData = {
+    cacheKey: 'all-events',
+    data: processedEvents,
+    timestamp: new Date().toISOString(),
+    expiry: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  };
 
-// Complex queries use hashed keys
-const hashedKey = crypto.createHash('sha256')
-  .update(JSON.stringify(sortedParams))
-  .digest('hex')
-  .substring(0, 16);
+  // 4. Upload to S3
+  await s3.putObject({
+    Bucket: 'chautauqua-calendar-frontend-prod',
+    Key: 'cache/calendar-cache/all-events.json',
+    Body: JSON.stringify(staticData),
+    ContentType: 'application/json',
+    CacheControl: 'public, max-age=86400'
+  }).promise();
+}
 ```
 
-### Multi-Layer Cache Service
-The `MultiLayerCacheService` class handles:
-- Cache key generation and normalization
-- Expiration logic across all layers
-- Fallback mechanisms (memory → S3 → database)
-- Error handling (cache failures don't break main functionality)
+### Client-Side Processing
+
+All filtering and search happens client-side for instant results:
+
+```typescript
+// Frontend fetches static file once
+const response = await fetch('/cache/calendar-cache/all-events.json');
+const fileData = await response.json();
+
+// Extract events from the data array
+const events = fileData.data;
+
+// All subsequent filtering is client-side
+const filteredEvents = events.filter(event => {
+  return matchesSearch(event, searchTerm) &&
+         matchesWeek(event, selectedWeeks) &&
+         matchesCategory(event, selectedCategories);
+});
+```
 
 ### Cache Headers
-```typescript
-const cacheHeaders = {
-  'Cache-Control': 'public, max-age=3600',
-  'Expires': new Date(Date.now() + 60 * 60 * 1000).toUTCString()
-};
+
+CloudFront serves static files with optimized cache headers:
+
+```http
+Cache-Control: public, max-age=86400
+ETag: "abc123def456"
+Last-Modified: Wed, 27 Jul 2025 10:00:00 GMT
+Content-Type: application/json
+Content-Encoding: gzip
 ```
 
 ## Monitoring & Observability
 
-### Cache Status Endpoint
-- **URL**: `/api/cache/status`
-- **Purpose**: Monitor cache performance and statistics
-- **Data**: Memory cache size, configuration, timestamps
+### Static File Monitoring
 
-### CloudWatch Metrics (Future)
-- Cache hit/miss ratios
-- Cache response times
-- S3 cache file counts
-- DynamoDB query reduction
+Since the architecture uses static files, monitoring focuses on:
+
+```mermaid
+graph LR
+    CloudWatch[CloudWatch Metrics] --> S3Metrics[S3 Request Metrics]
+    CloudWatch --> CFMetrics[CloudFront Cache Metrics]
+    CloudWatch --> SyncMetrics[Sync Lambda Metrics]
+    
+    S3Metrics --> Requests[Request Count]
+    S3Metrics --> Errors[Error Rate]
+    
+    CFMetrics --> HitRatio[Cache Hit Ratio]
+    CFMetrics --> OriginLatency[Origin Response Time]
+    
+    SyncMetrics --> SyncSuccess[Sync Success Rate]
+    SyncMetrics --> DataFreshness[Data Freshness]
+```
+
+### Key Metrics
+
+**CloudFront Performance:**
+- Cache hit ratio (target: >95%)
+- Origin response time (target: <100ms)
+- Error rate (target: <0.1%)
+
+**Data Freshness:**
+- Last sync timestamp in all-events.json (`.timestamp` field)
+- File expiry time (`.expiry` field)
+- Sync success rate (target: 100%)
+- Time since last successful update
+
+**S3 Performance:**
+- Request volume and patterns
+- Error rates for static file requests
 
 ## Security Considerations
 
-### S3 Bucket Security
-- **Encryption**: AES-256 server-side encryption
-- **Access**: Limited to Lambda execution role only
-- **Versioning**: Enabled with automatic cleanup
+### Static File Security
+- **Public Access**: Static JSON files are intentionally public
+- **Content Security**: No sensitive data in event information
+- **HTTPS Only**: All access via CloudFront with SSL/TLS
 
-### Data Privacy
-- Cache keys are hashed to prevent data leakage
-- No sensitive user data is cached
-- Public data only (calendar events)
+### Infrastructure Security
+- **S3 Bucket Security**: Restricted write access to sync Lambda only
+- **CloudFront Security**: HTTPS enforcement, security headers
+- **Lambda Permissions**: Minimal IAM roles for sync operations
 
-## Future Enhancements
+## System Advantages
 
-### Cache Warming
-- Proactive cache population for common queries
-- Scheduled Lambda to refresh popular cache entries
+### Architectural Simplicity
+The move to static files provides significant advantages:
 
-### Intelligent Invalidation
-- Event-driven cache invalidation on data updates
-- Selective cache clearing by filter patterns
+1. **Elimination of Complex Systems**:
+   - No multi-layer cache management
+   - No cache invalidation strategies
+   - No cache key generation logic
+   - No memory management concerns
 
-### Advanced Analytics
-- Cache effectiveness reporting
-- Performance optimization recommendations
-- Automated cache tuning based on usage patterns
+2. **Improved Reliability**:
+   - Static files never "miss" or fail
+   - No cache warming required
+   - No cache coherency issues
+   - Predictable performance
+
+3. **Simplified Operations**:
+   - No cache monitoring dashboards needed
+   - No cache-related debugging
+   - Straightforward deployment process
+   - Clear data flow
+
+## Migration Benefits
+
+### From Complex to Simple
+
+The evolution from a 4-layer caching system to static files demonstrates:
+
+**Before (Complex Caching):**
+- Memory cache + S3 cache + DynamoDB
+- Cache invalidation logic
+- Multiple failure points
+- Complex monitoring requirements
+
+**After (Static Files):**
+- Single static JSON file
+- CloudFront edge distribution
+- Simple update process
+- Minimal monitoring needs
 
 ## Troubleshooting
 
-### Common Issues
+### Static File Issues
 
-1. **High Memory Usage**: Check memory cache size via `/api/cache/status`
-2. **S3 Access Errors**: Verify Lambda IAM permissions
-3. **Cache Not Working**: Check TTL configuration and timestamps
-4. **Performance Issues**: Monitor cache hit ratios and adjust TTL values
+1. **Stale Data**: Check sync Lambda execution and all-events.json `.timestamp` field
+2. **File Not Found**: Verify S3 bucket deployment and CloudFront configuration  
+3. **Slow Loading**: Check CloudFront cache hit ratio and edge location coverage
+4. **Large File Size**: Monitor JSON file size (currently ~1470 events)
 
-### Debug Endpoints
-- `/api/cache/status` - View cache statistics
-- `/api/health` - Overall system health
+### Debug Information
 
-### Logs
-All cache operations are logged with:
-- Cache HIT/MISS indicators
-- Cache layer information (Memory, S3, Database)
-- Performance timing data
+**Check File Status:**
+```bash
+# Verify file exists and freshness
+curl -I https://www.chqcal.org/cache/calendar-cache/all-events.json
+
+# Check file content and structure
+curl https://www.chqcal.org/cache/calendar-cache/all-events.json | jq '{cacheKey, timestamp, expiry, eventCount: (.data | length)}'
+```
+
+**CloudFront Debugging:**
+- CloudFront access logs (if enabled)
+- Real-time monitoring in AWS Console
+- Cache behavior configuration review
+
+---
+
+*This simplified architecture represents a significant improvement in reliability, performance, and maintainability compared to the previous multi-layer caching system.*
