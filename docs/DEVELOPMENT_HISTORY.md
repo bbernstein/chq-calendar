@@ -23,21 +23,21 @@ graph TB
         CF1 --> S3HTML[S3: Static HTML/JS]
         S3HTML --> APICall[API Calls to Backend]
     end
-    
+
     subgraph Backend
         APICall --> APIGW[API Gateway]
         APIGW --> Lambda1[Lambda Function]
         Lambda1 --> DDB1[DynamoDB Query]
         DDB1 --> FilteredJSON[Filtered JSON Response]
     end
-    
+
     subgraph BatchProcess[Batch Process]
         Schedule[EventBridge Schedule - Hourly: Next 7 days - Daily: Full season] --> Lambda2[Lambda]
         Lambda2 --> iCal[chq.org iCal]
         iCal --> Parse[Parse iCal]
         Parse --> DDB2[DynamoDB]
     end
-    
+
     DDB2 -.-> DDB1
 ```
 
@@ -51,21 +51,21 @@ graph TB
         S3HTML2 --> FetchAll[Fetches ALL Events]
         FetchAll --> ClientFilter[Client-side Filtering]
     end
-    
+
     subgraph Backend2[Backend]
         FetchAll --> APIGW2[API Gateway]
         APIGW2 --> Lambda3[Lambda]
         Lambda3 --> DDBScan[DynamoDB Scan]
         DDBScan --> AllJSON[ALL Events JSON - No Filtering]
     end
-    
+
     subgraph BatchProcess2[Batch Process]
         Schedule2[EventBridge] --> Lambda4[Lambda]
         Lambda4 --> iCal2[chq.org iCal]
         iCal2 --> Parse2[Parse iCal]
         Parse2 --> DDB3[DynamoDB]
     end
-    
+
     DDB3 -.-> DDBScan
 ```
 
@@ -79,21 +79,21 @@ graph TB
         S3HTML3 --> FetchAll3[Fetches ALL Events]
         FetchAll3 --> ClientFilter3[Client-side Filtering]
     end
-    
+
     subgraph Backend3[Backend]
         FetchAll3 --> APIGW3[API Gateway]
         APIGW3 --> Lambda5[Lambda]
         Lambda5 --> DDBScan3[DynamoDB Scan]
         DDBScan3 --> AllJSON3[ALL Events JSON]
     end
-    
+
     subgraph BatchProcess3[Batch Process]
         Schedule3[EventBridge] --> Lambda6[Lambda]
         Lambda6 --> EventsAPI[Events Calendar API - Direct REST API - No iCal parsing]
         EventsAPI --> Process[Process Events]
         Process --> DDB4[DynamoDB]
     end
-    
+
     DDB4 -.-> DDBScan3
 ```
 
@@ -107,7 +107,7 @@ graph TB
         S3HTML4 --> FetchAll4[Fetches ALL Events]
         FetchAll4 --> ClientFilter4[Client-side Filtering]
     end
-    
+
     subgraph Backend4[Backend]
         FetchAll4 --> APIGW4[API Gateway]
         APIGW4 --> Lambda7[Lambda]
@@ -119,14 +119,14 @@ graph TB
         S3Cache --> CachedJSON
         DDBFallback --> CachedJSON
     end
-    
+
     subgraph BatchProcess4[Batch Process]
         Schedule4[EventBridge] --> Lambda8[Lambda]
         Lambda8 --> EventsAPI4[Events Calendar API]
         EventsAPI4 --> Process4[Process Events]
         Process4 --> DDB5[DynamoDB]
     end
-    
+
     DDB5 -.-> DDBFallback
 ```
 
@@ -141,13 +141,13 @@ graph TB
         S3Static --> EventsJSON[all-events.json Static Data]
         EventsJSON --> ClientFilter5[Client-side Filtering]
     end
-    
+
     subgraph BackendObsolete[Backend - Obsolete]
         ObsoleteAPI[API Gateway - No longer used]
         ObsoleteLambda[Lambda for Events - No longer used]
         AdminLambda[Admin Lambda - Feedback management]
     end
-    
+
     subgraph BatchProcessEnhanced[Batch Process - Enhanced]
         Schedule5[EventBridge] --> Lambda9[Lambda]
         Lambda9 --> EventsAPI5[Events Calendar API]
@@ -155,7 +155,7 @@ graph TB
         Process5 --> TwoOutputs{Two Outputs}
         TwoOutputs --> DDB6[DynamoDB Admin/Backup]
         TwoOutputs --> StaticFile[S3 Static File all-events.json]
-        StaticFile --> CF5
+        StaticFile --> EventsJSON
     end
 ```
 
@@ -315,7 +315,7 @@ graph LR
 
 ### Cost
 - **No Lambda Invocations**: For user requests
-- **No API Gateway Charges**: For event endpoints  
+- **No API Gateway Charges**: For event endpoints
 - **Minimal DynamoDB Reads**: Only for admin operations
 - **Predictable Costs**: Based on storage and bandwidth
 
@@ -346,6 +346,6 @@ The journey from a traditional three-tier architecture to a static file served v
 
 ---
 
-*Document Version: 2.0*  
-*Last Updated: July 27, 2025*  
+*Document Version: 2.0*
+*Last Updated: July 27, 2025*
 *Author: Bernie Bernstein with architectural insights from development history*
