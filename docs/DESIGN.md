@@ -29,49 +29,49 @@ graph TB
         EndUsers[End Users<br/>Browse Events & Submit Feedback]
         AdminUsers[Admin Users<br/>Review Feedback]
     end
-    
+
     subgraph Frontend[Frontend - Static Site]
         NextJS[Next.js App] --> StaticFiles[Static HTML/CSS/JS]
         StaticFiles --> CloudFront[CloudFront Distribution]
         NextJS --> FeedbackForm[Feedback Form]
         NextJS --> AdminPanel[Admin Panel]
     end
-    
+
     subgraph DataLayer[Data Layer - Static + Dynamic]
         StaticJSON[Static JSON File] --> CloudFront
         DynamoDB[(DynamoDB<br/>Events & Feedback)]
         S3[S3 Bucket]
         StaticJSON --> S3
     end
-    
+
     subgraph Backend[Backend - Lambda Functions]
         SyncLambda[Sync Handler<br/>Data Generation]
-        FeedbackLambda[Feedback Handler<br/>reCAPTCHA + Storage] 
+        FeedbackLambda[Feedback Handler<br/>reCAPTCHA + Storage]
         AdminLambda[Admin Handler<br/>OAuth + Feedback Access]
         HealthLambda[Health Handler]
     end
-    
+
     subgraph External[External APIs]
         EventsAPI[Events Calendar API]
         reCAPTCHA[Google reCAPTCHA]
         OAuth[Google OAuth 2.0]
     end
-    
+
     %% Data flow
     SyncLambda --> EventsAPI
     SyncLambda --> DynamoDB
     SyncLambda --> StaticJSON
-    
+
     %% User interactions
     EndUsers --> CloudFront
     EndUsers --> FeedbackForm
     AdminUsers --> AdminPanel
-    
+
     %% Feedback flow
     FeedbackForm --> FeedbackLambda
     FeedbackLambda --> reCAPTCHA
     FeedbackLambda --> DynamoDB
-    
+
     %% Admin flow
     AdminPanel --> AdminLambda
     AdminLambda --> OAuth
@@ -290,8 +290,7 @@ Global Secondary Indexes (Events):
 infrastructure/
 ├── main.tf              # Primary infrastructure
 ├── sync.tf              # Sync-related resources
-├── cloudfront-function.js # Path rewriting
-└── tfplan               # Terraform plan output
+└── cloudfront-function.js # Path rewriting
 ```
 
 **Automated Deployment:**
@@ -489,14 +488,14 @@ graph TB
         DynamoDB --> GenerateFile[Generate all-events.json]
         GenerateFile --> UploadS3[Upload to S3]
     end
-    
+
     subgraph StaticDelivery[Static File Delivery]
         UploadS3 --> S3File[S3: all-events.json]
         S3File --> CloudFront[CloudFront CDN]
         CloudFront --> EdgeCache[400+ Edge Locations]
         EdgeCache --> UserBrowser[User Browser]
     end
-    
+
     subgraph ClientSide[Client-Side Processing]
         UserBrowser --> NextJS[Next.js Frontend]
         NextJS --> ParseJSON[Parse JSON File]
@@ -514,7 +513,7 @@ graph TB
         reCAPTCHA --> FeedbackLambda[Feedback Lambda]
         FeedbackLambda --> FeedbackDB[(DynamoDB Feedback)]
     end
-    
+
     subgraph AdminAccess[Admin Access Flow]
         AdminLogin[Admin Login] --> GoogleOAuth[Google OAuth 2.0]
         GoogleOAuth --> AdminLambda[Admin Lambda]
