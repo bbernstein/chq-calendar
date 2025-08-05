@@ -1031,7 +1031,7 @@ function HomeContent() {
           const displayB = getCategoryDisplayName(b);
           return displayA.localeCompare(displayB);
         });
-        
+
         const sortedLocations = locations.sort((a, b) => {
           const displayA = getLocationDisplayName(a);
           const displayB = getLocationDisplayName(b);
@@ -1108,6 +1108,28 @@ function HomeContent() {
     return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isDragging]);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [menuOpen]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       {/* Header */}
@@ -1129,13 +1151,59 @@ function HomeContent() {
                 2025 Season
               </span>
             </div>
-            <div className="flex items-center gap-2 sm:gap-4">
+            {/* Desktop: Show both buttons separately */}
+            <div className="hidden md:flex items-center gap-2">
               <button
                 onClick={() => window.open('/feedback', '_blank')}
-                className="px-2 py-1 sm:px-3 sm:py-1 text-xs sm:text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
               >
                 Feedback
               </button>
+              <button
+                onClick={() => window.open('https://programs.chq.org/', '_blank')}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Programs
+              </button>
+            </div>
+            {/* Mobile: Show dropdown menu */}
+            <div className="md:hidden relative" ref={menuRef}>
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="px-2 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1"
+              >
+                More
+                <svg
+                  className={`w-3 h-3 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-50">
+                  <button
+                    onClick={() => {
+                      window.open('/feedback', '_blank');
+                      setMenuOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  >
+                    Feedback
+                  </button>
+                  <button
+                    onClick={() => {
+                      window.open('https://programs.chq.org/', '_blank');
+                      setMenuOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  >
+                    Programs
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
