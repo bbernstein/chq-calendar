@@ -1,6 +1,7 @@
 import { EventsCalendarApiClient } from './eventsCalendarApiClient';
 import { EventTransformationService } from './eventTransformationService';
 import { MultiLayerCacheService } from './multiLayerCacheService';
+import { SyncStatusService } from './syncStatusService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 
@@ -10,6 +11,7 @@ export class EventsCalendarDataSyncService {
   private dbClient: DynamoDBDocumentClient;
   private tableName: string;
   private cacheService: MultiLayerCacheService;
+  private statusService: SyncStatusService;
 
   // AWS service limits
   private static readonly DYNAMODB_BATCH_WRITE_LIMIT = 25;
@@ -19,7 +21,7 @@ export class EventsCalendarDataSyncService {
     // Configure API client with parallelization settings from environment
     const maxConcurrentRequests = parseInt(process.env.API_MAX_CONCURRENT_REQUESTS || '10');
     const requestDelayMs = parseInt(process.env.API_REQUEST_DELAY_MS || '100');
-    
+
     this.apiClient = apiClient || new EventsCalendarApiClient(
       'https://www.chq.org/wp-json/tribe/events/v1',
       { maxConcurrentRequests, requestDelayMs }
@@ -38,6 +40,9 @@ export class EventsCalendarDataSyncService {
       s3BucketName: process.env.CACHE_S3_BUCKET || 'chautauqua-calendar-cache',
       s3KeyPrefix: process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache'
     });
+
+    // Initialize sync status service
+    this.statusService = new SyncStatusService(this.dbClient);
   }
 
   /**
@@ -91,7 +96,8 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        await this.warmCacheAfterSync(hasDataChanges);
+        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+        await this.warmCacheAfterSync(hasDataChanges, year);
       }
 
       return result;
@@ -106,9 +112,89 @@ export class EventsCalendarDataSyncService {
   }
 
   /**
+   * Sync all events for the entire year (including off-season)
+   */
+  async syncFullYearEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
+    console.log(`Starting full year sync for ${year}`);
+
+    try {
+      const apiEvents = await this.apiClient.getFullYearEvents(year);
+      console.log(`Fetched ${apiEvents.length} events for year ${year}`);
+
+      const transformedEvents = this.transformationService.transformApiEvents(apiEvents);
+
+      const result: SyncResult = {
+        success: false,
+        eventsProcessed: 0,
+        eventsCreated: 0,
+        eventsUpdated: 0,
+        eventsDeleted: 0,
+        errors: [],
+        duration: 0
+      };
+
+      const startTime = Date.now();
+
+      // Process events in bulk
+      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+
+      result.eventsProcessed = processedEvents.processed;
+      result.eventsCreated = processedEvents.created;
+      result.eventsUpdated = processedEvents.updated;
+      result.success = processedEvents.errors.length === 0;
+      result.errors = processedEvents.errors;
+      result.duration = Date.now() - startTime;
+
+      // Warm the cache with year-specific key
+      if (result.success || result.errors.length < 5) {
+        await this.warmCacheAfterSync(true, year);
+      }
+
+      // Record sync completion status
+      try {
+        const syncId = await this.statusService.createSyncStatus('full', undefined, { year });
+        await this.statusService.startSync(syncId);
+
+        if (result.success) {
+          await this.statusService.completeSyncSuccess(syncId, {
+            eventsProcessed: result.eventsProcessed,
+            eventsCreated: result.eventsCreated,
+            eventsUpdated: result.eventsUpdated,
+            eventsDeleted: result.eventsDeleted,
+            eventsSkipped: 0,
+            errors: result.errors
+          });
+        } else {
+          await this.statusService.completeSyncFailure(
+            syncId,
+            result.errors.join('; '),
+            {
+              eventsProcessed: result.eventsProcessed,
+              eventsCreated: result.eventsCreated,
+              eventsUpdated: result.eventsUpdated,
+              eventsDeleted: result.eventsDeleted,
+              eventsSkipped: 0,
+              errors: result.errors
+            }
+          );
+        }
+      } catch (error) {
+        console.warn('Failed to record sync status:', error.message);
+      }
+
+      console.log(`Year sync completed for ${year}:`, result);
+      return result;
+
+    } catch (error) {
+      console.error(`Error syncing year ${year}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Sync all events for the Chautauqua season
    */
-  async syncAllSeasonEvents(year: number = 2025): Promise<SyncResult> {
+  async syncAllSeasonEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
     console.log(`Starting full season sync for ${year}`);
 
     try {
@@ -144,7 +230,8 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        await this.warmCacheAfterSync(hasDataChanges);
+        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+        await this.warmCacheAfterSync(hasDataChanges, year);
       }
 
       return result;
@@ -222,7 +309,8 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        await this.warmCacheAfterSync(hasDataChanges);
+        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+        await this.warmCacheAfterSync(hasDataChanges, year);
       }
 
       return result;
@@ -245,7 +333,7 @@ export class EventsCalendarDataSyncService {
   /**
    * Perform daily sync (full season refresh)
    */
-  async performDailySync(year: number = 2025): Promise<SyncResult> {
+  async performDailySync(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
     console.log('Starting daily full sync');
     return this.syncAllSeasonEvents(year);
   }
@@ -289,7 +377,8 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        await this.warmCacheAfterSync(hasDataChanges);
+        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+        await this.warmCacheAfterSync(hasDataChanges, year);
       }
 
       return result;
@@ -325,8 +414,8 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
 
       // Test a small sync
       const testRange: DateRange = {
-        start: '2025-08-01',
-        end: '2025-08-02'
+        start: '2026-08-01',
+        end: '2026-08-02'
       };
 
       const testResult = await this.syncEvents(testRange);
@@ -368,7 +457,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     // Process events in batches
     for (let i = 0; i < events.length; i += batchSize) {
       const batch = events.slice(i, i + batchSize);
-      
+
       try {
         const batchResult = await this.processBatch(batch, existingEventsMap);
         processed += batchResult.processed;
@@ -390,13 +479,13 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
    */
   private async getExistingEventsInBulk(eventIds: number[]): Promise<Map<string, ChautauquaEvent>> {
     const existingEvents = new Map<string, ChautauquaEvent>();
-    
+
     // Process in batches using DynamoDB BatchGet limit
     const batchSize = EventsCalendarDataSyncService.DYNAMODB_BATCH_GET_LIMIT;
-    
+
     for (let i = 0; i < eventIds.length; i += batchSize) {
       const batch = eventIds.slice(i, i + batchSize);
-      
+
       try {
         // Use individual GetCommand calls in parallel instead of BatchGetCommand
         // This is more reliable and simpler to implement
@@ -406,7 +495,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
               TableName: this.tableName,
               Key: { id: eventId.toString() }
             });
-            
+
             const response = await this.dbClient.send(command);
             if (response.Item) {
               return { id: eventId.toString(), event: response.Item as ChautauquaEvent };
@@ -417,9 +506,9 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
             return null;
           }
         });
-        
+
         const results = await Promise.all(promises);
-        
+
         // Add successful results to the map
         results.forEach(result => {
           if (result) {
@@ -430,7 +519,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         console.error(`Error in bulk get batch:`, error);
       }
     }
-    
+
     return existingEvents;
   }
 
@@ -439,7 +528,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
    */
   private async processBatch(events: ChautauquaEvent[], existingEventsMap: Map<string, ChautauquaEvent>): Promise<{
     processed: number;
-    created: number; 
+    created: number;
     updated: number;
     errors: string[];
   }> {
@@ -510,7 +599,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         });
 
         const response = await this.dbClient.send(command);
-        
+
         // Handle unprocessed items (retry logic could be added here)
         if (response.UnprocessedItems && Object.keys(response.UnprocessedItems).length > 0) {
           console.warn(`Some items were not processed in batch write:`, response.UnprocessedItems);
@@ -679,15 +768,18 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
    * Warm S3 cache with common calendar queries after data updates
    * This ensures CloudFront can serve from S3 cache without invoking Lambda
    */
-  private async warmCacheAfterSync(hasDataChanges: boolean): Promise<void> {
-    console.log(`Starting cache warming - hasDataChanges: ${hasDataChanges}`);
+  private async warmCacheAfterSync(hasDataChanges: boolean, year?: number): Promise<void> {
+    const activeYear = year || parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+    console.log(`Starting cache warming for year ${activeYear} - hasDataChanges: ${hasDataChanges}`);
 
     try {
       // Common cache keys that API requests use
       // Using predictable cache keys for direct CloudFront access
       const commonCacheKeys = [
-        // All events (no filters) - most common request
-        // This will generate cache key: "all-events"
+        // All events for specific year (no filters) - most common request
+        // This will generate cache key: "all-events-2026"
+        { filters: {}, year: activeYear },
+        // Legacy all events (for backward compatibility)
         { filters: {} },
 
         // Today's events
@@ -718,7 +810,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
           if (hasDataChanges) {
             // Data changed - fetch fresh data and warm cache
             console.log('Data changes detected - fetching fresh events for cache warming');
-            const events = await this.queryEventsForCacheWarming(cacheKey.filters);
+            const events = await this.queryEventsForCacheWarming(cacheKey.filters, cacheKey.year);
             await this.cacheService.set(cacheKey, events);
             console.log(`Cache warmed for key: ${JSON.stringify(cacheKey.filters)} - ${events.length} events`);
           } else {
@@ -730,7 +822,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
             } else {
               // Cache was empty, fetch and populate
               console.log('Cache was empty - fetching events for cache warming');
-              const events = await this.queryEventsForCacheWarming(cacheKey.filters);
+              const events = await this.queryEventsForCacheWarming(cacheKey.filters, cacheKey.year);
               await this.cacheService.set(cacheKey, events);
               console.log(`Cache populated for key: ${JSON.stringify(cacheKey.filters)} - ${events.length} events`);
             }
@@ -751,7 +843,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
   /**
    * Query events for cache warming (mirrors calendar handler logic)
    */
-  private async queryEventsForCacheWarming(filters?: any): Promise<any[]> {
+  private async queryEventsForCacheWarming(filters?: any, year?: number): Promise<any[]> {
     try {
       // Use scan command to get all events (simplified version of calendar handler logic)
       const allEvents: any[] = [];
@@ -772,16 +864,36 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         });
 
         const response = await this.dbClient.send(command);
-        
+
         if (response.Items) {
           allEvents.push(...response.Items);
         }
-        
+
         lastEvaluatedKey = response.LastEvaluatedKey;
       } while (lastEvaluatedKey);
 
       console.log(`Cache warming: Retrieved ${allEvents.length} total events from DynamoDB`);
       let events = allEvents;
+
+      // Apply year filtering first if provided
+      if (year) {
+        events = events.filter(event => {
+          if (!event.startDate) return false;
+
+          // Extract year from startDate (YYYY-MM-DD HH:MM:SS or ISO format)
+          let eventYear: number;
+          if (event.startDate.includes('T')) {
+            // ISO format
+            eventYear = new Date(event.startDate).getFullYear();
+          } else {
+            // Database format (YYYY-MM-DD HH:MM:SS)
+            eventYear = parseInt(event.startDate.substring(0, 4));
+          }
+
+          return eventYear === year;
+        });
+        console.log(`Cache warming: Filtered to ${events.length} events for year ${year}`);
+      }
 
       // Apply basic filtering similar to calendar handler
       if (filters?.dateRange) {
