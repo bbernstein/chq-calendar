@@ -4,7 +4,10 @@ const AWS = require("aws-sdk");
 AWS.config.update({ region: "us-east-1" });
 const lambda = new AWS.Lambda();
 
-async function triggerFullYearSync(year = 2026) {
+// Default to current year + 1 for upcoming season, or set via environment
+const DEFAULT_YEAR = parseInt(process.env.ACTIVE_YEAR || (new Date().getFullYear() + 1));
+
+async function triggerFullYearSync(year = DEFAULT_YEAR) {
   console.log(`🚀 Triggering full year sync for ${year}...`);
 
   const params = {
@@ -37,6 +40,6 @@ async function triggerFullYearSync(year = 2026) {
   }
 }
 
-// Get year from command line argument or default to 2026
-const year = process.argv[2] ? parseInt(process.argv[2]) : 2026;
+// Get year from command line argument or use default
+const year = process.argv[2] ? parseInt(process.argv[2]) : DEFAULT_YEAR;
 triggerFullYearSync(year);

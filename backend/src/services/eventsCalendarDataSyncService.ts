@@ -780,7 +780,8 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         // This will generate cache key: "all-events-2026"
         { filters: {}, year: activeYear },
         // Legacy all events (for backward compatibility)
-        { filters: {} },
+        // This will generate cache key: "all-events"
+        { filters: {}, year: undefined },
 
         // Today's events
         // This will generate cache key: "events-YYYY-MM-DD"
@@ -790,7 +791,8 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
               start: new Date().toISOString().split('T')[0],
               end: new Date().toISOString().split('T')[0]
             }
-          }
+          },
+          year: undefined
         },
 
         // This week's events (next 7 days)
@@ -801,7 +803,8 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
               start: new Date().toISOString().split('T')[0],
               end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
             }
-          }
+          },
+          year: undefined
         }
       ];
 
@@ -901,7 +904,12 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         // Verify all events are from the correct year (safety check)
         const incorrectYearEvents = events.filter(event => {
           if (!event.startDate) return true;
-          const eventYear = parseInt(event.startDate.substring(0, 4));
+
+          // Robustly extract year from startDate (supports ISO and "YYYY-MM-DD HH:MM:SS" formats)
+          const dateObj = new Date(event.startDate);
+          if (isNaN(dateObj.getTime())) return true; // Invalid date - filter out
+          const eventYear = dateObj.getFullYear();
+
           return eventYear !== year;
         });
 
@@ -909,7 +917,12 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
           console.warn(`Found ${incorrectYearEvents.length} events from incorrect years - filtering them out`);
           events = events.filter(event => {
             if (!event.startDate) return false;
-            const eventYear = parseInt(event.startDate.substring(0, 4));
+
+            // Robustly extract year from startDate
+            const dateObj = new Date(event.startDate);
+            if (isNaN(dateObj.getTime())) return false; // Invalid date
+            const eventYear = dateObj.getFullYear();
+
             return eventYear === year;
           });
         }
