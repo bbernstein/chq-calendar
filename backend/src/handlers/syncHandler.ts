@@ -24,24 +24,29 @@ const statusService = new SyncStatusService(docClient);
  */
 export const scheduledSyncHandler = async (event: any, context: Context): Promise<void> => {
   console.log('Starting scheduled sync operation:', JSON.stringify(event));
-  
+
   try {
     let result;
     const detailType = event['detail-type'];
-    
+
+    // Get the active year from environment variable or default to current year
+    const activeYear = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+    console.log(`Active year configured as: ${activeYear}`);
+
     if (detailType === 'Weekly Full Sync') {
-      console.log('Performing weekly full sync');
-      const year = new Date().getFullYear();
-      result = await syncService.syncAllSeasonEvents(year);
+      console.log(`Performing weekly full year sync for ${activeYear}`);
+      // Use full year sync instead of just season
+      result = await syncService.syncFullYearEvents(activeYear);
     } else if (detailType === 'Daily Sync') {
-      console.log('Performing daily sync');
-      result = await syncService.performDailySync();
+      console.log(`Performing daily sync for year ${activeYear}`);
+      // Daily sync also uses full year
+      result = await syncService.syncFullYearEvents(activeYear);
     } else {
-      // Default to hourly sync
-      console.log('Performing hourly sync');
+      // Default to hourly sync (incremental)
+      console.log('Performing hourly incremental sync');
       result = await syncService.performIncrementalSync();
     }
-    
+
     console.log('Sync completed:', result);
   } catch (error) {
     console.error('Sync failed:', error);
@@ -54,13 +59,13 @@ export const scheduledSyncHandler = async (event: any, context: Context): Promis
  */
 export const manualSyncHandler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
   console.log('Starting manual sync operation');
-  
+
   try {
     const requestBody = event.body ? JSON.parse(event.body) : {};
     const { syncType = 'incremental', year } = requestBody;
-    
+
     let result;
-    
+
     if (syncType === 'full' && year) {
       console.log(`Performing full sync for year ${year}`);
       result = await syncService.syncAllSeasonEvents(year);
@@ -68,7 +73,7 @@ export const manualSyncHandler = async (event: APIGatewayProxyEvent, context: Co
       console.log('Performing incremental sync');
       result = await syncService.performIncrementalSync();
     }
-    
+
     return {
       statusCode: 200,
       headers: {
@@ -79,7 +84,7 @@ export const manualSyncHandler = async (event: APIGatewayProxyEvent, context: Co
     };
   } catch (error) {
     console.error('Manual sync failed:', error);
-    
+
     return {
       statusCode: 500,
       headers: {
@@ -101,7 +106,7 @@ export const manualSyncHandler = async (event: APIGatewayProxyEvent, context: Co
 export const healthCheckHandler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
   try {
     const health = await syncService.getHealthStatus();
-    
+
     return {
       statusCode: 200,
       headers: {
@@ -112,7 +117,7 @@ export const healthCheckHandler = async (event: APIGatewayProxyEvent, context: C
     };
   } catch (error) {
     console.error('Health check failed:', error);
-    
+
     return {
       statusCode: 500,
       headers: {
@@ -133,7 +138,7 @@ export const healthCheckHandler = async (event: APIGatewayProxyEvent, context: C
 export const syncStatusHandler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
   try {
     const syncId = event.pathParameters?.id;
-    
+
     if (!syncId) {
       return {
         statusCode: 400,
@@ -146,9 +151,9 @@ export const syncStatusHandler = async (event: APIGatewayProxyEvent, context: Co
         }),
       };
     }
-    
+
     const status = await statusService.getSyncStatus(syncId);
-    
+
     if (!status) {
       return {
         statusCode: 404,
@@ -161,7 +166,7 @@ export const syncStatusHandler = async (event: APIGatewayProxyEvent, context: Co
         }),
       };
     }
-    
+
     return {
       statusCode: 200,
       headers: {
@@ -172,7 +177,7 @@ export const syncStatusHandler = async (event: APIGatewayProxyEvent, context: Co
     };
   } catch (error) {
     console.error('Get sync status failed:', error);
-    
+
     return {
       statusCode: 500,
       headers: {
@@ -194,9 +199,9 @@ export const syncListHandler = async (event: APIGatewayProxyEvent, context: Cont
   try {
     const queryParams = event.queryStringParameters || {};
     const { type, limit = '10' } = queryParams;
-    
+
     const syncs = await statusService.getRecentSyncStatuses(type, parseInt(limit));
-    
+
     return {
       statusCode: 200,
       headers: {
@@ -210,7 +215,7 @@ export const syncListHandler = async (event: APIGatewayProxyEvent, context: Cont
     };
   } catch (error) {
     console.error('Get sync list failed:', error);
-    
+
     return {
       statusCode: 500,
       headers: {

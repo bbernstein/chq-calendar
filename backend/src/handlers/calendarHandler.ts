@@ -8,7 +8,7 @@ import fetch from 'node-fetch';
 import { MultiLayerCacheService, CacheConfig } from '../services/multiLayerCacheService';
 
 // DynamoDB client
-const dynamoClient = new DynamoDBClient({ 
+const dynamoClient = new DynamoDBClient({
   region: process.env.AWS_REGION || 'us-east-1',
   ...(process.env.DYNAMODB_ENDPOINT && {
     endpoint: process.env.DYNAMODB_ENDPOINT,
@@ -148,15 +148,15 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
       }),
     });
 
-    const result = await response.json() as { 
-      success: boolean; 
-      score?: number; 
-      action?: string; 
+    const result = await response.json() as {
+      success: boolean;
+      score?: number;
+      action?: string;
       'error-codes'?: string[];
       challenge_ts?: string;
       hostname?: string;
     };
-    
+
     console.log(`reCAPTCHA verification result:`, {
       success: result.success,
       score: result.score,
@@ -165,14 +165,14 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
       challengeTimestamp: result.challenge_ts,
       hostname: result.hostname
     });
-    
+
     // For reCAPTCHA v3, we should check the score as well
     if (result.score !== undefined) {
       const isValid = result.success && result.score > 0.5; // Threshold for human vs bot
       console.log(`reCAPTCHA score validation: ${result.score} > 0.5 = ${isValid}`);
       return isValid;
     }
-    
+
     return result.success;
   } catch (error) {
     console.error('Error verifying CAPTCHA:', error);
@@ -205,25 +205,25 @@ const transformDatabaseEvent = (dbEvent: any): Event => {
 const scanAllEvents = async (): Promise<any[]> => {
   const allEvents: any[] = [];
   let lastEvaluatedKey: any = undefined;
-  
+
   do {
     const command = new ScanCommand({
       TableName: EVENTS_TABLE_NAME,
       ExclusiveStartKey: lastEvaluatedKey
     });
-    
+
     const result = await docClient.send(command);
-    
+
     if (result.Items) {
       allEvents.push(...result.Items);
     }
-    
+
     lastEvaluatedKey = result.LastEvaluatedKey;
-    
+
     console.log(`Scanned ${result.Items?.length || 0} events, total: ${allEvents.length}`);
-    
+
   } while (lastEvaluatedKey);
-  
+
   console.log(`Total events scanned: ${allEvents.length}`);
   return allEvents;
 };
@@ -247,7 +247,7 @@ const queryEventsFromDatabase = async (filters?: CalendarRequest['filters']): Pr
       const result = await docClient.send(command);
       events = (result.Items || []) as any[];
     } else if (filters?.dateRange?.start) {
-      // For date range queries, we need to scan all events first 
+      // For date range queries, we need to scan all events first
       // and then filter programmatically because date formats vary
       // Handle pagination to get all events
       events = await scanAllEvents();
@@ -291,12 +291,12 @@ const queryEventsFromDatabase = async (filters?: CalendarRequest['filters']): Pr
             // Add 'T' to make it parseable and treat as UTC (since times are already in ET)
             eventStart = new Date(event.startDate.replace(' ', 'T') + '.000Z');
           }
-          
+
           // For date-only comparisons, compare just the date parts
           const eventDateOnly = event.startDate.split(' ')[0];
           const startDateOnly = filters.dateRange.start.split('T')[0];
           const endDateOnly = filters.dateRange.end.split('T')[0];
-          
+
           return eventDateOnly >= startDateOnly && eventDateOnly <= endDateOnly;
         });
       }
@@ -337,13 +337,13 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
     }
 
     console.log('Cache MISS: Fetching events from database');
-    
+
     // Cache miss - fetch from database
     const events = await queryEventsFromDatabase(filters);
-    
+
     // Store in cache for future requests
     await cacheService.set(cacheKey, events);
-    
+
     console.log(`Fetched and cached ${events.length} events`);
     return events;
   } catch (error) {
@@ -358,7 +358,7 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
 const generateICalendar = (events: Event[]): string => {
   const calendar = ical({
     name: 'Chautauqua Institution Calendar',
-    description: 'Dynamic calendar for Chautauqua Institution 2025 season',
+    description: 'Dynamic calendar for Chautauqua Institution 2026 season',
     timezone: 'America/New_York',
     url: 'https://chqcal.org'
   });
@@ -466,14 +466,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     // Handle calendar generation (both GET and POST for caching support)
     if ((httpMethod === 'POST' || httpMethod === 'GET') && path === '/calendar') {
       let filters, format, timezone;
-      
+
       if (httpMethod === 'POST') {
         // POST request with body
         ({ filters, format = 'json', timezone = 'America/New_York' } = requestBody);
       } else {
         // GET request with query parameters
         const queryParams = event.queryStringParameters || {};
-        
+
         // Parse filters from query parameters
         filters = {};
         if (queryParams.categories) {
@@ -488,7 +488,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
             end: queryParams.endDate
           };
         }
-        
+
         // If no individual filter params, check for JSON filters param (backward compatibility)
         if (!queryParams.categories && !queryParams.tags && !queryParams.startDate && queryParams.filters) {
           try {
@@ -498,18 +498,18 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
             filters = {};
           }
         }
-        
+
         // If no filters at all, set to undefined for cleaner cache keys
         if (Object.keys(filters).length === 0) {
           filters = undefined;
         }
-        
+
         format = queryParams.format || 'json';
         timezone = queryParams.timezone || 'America/New_York';
       }
 
       console.log(`Calendar API called via ${httpMethod} with filters:`, JSON.stringify(filters));
-      console.log('Cache configuration:', { 
+      console.log('Cache configuration:', {
         CACHE_BROWSER_TTL_SECONDS,
         CACHE_MEMORY_TTL_MINUTES,
         CACHE_S3_TTL_MINUTES,
@@ -533,7 +533,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         // Extract metadata for frontend filtering
         const categories = [...new Set(events.map(e => e.category).filter(Boolean))] as string[];
         const tags = [...new Set(events.flatMap(e => e.tags || []))] as string[];
-        
+
         return createResponse(200, {
           events,
           metadata: {
@@ -580,9 +580,9 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       const sampleEvents: Omit<Event, 'id' | 'createdAt' | 'updatedAt'>[] = [
         {
           title: 'Opening Day Ceremony',
-          description: 'Official opening of the 2025 Chautauqua season',
-          startDate: '2025-06-21T10:00:00Z',
-          endDate: '2025-06-21T11:00:00Z',
+          description: 'Official opening of the 2026 Chautauqua season',
+          startDate: '2026-06-27T10:00:00Z',
+          endDate: '2026-06-27T11:00:00Z',
           location: 'Amphitheater',
           category: 'special-events',
           week: 1,
@@ -592,8 +592,8 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         {
           title: 'Morning Lecture Series',
           description: 'Daily morning lectures on current topics',
-          startDate: '2025-06-22T10:45:00Z',
-          endDate: '2025-06-22T11:45:00Z',
+          startDate: '2026-06-28T10:45:00Z',
+          endDate: '2026-06-28T11:45:00Z',
           location: 'Amphitheater',
           category: 'lectures',
           week: 1,
@@ -603,8 +603,8 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         {
           title: 'Chautauqua Symphony Orchestra',
           description: 'Evening concert featuring classical masterpieces',
-          startDate: '2025-06-22T20:15:00Z',
-          endDate: '2025-06-22T22:00:00Z',
+          startDate: '2026-06-28T20:15:00Z',
+          endDate: '2026-06-28T22:00:00Z',
           location: 'Amphitheater',
           category: 'music',
           week: 1,

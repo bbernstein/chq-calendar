@@ -1,0 +1,10 @@
+{
+  "activeYear": 2026,
+  "availableYears": [2025, 2026, 2027],
+  "seasonSettings": {
+    "includePreseason": true,
+    "includePostseason": true,
+    "preseasonMonthsBeforeSeason": 3,
+    "postseasonMonthsAfterSeason": 3
+  }
+}

@@ -109,6 +109,8 @@ function HomeContent() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
+  // Fixed year configuration
+  const ACTIVE_YEAR = 2026;
   // const [availableTags, setAvailableTags] = useState<string[]>([]); // Currently unused
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
@@ -414,7 +416,7 @@ function HomeContent() {
   }, [availableCategories, updateVerticalScrollState]);
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
-  const getChautauquaSeasonWeeks = (year: number = 2025) => {
+  const getChautauquaSeasonWeeks = (year: number = ACTIVE_YEAR) => {
     // Start from June 1st and find the 4th Sunday
     const june1 = new Date(year, 5, 1); // June 1st
     const current = new Date(june1);
@@ -434,8 +436,9 @@ function HomeContent() {
     }
 
     if (!fourthSunday) {
-      // Fallback: if somehow we can't find 4th Sunday, use June 22, 2025
-      fourthSunday = new Date(2025, 5, 22);
+      // Fallback: if somehow we can't find 4th Sunday, use a reasonable date for the year
+      const fallbackDate = year === 2025 ? 22 : year === 2026 ? 28 : 27; // Approximate 4th Sunday
+      fourthSunday = new Date(year, 5, fallbackDate);
     }
 
     // Find the Saturday before the 4th Sunday, and set it to noon
@@ -950,10 +953,12 @@ function HomeContent() {
     try {
       console.log('Loading all events for the season...');
 
+      // Use the selected year from state
+
       const response = await fetch(
         process.env.NODE_ENV === 'development'
-          ? '/data/all-events.json'  // Local file in dev mode
-          : `${apiUrl}/cache/calendar-cache/all-events.json`,  // Production URL
+          ? `/data/all-events-${ACTIVE_YEAR}.json`  // Local file in dev mode
+          : `${apiUrl}/cache/calendar-cache/all-events-${ACTIVE_YEAR}.json`,  // Production URL with year
         {
           method: 'GET',
           headers: {
@@ -1148,7 +1153,7 @@ function HomeContent() {
                 CHQ Calendar
               </h1>
               <span className="ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs sm:text-sm font-medium rounded-full">
-                2025 Season
+                {ACTIVE_YEAR} Season
               </span>
             </div>
             {/* Desktop: Show both buttons separately */}
@@ -1737,7 +1742,7 @@ function HomeContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center">
             <p className="text-gray-400">
-              © 2025 Chautauqua Calendar by Bernie and Claude
+              © 2026 Chautauqua Calendar by Bernie and Claude
             </p>
           </div>
         </div>

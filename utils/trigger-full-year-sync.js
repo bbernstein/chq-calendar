@@ -4,8 +4,11 @@ const AWS = require("aws-sdk");
 AWS.config.update({ region: "us-east-1" });
 const lambda = new AWS.Lambda();
 
-async function triggerFullSeasonSync() {
-  console.log("🚀 Triggering full season sync for 2026...");
+// Default to current year + 1 for upcoming season, or set via environment
+const DEFAULT_YEAR = parseInt(process.env.ACTIVE_YEAR || (new Date().getFullYear() + 1));
+
+async function triggerFullYearSync(year = DEFAULT_YEAR) {
+  console.log(`🚀 Triggering full year sync for ${year}...`);
 
   const params = {
     FunctionName: "chq-calendar-data-sync",
@@ -28,12 +31,15 @@ async function triggerFullSeasonSync() {
     }
 
     console.log(
-      "\n📊 The sync should fetch all events from June 28 to August 29, 2026",
+      `\n📊 The sync should fetch all events for the entire year ${year}`,
     );
-    console.log("This includes all 9 weeks of the Chautauqua season");
+    console.log(`This includes events from January 1, ${year} to December 31, ${year}`);
+    console.log("This covers both in-season and off-season events");
   } catch (error) {
     console.error("❌ Error triggering sync:", error.message);
   }
 }
 
-triggerFullSeasonSync();
+// Get year from command line argument or use default
+const year = process.argv[2] ? parseInt(process.argv[2]) : DEFAULT_YEAR;
+triggerFullYearSync(year);
