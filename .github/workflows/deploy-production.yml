@@ -196,6 +196,97 @@ jobs:
           # Clean up
           rm -rf package_temp lambda-admin.zip admin-env.json
 
+      - name: Deploy sync Lambda functions
+        working-directory: ./backend
+        run: |
+          # Create sync Lambda package with all required dependencies
+          echo "Building sync Lambda functions package..."
+
+          # Build the sync handler
+          npm run build:prod
+
+          # Create the sync Lambda package
+          mkdir -p sync_package
+          cp -r dist/ sync_package/
+          cp -r node_modules/ sync_package/
+
+          # Create zip file for sync Lambda functions
+          cd sync_package
+          zip -r ../lambda-sync.zip . -x "*.git*" "*.DS_Store*" "node_modules/.cache/*"
+          cd ..
+
+          # Deploy data sync Lambda
+          echo "Deploying data sync Lambda function..."
+          aws lambda update-function-code \
+            --function-name chq-calendar-data-sync \
+            --zip-file fileb://lambda-sync.zip
+
+          # Wait for the code update to complete
+          echo "Waiting for data sync Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name chq-calendar-data-sync
+
+          # Deploy manual sync Lambda
+          echo "Deploying manual sync Lambda function..."
+          aws lambda update-function-code \
+            --function-name chq-calendar-manual-sync \
+            --zip-file fileb://lambda-sync.zip
+
+          # Wait for the code update to complete
+          echo "Waiting for manual sync Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name chq-calendar-manual-sync
+
+          # Deploy sync health Lambda
+          echo "Deploying sync health Lambda function..."
+          aws lambda update-function-code \
+            --function-name chq-calendar-sync-health \
+            --zip-file fileb://lambda-sync.zip
+
+          # Wait for the code update to complete
+          echo "Waiting for sync health Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name chq-calendar-sync-health
+
+          # Deploy sync status Lambda
+          echo "Deploying sync status Lambda function..."
+          aws lambda update-function-code \
+            --function-name chq-calendar-sync-status \
+            --zip-file fileb://lambda-sync.zip
+
+          # Wait for the code update to complete
+          echo "Waiting for sync status Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name chq-calendar-sync-status
+
+          # Deploy sync list Lambda
+          echo "Deploying sync list Lambda function..."
+          aws lambda update-function-code \
+            --function-name chq-calendar-sync-list \
+            --zip-file fileb://lambda-sync.zip
+
+          # Wait for the code update to complete
+          echo "Waiting for sync list Lambda function to finish updating..."
+          aws lambda wait function-updated \
+            --function-name chq-calendar-sync-list
+
+          # Update environment variables for sync Lambda functions
+          echo "Updating environment variables for sync Lambda functions..."
+          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","AWS_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","SYNC_STATUS_TABLE_NAME":"${{ secrets.SYNC_STATUS_TABLE_NAME }}","CACHE_S3_BUCKET":"${{ secrets.CACHE_S3_BUCKET }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache","ACTIVE_YEAR":"2026","API_MAX_CONCURRENT_REQUESTS":"10","API_REQUEST_DELAY_MS":"100"}}' > sync-env.json
+
+          # Update environment for all sync functions
+          for function_name in chq-calendar-data-sync chq-calendar-manual-sync chq-calendar-sync-health chq-calendar-sync-status chq-calendar-sync-list; do
+            echo "Updating environment for $function_name..."
+            aws lambda update-function-configuration \
+              --function-name $function_name \
+              --environment file://sync-env.json
+          done
+
+          # Clean up
+          rm -rf sync_package lambda-sync.zip sync-env.json
+
+          echo "✅ All sync Lambda functions deployed successfully!"
+
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
