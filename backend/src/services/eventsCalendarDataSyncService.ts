@@ -851,15 +851,28 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
 
       // Paginate through all results to handle DynamoDB 1MB scan limit
       do {
+        // Build filter expression based on whether year is provided
+        let filterExpression = '#status = :status';
+        const expressionAttributeNames: any = {
+          '#status': 'status'
+        };
+        const expressionAttributeValues: any = {
+          ':status': 'publish'
+        };
+
+        // Add year filter if provided to reduce data scanned
+        if (year) {
+          // Filter by year in the startDate field (YYYY-MM-DD format)
+          filterExpression += ' AND begins_with(#startDate, :yearPrefix)';
+          expressionAttributeNames['#startDate'] = 'startDate';
+          expressionAttributeValues[':yearPrefix'] = `${year}-`;
+        }
+
         const command = new ScanCommand({
           TableName: this.tableName,
-          FilterExpression: '#status = :status',
-          ExpressionAttributeNames: {
-            '#status': 'status'
-          },
-          ExpressionAttributeValues: {
-            ':status': 'publish'
-          },
+          FilterExpression: filterExpression,
+          ExpressionAttributeNames: expressionAttributeNames,
+          ExpressionAttributeValues: expressionAttributeValues,
           ExclusiveStartKey: lastEvaluatedKey
         });
 
@@ -872,27 +885,27 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         lastEvaluatedKey = response.LastEvaluatedKey;
       } while (lastEvaluatedKey);
 
-      console.log(`Cache warming: Retrieved ${allEvents.length} total events from DynamoDB`);
+      console.log(`Cache warming: Retrieved ${allEvents.length} events from DynamoDB${year ? ` for year ${year}` : ''}`);
       let events = allEvents;
 
-      // Apply year filtering first if provided
-      if (year) {
-        events = events.filter(event => {
-          if (!event.startDate) return false;
-
-          // Extract year from startDate (YYYY-MM-DD HH:MM:SS or ISO format)
-          let eventYear: number;
-          if (event.startDate.includes('T')) {
-            // ISO format
-            eventYear = new Date(event.startDate).getFullYear();
-          } else {
-            // Database format (YYYY-MM-DD HH:MM:SS)
-            eventYear = parseInt(event.startDate.substring(0, 4));
-          }
-
-          return eventYear === year;
+      // Note: Year filtering is now done at the database level using begins_with filter
+      // This additional filtering is kept as a safety check for edge cases
+      if (year && allEvents.length > 0) {
+        // Verify all events are from the correct year (safety check)
+        const incorrectYearEvents = events.filter(event => {
+          if (!event.startDate) return true;
+          const eventYear = parseInt(event.startDate.substring(0, 4));
+          return eventYear !== year;
         });
-        console.log(`Cache warming: Filtered to ${events.length} events for year ${year}`);
+
+        if (incorrectYearEvents.length > 0) {
+          console.warn(`Found ${incorrectYearEvents.length} events from incorrect years - filtering them out`);
+          events = events.filter(event => {
+            if (!event.startDate) return false;
+            const eventYear = parseInt(event.startDate.substring(0, 4));
+            return eventYear === year;
+          });
+        }
       }
 
       // Apply basic filtering similar to calendar handler
