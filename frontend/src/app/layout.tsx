@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chautauqua Calendar | 2025 Season",
-  description: "Dynamic calendar for Chautauqua Institution 2025 season with real-time event updates, smart filtering, and export options.",
-  keywords: "Chautauqua, calendar, events, 2025, institution, export, ics",
+  title: "Chautauqua Calendar | 2026 Season",
+  description: "Dynamic calendar for Chautauqua Institution 2026 season with real-time event updates, smart filtering, and export options.",
+  keywords: "Chautauqua, calendar, events, 2026, institution, export, ics",
   authors: [{ name: "Chautauqua Calendar Team" }],
   icons: {
     icon: [
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Chautauqua Calendar",
-    description: "Dynamic calendar for Chautauqua Institution 2025 season",
+    description: "Dynamic calendar for Chautauqua Institution 2026 season",
   },
 };
 

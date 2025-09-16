@@ -124,7 +124,7 @@ export class EventsCalendarApiClient {
 
     // First, make a single request to determine total pages needed
     const firstResponse = await this.getEvents(dateRange, { page: 1, perPage });
-    
+
     if (!firstResponse.events || firstResponse.events.length === 0) {
       console.log('No events found in date range');
       return allEvents;
@@ -150,7 +150,7 @@ export class EventsCalendarApiClient {
     while (currentPage <= maxPages && consecutiveEmptyPages < 3) {
       pagesToFetch.push(currentPage);
       currentPage++;
-      
+
       // We'll break out of this when we process the results
       if (pagesToFetch.length >= EventsCalendarApiClient.INITIAL_BATCH_LIMIT) {
         break;
@@ -160,12 +160,12 @@ export class EventsCalendarApiClient {
     // Process pages in parallel batches
     while (pagesToFetch.length > 0) {
       const currentBatch = pagesToFetch.splice(0, this.maxConcurrentRequests);
-      
+
       try {
         console.log(`Fetching batch of ${currentBatch.length} pages: ${currentBatch.join(', ')}`);
-        
+
         // Make parallel requests for this batch
-        const batchPromises = currentBatch.map(page => 
+        const batchPromises = currentBatch.map(page =>
           this.getEvents(dateRange, { page, perPage })
             .catch(error => {
               // Handle expected pagination 404s more quietly
@@ -179,23 +179,23 @@ export class EventsCalendarApiClient {
         );
 
         const batchResponses = await Promise.all(batchPromises);
-        
+
         let foundIncompletePages = false;
-        
+
         // Process results from this batch
         for (let i = 0; i < batchResponses.length; i++) {
           const response = batchResponses[i];
           const pageNumber = currentBatch[i];
-          
+
           if (response && response.events && response.events.length > 0) {
             allEvents.push(...response.events);
             console.log(`Page ${pageNumber}: ${response.events.length} events (total: ${allEvents.length})`);
-            
+
             // If this page had fewer events than expected, we're near the end
             if (response.events.length < perPage) {
               foundIncompletePages = true;
             }
-            
+
             consecutiveEmptyPages = 0;
           } else {
             console.log(`Page ${pageNumber}: No events or error`);
@@ -223,7 +223,7 @@ export class EventsCalendarApiClient {
         if (pagesToFetch.length > 0) {
           await this.delay(this.requestDelayMs);
         }
-        
+
       } catch (error) {
         console.error(`Error in batch processing:`, error);
         // Continue with remaining batches even if one fails
@@ -237,7 +237,7 @@ export class EventsCalendarApiClient {
   /**
    * Get events for the entire Chautauqua season
    */
-  async getSeasonEvents(year: number = 2025): Promise<ApiEvent[]> {
+  async getSeasonEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<ApiEvent[]> {
     const seasonDates = this.getChautauquaSeasonDates(year);
 
     console.log(`Fetching full season events from ${seasonDates.start.toISOString().split('T')[0]} to ${seasonDates.end.toISOString().split('T')[0]}`);
@@ -251,11 +251,33 @@ export class EventsCalendarApiClient {
     // Fetch all events for the entire season using pagination (50 events per page)
     console.log(`Fetching all events for season: ${seasonRange.start} to ${seasonRange.end}`);
     const allEvents = await this.getAllEventsInRange(seasonRange);
-    
+
     console.log(`Total events fetched for season: ${allEvents.length}`);
     return allEvents;
   }
 
+
+  /**
+   * Get events for the entire year (including pre-season and post-season)
+   */
+  async getFullYearEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<ApiEvent[]> {
+    const yearStart = new Date(year, 0, 1); // January 1st
+    const yearEnd = new Date(year, 11, 31); // December 31st
+
+    console.log(`Fetching full year events for ${year}: ${yearStart.toISOString().split('T')[0]} to ${yearEnd.toISOString().split('T')[0]}`);
+
+    const yearRange: DateRange = {
+      start: yearStart.toISOString().split('T')[0],
+      end: yearEnd.toISOString().split('T')[0]
+    };
+
+    // Fetch all events for the entire year
+    console.log(`Fetching all events for year ${year}`);
+    const allEvents = await this.getAllEventsInRange(yearRange);
+
+    console.log(`Total events fetched for year ${year}: ${allEvents.length}`);
+    return allEvents;
+  }
 
   /**
    * Get events for the next 7 days (for hourly updates)
@@ -293,7 +315,7 @@ export class EventsCalendarApiClient {
    */
   updateParallelizationSettings(maxConcurrentRequests: number, requestDelayMs: number = 100): void {
     this.maxConcurrentRequests = Math.max(
-      EventsCalendarApiClient.MIN_CONCURRENT_REQUESTS, 
+      EventsCalendarApiClient.MIN_CONCURRENT_REQUESTS,
       Math.min(EventsCalendarApiClient.MAX_CONCURRENT_REQUESTS, maxConcurrentRequests)
     );
     this.requestDelayMs = Math.max(0, requestDelayMs);
@@ -359,7 +381,7 @@ export class EventsCalendarApiClient {
    */
   private isPaginationEndError(error: any): boolean {
     // Check if it's a 404 error with the specific pagination error code
-    return error?.response?.status === 404 && 
+    return error?.response?.status === 404 &&
            error?.response?.data?.code === 'event-archive-page-not-found';
   }
 
@@ -404,8 +426,8 @@ export class EventsCalendarApiClient {
   async healthCheck(): Promise<{ healthy: boolean; message: string }> {
     try {
       const testRange: DateRange = {
-        start: '2025-08-01',
-        end: '2025-08-02'
+        start: '2026-08-01',
+        end: '2026-08-02'
       };
 
       const response = await this.getEvents(testRange, { perPage: 1 });

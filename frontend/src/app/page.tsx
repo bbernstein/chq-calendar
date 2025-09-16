@@ -109,6 +109,7 @@ function HomeContent() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
+  const [selectedYear, setSelectedYear] = useState<number>(parseInt(process.env.NEXT_PUBLIC_ACTIVE_YEAR || '2026'));
   // const [availableTags, setAvailableTags] = useState<string[]>([]); // Currently unused
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
@@ -414,7 +415,7 @@ function HomeContent() {
   }, [availableCategories, updateVerticalScrollState]);
 
   // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
-  const getChautauquaSeasonWeeks = (year: number = 2025) => {
+  const getChautauquaSeasonWeeks = (year: number = selectedYear) => {
     // Start from June 1st and find the 4th Sunday
     const june1 = new Date(year, 5, 1); // June 1st
     const current = new Date(june1);
@@ -434,8 +435,9 @@ function HomeContent() {
     }
 
     if (!fourthSunday) {
-      // Fallback: if somehow we can't find 4th Sunday, use June 22, 2025
-      fourthSunday = new Date(2025, 5, 22);
+      // Fallback: if somehow we can't find 4th Sunday, use a reasonable date for the year
+      const fallbackDate = year === 2025 ? 22 : year === 2026 ? 28 : 27; // Approximate 4th Sunday
+      fourthSunday = new Date(year, 5, fallbackDate);
     }
 
     // Find the Saturday before the 4th Sunday, and set it to noon
@@ -950,10 +952,12 @@ function HomeContent() {
     try {
       console.log('Loading all events for the season...');
 
+      // Use the selected year from state
+
       const response = await fetch(
         process.env.NODE_ENV === 'development'
-          ? '/data/all-events.json'  // Local file in dev mode
-          : `${apiUrl}/cache/calendar-cache/all-events.json`,  // Production URL
+          ? `/data/all-events-${selectedYear}.json`  // Local file in dev mode
+          : `${apiUrl}/cache/calendar-cache/all-events-${selectedYear}.json`,  // Production URL with year
         {
           method: 'GET',
           headers: {
@@ -1148,8 +1152,29 @@ function HomeContent() {
                 CHQ Calendar
               </h1>
               <span className="ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs sm:text-sm font-medium rounded-full">
-                2025 Season
+                {selectedYear} Season
               </span>
+            </div>
+            {/* Year Selector */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="year-select" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Year:
+              </label>
+              <select
+                id="year-select"
+                value={selectedYear}
+                onChange={(e) => {
+                  const newYear = parseInt(e.target.value);
+                  setSelectedYear(newYear);
+                  // Trigger data reload when year changes
+                  fetchAllEvents();
+                }}
+                className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value={2025}>2025</option>
+                <option value={2026}>2026</option>
+                <option value={2027}>2027</option>
+              </select>
             </div>
             {/* Desktop: Show both buttons separately */}
             <div className="hidden md:flex items-center gap-2">
@@ -1737,7 +1762,7 @@ function HomeContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center">
             <p className="text-gray-400">
-              © 2025 Chautauqua Calendar by Bernie and Claude
+              © 2026 Chautauqua Calendar by Bernie and Claude
             </p>
           </div>
         </div>
