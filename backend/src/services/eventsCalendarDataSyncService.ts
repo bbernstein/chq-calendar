@@ -844,6 +844,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
    * Query events for cache warming (mirrors calendar handler logic)
    */
   private async queryEventsForCacheWarming(filters?: any, year?: number): Promise<any[]> {
+    console.log(`[CACHE_WARMING_DEBUG] queryEventsForCacheWarming called with year=${year}, filters=${JSON.stringify(filters)}`);
     try {
       // Use scan command to get all events (simplified version of calendar handler logic)
       const allEvents: any[] = [];
@@ -866,7 +867,13 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
           filterExpression += ' AND begins_with(#startDate, :yearPrefix)';
           expressionAttributeNames['#startDate'] = 'startDate';
           expressionAttributeValues[':yearPrefix'] = `${year}-`;
+          console.log(`[CACHE_WARMING_DEBUG] Adding year filter for year ${year} with prefix '${year}-'`);
+        } else {
+          console.log(`[CACHE_WARMING_DEBUG] No year filter applied - will fetch all events`);
         }
+
+        console.log(`[CACHE_WARMING_DEBUG] Final FilterExpression: ${filterExpression}`);
+        console.log(`[CACHE_WARMING_DEBUG] ExpressionAttributeValues:`, expressionAttributeValues);
 
         const command = new ScanCommand({
           TableName: this.tableName,
