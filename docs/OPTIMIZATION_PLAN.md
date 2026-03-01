@@ -161,7 +161,7 @@ frontend/src/
 │       └── filterHelpers.ts      (filter pipeline)
 ```
 
-### Task 2A: Extract Types and Constants `[ ]`
+### Task 2A: Extract Types and Constants `[x]`
 
 **Description**: Move interfaces, types, and constants out of `page.tsx`.
 
@@ -188,7 +188,7 @@ frontend/src/
 - `npm run build` succeeds
 - No functional changes — app behaves identically
 
-### Task 2B: Extract Utility Functions `[ ]`
+### Task 2B: Extract Utility Functions `[x]`
 
 **Description**: Move pure helper functions out of the component.
 
@@ -215,7 +215,7 @@ frontend/src/
 - `npm run build` succeeds
 - All filter/search functionality works identically in dev mode
 
-### Task 2C: Extract Custom Hooks `[ ]`
+### Task 2C: Extract Custom Hooks `[x]`
 
 **Description**: Consolidate 35+ hooks into focused custom hooks.
 
@@ -246,7 +246,7 @@ frontend/src/
 - `npm run build` succeeds
 - All state management works: filters, search, persistence, recent items
 
-### Task 2D: Extract Filter Components `[ ]`
+### Task 2D: Extract Filter Components `[x]`
 
 **Description**: Break filter UI into individual components.
 
@@ -274,7 +274,7 @@ frontend/src/
 - Week drag-to-select still works
 - Recent items pills scroll correctly
 
-### Task 2E: Extract Calendar/Event Components `[ ]`
+### Task 2E: Extract Calendar/Event Components `[x]`
 
 **Description**: Break event display into individual components.
 
@@ -301,7 +301,7 @@ frontend/src/
 - Sticky day headers work
 - Event images load correctly
 
-### Task 2F: Extract Layout Components & Finalize page.tsx `[ ]`
+### Task 2F: Extract Layout Components & Finalize page.tsx `[x]`
 
 **Description**: Extract remaining UI pieces, reduce `page.tsx` to composition only.
 
