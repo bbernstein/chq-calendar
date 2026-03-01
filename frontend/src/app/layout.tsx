@@ -44,6 +44,7 @@ export default function RootLayout({
       <head>
         <link rel="icon" type="image/svg+xml" href="/chq-calendar-icon-256.svg" />
         <link rel="shortcut icon" type="image/svg+xml" href="/chq-calendar-icon-256.svg" />
+        <script dangerouslySetInnerHTML={{ __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js')})}` }} />
       </head>
       <body
         className={`${geistSans.variable} antialiased`}

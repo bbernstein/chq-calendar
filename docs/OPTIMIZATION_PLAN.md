@@ -665,7 +665,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 **Goal**: Add service worker for offline capability and improved caching.
 **Dependencies**: All prior phases should be complete for best results.
 
-### Task 7A: Service Worker with Offline Support `[ ]`
+### Task 7A: Service Worker with Offline Support `[x]`
 
 **Description**: Add a service worker for asset caching and offline access.
 
@@ -688,7 +688,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 - New data fetched when online
 - Cache updates on new deployments
 
-### Task 7B: Enhanced manifest.json `[ ]`
+### Task 7B: Enhanced manifest.json `[x]`
 
 **Description**: Improve the PWA manifest for better install experience.
 
@@ -761,14 +761,29 @@ Update this section after each phase:
 | Geist_Mono font | Removed (unused) | -1 font download |
 | Admin/feedback chunks | Already route-split | No change needed |
 
+### After Phase 6 (CSS & Build)
+
+| Metric | Value | Delta |
+|--------|-------|-------|
+| CSS bundle | 33.6 KB | Reorganized with @layer directives |
+| Build checks | Strict (TS + ESLint enforced) | Was: ignoreDuringBuilds |
+| Build errors | 0 TypeScript, 0 ESLint | Clean |
+
 ### Final (All Phases Complete)
 
 | Metric | Value | Delta from Baseline |
 |--------|-------|---------------------|
-| Total JS bundle size | _TBD_ | _TBD_ |
-| First Load JS | _TBD_ | _TBD_ |
-| Build time | _TBD_ | _TBD_ |
-| Lighthouse Performance | _TBD_ | _TBD_ |
+| Main page First Load JS | 62.2 KB | -52.8 KB (-46%) |
+| First Load JS shared | 52.4 KB | -48.6 KB (-48%) |
+| Framework | Preact (3 KB) | Was React 19 (140 KB) |
+| page.tsx | 103 lines | Was 1,760 lines (-94%) |
+| Production deps | 3 | Was 13 (-10 removed) |
+| Build checks | Strict (TS + ESLint enforced) | Was: ignored |
+| CSS architecture | Tailwind @layer directives | Was: flat custom CSS |
+| PWA | Service worker + enhanced manifest | New |
+| Progressive rendering | IntersectionObserver batches of 50 | New |
+| Search debounce | 200ms | New |
+| State management | useReducer | Was: 20+ useState calls |
 
 ---
 
