@@ -624,7 +624,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 **Dependencies**: Phase 2 must be complete.
 **Parallelizable**: Tasks 6A and 6B can run concurrently.
 
-### Task 6A: CSS Optimization `[ ]`
+### Task 6A: CSS Optimization `[x]`
 
 **Description**: Audit Tailwind usage and optimize CSS delivery.
 
@@ -640,7 +640,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 - No visual regressions
 - All custom scroll indicators still work
 
-### Task 6B: Enable Strict Build Checks `[ ]`
+### Task 6B: Enable Strict Build Checks `[x]`
 
 **Description**: Remove the `ignoreDuringBuilds` flags and fix any issues.
 
