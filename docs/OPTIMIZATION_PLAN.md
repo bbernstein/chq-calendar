@@ -30,7 +30,7 @@
 **Goal**: Establish baseline measurements, remove dead weight, set up tooling.
 **Parallelizable**: Tasks 1A, 1B, and 1C can run concurrently.
 
-### Task 1A: Bundle Analysis & Baseline `[ ]`
+### Task 1A: Bundle Analysis & Baseline `[x]`
 
 **Description**: Install bundle analyzer, capture baseline build metrics.
 
@@ -50,7 +50,7 @@
 - Bundle analyzer report generates when `ANALYZE=true`
 - Baseline metrics recorded in this file
 
-### Task 1B: Remove Unused Dependencies `[ ]`
+### Task 1B: Remove Unused Dependencies `[x]`
 
 **Description**: Remove 9 unused packages that are installed but never imported.
 
@@ -85,7 +85,7 @@
 - `npm run validate` (type-check + lint) passes
 - Application loads and functions correctly in dev mode
 
-### Task 1C: Clean Up Dead Code `[ ]`
+### Task 1C: Clean Up Dead Code `[x]`
 
 **Description**: Remove empty/unused source files.
 
@@ -738,9 +738,10 @@ Update this section after each phase:
 
 | Metric | Value | Delta |
 |--------|-------|-------|
-| Total JS bundle size | _TBD_ | _TBD_ |
-| Dependency count | _TBD_ | _TBD_ |
-| node_modules size | _TBD_ | _TBD_ |
+| Total JS bundle size | 115 KB (unchanged) | 0 (unused deps weren't bundled) |
+| Dependency count | 3 production deps | -12 removed |
+| Bundle analyzer | Installed & configured | New tooling |
+| Dead code | auth.ts removed | -1 file |
 
 ### After Phase 3 (Preact Migration)
 
