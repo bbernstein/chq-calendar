@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import type { Event } from '@/lib/types';
 import { getCategoryDisplayName } from '@/lib/constants';
 
@@ -102,12 +101,14 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
               .filter(attachment => attachment.isImage)
               .slice(0, 1)
               .map((attachment, imgIndex) => (
-                <Image
+                <img
                   key={imgIndex}
                   src={attachment.url}
                   alt={`${event.title} image`}
                   width={48}
                   height={48}
+                  loading="lazy"
+                  decoding="async"
                   className="w-12 h-12 sm:w-20 sm:h-20 object-cover rounded-lg border border-gray-200"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';

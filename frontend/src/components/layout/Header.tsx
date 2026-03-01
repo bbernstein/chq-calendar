@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import Image from 'next/image';
 import { ACTIVE_YEAR } from '@/lib/constants';
 
 export function Header() {
@@ -27,7 +26,7 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-2 sm:py-4">
           <div className="flex items-center">
-            <Image
+            <img
               src="/chq-calendar-icon-256.svg"
               alt="Chautauqua Calendar Logo"
               width={40}

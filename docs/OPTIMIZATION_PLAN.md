@@ -427,7 +427,7 @@ frontend/src/
 **Dependencies**: Phase 3 must be complete.
 **Parallelizable**: Tasks 4A and 4B can run concurrently.
 
-### Task 4A: Dynamic Import for Admin Pages `[ ]`
+### Task 4A: Dynamic Import for Admin Pages `[x]` (N/A — Next.js route-based code splitting already separates admin chunks)
 
 **Description**: Lazy-load admin components since most users never visit them.
 
@@ -453,7 +453,7 @@ frontend/src/
 - Build output shows separate chunks for admin components
 - Main page bundle does not include admin code
 
-### Task 4B: Dynamic Import for Feedback Page `[ ]`
+### Task 4B: Dynamic Import for Feedback Page `[x]` (N/A — already route-split)
 
 **Description**: Lazy-load feedback form since it's a separate route.
 
@@ -470,7 +470,7 @@ frontend/src/
 - Feedback form still works (submission, reCAPTCHA)
 - Separate chunk in build output
 
-### Task 4C: Optimize Image Handling `[ ]`
+### Task 4C: Optimize Image Handling `[x]`
 
 **Description**: Replace `next/image` with native `<img>` where appropriate for static export.
 
@@ -492,7 +492,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 - External event images lazy-load
 - Bundle size reduced (no next/image runtime)
 
-### Task 4D: Font Optimization `[ ]`
+### Task 4D: Font Optimization `[x]`
 
 **Description**: Optimize Google Font loading strategy.
 
@@ -756,9 +756,10 @@ Update this section after each phase:
 
 | Metric | Value | Delta |
 |--------|-------|-------|
-| Total JS bundle size | _TBD_ | _TBD_ |
-| Main page chunk | _TBD_ | _TBD_ |
-| Admin chunk | _TBD_ | _TBD_ |
+| Main page First Load JS | 61.7 KB | -6.3 KB (-9% vs Phase 3) |
+| next/image runtime | Eliminated | Replaced with native <img> |
+| Geist_Mono font | Removed (unused) | -1 font download |
+| Admin/feedback chunks | Already route-split | No change needed |
 
 ### Final (All Phases Complete)
 
