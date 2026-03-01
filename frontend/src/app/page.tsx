@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from 'react';
 import { ACTIVE_YEAR } from '@/lib/constants';
+import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
@@ -35,11 +36,12 @@ function HomeContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
+  const debouncedSearch = useDebounce(filters.searchTerm, 200);
   const filterOpts: FilterOptions = useMemo(() => ({
-    searchTerm: filters.searchTerm, dateFilter: filters.dateFilter, selectedWeeks: filters.selectedWeeks,
+    searchTerm: debouncedSearch, dateFilter: filters.dateFilter, selectedWeeks: filters.selectedWeeks,
     selectedTagsLowerSet: filters.selectedTagsLowerSet, selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
     seasonWeeks, currentWeekNumber,
-  }), [filters.searchTerm, filters.dateFilter, filters.selectedWeeks, filters.selectedTagsLowerSet, filters.selectedLocationsLowerSet, seasonWeeks, currentWeekNumber]);
+  }), [debouncedSearch, filters.dateFilter, filters.selectedWeeks, filters.selectedTagsLowerSet, filters.selectedLocationsLowerSet, seasonWeeks, currentWeekNumber]);
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
   const isThisWeekActive = filters.dateFilter === 'this-week' || (currentWeekNumber !== null && filters.selectedWeeks.length === 1 && filters.selectedWeeks[0] === currentWeekNumber);

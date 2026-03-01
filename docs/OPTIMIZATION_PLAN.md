@@ -519,7 +519,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 **Dependencies**: Phase 2 must be complete (component structure needed).
 **Parallelizable**: Tasks 5A, 5B, 5C can run concurrently.
 
-### Task 5A: Virtual Scrolling for Event List `[ ]`
+### Task 5A: Virtual Scrolling for Event List `[x]`
 
 **Description**: Implement windowed rendering so only visible events are in the DOM.
 
@@ -549,7 +549,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 - Filter changes reset the virtual list
 - Search results render correctly
 
-### Task 5B: Optimize Filter State with useReducer `[ ]`
+### Task 5B: Optimize Filter State with useReducer `[x]`
 
 **Description**: Replace 20+ individual `useState` calls with a single `useReducer`.
 
@@ -569,7 +569,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 - State persistence (localStorage) still works
 - Fewer re-renders (verify with React DevTools profiler)
 
-### Task 5C: Debounce Search Input `[ ]`
+### Task 5C: Debounce Search Input `[x]`
 
 **Description**: Add debouncing to search to prevent filtering on every keystroke.
 
@@ -598,7 +598,7 @@ Since the app uses `unoptimized: true`, `next/image` adds JS overhead without pr
 - Filter results update after 200ms pause
 - Rapid typing doesn't cause performance issues
 
-### Task 5D: Memoize Filtered and Grouped Results `[ ]`
+### Task 5D: Memoize Filtered and Grouped Results `[x]` (done in Phase 2C)
 
 **Description**: Ensure filtering/grouping only recalculates when inputs change.
 

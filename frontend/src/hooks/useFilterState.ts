@@ -1,131 +1,160 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useReducer, useCallback, useEffect, useMemo } from 'react';
 import { USER_STATE_EXPIRY_MS } from '@/lib/constants';
 
-function useTagSelection(selectedTags: string[], setSelectedTags: React.Dispatch<React.SetStateAction<string[]>>) {
-  const toggleTag = useCallback((tag: string) => {
-    setSelectedTags(prev => {
-      const tagLower = tag.toLowerCase();
-      const existingTag = prev.find(t => t.toLowerCase() === tagLower);
-      return existingTag
-        ? prev.filter(t => t.toLowerCase() !== tagLower)
-        : [...prev, tag];
-    });
-  }, [setSelectedTags]);
+type DateFilter = 'all' | 'today' | 'next' | 'this-week';
 
-  const isTagSelected = useCallback((tag: string) => {
-    return selectedTags.some(selectedTag => selectedTag.toLowerCase() === tag.toLowerCase());
-  }, [selectedTags]);
-
-  return { toggleTag, isTagSelected };
+interface FilterState {
+  searchTerm: string;
+  selectedTags: string[];
+  selectedLocations: string[];
+  dateFilter: DateFilter;
+  selectedWeeks: number[];
+  expandedDescriptions: Set<string>;
+  recentLocations: string[];
+  recentCategories: string[];
+  availableCategories: string[];
+  availableLocations: string[];
+  stateInitialized: boolean;
 }
 
+type FilterAction =
+  | { type: 'SET_SEARCH'; payload: string }
+  | { type: 'SET_DATE_FILTER'; payload: DateFilter }
+  | { type: 'SET_SELECTED_WEEKS'; payload: number[] | ((prev: number[]) => number[]) }
+  | { type: 'TOGGLE_TAG'; payload: string }
+  | { type: 'TOGGLE_LOCATION'; payload: string }
+  | { type: 'TOGGLE_DESCRIPTION'; payload: string }
+  | { type: 'SET_AVAILABLE_CATEGORIES'; payload: string[] }
+  | { type: 'SET_AVAILABLE_LOCATIONS'; payload: string[] }
+  | { type: 'CLEAR_FILTERS' }
+  | { type: 'LOAD_STATE'; payload: Partial<FilterState> }
+  | { type: 'INIT' };
+
+function addToRecent(item: string, items: string[], max: number = 10): string[] {
+  return [item, ...items.filter(i => i !== item)].slice(0, max);
+}
+
+function toggleInList(list: string[], item: string): string[] {
+  const lower = item.toLowerCase();
+  const existing = list.find(t => t.toLowerCase() === lower);
+  return existing ? list.filter(t => t.toLowerCase() !== lower) : [...list, item];
+}
+
+function filterReducer(state: FilterState, action: FilterAction): FilterState {
+  switch (action.type) {
+    case 'SET_SEARCH':
+      return { ...state, searchTerm: action.payload };
+    case 'SET_DATE_FILTER':
+      return { ...state, dateFilter: action.payload };
+    case 'SET_SELECTED_WEEKS': {
+      const weeks = typeof action.payload === 'function' ? action.payload(state.selectedWeeks) : action.payload;
+      return { ...state, selectedWeeks: weeks };
+    }
+    case 'TOGGLE_TAG': {
+      const tag = action.payload;
+      const wasSelected = state.selectedTags.some(t => t.toLowerCase() === tag.toLowerCase());
+      const newTags = toggleInList(state.selectedTags, tag);
+      const newRecent = (!wasSelected && state.availableCategories.includes(tag))
+        ? addToRecent(tag, state.recentCategories)
+        : state.recentCategories;
+      return { ...state, selectedTags: newTags, recentCategories: newRecent };
+    }
+    case 'TOGGLE_LOCATION': {
+      const loc = action.payload;
+      const wasSelected = state.selectedLocations.some(l => l.toLowerCase() === loc.toLowerCase());
+      const newLocs = toggleInList(state.selectedLocations, loc);
+      const newRecent = !wasSelected ? addToRecent(loc, state.recentLocations) : state.recentLocations;
+      return { ...state, selectedLocations: newLocs, recentLocations: newRecent };
+    }
+    case 'TOGGLE_DESCRIPTION': {
+      const newSet = new Set(state.expandedDescriptions);
+      if (newSet.has(action.payload)) { newSet.delete(action.payload); } else { newSet.add(action.payload); }
+      return { ...state, expandedDescriptions: newSet };
+    }
+    case 'SET_AVAILABLE_CATEGORIES':
+      return { ...state, availableCategories: action.payload };
+    case 'SET_AVAILABLE_LOCATIONS':
+      return { ...state, availableLocations: action.payload };
+    case 'CLEAR_FILTERS':
+      return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [] };
+    case 'LOAD_STATE':
+      return { ...state, ...action.payload, stateInitialized: true };
+    case 'INIT':
+      return { ...state, stateInitialized: true };
+    default:
+      return state;
+  }
+}
+
+const initialState: FilterState = {
+  searchTerm: '',
+  selectedTags: [],
+  selectedLocations: [],
+  dateFilter: 'next',
+  selectedWeeks: [],
+  expandedDescriptions: new Set(),
+  recentLocations: [],
+  recentCategories: [],
+  availableCategories: [],
+  availableLocations: [],
+  stateInitialized: false,
+};
+
 export function useFilterState() {
-  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
-  const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
-  const [recentLocations, setRecentLocations] = useState<string[]>([]);
-  const [recentCategories, setRecentCategories] = useState<string[]>([]);
-  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
-  const [availableLocations, setAvailableLocations] = useState<string[]>([]);
-  const [stateInitialized, setStateInitialized] = useState(false);
+  const [state, dispatch] = useReducer(filterReducer, initialState);
 
-  // Toggle description expansion
-  const toggleDescription = useCallback((eventId: string) => {
-    setExpandedDescriptions((prev: Set<string>) => {
-      const newSet = new Set(prev);
-      if (newSet.has(eventId)) {
-        newSet.delete(eventId);
-      } else {
-        newSet.add(eventId);
-      }
-      return newSet;
-    });
-  }, []);
+  // Actions
+  const setSearchTerm = useCallback((term: string) => dispatch({ type: 'SET_SEARCH', payload: term }), []);
+  const setDateFilter = useCallback((filter: DateFilter) => dispatch({ type: 'SET_DATE_FILTER', payload: filter }), []);
+  const setSelectedWeeks = useCallback((weeks: number[] | ((prev: number[]) => number[])) => dispatch({ type: 'SET_SELECTED_WEEKS', payload: weeks }), []);
+  const toggleTag = useCallback((tag: string) => dispatch({ type: 'TOGGLE_TAG', payload: tag }), []);
+  const toggleLocation = useCallback((loc: string) => dispatch({ type: 'TOGGLE_LOCATION', payload: loc }), []);
+  const toggleDescription = useCallback((id: string) => dispatch({ type: 'TOGGLE_DESCRIPTION', payload: id }), []);
+  const setAvailableCategories = useCallback((cats: string[]) => dispatch({ type: 'SET_AVAILABLE_CATEGORIES', payload: cats }), []);
+  const setAvailableLocations = useCallback((locs: string[]) => dispatch({ type: 'SET_AVAILABLE_LOCATIONS', payload: locs }), []);
+  const clearFilters = useCallback(() => dispatch({ type: 'CLEAR_FILTERS' }), []);
 
-  // FIFO utility for managing recent items
-  const addToRecentItems = useCallback((item: string, recentItems: string[], maxItems: number = 10): string[] => {
-    const filtered = recentItems.filter(existing => existing !== item);
-    return [item, ...filtered].slice(0, maxItems);
-  }, []);
-
-  const addToRecentLocations = useCallback((location: string) => {
-    setRecentLocations(prev => addToRecentItems(location, prev));
-  }, [addToRecentItems]);
-
-  const addToRecentCategories = useCallback((category: string) => {
-    setRecentCategories(prev => addToRecentItems(category, prev));
-  }, [addToRecentItems]);
-
-  // Tag selection with recent tracking
-  const { toggleTag: toggleTagBase, isTagSelected } = useTagSelection(selectedTags, setSelectedTags);
-
-  const toggleTag = useCallback((tag: string) => {
-    const wasSelected = isTagSelected(tag);
-    toggleTagBase(tag);
-    if (availableCategories.includes(tag) && !wasSelected) {
-      addToRecentCategories(tag);
-    }
-  }, [toggleTagBase, addToRecentCategories, availableCategories, isTagSelected]);
-
-  // Location selection with recent tracking
-  const { toggleTag: toggleLocationBase, isTagSelected: isLocationSelected } = useTagSelection(selectedLocations, setSelectedLocations);
-
-  const toggleLocation = useCallback((location: string) => {
-    const wasSelected = isLocationSelected(location);
-    toggleLocationBase(location);
-    if (!wasSelected) {
-      addToRecentLocations(location);
-    }
-  }, [toggleLocationBase, addToRecentLocations, isLocationSelected]);
-
-  // Memoize lowercase sets for O(1) lookup performance
-  const selectedTagsLowerSet = useMemo(() =>
-    new Set(selectedTags.map(tag => tag.toLowerCase())),
-    [selectedTags]
+  const isTagSelected = useCallback((tag: string) =>
+    state.selectedTags.some(t => t.toLowerCase() === tag.toLowerCase()),
+    [state.selectedTags]
+  );
+  const isLocationSelected = useCallback((loc: string) =>
+    state.selectedLocations.some(l => l.toLowerCase() === loc.toLowerCase()),
+    [state.selectedLocations]
   );
 
-  const selectedLocationsLowerSet = useMemo(() =>
-    new Set(selectedLocations.map(location => location.toLowerCase())),
-    [selectedLocations]
-  );
-
+  // Computed
+  const selectedTagsLowerSet = useMemo(() => new Set(state.selectedTags.map(t => t.toLowerCase())), [state.selectedTags]);
+  const selectedLocationsLowerSet = useMemo(() => new Set(state.selectedLocations.map(l => l.toLowerCase())), [state.selectedLocations]);
   const selectedCategoriesCount = useMemo(() =>
-    selectedTags.filter(tag =>
-      availableCategories.includes(tag) && !tag.startsWith('Week ')
-    ).length,
-    [selectedTags, availableCategories]
+    state.selectedTags.filter(t => state.availableCategories.includes(t) && !t.startsWith('Week ')).length,
+    [state.selectedTags, state.availableCategories]
   );
+  const hasFilters = state.searchTerm || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.dateFilter !== 'all' || state.selectedWeeks.length > 0;
 
   // localStorage persistence
-  const saveUserState = useCallback(() => {
-    try {
-      const userState = {
-        searchTerm,
-        selectedTags,
-        selectedLocations,
-        dateFilter,
-        selectedWeeks,
-        expandedDescriptions: Array.from(expandedDescriptions),
-        recentLocations,
-        recentCategories,
-        lastSaved: Date.now()
-      };
-      localStorage.setItem('chq-calendar-user-state', JSON.stringify(userState));
-    } catch (e) {
-      console.warn('Failed to save user state to localStorage:', e);
+  useEffect(() => {
+    if (state.stateInitialized) {
+      try {
+        localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+          searchTerm: state.searchTerm, selectedTags: state.selectedTags,
+          selectedLocations: state.selectedLocations, dateFilter: state.dateFilter,
+          selectedWeeks: state.selectedWeeks, expandedDescriptions: Array.from(state.expandedDescriptions),
+          recentLocations: state.recentLocations, recentCategories: state.recentCategories,
+          lastSaved: Date.now(),
+        }));
+      } catch (e) { console.warn('Failed to save user state:', e); }
     }
-  }, [searchTerm, selectedTags, selectedLocations, dateFilter, selectedWeeks, expandedDescriptions, recentLocations, recentCategories]);
+  }, [state]);
 
-  const loadUserState = useCallback(() => {
+  // Restore on mount
+  useEffect(() => {
     try {
-      const savedState = localStorage.getItem('chq-calendar-user-state');
-      if (savedState) {
-        const parsed = JSON.parse(savedState);
+      const saved = localStorage.getItem('chq-calendar-user-state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
         if (parsed.lastSaved && Date.now() - parsed.lastSaved < USER_STATE_EXPIRY_MS) {
-          return {
+          dispatch({ type: 'LOAD_STATE', payload: {
             searchTerm: parsed.searchTerm || '',
             selectedTags: parsed.selectedTags || [],
             selectedLocations: parsed.selectedLocations || [],
@@ -133,80 +162,27 @@ export function useFilterState() {
             selectedWeeks: parsed.selectedWeeks || [],
             expandedDescriptions: new Set<string>(parsed.expandedDescriptions || []),
             recentLocations: parsed.recentLocations || [],
-            recentCategories: parsed.recentCategories || []
-          };
+            recentCategories: parsed.recentCategories || [],
+          }});
+          return;
         }
       }
-    } catch (e) {
-      console.warn('Failed to load user state from localStorage:', e);
-    }
-    return null;
+    } catch (e) { console.warn('Failed to load user state:', e); }
+    dispatch({ type: 'INIT' });
   }, []);
-
-  // Auto-save when state changes
-  useEffect(() => {
-    if (stateInitialized) {
-      saveUserState();
-    }
-  }, [saveUserState, stateInitialized]);
-
-  // Restore state on mount
-  useEffect(() => {
-    const savedState = loadUserState();
-    if (savedState) {
-      setSearchTerm(savedState.searchTerm);
-      setSelectedTags(savedState.selectedTags);
-      setSelectedLocations(savedState.selectedLocations);
-      setDateFilter(savedState.dateFilter);
-      setSelectedWeeks(savedState.selectedWeeks);
-      setExpandedDescriptions(savedState.expandedDescriptions);
-      setRecentLocations(savedState.recentLocations);
-      setRecentCategories(savedState.recentCategories);
-    }
-    setStateInitialized(true);
-  }, [loadUserState]);
-
-  // Clear all filters
-  const clearFilters = useCallback(() => {
-    setSearchTerm('');
-    setSelectedTags([]);
-    setSelectedLocations([]);
-    setDateFilter('all');
-    setSelectedWeeks([]);
-  }, []);
-
-  const hasFilters = searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
 
   return {
-    // State
-    expandedDescriptions,
-    searchTerm,
-    setSearchTerm,
-    selectedTags,
-    selectedLocations,
-    dateFilter,
-    setDateFilter,
-    selectedWeeks,
-    setSelectedWeeks,
-    availableCategories,
-    setAvailableCategories,
-    availableLocations,
-    setAvailableLocations,
-    recentLocations,
-    recentCategories,
-
-    // Computed
-    selectedTagsLowerSet,
-    selectedLocationsLowerSet,
-    selectedCategoriesCount,
-    hasFilters,
-
-    // Actions
-    toggleDescription,
-    toggleTag,
-    isTagSelected,
-    toggleLocation,
-    isLocationSelected,
-    clearFilters,
+    expandedDescriptions: state.expandedDescriptions,
+    searchTerm: state.searchTerm, setSearchTerm,
+    selectedTags: state.selectedTags,
+    selectedLocations: state.selectedLocations,
+    dateFilter: state.dateFilter, setDateFilter,
+    selectedWeeks: state.selectedWeeks, setSelectedWeeks,
+    availableCategories: state.availableCategories, setAvailableCategories,
+    availableLocations: state.availableLocations, setAvailableLocations,
+    recentLocations: state.recentLocations,
+    recentCategories: state.recentCategories,
+    selectedTagsLowerSet, selectedLocationsLowerSet, selectedCategoriesCount, hasFilters,
+    toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected, clearFilters,
   };
 }
