@@ -336,7 +336,7 @@ frontend/src/
 **Goal**: Replace React 19 (~140KB) with Preact (~3KB) + preact/compat for dramatic bundle reduction.
 **Dependencies**: Phase 2 must be complete (clean component structure makes migration safer).
 
-### Task 3A: Install and Configure Preact `[ ]`
+### Task 3A: Install and Configure Preact `[x]`
 
 **Description**: Set up Preact with Next.js compatibility layer.
 
@@ -379,7 +379,7 @@ frontend/src/
 - Event filtering works
 - Page navigation works
 
-### Task 3B: Fix Preact Compatibility Issues `[ ]`
+### Task 3B: Fix Preact Compatibility Issues `[x]`
 
 **Description**: Address any React 19-specific APIs that Preact doesn't support.
 
@@ -404,7 +404,7 @@ frontend/src/
 - Zero console warnings related to React/Preact
 - All interactive features work
 
-### Task 3C: Measure Bundle Reduction `[ ]`
+### Task 3C: Measure Bundle Reduction `[x]`
 
 **Description**: Capture post-Preact metrics and compare to baseline.
 
@@ -747,8 +747,10 @@ Update this section after each phase:
 
 | Metric | Value | Delta |
 |--------|-------|-------|
-| Total JS bundle size | _TBD_ | _TBD_ |
-| React/Preact size | _TBD_ | _TBD_ |
+| First Load JS shared | 52.4 KB | -48.6 KB (-48%) |
+| Main page First Load JS | 68 KB | -48 KB (-41%) |
+| Framework chunk | Eliminated (Preact in shared) | -53 KB chunk |
+| Shared chunk | 50.4 KB | Replaces React 53.2 KB + 46.2 KB |
 
 ### After Phase 4 (Bundle Optimization)
 

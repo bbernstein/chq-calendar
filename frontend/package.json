@@ -12,7 +12,9 @@
     "validate": "npm run type-check && npm run lint"
   },
   "dependencies": {
+    "@preact/compat": "^18.3.2",
     "next": "15.3.5",
+    "preact": "^10.28.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
