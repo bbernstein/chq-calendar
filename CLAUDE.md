@@ -1,7 +1,18 @@
 # CLAUDE.md — Agentic Development Guide
 
-> This file provides context for AI agents (Claude Code, etc.) working on this project.
-> Read this file at the start of every conversation to understand the project, current state, and workflow.
+## MANDATORY FIRST ACTION — Do This Before Anything Else
+
+**BEFORE writing any code, answering any question, or making any changes, you MUST:**
+
+1. **Read the optimization plan**: `cat docs/OPTIMIZATION_PLAN.md`
+2. **Check recent git history**: `git log --oneline -10`
+3. **Verify the build works**: `cd frontend && npm run build`
+
+The file `docs/OPTIMIZATION_PLAN.md` contains the detailed task list with current status markers showing what has been completed (`[x]`), what is in progress (`[~]`), and what is next (`[ ]`). **You cannot know what to work on without reading it.** Do not invent your own optimization tasks — follow the plan.
+
+If asked to "continue optimizing" or "work on the next task", the answer is ALWAYS in `docs/OPTIMIZATION_PLAN.md`. Find the first `[ ]` task whose dependencies are `[x]`, and do that task.
+
+---
 
 ## Project Overview
 
@@ -137,14 +148,16 @@ CloudFront CDN → all-events.json → Browser Cache (1hr)
 
 ## Active Optimization Plan
 
-**Read `docs/OPTIMIZATION_PLAN.md` before starting any optimization work.**
+> **CRITICAL**: The detailed task list with step-by-step instructions, file lists, and verification
+> criteria lives in **`docs/OPTIMIZATION_PLAN.md`**. You MUST read that file (via `cat` or the Read tool)
+> before starting any optimization work. The summary below is just an overview — the plan file has the
+> actual instructions you need to follow.
 
-The plan has 7 phases with ~25 tasks. Each task has:
-- Status markers: `[ ]` Not started | `[~]` In progress | `[x]` Complete | `[!]` Blocked
-- Specific files to modify/create
-- Step-by-step instructions
-- Verification criteria
-- Dependencies on other tasks
+### Task Status Key
+- `[ ]` Not started — available to work on (if dependencies are met)
+- `[~]` In progress — currently being worked on
+- `[x]` Complete — done and verified
+- `[!]` Blocked — cannot proceed, see notes
 
 ### Current Baseline Metrics
 
@@ -156,31 +169,47 @@ The plan has 7 phases with ~25 tasks. Each task has:
 | Build time | ~6 seconds |
 | Production deps | 13 (9 unused) |
 
-### Phase Summary
+### Phase & Task Overview
 
-| Phase | Goal | Status |
-|-------|------|--------|
-| 1. Foundation & Cleanup | Remove unused deps, set up analysis | `[ ]` |
-| 2. Component Decomposition | Break 1,760-line page.tsx into modules | `[ ]` |
-| 3. Preact Migration | Replace React 19 with Preact | `[ ]` |
-| 4. Bundle Optimization | Dynamic imports, image/font optimization | `[ ]` |
-| 5. Runtime Performance | Virtual scroll, debounce, memoization | `[ ]` |
-| 6. CSS & Build | CSS audit, enable strict build checks | `[ ]` |
-| 7. PWA & Caching | Service worker, offline support | `[ ]` |
+**Check `docs/OPTIMIZATION_PLAN.md` for current `[x]`/`[~]`/`[ ]` status of each task.**
+
+| Phase | Tasks | Parallelizable | Goal |
+|-------|-------|----------------|------|
+| 1. Foundation | 1A (bundle analyzer), 1B (remove deps), 1C (dead code) | All 3 | Remove unused deps, set up analysis |
+| 2. Decomposition | 2A (types), 2B (utils), 2C (hooks), 2D (filters), 2E (events), 2F (layout) | 2A+2B, then 2C, then 2D+2E, then 2F | Break 1,760-line page.tsx into modules |
+| 3. Preact | 3A (install), 3B (compat fixes), 3C (measure) | Sequential | Replace React 19 with Preact |
+| 4. Bundle | 4A (admin dynamic), 4B (feedback dynamic), 4C (images), 4D (fonts) | 4A+4B | Dynamic imports, image/font optimization |
+| 5. Runtime | 5A (virtual scroll), 5B (useReducer), 5C (debounce), 5D (memoize) | 5A+5B+5C | Virtual scroll, debounce, memoization |
+| 6. CSS/Build | 6A (CSS audit), 6B (strict checks) | Both | CSS audit, enable strict build checks |
+| 7. PWA | 7A (service worker), 7B (manifest) | Sequential | Service worker, offline support |
+
+### How to Find Your Next Task
+
+1. Open `docs/OPTIMIZATION_PLAN.md`
+2. Find the first task marked `[ ]` whose phase dependencies are all `[x]`
+3. Mark it `[~]` in the plan file
+4. Follow the steps listed under that task
+5. Verify using the task's verification criteria
+6. Mark it `[x]` and commit
 
 ## Agentic Workflow — How to Work on This Project
 
 ### Starting a New Conversation
 
-1. **Read this file** (`CLAUDE.md`) for project context
-2. **Read `docs/OPTIMIZATION_PLAN.md`** to see current task status
-3. **Identify the next phase/task** by finding the first `[ ]` task whose dependencies are all `[x]`
-4. **Mark the task `[~]`** (in progress) before starting work
-5. **Work on the task** following its specific steps
-6. **Verify** using the task's verification criteria
-7. **Mark the task `[x]`** after verification passes
-8. **Commit** with a descriptive message referencing the task (e.g., "Phase 1B: Remove unused dependencies")
-9. **Push** to the working branch
+**Every new conversation MUST begin with these steps, in order:**
+
+1. **Read `docs/OPTIMIZATION_PLAN.md`** — this is the source of truth for task status. Use `cat docs/OPTIMIZATION_PLAN.md` or the Read tool. Do NOT skip this step.
+2. **Check git log** — run `git log --oneline -10` to see what was recently completed
+3. **Verify build** — run `cd frontend && npm run build` to confirm the project is in a working state
+4. **Identify the next task** — find the first `[ ]` task in the plan whose dependencies are all `[x]`
+5. **Mark the task `[~]`** in `docs/OPTIMIZATION_PLAN.md` before starting work
+6. **Work on the task** following its specific steps and file lists
+7. **Verify** using the task's verification criteria (`npm run validate && npm run build`)
+8. **Mark the task `[x]`** in `docs/OPTIMIZATION_PLAN.md` after verification passes
+9. **Commit** with format: `Phase XY: Brief description` (e.g., "Phase 1B: Remove unused dependencies")
+10. **Push** to the working branch
+
+**Do NOT invent your own optimization tasks.** The plan is comprehensive and ordered by dependency. Follow it.
 
 ### Parallel Task Execution
 
