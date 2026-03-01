@@ -2,46 +2,11 @@
 
 import React, { useState, useEffect, useMemo, useRef, createContext, useContext, useCallback } from 'react';
 import Image from 'next/image';
-
-interface Event {
-  id: string;
-  title: string;
-  description?: string;
-  startDate: string;
-  endDate: string;
-  location?: string;
-  venue?: {
-    name: string;
-    id?: number;
-    address?: string;
-    showMap?: boolean;
-  };
-  category?: string;
-  categories?: Array<{ name: string }>;
-  originalCategories?: string[];
-  tags?: string[];
-  presenter?: string;
-  lastModified?: string;
-  attachments?: Array<{
-    url: string;
-    type: string;
-    isImage: boolean;
-  }>;
-  url?: string;
-  // Pre-computed set containing lowercase versions of tags and categories
-  // combined, used for efficient filtering
-  _tagsLowerSet?: Set<string>;
-}
-
-interface GlobalEventData {
-  events: Event[] | null;
-  categories: string[];
-  locations: string[];
-  tags: string[];
-  weeks: number[];
-  loadedAt: number | null;
-  setGlobalEventData?: React.Dispatch<React.SetStateAction<GlobalEventData>>;
-}
+import type { Event, GlobalEventData } from '@/lib/types';
+import { CACHE_EXPIRY_MS, USER_STATE_EXPIRY_MS, ACTIVE_YEAR, getLocationDisplayName, getCategoryDisplayName } from '@/lib/constants';
+import { getChautauquaSeasonWeeks, isWeekInPast, getCurrentWeekNumber } from '@/lib/utils/dateHelpers';
+import { decodeHtmlEntities, decodeEventHtmlEntities, groupEventsByDay } from '@/lib/utils/eventHelpers';
+import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 
 const GlobalEventDataContext = createContext<GlobalEventData | undefined>(undefined);
 
@@ -90,10 +55,6 @@ function GlobalEventDataProvider({ children }: { children: React.ReactNode }) {
 }
 
 function HomeContent() {
-  // Constants for cache and state management
-  const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
-  const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
-
   const globalEventData = useGlobalEventData();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
@@ -109,8 +70,6 @@ function HomeContent() {
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'next' | 'this-week'>('next');
   const [selectedWeeks, setSelectedWeeks] = useState<number[]>([]);
-  // Fixed year configuration
-  const ACTIVE_YEAR = 2026;
   // const [availableTags, setAvailableTags] = useState<string[]>([]); // Currently unused
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [availableLocations, setAvailableLocations] = useState<string[]>([]);
@@ -124,37 +83,6 @@ function HomeContent() {
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [wasDragged, setWasDragged] = useState(false);
   const [stateInitialized, setStateInitialized] = useState(false);
-
-  // Shortcut alias maps for pills - easily editable
-  const locationShortcuts: Record<string, string> = {
-    "Elizabeth S. Lenna Hall": "Lenna Hall",
-    "AAHH African American Heritage House": "AAHH",
-    "Fletcher Music Hall": "Fletcher Hall",
-    "Smith Wilkes Hall": "Smith Wilkes",
-    "Alumni Hall Ballroom": "Alumni Hall",
-    "Chabad Jewish House": "Chabad House",
-    "Fowler-Kellogg Art Center 2nd floor": "Fowler-Kellogg 2nd Floor",
-    "Fowler-Kellogg Art Center: 1st Floor": "Fowler-Kellogg 1st Floor",
-    "Everett Jewish Life Center": "Everett Jewish Center",
-    "Hall of Christ: Sanctuary": "Hall of Christ",
-    "Denominational Houses (Selected)": "Denominational Houses",
-  };
-
-  const categoryShortcuts: Record<string, string> = {
-    "Chautauqua Symphony Orchestra/Classical Concerts": "CSO",
-    "Chautauqua Institution Program": "CHQ Program",
-    "Chautauqua Literary and Scientific Circle (CLSC)": "CLSC",
-    "Climate Change Initiative Program": "Climate Change Program",
-  };
-
-  // Helper functions to get display names and full names
-  const getLocationDisplayName = (location: string): string => {
-    return locationShortcuts[location] || location;
-  };
-
-  const getCategoryDisplayName = (category: string): string => {
-    return categoryShortcuts[category] || category;
-  };
 
   const apiUrl = useMemo(() =>
     process.env.NODE_ENV === 'development'
@@ -177,56 +105,6 @@ function HomeContent() {
     });
   };
 
-  const decodeHtmlEntities = (encodedString: string | undefined) => {
-    if (!encodedString) return undefined;
-
-    // If no HTML entities found, return original string
-    if (!encodedString.includes('&')) return encodedString;
-
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(encodedString, 'text/html');
-      const decoded = doc.documentElement.textContent || encodedString;
-      return decoded;
-    } catch (error) {
-      console.warn('Failed to decode HTML entities:', encodedString, error);
-      return encodedString;
-    }
-  };
-
-  // Decode HTML entities for an entire event object and pre-compute lowercase tags
-  const decodeEventHtmlEntities = useCallback((event: Event): Event => {
-    const decodedTags = event.tags?.map(tag => decodeHtmlEntities(tag) || tag);
-    const decodedCategories = event.categories?.map(cat => decodeHtmlEntities(cat.name) || cat.name);
-
-    // Pre-compute lowercase tag set for efficient filtering
-    const allTags: string[] = [];
-    if (decodedTags) allTags.push(...decodedTags);
-    if (decodedCategories) allTags.push(...decodedCategories);
-    const _tagsLowerSet = new Set(allTags.map(tag => tag.toLowerCase()));
-
-    // Extract location from venue if it exists, otherwise use location field
-    const location = event.venue?.name
-      ? (decodeHtmlEntities(event.venue.name) || event.venue.name)
-      : (decodeHtmlEntities(event.location) || event.location);
-
-    return {
-      ...event,
-      title: decodeHtmlEntities(event.title) || event.title,
-      description: decodeHtmlEntities(event.description) || event.description,
-      location: location,
-      presenter: decodeHtmlEntities(event.presenter) || event.presenter,
-      category: decodeHtmlEntities(event.category) || event.category,
-      originalCategories: decodedCategories || [],
-      tags: decodedTags,
-      // Also decode attachment types in case they contain HTML entities
-      attachments: event.attachments?.map(att => ({
-        ...att,
-        type: decodeHtmlEntities(att.type) || att.type
-      })),
-      _tagsLowerSet
-    };
-  }, []);
 
   // FIFO utility functions for managing recent items
   const addToRecentItems = useCallback((item: string, recentItems: string[], maxItems: number = 10): string[] => {
@@ -363,7 +241,7 @@ function HomeContent() {
       console.warn('Failed to load user state from localStorage:', e);
     }
     return null;
-  }, [USER_STATE_EXPIRY_MS]);
+  }, []);
 
   // Save user state to localStorage whenever filter state changes (only after initialization)
   useEffect(() => {
@@ -415,91 +293,8 @@ function HomeContent() {
     }
   }, [availableCategories, updateVerticalScrollState]);
 
-  // Calculate Chautauqua season weeks (9 weeks starting from Saturday noon before 4th Sunday of June)
-  const getChautauquaSeasonWeeks = (year: number = ACTIVE_YEAR) => {
-    // Start from June 1st and find the 4th Sunday
-    const june1 = new Date(year, 5, 1); // June 1st
-    const current = new Date(june1);
-    let sundayCount = 0;
-    let fourthSunday = null;
-
-    // Find the 4th Sunday of June
-    while (current.getMonth() === 5) { // Still in June
-      if (current.getDay() === 0) { // Sunday
-        sundayCount++;
-        if (sundayCount === 4) {
-          fourthSunday = new Date(current);
-          break;
-        }
-      }
-      current.setDate(current.getDate() + 1);
-    }
-
-    if (!fourthSunday) {
-      // Fallback: if somehow we can't find 4th Sunday, use a reasonable date for the year
-      const fallbackDate = year === 2025 ? 22 : year === 2026 ? 28 : 27; // Approximate 4th Sunday
-      fourthSunday = new Date(year, 5, fallbackDate);
-    }
-
-    // Find the Saturday before the 4th Sunday, and set it to noon
-    // This will be the start of Week 1 at Saturday noon
-    const firstWeekStart = new Date(fourthSunday);
-    firstWeekStart.setDate(fourthSunday.getDate() - 1); // Go back to Saturday
-    firstWeekStart.setHours(12, 0, 0, 0); // Set to noon
-
-    const weeks = [];
-    for (let i = 0; i < 9; i++) {
-      const weekStart = new Date(firstWeekStart);
-      weekStart.setDate(firstWeekStart.getDate() + (i * 7));
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 7); // Next Saturday at noon
-
-      weeks.push({
-        number: i + 1,
-        start: weekStart,
-        end: weekEnd,
-        label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm)`
-      });
-    }
-
-    return weeks;
-  };
-
-  const seasonWeeks = useMemo(() => getChautauquaSeasonWeeks(), []);
-
-  // Date filtering helpers
-  const isToday = (dateString: string) => {
-    const today = new Date();
-    const eventDate = new Date(dateString);
-    return eventDate.toDateString() === today.toDateString();
-  };
-
-  const isNext = (dateString: string) => {
-    const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    const eventDate = new Date(dateString);
-
-    // Calculate 6 days in future
-    const nextWeek = new Date(now);
-    nextWeek.setDate(now.getDate() + 6);
-    nextWeek.setHours(23, 59, 59, 999);
-
-    // Show events from one hour ago through 6 days in the future
-    return eventDate >= oneHourAgo && eventDate <= nextWeek;
-  };
-
-  // Get current Chautauqua week number (1-9) or null if not in season
-  const currentWeekNumber = useMemo(() => {
-    const now = new Date();
-
-    for (let i = 0; i < seasonWeeks.length; i++) {
-      const week = seasonWeeks[i];
-      if (now >= week.start && now <= week.end) {
-        return week.number;
-      }
-    }
-    return null; // Not in season
-  }, [seasonWeeks]);
+  const seasonWeeks = useMemo(() => getChautauquaSeasonWeeks(ACTIVE_YEAR), []);
+  const currentWeekNumber = useMemo(() => getCurrentWeekNumber(seasonWeeks), [seasonWeeks]);
 
   // Helper functions for UI state
   const isThisWeekButtonActive = () => {
@@ -510,44 +305,6 @@ function HomeContent() {
     const isCurrent = currentWeekNumber === weekNumber;
     const isCurrentWeekFilterActive = dateFilter === 'this-week' && isCurrent;
     return isSelected || isCurrentWeekFilterActive;
-  };
-
-  const isThisWeek = (dateString: string) => {
-    const eventDate = new Date(dateString);
-
-    if (currentWeekNumber === null) {
-      return false; // Not in season
-    }
-
-    const currentWeek = seasonWeeks[currentWeekNumber - 1];
-    return eventDate >= currentWeek.start && eventDate <= currentWeek.end;
-  };
-
-  const isInChautauquaWeek = (dateString: string, weekNumber: number) => {
-    const eventDate = new Date(dateString);
-    const week = seasonWeeks[weekNumber - 1];
-
-    // Week ends at Saturday noon, so we don't need to include the end boundary
-    // since week.end is already the next Saturday at noon
-    return eventDate >= week.start && eventDate < week.end;
-  };
-
-  const isWeekInPast = (weekNumber: number) => {
-    const week = seasonWeeks[weekNumber - 1];
-    const now = new Date();
-    // A week is in the past if its end time (Saturday noon) is before now
-    return week.end <= now;
-  };
-
-  const getWeekNumberForDate = (date: Date): number | null => {
-    // Find which Chautauqua week this date falls into
-    for (let i = 0; i < seasonWeeks.length; i++) {
-      const week = seasonWeeks[i];
-      if (date >= week.start && date < week.end) {
-        return week.number;
-      }
-    }
-    return null; // Date is outside the season
   };
 
   // Week selection handlers
@@ -703,180 +460,18 @@ function HomeContent() {
     });
   };
 
-  const searchEvents = (events: Event[], term: string) => {
-    if (!term) return events;
+  const filterOpts: FilterOptions = useMemo(() => ({
+    searchTerm,
+    dateFilter,
+    selectedWeeks,
+    selectedTagsLowerSet,
+    selectedLocationsLowerSet,
+    seasonWeeks,
+    currentWeekNumber,
+  }), [searchTerm, dateFilter, selectedWeeks, selectedTagsLowerSet, selectedLocationsLowerSet, seasonWeeks, currentWeekNumber]);
 
-    // Create search terms array from the input term
-    const searchTerms = term.toLowerCase().split(' ').filter(t => t.length > 0);
-
-    const scored = events.map(event => {
-      // Ensure we're working with decoded strings for search
-      const title = (event.title || '').toLowerCase();
-      const description = (event.description || '').toLowerCase();
-      const presenter = (event.presenter || '').toLowerCase();
-      const location = (event.location || '').toLowerCase();
-
-
-      // Combine all tags and categories for searching
-      // Use pre-computed lowercase tags set for better performance
-      const allTagsLower = event._tagsLowerSet || new Set([
-        ...(event.tags || []),
-        ...(event.categories?.map(cat => cat.name) || [])
-      ].map(tag => tag.toLowerCase()));
-
-      let score = 0;
-
-      // Check all search terms (original + shortcuts)
-      searchTerms.forEach(currentTerm => {
-
-        // Exact phrase matches (highest priority)
-        if (title.includes(currentTerm)) score += 100;
-        if (location.includes(currentTerm)) score += 90;
-        if (description.includes(currentTerm)) score += 50;
-        if (presenter.includes(currentTerm)) score += 25;
-
-        // Tag matching (including partial matches for Symphony Orchestra)
-        allTagsLower.forEach(tag => {
-          if (tag.includes(currentTerm)) score += 85;
-        });
-
-        // Word matches (lower priority)
-        const words = currentTerm.split(/\s+/);
-        words.forEach(word => {
-          if (word.length > 2) { // Avoid matching very short words
-            if (title.includes(word)) score += 10;
-            if (location.includes(word)) score += 9;
-            if (description.includes(word)) score += 5;
-            if (presenter.includes(word)) score += 3;
-
-            allTagsLower.forEach(tag => {
-              if (tag.includes(word)) score += 7;
-            });
-          }
-        });
-      });
-
-      return { event, score };
-    });
-
-    return scored
-      .filter(item => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map(item => item.event);
-  };
-
-  // Filter events based on all criteria
-  const filterEvents = (events: Event[]) => {
-    let filtered = [...events];
-
-    // Search filter
-    if (searchTerm) {
-      filtered = searchEvents(filtered, searchTerm);
-    }
-
-    // Date filter
-    if (dateFilter === 'today') {
-      filtered = filtered.filter(event => isToday(event.startDate));
-    } else if (dateFilter === 'next') {
-      filtered = filtered.filter(event => isNext(event.startDate));
-    } else if (dateFilter === 'this-week') {
-      filtered = filtered.filter(event => isThisWeek(event.startDate));
-    }
-
-    // Week filter (independent of date filter)
-    if (selectedWeeks.length > 0) {
-      filtered = filtered.filter(event =>
-        selectedWeeks.some(weekNum => isInChautauquaWeek(event.startDate, weekNum))
-      );
-    }
-
-    // Location filter - case insensitive
-    if (selectedLocationsLowerSet.size > 0) {
-      filtered = filtered.filter(event => {
-        if (event.location) {
-          return selectedLocationsLowerSet.has(event.location.toLowerCase());
-        }
-        return false;
-      });
-    }
-
-    // Tag filter - case insensitive (using pre-computed Sets for O(1) lookups)
-    if (selectedTagsLowerSet.size > 0) {
-      filtered = filtered.filter(event => {
-        // Use pre-computed lowercase tag set if available
-        if (event._tagsLowerSet) {
-          for (const selectedTag of selectedTagsLowerSet) {
-            if (event._tagsLowerSet.has(selectedTag)) {
-              return true;
-            }
-          }
-          return false;
-        }
-
-        // Fallback for events without pre-computed sets (shouldn't happen normally)
-        if (event.tags) {
-          for (const eventTag of event.tags) {
-            if (selectedTagsLowerSet.has(eventTag.toLowerCase())) {
-              return true;
-            }
-          }
-        }
-        if (event.categories) {
-          for (const eventCat of event.categories) {
-            if (selectedTagsLowerSet.has(eventCat.name.toLowerCase())) {
-              return true;
-            }
-          }
-        }
-        return false;
-      });
-    }
-
-    return filtered;
-  };
-
-  // Group events by day
-  const groupEventsByDay = (events: Event[]) => {
-    const grouped: { [key: string]: Event[] } = {};
-
-    events.forEach(event => {
-      const eventDate = new Date(event.startDate);
-      const baseDayKey = eventDate.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-
-      // Add week number to the day label
-      const weekNumber = getWeekNumberForDate(eventDate);
-      const dayKey = weekNumber
-        ? `${baseDayKey} - Week ${weekNumber}`
-        : baseDayKey;
-
-      if (!grouped[dayKey]) {
-        grouped[dayKey] = [];
-      }
-      grouped[dayKey].push(event);
-    });
-
-    // Sort events within each day by start time
-    Object.keys(grouped).forEach(dayKey => {
-      grouped[dayKey].sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-    });
-
-    // Return days sorted by date
-    const sortedDays = Object.keys(grouped).sort((a, b) => {
-      const dateA = new Date(grouped[a][0].startDate);
-      const dateB = new Date(grouped[b][0].startDate);
-      return dateA.getTime() - dateB.getTime();
-    });
-
-    return sortedDays.map(dayKey => ({
-      day: dayKey,
-      events: grouped[dayKey]
-    }));
-  };
+  const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
+  const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
 
   // Fetch events from API
   const fetchAllEvents = useCallback(async (forceRefresh = false) => {
@@ -1083,7 +678,7 @@ function HomeContent() {
       setLoading(false);
       isLoadingRef.current = false;
     }
-  }, [apiUrl, dataLoaded, globalEventData, seasonWeeks, decodeEventHtmlEntities]);
+  }, [apiUrl, dataLoaded, globalEventData, seasonWeeks]);
 
   // Create sample data
 
@@ -1240,7 +835,7 @@ function HomeContent() {
                   }`}
                 >
                   {seasonWeeks.map((week) => {
-                    const isPast = isWeekInPast(week.number);
+                    const isPast = isWeekInPast(week.number, seasonWeeks);
                     const isSelected = selectedWeeks.includes(week.number);
                     const isHighlighted = isWeekHighlighted(week.number, isSelected);
 
@@ -1335,7 +930,7 @@ function HomeContent() {
                     }`}
                   >
                     {seasonWeeks.map((week) => {
-                      const isPast = isWeekInPast(week.number);
+                      const isPast = isWeekInPast(week.number, seasonWeeks);
                       const isSelected = selectedWeeks.includes(week.number);
                       const isHighlighted = isWeekHighlighted(week.number, isSelected);
 
@@ -1560,7 +1155,7 @@ function HomeContent() {
               <div className="flex items-center justify-between">
                 <div className="text-sm text-gray-600 dark:text-gray-300 font-medium">
                   {(() => {
-                    const filteredCount = filterEvents(events).length;
+                    const filteredCount = filteredEvents.length;
                     const totalCount = events.length;
                     const hasFilters = searchTerm || selectedTags.length > 0 || selectedLocations.length > 0 || dateFilter !== 'all' || selectedWeeks.length > 0;
 
@@ -1599,7 +1194,7 @@ function HomeContent() {
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <p className="mt-2 text-gray-600 dark:text-gray-200">Loading events...</p>
               </div>
-            ) : filterEvents(events).length === 0 ? (
+            ) : filteredEvents.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🎭</div>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No events found</h3>
@@ -1609,7 +1204,7 @@ function HomeContent() {
               </div>
             ) : (
               <div className="space-y-4 sm:space-y-6">
-                {groupEventsByDay(filterEvents(events)).map((dayGroup) => (
+                {groupedEvents.map((dayGroup) => (
                   <div key={dayGroup.day}>
                     {/* Day Header - more compact on mobile */}
                     <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4">
