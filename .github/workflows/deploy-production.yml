@@ -42,7 +42,7 @@ jobs:
         run: npm run build --workspace=frontend
         env:
           VITE_API_URL: https://www.chqcal.org/api
-          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
+          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.VITE_RECAPTCHA_SITE_KEY }}
 
       - name: Deploy calendar Lambda function
         working-directory: ./backend
