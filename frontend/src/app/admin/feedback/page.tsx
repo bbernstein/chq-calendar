@@ -64,9 +64,9 @@ export default function FeedbackManagementPage() {
     setUser(JSON.parse(userStr));
   }, []);
 
-  // Admin endpoints now use CloudFront paths that route to admin Lambda
-  const baseApiUrl = import.meta.env.VITE_API_URL || 'https://www.chqcal.org/api';
-  const apiUrl = baseApiUrl.replace(/\/api$/, '');
+  // Use relative paths — Vite dev server proxies to localhost:3001,
+  // production uses CloudFront path routing to admin Lambda
+  const apiUrl = '';
 
   // Helper function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {

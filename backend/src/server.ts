@@ -1,12 +1,9 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { handler as calendarHandler } from './handlers/calendarHandler';
 import { handler as adminHandler } from './handlers/adminHandler';
 import { APIGatewayProxyEvent, Context } from 'aws-lambda';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;

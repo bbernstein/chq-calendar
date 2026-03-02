@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Event, GlobalEventData, SeasonWeek } from '@/lib/types';
 import { CACHE_EXPIRY_MS, ACTIVE_YEAR, getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
 import { decodeHtmlEntities, decodeEventHtmlEntities } from '@/lib/utils/eventHelpers';
@@ -15,12 +15,6 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
-
-  const apiUrl = useMemo(() =>
-    import.meta.env.DEV
-      ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
-      : ''
-  , []);
 
   const fetchAllEvents = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
@@ -73,7 +67,7 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
       const response = await fetch(
         import.meta.env.DEV
           ? `/data/all-events-${ACTIVE_YEAR}.json`
-          : `${apiUrl}/cache/calendar-cache/all-events-${ACTIVE_YEAR}.json`,
+          : `/cache/calendar-cache/all-events-${ACTIVE_YEAR}.json`,
         {
           method: 'GET',
           headers: {
@@ -183,7 +177,7 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
       setLoading(false);
       isLoadingRef.current = false;
     }
-  }, [apiUrl, dataLoaded, globalEventData, seasonWeeks, setAvailableCategories, setAvailableLocations]);
+  }, [dataLoaded, globalEventData, seasonWeeks, setAvailableCategories, setAvailableLocations]);
 
   useEffect(() => {
     fetchAllEvents();

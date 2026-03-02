@@ -21,9 +21,7 @@ export default function FeedbackPage() {
   // reCAPTCHA site key - must be set via environment variable
   const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
-  const apiUrl = import.meta.env.DEV
-    ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
-    : '/api';
+  const apiUrl = '/api';
 
   useEffect(() => {
     // Only load reCAPTCHA if site key is configured

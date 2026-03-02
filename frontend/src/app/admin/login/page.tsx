@@ -104,11 +104,9 @@ function LoginContent() {
   }, [])
 
   const handleGoogleLogin = () => {
-    // OAuth endpoints use the base domain without /api prefix
-    // Auth paths are routed directly to admin Lambda via CloudFront
-    const baseUrl = (import.meta.env.VITE_API_URL || 'https://www.chqcal.org').replace('/api', '');
-
-    window.location.href = `${baseUrl}/auth/google`;
+    // Relative path — Vite dev server proxies to localhost:3001,
+    // production uses CloudFront path routing to admin Lambda
+    window.location.href = '/auth/google';
   }
 
   return (
