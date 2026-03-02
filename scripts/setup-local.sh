@@ -12,9 +12,9 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# Check if Docker Compose is installed
-if ! command -v docker-compose &> /dev/null; then
-    echo "❌ Docker Compose is not installed. Please install Docker Compose first."
+# Check if Docker Compose is available
+if ! docker compose version &> /dev/null; then
+    echo "❌ Docker Compose is not available. Please install Docker with Compose plugin."
     exit 1
 fi
 
@@ -52,7 +52,7 @@ cd ..
 
 # Build and start services
 echo "🚀 Building and starting services..."
-docker-compose up -d --build
+docker compose up -d --build
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
@@ -99,10 +99,10 @@ echo "   • DynamoDB Local:  http://localhost:8000"
 echo "   • DynamoDB Admin:  http://localhost:8001"
 echo ""
 echo "🔧 Useful commands:"
-echo "   • View logs:       docker-compose logs -f"
-echo "   • Stop services:   docker-compose down"
-echo "   • Restart:         docker-compose restart"
-echo "   • Rebuild:         docker-compose up -d --build"
+echo "   • View logs:       docker compose logs -f"
+echo "   • Stop services:   docker compose down"
+echo "   • Restart:         docker compose restart"
+echo "   • Rebuild:         docker compose up -d --build"
 echo ""
 echo "🗄️  Database:"
 echo "   • DynamoDB tables will be created automatically"

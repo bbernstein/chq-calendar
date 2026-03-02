@@ -34,7 +34,7 @@ fi
 
 # Start Docker Compose
 print_status "Starting Docker containers..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for services to be ready
 print_status "Waiting for services to start..."
@@ -46,7 +46,7 @@ if curl -s http://localhost:3001/health > /dev/null; then
     print_success "Backend is running at http://localhost:3001"
 else
     echo "❌ Backend health check failed"
-    docker-compose logs backend
+    docker compose logs backend
     exit 1
 fi
 
@@ -56,7 +56,7 @@ if curl -s http://localhost:3000 > /dev/null; then
     print_success "Frontend is running at http://localhost:3000"
 else
     echo "❌ Frontend check failed"
-    docker-compose logs frontend
+    docker compose logs frontend
     exit 1
 fi
 
@@ -66,7 +66,7 @@ if curl -s http://localhost:8000 > /dev/null; then
     print_success "DynamoDB is running at http://localhost:8000"
 else
     echo "❌ DynamoDB check failed"
-    docker-compose logs dynamodb
+    docker compose logs dynamodb
     exit 1
 fi
 
@@ -86,9 +86,9 @@ echo "🗄️  DynamoDB: http://localhost:8000"
 echo "🛠️  DynamoDB Admin: http://localhost:8001"
 echo ""
 echo "📋 Useful commands:"
-echo "   View logs: docker-compose logs -f [service]"
-echo "   Stop environment: docker-compose down"
-echo "   Restart service: docker-compose restart [service]"
+echo "   View logs: docker compose logs -f [service]"
+echo "   Stop environment: docker compose down"
+echo "   Restart service: docker compose restart [service]"
 echo ""
 print_warning "Next steps:"
 echo "1. Test the frontend at http://localhost:3000"

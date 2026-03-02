@@ -46,17 +46,17 @@ cd chq-calendar
 ./scripts/start-local.sh
 
 # Or manually with Docker Compose
-docker-compose up -d --build
+docker compose up -d --build
 
 # Check service status
-docker-compose ps
+docker compose ps
 
 # View logs
-docker-compose logs -f frontend
-docker-compose logs dynamodb
+docker compose logs -f frontend
+docker compose logs dynamodb
 
 # Stop all services
-docker-compose down
+docker compose down
 ```
 
 ### Local Testing
@@ -178,7 +178,7 @@ After merge and automatic deployment:
 - Static build for S3/CloudFront deployment
 
 ### Backend
-- AWS Lambda functions (Node.js 24)
+- AWS Lambda functions (Node.js 22)
 - TypeScript compilation with ESBuild
 - DynamoDB for Events and Feedback data
 - S3 for static file generation and hosting

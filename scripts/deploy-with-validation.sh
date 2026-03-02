@@ -40,7 +40,7 @@ fi
 
 # Step 1: Start local environment
 print_status "Step 1: Starting local development environment..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for services to be ready
 print_status "Waiting for services to start..."
@@ -55,7 +55,7 @@ if curl -s http://localhost:3001/health > /dev/null; then
     print_success "Backend is healthy"
 else
     print_error "Backend health check failed"
-    docker-compose logs backend
+    docker compose logs backend
     exit 1
 fi
 
@@ -65,7 +65,7 @@ if curl -s http://localhost:3000 > /dev/null; then
     print_success "Frontend is accessible"
 else
     print_error "Frontend is not accessible"
-    docker-compose logs frontend
+    docker compose logs frontend
     exit 1
 fi
 
