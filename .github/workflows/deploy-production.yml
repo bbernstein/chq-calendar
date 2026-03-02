@@ -205,10 +205,25 @@ jobs:
           # Build the sync handler
           npm run build:prod
 
-          # Create the sync Lambda package
-          mkdir -p sync_package
+          # Create the sync Lambda package with only externalized dependencies
+          mkdir -p sync_package/node_modules
           cp -r dist/ sync_package/
-          cp -r node_modules/ sync_package/
+
+          # Install the AWS SDK dependencies externalized by esbuild
+          cd sync_package
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-sync",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/client-s3": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev --no-package-lock
+          cd ..
 
           # Create zip file for sync Lambda functions
           cd sync_package
@@ -272,7 +287,7 @@ jobs:
 
           # Update environment variables for sync Lambda functions
           echo "Updating environment variables for sync Lambda functions..."
-          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","AWS_REGION":"${{ secrets.AWS_REGION }}","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","SYNC_STATUS_TABLE_NAME":"${{ secrets.SYNC_STATUS_TABLE_NAME }}","CACHE_S3_BUCKET":"${{ secrets.CACHE_S3_BUCKET }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache","ACTIVE_YEAR":"2026","API_MAX_CONCURRENT_REQUESTS":"10","API_REQUEST_DELAY_MS":"100"}}' > sync-env.json
+          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","SYNC_STATUS_TABLE_NAME":"${{ secrets.SYNC_STATUS_TABLE_NAME }}","CACHE_S3_BUCKET":"${{ secrets.CACHE_S3_BUCKET }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache","ACTIVE_YEAR":"2026","API_MAX_CONCURRENT_REQUESTS":"10","API_REQUEST_DELAY_MS":"100"}}' > sync-env.json
 
           # Update environment for all sync functions
           for function_name in chq-calendar-data-sync chq-calendar-manual-sync chq-calendar-sync-health chq-calendar-sync-status chq-calendar-sync-list; do
