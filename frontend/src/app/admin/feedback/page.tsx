@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 
 interface FeedbackRecord {
   id: string;
@@ -30,7 +29,6 @@ function generateMailtoUrl(email: string, timestamp: number, feedback: string): 
 }
 
 export default function FeedbackManagementPage() {
-  const router = useRouter();
   const [feedbacks, setFeedbacks] = useState<FeedbackRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -41,84 +39,76 @@ export default function FeedbackManagementPage() {
 
   useEffect(() => {
     // Check if running on localhost - bypass authentication for local development
-    const isLocalhost = typeof window !== 'undefined' && 
+    const isLocalhost = typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    
+
     if (isLocalhost) {
       // Set dummy user for local development
-      const dummyUser = { 
-        email: 'dev@localhost.local', 
-        name: 'Local Dev User' 
+      const dummyUser = {
+        email: 'dev@localhost.local',
+        name: 'Local Dev User'
       };
       setUser(dummyUser);
       localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
       localStorage.setItem('chq_auth_token', 'dummy-local-token');
       return;
     }
-    
+
     // Production authentication check
     const token = localStorage.getItem('chq_auth_token');
     const userStr = localStorage.getItem('chq_auth_user');
-    
+
     if (!token || !userStr) {
-      router.push('/admin/login');
+      window.location.href = '/admin/login/';
       return;
     }
-    
+
     setUser(JSON.parse(userStr));
-  }, [router]);
+  }, []);
 
   // Admin endpoints now use CloudFront paths that route to admin Lambda
-  // Local Express server has been removed - all environments use Lambda via CloudFront
-  // Remove /api suffix if present since admin endpoints use /admin/api paths
-  const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://www.chqcal.org/api';
+  const baseApiUrl = import.meta.env.VITE_API_URL || 'https://www.chqcal.org/api';
   const apiUrl = baseApiUrl.replace(/\/api$/, '');
 
   // Helper function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
-    const isLocalhost = typeof window !== 'undefined' && 
+    const isLocalhost = typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    
+
     const token = localStorage.getItem('chq_auth_token');
-    
+
     if (!token && !isLocalhost) {
       throw new Error('No authentication token found');
     }
-    
+
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        // Use custom header to work around API Gateway Authorization header parsing issue
         ...(token && { 'X-Auth-Token': token }),
-        // Temporarily disable Authorization header as it causes API Gateway to reject the request
-        // before it reaches Lambda where our workaround code can handle it
-        // 'Authorization': `Bearer ${token}`,
         ...options.headers,
       },
     });
 
     if ((response.status === 401 || response.status === 403) && !isLocalhost) {
-      // Token expired or invalid, redirect to login (but not on localhost)
       localStorage.removeItem('chq_auth_token');
       localStorage.removeItem('chq_auth_user');
-      router.push('/admin/login');
+      window.location.href = '/admin/login/';
       throw new Error('Authentication failed');
     }
 
     if (isLocalhost && (response.status === 401 || response.status === 403)) {
-      // On localhost, log auth errors but don't fail completely
       console.warn('Auth error on localhost (this is expected in development):', response.status);
     }
 
     return response;
-  }, [router]);
+  }, []);
 
   const fetchFeedbacks = useCallback(async () => {
     try {
       setLoading(true);
       const response = await authenticatedFetch(`${apiUrl}/admin/api/feedback`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch feedback');
       }
@@ -167,7 +157,6 @@ export default function FeedbackManagementPage() {
         throw new Error('Failed to update feedback');
       }
 
-      // Refresh the list
       await fetchFeedbacks();
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
     } catch (err) {
@@ -191,7 +180,6 @@ export default function FeedbackManagementPage() {
         throw new Error('Failed to delete feedback');
       }
 
-      // Refresh the list
       await fetchFeedbacks();
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
     } catch (err) {
@@ -206,9 +194,9 @@ export default function FeedbackManagementPage() {
       return;
     }
 
-    const actionText = action === 'delete' ? 'permanently delete' : 
+    const actionText = action === 'delete' ? 'permanently delete' :
                      (archived ? 'archive' : 'unarchive');
-    
+
     if (!confirm(`Are you sure you want to ${actionText} ${selectedIds.length} feedback item(s)?`)) {
       return;
     }
@@ -223,7 +211,6 @@ export default function FeedbackManagementPage() {
         throw new Error(`Failed to ${action} feedback`);
       }
 
-      // Refresh the list and clear selection
       await fetchFeedbacks();
       setSelectedIds([]);
     } catch (err) {
@@ -275,10 +262,10 @@ export default function FeedbackManagementPage() {
             </div>
             <div className="flex items-center gap-4">
               {/* Development Mode Indicator */}
-              {typeof window !== 'undefined' && 
+              {typeof window !== 'undefined' &&
                 (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
                 <div className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-md">
-                  🔧 Development Mode
+                  Dev Mode
                 </div>
               )}
               <div className="text-sm text-gray-600 dark:text-gray-300">
@@ -293,7 +280,7 @@ export default function FeedbackManagementPage() {
                     onClick={() => {
                       localStorage.removeItem('chq_auth_token');
                       localStorage.removeItem('chq_auth_user');
-                      router.push('/admin/login');
+                      window.location.href = '/admin/login/';
                     }}
                     className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
                   >
@@ -431,7 +418,7 @@ export default function FeedbackManagementPage() {
                         {formatDate(feedback.timestamp)}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100 max-w-md">
-                        <div 
+                        <div
                           className="line-clamp-3 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                           onClick={() => setSelectedFeedback(feedback)}
                         >
@@ -505,7 +492,7 @@ export default function FeedbackManagementPage() {
                 </svg>
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Submitted</p>
@@ -513,7 +500,7 @@ export default function FeedbackManagementPage() {
                   {formatDate(selectedFeedback.timestamp)}
                 </p>
               </div>
-              
+
               <div>
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Contact Information</p>
                 <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
@@ -533,7 +520,7 @@ export default function FeedbackManagementPage() {
                   )}
                 </p>
               </div>
-              
+
               <div>
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</p>
                 <span className={`inline-flex mt-1 px-2 py-1 text-xs font-semibold rounded-full ${
@@ -544,7 +531,7 @@ export default function FeedbackManagementPage() {
                   {selectedFeedback.archived ? 'Archived' : 'Active'}
                 </span>
               </div>
-              
+
               <div>
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Message</p>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
@@ -553,7 +540,7 @@ export default function FeedbackManagementPage() {
                   </pre>
                 </div>
               </div>
-              
+
               {selectedFeedback.userAgent && (
                 <div>
                   <p className="text-sm font-medium text-gray-500 dark:text-gray-400">User Agent</p>
@@ -563,7 +550,7 @@ export default function FeedbackManagementPage() {
                 </div>
               )}
             </div>
-            
+
             <div className="mt-6 flex justify-end space-x-3">
               <button
                 onClick={() => {

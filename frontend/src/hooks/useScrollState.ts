@@ -74,7 +74,7 @@ export function useWeekDragSelection(
   const [wasDragged, setWasDragged] = useState(false);
 
   const handleWeekMouseDown = useCallback((weekNum: number, event: React.MouseEvent) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       console.log('handleWeekMouseDown called for week', weekNum, { shift: event.shiftKey, cmd: event.metaKey || event.ctrlKey });
     }
 

@@ -21,10 +21,10 @@ export default function FeedbackPage() {
   const [captchaReady, setCaptchaReady] = useState(false);
 
   // reCAPTCHA site key - must be set via environment variable
-  const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+  const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
-  const apiUrl = process.env.NODE_ENV === 'development'
-    ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
+  const apiUrl = import.meta.env.DEV
+    ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
     : '/api';
 
   useEffect(() => {

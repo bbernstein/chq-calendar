@@ -33,7 +33,6 @@ function HomeContent() {
   useEffect(() => {
     locationScroll.updateScrollState(); categoryScroll.updateScrollState();
     locationListScroll.updateScrollState(); categoryListScroll.updateScrollState();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
   const debouncedSearch = useDebounce(filters.searchTerm, 200);

@@ -12,7 +12,7 @@ interface EventCardProps {
 
 export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected }: EventCardProps) {
   return (
-    <div className={`py-2 sm:py-3 ${index > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors`}>
+    <div className={`event-card py-2 sm:py-3 ${index > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors`}>
       <div className="flex justify-between items-start gap-2 sm:gap-4">
         <div className="flex-1 min-w-0">
           {/* Time and location above title */}
