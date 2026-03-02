@@ -26,7 +26,7 @@
     <div id="root"></div>
     <script type="module" src="/src/entries/main.tsx"></script>
     <script>
-      if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+      if ('serviceWorker' in navigator && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js').catch(function () {});
         });

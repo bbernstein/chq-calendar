@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useMemo } from 'react';
 import { ACTIVE_YEAR } from '@/lib/constants';
 import { useDebounce } from '@/hooks/useDebounce';

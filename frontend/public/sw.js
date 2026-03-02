@@ -40,7 +40,7 @@ self.addEventListener('fetch', (event) => {
   // Stale-while-revalidate for events JSON data
   // Serves cached data immediately, fetches fresh data in background
   if (url.pathname.includes('all-events') || url.pathname.includes('calendar-cache')) {
-    event.respondWith(staleWhileRevalidate(event.request, DATA_CACHE));
+    event.respondWith(staleWhileRevalidate(event, DATA_CACHE));
     return;
   }
 
@@ -95,7 +95,8 @@ async function networkFirst(request, cacheName) {
 }
 
 // Stale-while-revalidate: serve cached data immediately, update cache in background
-async function staleWhileRevalidate(request, cacheName) {
+async function staleWhileRevalidate(event, cacheName) {
+  const request = event.request;
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
 
@@ -106,6 +107,9 @@ async function staleWhileRevalidate(request, cacheName) {
     }
     return response;
   }).catch(() => null);
+
+  // Keep SW alive until background fetch completes
+  event.waitUntil(fetchPromise);
 
   // Return cached data immediately if available, otherwise wait for network
   if (cached) return cached;
