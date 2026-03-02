@@ -56,7 +56,17 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                   </button>
 
                   {event.description && (
-                    <p className="text-gray-600 dark:text-gray-300 text-sm mb-2">{event.description}</p>
+                    <div className="text-gray-600 dark:text-gray-300 text-sm mb-2">
+                      {event.description
+                        .split(/\r?\n/)
+                        .map(line => line.trim())
+                        .filter(line => line.length > 0)
+                        .map((paragraph, index) => (
+                          <p key={index} className={index > 0 ? 'mt-2' : ''}>
+                            {paragraph}
+                          </p>
+                        ))}
+                    </div>
                   )}
 
                   <div className="mb-2 flex flex-wrap gap-1">
