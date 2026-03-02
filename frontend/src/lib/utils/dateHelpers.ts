@@ -77,7 +77,7 @@ export function isThisWeek(dateString: string, seasonWeeks: SeasonWeek[], curren
   }
 
   const currentWeek = seasonWeeks[currentWeekNumber - 1];
-  return eventDate >= currentWeek.start && eventDate <= currentWeek.end;
+  return eventDate >= currentWeek.start && eventDate < currentWeek.end;
 }
 
 export function isInChautauquaWeek(dateString: string, weekNumber: number, seasonWeeks: SeasonWeek[]): boolean {

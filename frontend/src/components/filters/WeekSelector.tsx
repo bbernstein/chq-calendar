@@ -31,7 +31,8 @@ export function WeekSelector({
         const highlighted = isWeekHighlighted(week.number, isSelected);
 
         return (
-          <div
+          <button
+            type="button"
             key={week.number}
             className={`${cellSize} flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
               isPast
@@ -50,9 +51,11 @@ export function WeekSelector({
               onTap(week.number);
             }}
             title={week.label}
+            aria-label={`Week ${week.number}`}
+            aria-pressed={isSelected}
           >
             {week.number}
-          </div>
+          </button>
         );
       })}
     </div>

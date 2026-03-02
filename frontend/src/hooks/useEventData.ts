@@ -22,26 +22,16 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
       : ''
   , []);
 
-  console.log('API URL:', apiUrl, 'NODE_ENV:', process.env.NODE_ENV);
-
   const fetchAllEvents = useCallback(async (forceRefresh = false) => {
-    console.log('fetchAllEvents called', {
-      forceRefresh,
-      isLoadingRef: isLoadingRef.current,
-      globalDataLoaded: !!globalEventData.events
-    });
-
     if (forceRefresh) {
       try {
         localStorage.removeItem('chq-calendar-events');
-        console.log('Cleared local storage cache');
       } catch (e) {
         console.warn('Failed to clear localStorage:', e);
       }
     }
 
     if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
-      console.log('Loading from global store');
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
       setAvailableCategories(globalEventData.categories.map(cat => decodeHtmlEntities(cat) || cat));
@@ -50,15 +40,9 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
       return;
     }
 
-    if (isLoadingRef.current && !forceRefresh) {
-      console.log('Already loading, skipping duplicate call');
-      return;
-    }
+    if (isLoadingRef.current && !forceRefresh) return;
 
-    if (dataLoaded && !forceRefresh) {
-      console.log('Data already loaded, skipping API call');
-      return;
-    }
+    if (dataLoaded && !forceRefresh) return;
 
     isLoadingRef.current = true;
 
@@ -68,7 +52,6 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v3-categories') {
-            console.log('Loading events from local cache (v3-categories)');
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
             setAvailableCategories(parsed.categories.map((cat: string) => decodeHtmlEntities(cat) || cat));
@@ -77,7 +60,6 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
             isLoadingRef.current = false;
             return;
           } else {
-            console.log('Invalidating old cache (missing version or expired)');
             localStorage.removeItem('chq-calendar-events');
           }
         }
@@ -88,8 +70,6 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
 
     setLoading(true);
     try {
-      console.log('Loading all events for the season...');
-
       const response = await fetch(
         process.env.NODE_ENV === 'development'
           ? `/data/all-events-${ACTIVE_YEAR}.json`
@@ -106,8 +86,6 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
         const data = await response.json();
         const rawEvents = data.data || [];
         const fetchedEvents = rawEvents.map(decodeEventHtmlEntities);
-        console.log('Loaded all events:', fetchedEvents.length, 'events');
-        console.log('First event:', fetchedEvents[0]);
         setEvents(fetchedEvents);
         setDataLoaded(true);
 
@@ -208,11 +186,7 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
   }, [apiUrl, dataLoaded, globalEventData, seasonWeeks, setAvailableCategories, setAvailableLocations]);
 
   useEffect(() => {
-    console.log('Component mounted - Initial useEffect triggered');
     fetchAllEvents();
-    return () => {
-      console.log('Component unmounting!');
-    };
   }, [fetchAllEvents]);
 
   return { events, loading };

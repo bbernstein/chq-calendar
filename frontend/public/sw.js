@@ -32,6 +32,9 @@ self.addEventListener('activate', (event) => {
 
 // Fetch: route-based caching strategy
 self.addEventListener('fetch', (event) => {
+  // Only cache GET requests — Cache API doesn't support other methods
+  if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
 
   // Network-first for events JSON data
