@@ -17,8 +17,8 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
   const isLoadingRef = useRef(false);
 
   const apiUrl = useMemo(() =>
-    process.env.NODE_ENV === 'development'
-      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001')
+    import.meta.env.DEV
+      ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
       : ''
   , []);
 
@@ -71,7 +71,7 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
     setLoading(true);
     try {
       const response = await fetch(
-        process.env.NODE_ENV === 'development'
+        import.meta.env.DEV
           ? `/data/all-events-${ACTIVE_YEAR}.json`
           : `${apiUrl}/cache/calendar-cache/all-events-${ACTIVE_YEAR}.json`,
         {

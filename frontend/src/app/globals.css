@@ -10,6 +10,7 @@
   :root {
     --background: #ffffff;
     --foreground: #171717;
+    --font-geist-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -36,6 +37,12 @@
 }
 
 @layer utilities {
+  /* Skip layout/paint for off-screen event cards */
+  .event-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 80px;
+  }
+
   /* Hide scrollbars for recent pills containers */
   .scrollbar-hide {
     -ms-overflow-style: none;

@@ -3,31 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:turbo": "next dev --turbopack",
-    "build": "npm run validate && next build",
-    "start": "next start",
-    "lint": "next lint",
+    "dev": "vite",
+    "build": "npm run validate && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src/",
     "type-check": "tsc --noEmit",
     "validate": "npm run type-check && npm run lint"
   },
   "dependencies": {
-    "@preact/compat": "^18.3.2",
-    "next": "15.3.5",
-    "preact": "^10.28.4",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "preact": "^10.28.4"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@next/bundle-analyzer": "^16.1.6",
+    "@eslint/js": "^9.31.0",
+    "@preact/preset-vite": "^2.10.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
     "eslint": "^9",
-    "eslint-config-next": "15.3.5",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "^7.3.1"
   }
 }

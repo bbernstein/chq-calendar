@@ -1,53 +1,49 @@
-'use client'
-
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useState } from 'react'
 
 function LoginContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
   const [error, setError] = useState('')
 
   useEffect(() => {
     // Check if running on localhost - bypass authentication for local development
-    const isLocalhost = typeof window !== 'undefined' && 
+    const isLocalhost = typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    
+
     if (isLocalhost) {
       // Set dummy user and redirect to feedback page for local development
-      const dummyUser = { 
-        email: 'dev@localhost.local', 
-        name: 'Local Dev User' 
+      const dummyUser = {
+        email: 'dev@localhost.local',
+        name: 'Local Dev User'
       };
       localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
       localStorage.setItem('chq_auth_token', 'dummy-local-token');
       console.log('Localhost detected - bypassing auth, redirecting to /admin/feedback');
-      router.push('/admin/feedback/');
+      window.location.href = '/admin/feedback/';
       return;
     }
 
-    // Handle OAuth callback from hash fragment (more reliable with Next.js trailing slashes)
+    // Handle OAuth callback from hash fragment
     const hash = window.location.hash;
+    const searchParams = new URLSearchParams(window.location.search);
     const errorParam = searchParams.get('error')
-    
+
     console.log('Login page useEffect - hash:', !!hash, 'errorParam:', errorParam)
 
     if (hash && hash.startsWith('#auth=')) {
       try {
         const authData = hash.substring(6); // Remove '#auth='
         const { email, name, token } = JSON.parse(decodeURIComponent(authData));
-        
+
         console.log('Parsing auth data from hash...')
         localStorage.setItem('chq_auth_token', token)
         localStorage.setItem('chq_auth_user', JSON.stringify({ email, name }))
         console.log('Token stored, redirecting to /admin/feedback')
-        
+
         // Clear the hash from URL
         window.history.replaceState(null, '', window.location.pathname);
-        
+
         // Small delay to ensure localStorage is properly set before redirect
         setTimeout(() => {
-          router.push('/admin/feedback')
+          window.location.href = '/admin/feedback/'
         }, 100)
         return
       } catch (err) {
@@ -55,11 +51,11 @@ function LoginContent() {
         setError('Invalid authentication data')
       }
     }
-    
+
     // Legacy support for query parameters (in case they still come through)
     const token = searchParams.get('token')
     const userParam = searchParams.get('user')
-    
+
     if (token && userParam) {
       try {
         console.log('Parsing user data from query params...')
@@ -67,9 +63,9 @@ function LoginContent() {
         localStorage.setItem('chq_auth_token', token)
         localStorage.setItem('chq_auth_user', JSON.stringify(user))
         console.log('Token stored, redirecting to /admin/feedback')
-        
+
         setTimeout(() => {
-          router.push('/admin/feedback')
+          window.location.href = '/admin/feedback/'
         }, 100)
         return
       } catch (err) {
@@ -103,15 +99,15 @@ function LoginContent() {
     // Check if already authenticated
     const existingToken = localStorage.getItem('chq_auth_token')
     if (existingToken && !token) {
-      router.push('/admin/feedback')
+      window.location.href = '/admin/feedback/'
     }
-  }, [router, searchParams])
+  }, [])
 
   const handleGoogleLogin = () => {
     // OAuth endpoints use the base domain without /api prefix
     // Auth paths are routed directly to admin Lambda via CloudFront
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'https://www.chqcal.org';
-    
+    const baseUrl = (import.meta.env.VITE_API_URL || 'https://www.chqcal.org').replace('/api', '');
+
     window.location.href = `${baseUrl}/auth/google`;
   }
 
@@ -126,7 +122,7 @@ function LoginContent() {
             Sign in to access the feedback management system
           </p>
         </div>
-        
+
         {error && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
             <div className="flex">
@@ -141,7 +137,7 @@ function LoginContent() {
             </div>
           </div>
         )}
-        
+
         <div>
           <button
             onClick={handleGoogleLogin}
@@ -174,16 +170,5 @@ function LoginContent() {
 }
 
 export default function LoginPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600 dark:text-gray-300">Loading...</p>
-        </div>
-      </div>
-    }>
-      <LoginContent />
-    </Suspense>
-  )
+  return <LoginContent />
 }

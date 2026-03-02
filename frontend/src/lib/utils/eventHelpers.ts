@@ -1,19 +1,53 @@
 import type { Event, SeasonWeek } from '@/lib/types';
 import { getWeekNumberForDate } from './dateHelpers';
 
+// Lookup table for common HTML entities found in event data
+const HTML_ENTITY_MAP: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': "'",
+  '&apos;': "'",
+  '&#x27;': "'",
+  '&ndash;': '\u2013',
+  '&mdash;': '\u2014',
+  '&nbsp;': '\u00A0',
+  '&lsquo;': '\u2018',
+  '&rsquo;': '\u2019',
+  '&ldquo;': '\u201C',
+  '&rdquo;': '\u201D',
+  '&hellip;': '\u2026',
+  '&copy;': '\u00A9',
+  '&reg;': '\u00AE',
+  '&trade;': '\u2122',
+  '&deg;': '\u00B0',
+};
+
+// Match named entities (&amp;) and numeric entities (&#123; &#x1F;)
+const ENTITY_REGEX = /&(?:#x[\da-fA-F]+|#\d+|[a-zA-Z]+);/g;
+
 export function decodeHtmlEntities(encodedString: string | undefined): string | undefined {
   if (!encodedString) return undefined;
   if (!encodedString.includes('&')) return encodedString;
 
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(encodedString, 'text/html');
-    const decoded = doc.documentElement.textContent || encodedString;
-    return decoded;
-  } catch (error) {
-    console.warn('Failed to decode HTML entities:', encodedString, error);
-    return encodedString;
-  }
+  return encodedString.replace(ENTITY_REGEX, (match) => {
+    // Check lookup table first (fast path)
+    if (HTML_ENTITY_MAP[match]) return HTML_ENTITY_MAP[match];
+
+    // Handle numeric entities: &#123; or &#x1F;
+    if (match.startsWith('&#x')) {
+      const code = parseInt(match.slice(3, -1), 16);
+      return isNaN(code) ? match : String.fromCodePoint(code);
+    }
+    if (match.startsWith('&#')) {
+      const code = parseInt(match.slice(2, -1), 10);
+      return isNaN(code) ? match : String.fromCodePoint(code);
+    }
+
+    // Unknown named entity — return as-is
+    return match;
+  });
 }
 
 export function decodeEventHtmlEntities(event: Event): Event {
