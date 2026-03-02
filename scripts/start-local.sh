@@ -32,6 +32,13 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Check if Docker Compose plugin is available
+if ! docker compose version > /dev/null 2>&1; then
+    echo "❌ Docker Compose plugin (docker compose) is not available."
+    echo "   Please install or enable the Docker Compose plugin and try again."
+    exit 1
+fi
+
 # Start Docker Compose
 print_status "Starting Docker containers..."
 docker compose up -d

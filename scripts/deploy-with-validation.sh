@@ -38,6 +38,13 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Check if Docker Compose plugin is available
+if ! docker compose version > /dev/null 2>&1; then
+    print_error "Docker Compose plugin (docker compose) is not available."
+    echo "   Please install or enable the Docker Compose plugin and try again."
+    exit 1
+fi
+
 # Step 1: Start local environment
 print_status "Step 1: Starting local development environment..."
 docker compose up -d
