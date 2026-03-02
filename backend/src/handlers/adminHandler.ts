@@ -21,11 +21,11 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const rawJwtSecret = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET;
+const rawJwtSecret = process.env.JWT_SECRET;
 const isProduction = process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'prod';
 
 if (!rawJwtSecret && isProduction) {
-  throw new Error('JWT secret is not configured. Please set JWT_SECRET or NEXTAUTH_SECRET in the production environment.');
+  throw new Error('JWT secret is not configured. Please set JWT_SECRET in the production environment.');
 }
 
 const JWT_SECRET = rawJwtSecret || 'your-secret-key';

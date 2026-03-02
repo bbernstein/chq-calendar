@@ -157,8 +157,7 @@ output "github_secrets" {
     DATA_SOURCES_TABLE_NAME        = aws_dynamodb_table.data_sources.name
     FEEDBACK_TABLE_NAME            = aws_dynamodb_table.feedback.name
     RECAPTCHA_SECRET_KEY           = var.recaptcha_secret_key
-    # Legacy name — rename to VITE_RECAPTCHA_SITE_KEY after updating the GitHub secret
-    NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+    VITE_RECAPTCHA_SITE_KEY        = var.recaptcha_site_key
     JWT_SECRET                     = var.jwt_secret
     GOOGLE_CLIENT_ID               = var.google_client_id
     GOOGLE_CLIENT_SECRET           = var.google_client_secret
@@ -186,7 +185,7 @@ output "github_secrets_setup_commands" {
     gh secret set DATA_SOURCES_TABLE_NAME --body "${aws_dynamodb_table.data_sources.name}"
     gh secret set FEEDBACK_TABLE_NAME --body "${aws_dynamodb_table.feedback.name}"
     gh secret set RECAPTCHA_SECRET_KEY --body "${var.recaptcha_secret_key}"
-    gh secret set NEXT_PUBLIC_RECAPTCHA_SITE_KEY --body "${var.recaptcha_site_key}"
+    gh secret set VITE_RECAPTCHA_SITE_KEY --body "${var.recaptcha_site_key}"
     gh secret set JWT_SECRET --body "${var.jwt_secret}"
     gh secret set GOOGLE_CLIENT_ID --body "${var.google_client_id}"
     gh secret set GOOGLE_CLIENT_SECRET --body "${var.google_client_secret}"
@@ -209,7 +208,7 @@ resource "local_file" "github_secrets_json" {
     DATA_SOURCES_TABLE_NAME        = aws_dynamodb_table.data_sources.name
     FEEDBACK_TABLE_NAME            = aws_dynamodb_table.feedback.name
     RECAPTCHA_SECRET_KEY           = var.recaptcha_secret_key
-    NEXT_PUBLIC_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+    VITE_RECAPTCHA_SITE_KEY        = var.recaptcha_site_key
     JWT_SECRET                     = var.jwt_secret
     GOOGLE_CLIENT_ID               = var.google_client_id
     GOOGLE_CLIENT_SECRET           = var.google_client_secret
