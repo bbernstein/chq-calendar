@@ -16,8 +16,6 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
 
-
-
   const fetchAllEvents = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
       try {

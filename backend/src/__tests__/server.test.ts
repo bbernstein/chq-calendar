@@ -15,10 +15,8 @@ jest.mock('../handlers/adminHandler', () => ({
   handler: mockAdminHandler
 }));
 
-// Mock dotenv
-jest.mock('dotenv', () => ({
-  config: jest.fn()
-}));
+// Mock dotenv/config (auto-loads env vars on import)
+jest.mock('dotenv/config', () => ({}));
 
 describe('Server', () => {
   let app: express.Application;

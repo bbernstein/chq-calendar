@@ -75,6 +75,10 @@ export default defineConfig({
       usePolling: true,
     },
     proxy: {
+      '/auth': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
       '/admin/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
