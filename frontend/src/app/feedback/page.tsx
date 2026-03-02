@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Image from 'next/image';
 
 // Declare the global grecaptcha object
 declare global {
@@ -155,7 +154,7 @@ export default function FeedbackPage() {
       <header className="bg-white dark:bg-gray-800 shadow-lg">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center py-4">
-            <Image
+            <img
               src="/chq-calendar-icon-256.svg"
               alt="Chautauqua Calendar Logo"
               width={32}

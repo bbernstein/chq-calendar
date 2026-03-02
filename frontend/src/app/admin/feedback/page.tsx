@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 
 interface FeedbackRecord {
@@ -263,7 +262,7 @@ export default function FeedbackManagementPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center">
-              <Image
+              <img
                 src="/chq-calendar-icon-256.svg"
                 alt="Chautauqua Calendar Logo"
                 width={32}

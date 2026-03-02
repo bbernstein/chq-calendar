@@ -1,11 +1,14 @@
 {
   "name": "Chautauqua Calendar",
   "short_name": "CHQ Calendar",
-  "description": "Dynamic calendar for Chautauqua Institution 2026 season",
+  "description": "Dynamic calendar for Chautauqua Institution 2026 season with real-time event updates, smart filtering, and export options.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#5B7F95",
+  "orientation": "any",
+  "background_color": "#EEF2FF",
   "theme_color": "#5B7F95",
+  "categories": ["entertainment", "education", "lifestyle"],
   "icons": [
     {
       "src": "/favicon.svg",
@@ -24,6 +27,14 @@
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Submit Feedback",
+      "short_name": "Feedback",
+      "url": "/feedback/",
+      "description": "Send feedback about the calendar"
     }
   ]
 }

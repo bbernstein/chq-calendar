@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -7,10 +7,6 @@ const geistSans = Geist({
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Chautauqua Calendar | 2026 Season",
@@ -48,9 +44,12 @@ export default function RootLayout({
       <head>
         <link rel="icon" type="image/svg+xml" href="/chq-calendar-icon-256.svg" />
         <link rel="shortcut icon" type="image/svg+xml" href="/chq-calendar-icon-256.svg" />
+        {process.env.NODE_ENV === 'production' && (
+          <script dangerouslySetInnerHTML={{ __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})})}` }} />
+        )}
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} antialiased`}
       >
         {children}
       </body>

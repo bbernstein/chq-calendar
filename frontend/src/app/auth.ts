@@ -1,1 +1,0 @@
-// This file can be removed as we're using NextAuth v4 directly in the route handler
