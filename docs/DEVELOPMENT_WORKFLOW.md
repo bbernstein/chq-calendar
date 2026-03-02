@@ -157,7 +157,7 @@ After merge and automatic deployment:
 ## Environment Details
 
 ### Local Development
-- **Frontend**: http://localhost:3000 (Next.js dev server)
+- **Frontend**: http://localhost:3000 (Vite dev server)
 - **Database**: http://localhost:8000 (DynamoDB Local)
 - **Admin UI**: http://localhost:8001 (DynamoDB Admin)
 - **Event Data**: Uses production static file endpoint
@@ -172,10 +172,10 @@ After merge and automatic deployment:
 ## Technology Stack
 
 ### Frontend
-- Next.js 15.3.5 with React 19
+- Vite 7 with Preact 10
 - TypeScript with strict configuration
 - Tailwind CSS 4 for styling
-- Static export for S3/CloudFront deployment
+- Static build for S3/CloudFront deployment
 
 ### Backend
 - AWS Lambda functions (Node.js 24)

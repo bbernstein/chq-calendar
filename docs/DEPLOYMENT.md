@@ -7,7 +7,7 @@ This guide covers all deployment options for the Chautauqua Calendar application
 The application consists of four main components:
 - **Infrastructure**: AWS resources (S3, CloudFront, Lambda, DynamoDB)
 - **Backend**: Lambda functions (data sync, feedback, admin, and health handlers)
-- **Frontend**: Next.js 15.3.5 static site with React 19 and TypeScript
+- **Frontend**: Vite static site with Preact and TypeScript
 - **Static Data**: JSON file generation and CloudFront distribution
 
 ## 🚀 Quick Deployment
@@ -18,7 +18,7 @@ The application deploys automatically via GitHub Actions when code is pushed to 
 
 1. **Automated Build**: Node.js 24, TypeScript compilation
 2. **Backend Deploy**: Data sync, feedback, admin, and health Lambda functions
-3. **Frontend Deploy**: Static Next.js build to S3 + CloudFront invalidation
+3. **Frontend Deploy**: Vite build to S3 + CloudFront invalidation
 4. **Health Checks**: Static file validation and API endpoint testing
 5. **Data Sync**: Automatic event data sync and static file generation
 
@@ -59,7 +59,7 @@ docker-compose up -d --build
 ```
 
 ### Local Services
-- **Frontend**: http://localhost:3000 (Next.js with hot reloading)
+- **Frontend**: http://localhost:3000 (Vite dev server with HMR)
 - **Admin Panel**: http://localhost:3000/admin/feedback (dev mode)
 - **DynamoDB Local**: http://localhost:8000
 - **DynamoDB Admin**: http://localhost:8001

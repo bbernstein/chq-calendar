@@ -29,8 +29,8 @@ variable "environment" {
   default     = "prod"
 }
 
-variable "nextauth_secret" {
-  description = "NextAuth secret for JWT signing"
+variable "jwt_secret" {
+  description = "Secret key for JWT signing"
   type        = string
   sensitive   = true
 }
@@ -773,7 +773,7 @@ resource "aws_lambda_function" "admin_handler" {
     variables = {
       FEEDBACK_TABLE_NAME   = aws_dynamodb_table.feedback.name
       ENVIRONMENT           = var.environment
-      NEXTAUTH_SECRET       = var.nextauth_secret
+      JWT_SECRET            = var.jwt_secret
       GOOGLE_CLIENT_ID      = var.google_client_id
       GOOGLE_CLIENT_SECRET  = var.google_client_secret
       ADMIN_EMAIL_WHITELIST = var.admin_email_whitelist

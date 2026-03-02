@@ -30,7 +30,7 @@ services:
       # Load from .env file (you'll need to create this)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
       - ADMIN_EMAIL_WHITELIST=${ADMIN_EMAIL_WHITELIST}
       - EVENTS_TABLE_NAME=chautauqua-calendar-events
       - DATA_SOURCES_TABLE_NAME=chautauqua-calendar-data-sources  
@@ -44,7 +44,7 @@ services:
       - chq-calendar-network
     command: npm run dev
 
-  # Frontend (Next.js)
+  # Frontend (Vite + Preact)
   frontend:
     build:
       context: ./frontend
@@ -55,11 +55,10 @@ services:
     environment:
       - NODE_ENV=development
       # Point to local backend for OAuth and admin features
-      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - VITE_API_URL=http://localhost:3001
     volumes:
       - ./frontend:/app
       - /app/node_modules
-      - /app/.next
     depends_on:
       - dynamodb
     networks:

@@ -58,7 +58,7 @@ graph TB
     end
     
     subgraph ClientSide[Client-Side Processing]
-        Browser --> Frontend[Next.js Frontend]
+        Browser --> Frontend[Vite+Preact Frontend]
         Frontend --> Filter[Client-Side Filtering]
         Filter --> Display[Filtered Results]
     end

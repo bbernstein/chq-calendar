@@ -21,7 +21,7 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || 'your-secret-key';
 const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST;
 const isProduction = process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'prod';
 const FRONTEND_URL = isProduction ? 'https://www.chqcal.org' : 'http://localhost:3000';

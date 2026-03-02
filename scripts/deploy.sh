@@ -147,7 +147,7 @@ else
     npm install
 
     # Set environment variables
-    export NEXT_PUBLIC_API_URL=$API_URL
+    export VITE_API_URL=$API_URL
 
     # Build
     npm run build

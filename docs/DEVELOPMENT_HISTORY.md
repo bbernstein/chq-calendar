@@ -344,6 +344,22 @@ The feedback functionality requires dynamic server-side processing that cannot b
 - **Database operations** for storing and retrieving feedback
 - **Access control** via whitelist validation
 
+### Phase 6: Vite + Preact Migration
+
+**Key Insight:** Next.js added significant JS overhead for what is purely a static site with no SSR.
+
+**What Changed:**
+- Replaced Next.js 15 build with Vite 7
+- Replaced React 19 with Preact 10 (71% JS reduction)
+- Multi-page app setup via Vite `rollupOptions.input`
+- Entry points moved to `src/entries/` directory
+
+**Benefits:**
+- **71% smaller JS bundle** — Preact is ~3KB vs React's ~40KB+
+- **Faster builds** — Vite's Rollup-based build is faster than webpack
+- **Simpler architecture** — No framework abstractions, just a build tool + UI library
+- **No SSR overhead** — Removed code that was never used (static export only)
+
 ## Lessons Learned
 
 1. **Challenge Assumptions**: Traditional backend wasn't necessary

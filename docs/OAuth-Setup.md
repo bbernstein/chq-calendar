@@ -11,7 +11,7 @@ This document explains how to set up Google OAuth authentication for the Chautau
 
 2. **Fill in your OAuth credentials** in the `.env` file:
    ```
-   NEXTAUTH_SECRET=your-secret-here
+   JWT_SECRET=your-secret-here
    GOOGLE_CLIENT_ID=your-google-client-id
    GOOGLE_CLIENT_SECRET=your-google-client-secret
    ADMIN_EMAIL_WHITELIST=your-email@example.com
@@ -26,7 +26,7 @@ This document explains how to set up Google OAuth authentication for the Chautau
 
 1. **Add values to `terraform.tfvars`** in the infrastructure directory:
    ```hcl
-   nextauth_secret       = "your-production-secret"
+   jwt_secret       = "your-production-secret"
    google_client_id      = "your-google-client-id"
    google_client_secret  = "your-google-client-secret"
    admin_email_whitelist = "your-email@example.com"
@@ -57,6 +57,6 @@ This document explains how to set up Google OAuth authentication for the Chautau
 ## Security Notes
 
 - Never commit OAuth credentials to version control
-- Use strong, unique values for `NEXTAUTH_SECRET`
+- Use strong, unique values for `JWT_SECRET`
 - Keep `terraform.tfvars` local and never commit it
 - Use GitHub Secrets for CI/CD deployments

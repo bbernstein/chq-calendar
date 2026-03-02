@@ -31,10 +31,10 @@ graph TB
     end
 
     subgraph Frontend[Frontend - Static Site]
-        NextJS[Next.js App] --> StaticFiles[Static HTML/CSS/JS]
+        ViteApp[Vite+Preact App] --> StaticFiles[Static HTML/CSS/JS]
         StaticFiles --> CloudFront[CloudFront Distribution]
-        NextJS --> FeedbackForm[Feedback Form]
-        NextJS --> AdminPanel[Admin Panel]
+        ViteApp --> FeedbackForm[Feedback Form]
+        ViteApp --> AdminPanel[Admin Panel]
     end
 
     subgraph DataLayer[Data Layer - Static + Dynamic]
@@ -86,13 +86,13 @@ graph TB
 - Lambda functions for data sync and feedback only
 
 **Development:**
-- Local Next.js dev server
+- Local Vite dev server
 - Production API endpoints for backend functionality
 - Local DynamoDB for testing
 
 ### Technology Stack
 
-- **Frontend**: Next.js 15.3.5, React 19, TypeScript, Tailwind CSS 4
+- **Frontend**: Vite 7, Preact 10, TypeScript, Tailwind CSS 4
 - **Backend**: AWS Lambda (Node.js 18.x), Express.js (local dev), TypeScript
 - **Database**: DynamoDB (AWS/Local)
 - **Infrastructure**: AWS (S3, CloudFront, API Gateway, Lambda, DynamoDB)
@@ -105,11 +105,11 @@ graph TB
 
 ### Framework & Architecture
 
-**Next.js App Router (v15.3.5)**
-- Single Page Application with server-side rendering capability
-- Static export for production deployment
+**Vite + Preact**
+- Multi-page static application
+- Static build for production deployment
 - TypeScript for type safety
-- Modern React patterns with hooks
+- Preact hooks for state management
 
 ### Component Structure
 
@@ -367,7 +367,7 @@ interface ChautauquaEvent {
 **Docker Compose Setup:**
 ```yaml
 services:
-  frontend:     # Next.js development server
+  frontend:     # Vite development server
   backend:      # Express.js API server
   dynamodb:     # DynamoDB Local
   dynamodb-admin: # Database management UI
@@ -450,10 +450,10 @@ services:
 
 ### Frontend Technology Choices
 
-**Next.js vs. React SPA:**
-- **Chosen**: Next.js 15.3.5 with React 19 and static export
-- **Rationale**: SEO benefits, better performance, development experience, modern React features
-- **Trade-offs**: Slight complexity increase, static build constraints
+**Vite + Preact vs. Next.js:**
+- **Chosen**: Vite 7 with Preact 10 (migrated from Next.js 15)
+- **Rationale**: Smaller bundle size, faster builds, simpler architecture for a static site
+- **Trade-offs**: No SSR capability, but not needed for this static application
 
 **Client-Side vs. Server-Side Filtering:**
 - **Chosen**: Client-side filtering with static file download
@@ -507,8 +507,8 @@ graph TB
     end
 
     subgraph ClientSide[Client-Side Processing]
-        UserBrowser --> NextJS[Next.js Frontend]
-        NextJS --> ParseJSON[Parse JSON File]
+        UserBrowser --> ViteApp[Vite+Preact Frontend]
+        ViteApp --> ParseJSON[Parse JSON File]
         ParseJSON --> LocalStorage[localStorage Cache]
         LocalStorage --> ClientFilter[Client-Side Filtering]
         ClientFilter --> DisplayEvents[Display Filtered Events]
