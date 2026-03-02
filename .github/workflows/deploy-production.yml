@@ -205,10 +205,26 @@ jobs:
           # Build the sync handler
           npm run build:prod
 
-          # Create the sync Lambda package
-          mkdir -p sync_package
+          # Create the sync Lambda package with only externalized dependencies
+          mkdir -p sync_package/node_modules
           cp -r dist/ sync_package/
-          cp -r node_modules/ sync_package/
+
+          # Install only the externalized AWS SDK dependencies
+          # (these are also provided by Lambda runtime, but included for consistency)
+          cd sync_package
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-sync",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/client-s3": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev --no-package-lock
+          cd ..
 
           # Create zip file for sync Lambda functions
           cd sync_package
