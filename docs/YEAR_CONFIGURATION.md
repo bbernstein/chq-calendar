@@ -15,10 +15,9 @@ The calendar system is now year-aware and can be configured to:
 ### 1. Update Environment Variables
 
 #### For Local Development
-Update `.env.local`:
+Update `.env.local` (for the backend):
 ```bash
 ACTIVE_YEAR=2027
-VITE_ACTIVE_YEAR=2027
 ```
 
 #### For Production (AWS)
@@ -41,14 +40,12 @@ terraform plan
 terraform apply
 ```
 
-### 3. Update Frontend Environment
+### 3. Update Frontend Constant
 
-Set the environment variable for the frontend build:
-```bash
-export VITE_ACTIVE_YEAR=2027
+Edit the `ACTIVE_YEAR` constant in `frontend/src/lib/constants.ts`:
+```typescript
+export const ACTIVE_YEAR = 2027;
 ```
-
-Or update in your GitHub Actions workflow or deployment script.
 
 ### 4. Deploy Backend and Frontend
 
@@ -107,7 +104,7 @@ Visit the website and verify:
 - Cache files are named with year suffix: `all-events-{year}.json`
 
 ### Frontend Changes
-- `VITE_ACTIVE_YEAR` controls which year's file to load
+- `ACTIVE_YEAR` constant in `frontend/src/lib/constants.ts` controls which year's file to load
 - Fetches year-specific cache file: `/cache/calendar-cache/all-events-{year}.json`
 - Season calculation uses the configured year
 
@@ -130,7 +127,7 @@ Visit the website and verify:
 ## Rollback
 
 To rollback to a previous year:
-1. Update `ACTIVE_YEAR` and `VITE_ACTIVE_YEAR` back to the previous value
+1. Update `ACTIVE_YEAR` in backend env and `frontend/src/lib/constants.ts` back to the previous value
 2. Redeploy infrastructure and application
 3. The previous year's cache files should still exist
 
@@ -142,7 +139,7 @@ To rollback to a previous year:
 - Ensure sync completed successfully
 
 ### Wrong Year Displayed
-- Check frontend environment: `VITE_ACTIVE_YEAR` must match backend
+- Check frontend constant: `ACTIVE_YEAR` in `frontend/src/lib/constants.ts` must match backend
 - Clear browser cache and reload
 - Verify the correct cache file exists in S3
 

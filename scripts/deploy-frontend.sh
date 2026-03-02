@@ -46,6 +46,7 @@ npm install
 
 # Build the frontend
 echo "🔨 Building frontend..."
+export VITE_API_URL="${API_URL}"
 npm run build
 
 # Check if build was successful
