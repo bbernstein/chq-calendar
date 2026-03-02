@@ -19,7 +19,7 @@ This document explains how to set up Google OAuth authentication for the Chautau
 
 3. **Run Docker Compose** which will automatically use these environment variables:
    ```bash
-   docker-compose up
+   docker compose up
    ```
 
 ## Production Setup

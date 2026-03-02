@@ -59,7 +59,7 @@ See `utils/README.md` for detailed usage instructions.
 #### Local Development
 ```bash
 # Start environment
-docker-compose up -d
+docker compose up -d
 
 # Test API (now uses production endpoints)
 curl -s -X POST 'https://chqcal.org/api/calendar' -H "Content-Type: application/json" -d '{"filters": {}}' | jq '.events | length'
@@ -101,8 +101,8 @@ cd backend && npm run deploy
 ## Local Development
 
 ### Prerequisites
-- Docker and Docker Compose
-- Node.js 24+ (for development outside Docker)
+- Docker with the Compose plugin (Docker Compose v2)
+- Node.js 22+ (minimum 20.19, for development outside Docker)
 
 ### Running Locally
 The application can run completely locally using Docker:
@@ -112,7 +112,7 @@ The application can run completely locally using Docker:
 ./scripts/setup-local.sh
 
 # Or manual setup
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 ### Local Services
@@ -136,20 +136,20 @@ docker-compose up -d --build
 ### Useful Commands
 ```bash
 # View all service logs
-docker-compose logs -f
+docker compose logs -f
 
 # View specific service logs
-docker-compose logs -f frontend
+docker compose logs -f frontend
 
 # Stop services
-docker-compose down
+docker compose down
 
 # Restart services
-docker-compose restart
+docker compose restart
 
 # Rebuild and restart
-docker-compose up -d --build
+docker compose up -d --build
 
 # Remove all data (reset database)
-docker-compose down -v
+docker compose down -v
 ```

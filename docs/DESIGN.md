@@ -93,7 +93,7 @@ graph TB
 ### Technology Stack
 
 - **Frontend**: Vite 7, Preact 10, TypeScript, Tailwind CSS 4
-- **Backend**: AWS Lambda (Node.js 18.x), Express.js (local dev), TypeScript
+- **Backend**: AWS Lambda (Node.js 22.x), Express.js (local dev), TypeScript
 - **Database**: DynamoDB (AWS/Local)
 - **Infrastructure**: AWS (S3, CloudFront, API Gateway, Lambda, DynamoDB)
 - **Development**: Docker Compose, Jest, ESBuild
@@ -190,7 +190,7 @@ const [recentCategories, setRecentCategories] = useState<string[]>([]);
 
 ### Runtime Environment
 
-**AWS Lambda with Node.js 18.x**
+**AWS Lambda with Node.js 22.x**
 - Serverless compute for cost efficiency
 - Auto-scaling based on demand
 - TypeScript compilation with ES2020 target

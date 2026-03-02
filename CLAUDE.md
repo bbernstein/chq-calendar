@@ -75,7 +75,7 @@ chq-calendar/                    # Root (npm workspaces)
 | Backend | AWS Lambda + API Gateway | — |
 | Database | DynamoDB | — |
 | IaC | Terraform | — |
-| Node.js | 24 | — |
+| Node.js | 22 (minimum 20.19) | — |
 
 ## Development Commands
 

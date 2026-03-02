@@ -738,7 +738,7 @@ resource "aws_lambda_function" "calendar_generator" {
   function_name = "${var.app_name}-generator"
   role          = aws_iam_role.lambda_role.arn
   handler       = "dist/calendarHandler.handler"
-  runtime       = "nodejs18.x"
+  runtime       = "nodejs22.x"
   timeout       = 30
   memory_size   = 256
 
@@ -765,7 +765,7 @@ resource "aws_lambda_function" "admin_handler" {
   function_name = "${var.app_name}-admin"
   role          = aws_iam_role.lambda_role.arn
   handler       = "dist/adminHandler.handler"
-  runtime       = "nodejs18.x"
+  runtime       = "nodejs22.x"
   timeout       = 30
   memory_size   = 256
 
