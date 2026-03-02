@@ -209,8 +209,7 @@ jobs:
           mkdir -p sync_package/node_modules
           cp -r dist/ sync_package/
 
-          # Install only the externalized AWS SDK dependencies
-          # (these are also provided by Lambda runtime, but included for consistency)
+          # Install the AWS SDK dependencies externalized by esbuild
           cd sync_package
           cat > package.json << 'EOF'
           {
