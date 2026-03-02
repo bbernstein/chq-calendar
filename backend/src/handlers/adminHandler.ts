@@ -255,7 +255,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     console.log('Request path:', path);
     
     // In local development, bypass authentication and use dummy user
-    const isDevelopment = !isProduction && process.env.DYNAMODB_ENDPOINT;
+    const isDevelopment = !isProduction;
     if (!user && isDevelopment) {
       console.log('Local development mode: bypassing authentication with dummy user');
       user = { email: 'dev@localhost.local', name: 'Local Dev User' };

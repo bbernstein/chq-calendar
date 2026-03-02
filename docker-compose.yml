@@ -63,7 +63,7 @@ services:
       - dynamodb
     networks:
       - chq-calendar-network
-    command: npm run dev
+    command: npx vite --host
 
   # DynamoDB Admin UI (optional)
   dynamodb-admin:
