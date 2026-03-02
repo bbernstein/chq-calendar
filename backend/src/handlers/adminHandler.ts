@@ -21,9 +21,15 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'your-secret-key';
-const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST;
+const rawJwtSecret = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET;
 const isProduction = process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'prod';
+
+if (!rawJwtSecret && isProduction) {
+  throw new Error('JWT secret is not configured. Please set JWT_SECRET or NEXTAUTH_SECRET in the production environment.');
+}
+
+const JWT_SECRET = rawJwtSecret || 'your-secret-key';
+const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST;
 const FRONTEND_URL = isProduction ? 'https://www.chqcal.org' : 'http://localhost:3000';
 
 // Google OAuth2 Client Setup

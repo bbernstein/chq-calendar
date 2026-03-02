@@ -89,7 +89,7 @@ cd backend && npm run deploy
 📋 **For detailed deployment instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**
 
 ## Architecture
-- **Frontend**: Next.js 15.3.5 with React 19, TypeScript, and Tailwind CSS 4 (static export to S3)
+- **Frontend**: Vite with Preact, TypeScript, and Tailwind CSS 4 (static build to S3)
 - **Backend**: Serverless AWS Lambda functions with TypeScript
   - `calendarHandler`: Public calendar endpoints with intelligent filtering
   - `adminHandler`: OAuth authentication and feedback management
@@ -116,7 +116,7 @@ docker-compose up -d --build
 ```
 
 ### Local Services
-- **Frontend**: http://localhost:3000 (Next.js with hot reloading)
+- **Frontend**: http://localhost:3000 (Vite dev server with HMR)
 - **DynamoDB Local**: http://localhost:8000
 - **DynamoDB Admin**: http://localhost:8001
 - **Backend**: Runs on AWS Lambda (production endpoints)

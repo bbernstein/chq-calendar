@@ -46,50 +46,16 @@ npm install
 
 # Build the frontend
 echo "🔨 Building frontend..."
+export VITE_API_URL="${API_URL}"
 npm run build
 
 # Check if build was successful
-if [ ! -d "out" ] && [ ! -d ".next" ]; then
+if [ ! -d "out" ]; then
     echo "❌ Error: Build failed. No output directory found."
     exit 1
 fi
 
-# Configure Next.js for static export if not already configured
-if [ ! -f "next.config.ts.backup" ]; then
-    echo "⚙️  Configuring Next.js for static export..."
-    cp next.config.ts next.config.ts.backup
-
-    cat > next.config.ts << EOF
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  output: 'export',
-  trailingSlash: true,
-  images: {
-    unoptimized: true
-  },
-  assetPrefix: process.env.NODE_ENV === 'production' ? 'https://www.chqcal.org' : '',
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '$API_URL'
-  }
-};
-
-export default nextConfig;
-EOF
-
-    echo "🔄 Rebuilding with static export configuration..."
-    npm run build
-fi
-
-# Determine output directory
-if [ -d "out" ]; then
-    BUILD_DIR="out"
-elif [ -d ".next" ]; then
-    BUILD_DIR=".next"
-else
-    echo "❌ Error: No build output found."
-    exit 1
-fi
+BUILD_DIR="out"
 
 echo "📁 Using build directory: $BUILD_DIR"
 

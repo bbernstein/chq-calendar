@@ -3,7 +3,7 @@ environment           = "prod"
 app_name              = "chautauqua-calendar"
 
 # OAuth Configuration
-nextauth_secret       = "your-nextauth-secret-here"
+jwt_secret            = "your-jwt-secret-here"
 google_client_id      = "your-google-client-id"
 google_client_secret  = "your-google-client-secret"
 admin_email_whitelist = "your-email@example.com"

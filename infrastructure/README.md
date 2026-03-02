@@ -12,7 +12,7 @@ This directory contains Terraform configuration for deploying the Chautauqua Cal
 2. **Edit terraform.tfvars with your actual values:**
    ```hcl
    # OAuth Configuration
-   nextauth_secret       = "your-secure-secret-key"
+   jwt_secret       = "your-secure-secret-key"
    google_client_id      = "your-google-oauth-client-id"
    google_client_secret  = "your-google-oauth-secret"
    admin_email_whitelist = "your-admin-email@example.com"
@@ -30,7 +30,7 @@ This directory contains Terraform configuration for deploying the Chautauqua Cal
 ## Security Notes
 
 - **Never commit `terraform.tfvars`** - it contains secrets and is already in `.gitignore`
-- **Use strong values** for `nextauth_secret` (generate with `openssl rand -base64 32`)
+- **Use strong values** for `jwt_secret` (generate with `openssl rand -base64 32`)
 - **Configure Google OAuth** with proper redirect URIs in Google Cloud Console
 - **Set up reCAPTCHA** in Google reCAPTCHA admin console
 

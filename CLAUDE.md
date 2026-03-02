@@ -18,7 +18,7 @@ If asked to "continue optimizing" or "work on the next task", the answer is ALWA
 
 **Chautauqua Calendar** is a web application that displays events for the Chautauqua Institution's 2026 summer season. It fetches ~1,470 events from a static JSON file cached on CloudFront CDN and provides client-side filtering by search, category, location, date, and week.
 
-**Architecture**: Static-export Next.js 15 app deployed to S3 + CloudFront. All rendering is client-side. Backend Lambda functions handle data sync, admin auth, and feedback — but the frontend itself is purely static HTML/CSS/JS.
+**Architecture**: Vite + Preact static site deployed to S3 + CloudFront. All rendering is client-side. Backend Lambda functions handle data sync, admin auth, and feedback — but the frontend itself is purely static HTML/CSS/JS.
 
 **Live site**: https://www.chqcal.org
 
@@ -27,11 +27,17 @@ If asked to "continue optimizing" or "work on the next task", the answer is ALWA
 ```
 chq-calendar/                    # Root (npm workspaces)
 ├── CLAUDE.md                    # THIS FILE — agentic guidance
-├── frontend/                    # Next.js 15 application
+├── frontend/                    # Vite + Preact application
+│   ├── index.html               # Main entry HTML
+│   ├── vite.config.ts           # Vite build config
 │   ├── src/
+│   │   ├── entries/             # Vite entry points per page
+│   │   │   ├── main.tsx         # Main calendar entry
+│   │   │   ├── feedback.tsx     # Feedback form entry
+│   │   │   ├── admin-login.tsx  # OAuth login entry
+│   │   │   └── admin-feedback.tsx # Admin dashboard entry
 │   │   ├── app/
-│   │   │   ├── page.tsx         # Main calendar (~1,760 lines, being decomposed)
-│   │   │   ├── layout.tsx       # Root layout (metadata, fonts)
+│   │   │   ├── page.tsx         # Main calendar component
 │   │   │   ├── globals.css      # Tailwind + custom CSS
 │   │   │   ├── feedback/page.tsx        # Public feedback form
 │   │   │   └── admin/
@@ -41,8 +47,6 @@ chq-calendar/                    # Root (npm workspaces)
 │   │       └── auth.ts          # Auth helpers (localStorage)
 │   ├── public/                  # Static assets (icons, manifest)
 │   ├── package.json             # Frontend deps and scripts
-│   ├── next.config.ts           # Next.js config (static export)
-│   ├── next.config.prod.ts      # Production config variant
 │   ├── tsconfig.json            # TypeScript config
 │   └── postcss.config.mjs       # Tailwind PostCSS plugin
 ├── backend/                     # AWS Lambda functions (TypeScript)
@@ -63,16 +67,15 @@ chq-calendar/                    # Root (npm workspaces)
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Framework | Next.js | 15.3.5 |
-| UI Library | React (migrating to Preact) | 19.1.0 |
-| Language | TypeScript | 5.8.3 |
+| Build Tool | Vite | 7 |
+| UI Library | Preact | 10 |
+| Language | TypeScript | 5 |
 | Styling | Tailwind CSS | 4 |
-| Build | Next.js built-in (webpack/turbopack) | — |
-| Deployment | Static export → S3 + CloudFront | — |
+| Deployment | Static build → S3 + CloudFront | — |
 | Backend | AWS Lambda + API Gateway | — |
 | Database | DynamoDB | — |
 | IaC | Terraform | — |
-| Node.js | 22.22.0 | — |
+| Node.js | 24 | — |
 
 ## Development Commands
 
@@ -80,41 +83,34 @@ All commands are run from the `frontend/` directory unless noted otherwise.
 
 ```bash
 # Development
-npm run dev              # Start Next.js dev server (port 3000)
-npm run dev:turbo        # Dev server with Turbopack (faster)
+npm run dev              # Start Vite dev server (port 3000)
 
 # Build & Validation
-npm run build            # Runs validate, then next build (static export)
+npm run build            # Runs validate, then vite build
 npm run validate         # Runs type-check + lint
 npm run type-check       # TypeScript: tsc --noEmit
-npm run lint             # ESLint: next lint
+npm run lint             # ESLint
 
 # From project root
 npm run dev              # Runs frontend dev
 npm run build            # Builds frontend + backend
 ```
 
-**Build output**: Static HTML/CSS/JS files in `frontend/out/` (when `output: 'export'`).
-
-**Important**: The build environment may not have internet access. Google Fonts (Geist, Geist_Mono) are fetched at build time — if the build fails on font loading, you may need to handle this gracefully.
+**Build output**: Static HTML/CSS/JS files in `frontend/out/`.
 
 ## Key Architectural Constraints
 
-These constraints affect ALL optimization work. Do not violate them:
+These constraints affect ALL work. Do not violate them:
 
-1. **Static export only** — `output: 'export'` in `next.config.ts`. No SSR, no API routes in Next.js, no `getServerSideProps`, no `getStaticProps` with revalidation.
+1. **Static site** — Vite builds to static HTML/CSS/JS in `out/`. No SSR, no server-side rendering.
 
-2. **All pages are `'use client'`** — Every page component uses the `'use client'` directive. There are no React Server Components in this app.
+2. **Multi-page app** — Each page has its own entry in `vite.config.ts` `rollupOptions.input`. New pages need an `index.html` and entry file in `src/entries/`.
 
-3. **S3 hosting requires trailing slashes** — `trailingSlash: true` in config. Do not remove this.
+3. **Preact, not React** — Uses Preact with `@preact/preset-vite`. Import from `preact/hooks`, `preact/compat`, etc.
 
-4. **Asset prefix for production** — `assetPrefix: 'https://www.chqcal.org'` in production. Assets must be served from the CDN domain.
+4. **Client-side data fetching** — Events are fetched from `/cache/calendar-cache/all-events.json` (a static file on S3/CloudFront). All filtering happens in the browser.
 
-5. **`next/image` is unoptimized** — `images: { unoptimized: true }` because there's no Next.js server to process images. The Image component adds JS overhead without benefit.
-
-6. **Client-side data fetching** — Events are fetched from `/cache/calendar-cache/all-events.json` (a static file on S3/CloudFront). All filtering happens in the browser.
-
-7. **localStorage persistence** — User filter state is saved to localStorage with a 30-day expiry. Don't break the state schema without handling migration.
+5. **localStorage persistence** — User filter state is saved to localStorage with a 30-day expiry. Don't break the state schema without handling migration.
 
 ## Code Patterns and Conventions
 
@@ -131,7 +127,7 @@ These constraints affect ALL optimization work. Do not violate them:
 - Responsive: mobile-first with `sm:`, `lg:` breakpoints
 
 ### State Management
-- React Context API for global event data (`GlobalEventDataContext`)
+- Preact Context API for global event data (`GlobalEventDataContext`)
 - `useState` / `useReducer` for local component state
 - `useMemo` / `useCallback` for expensive computations and stable references
 - No external state library (Redux, Zustand, etc.)
@@ -139,7 +135,7 @@ These constraints affect ALL optimization work. Do not violate them:
 ### Data Flow
 ```
 CloudFront CDN → all-events.json → Browser Cache (1hr)
-    → Client fetch → React state → Filter pipeline → Grouped events → Render
+    → Client fetch → Preact state → Filter pipeline → Grouped events → Render
 ```
 
 ### Imports
@@ -254,44 +250,30 @@ When starting a new conversation:
 
 ## Common Pitfalls
 
-### Static Export Limitations
-- `dynamic()` from `next/dynamic` works for code splitting but not for SSR features
-- No `getServerSideProps`, `getStaticProps` with revalidation, or API routes
-- `next/headers`, `next/cookies` are NOT available
-- `useSearchParams()` requires `Suspense` boundary
-
-### Preact Migration (Phase 3)
-- Preact's compat layer doesn't support all React 19 features
-- `React.startTransition` — may not work, use try-catch fallback
-- `use()` hook — React 19 only, not in Preact, avoid using it
-- `useFormStatus` — React 19 only, not in Preact
-- `next/image` should work with Preact compat, but test thoroughly
-- Keep `react` and `react-dom` in `package.json` for type definitions even after aliasing to Preact
-
-### Component Decomposition (Phase 2)
-- The main `page.tsx` has inline helper functions that capture component state via closure. When extracting to separate files, pass dependencies as parameters instead.
-- The `filterEvents()` function references multiple state variables — it needs to accept them as arguments when moved to a utility file.
-- `_tagsLowerSet` is computed inline and mutates event objects — move this to the data loading step.
+### Vite + Preact
+- Preact does not support all React APIs. Use `preact/compat` for compatibility but avoid React 19-specific APIs (`use()`, `useFormStatus`, etc.)
+- Environment variables must be prefixed with `VITE_` to be exposed to client code (e.g., `VITE_API_URL`)
+- Each page needs its own HTML entry point and entry file in `src/entries/`
+- The `@preact/preset-vite` plugin handles JSX transform — do not configure JSX separately
 
 ### Build Environment
-- Google Fonts may fail to download in offline/CI environments
 - The build validates TypeScript and ESLint before bundling (`npm run validate`)
-- Current config has `ignoreDuringBuilds: true` for both ESLint and TypeScript — Phase 6B removes these
 
-## File Reference — Key Files for Optimization
+## File Reference — Key Files
 
-| File | Lines | Purpose | Optimization Phase |
-|------|-------|---------|--------------------|
-| `frontend/src/app/page.tsx` | 1,760 | Main calendar (monolithic) | Phase 2 |
-| `frontend/package.json` | 42 | Dependencies | Phase 1 |
-| `frontend/next.config.ts` | 22 | Build config | Phases 1, 3, 6 |
-| `frontend/src/app/layout.tsx` | 59 | Root layout + fonts | Phase 4 |
-| `frontend/src/app/globals.css` | 203 | Tailwind + custom CSS | Phase 6 |
-| `frontend/src/app/feedback/page.tsx` | 278 | Feedback form | Phase 4 |
-| `frontend/src/app/admin/feedback/page.tsx` | 603 | Admin dashboard | Phase 4 |
-| `frontend/src/app/admin/login/page.tsx` | 189 | OAuth login | Phase 4 |
-| `frontend/src/lib/auth.ts` | 43 | Auth utilities | — |
-| `docs/OPTIMIZATION_PLAN.md` | ~530 | Task tracking | All phases |
+| File | Purpose |
+|------|---------|
+| `frontend/vite.config.ts` | Vite build config with multi-page setup |
+| `frontend/index.html` | Main entry HTML |
+| `frontend/src/entries/main.tsx` | Main calendar entry point |
+| `frontend/src/app/page.tsx` | Main calendar component |
+| `frontend/src/app/globals.css` | Tailwind + custom CSS |
+| `frontend/src/app/feedback/page.tsx` | Feedback form |
+| `frontend/src/app/admin/feedback/page.tsx` | Admin dashboard |
+| `frontend/src/app/admin/login/page.tsx` | OAuth login |
+| `frontend/src/lib/auth.ts` | Auth utilities |
+| `frontend/package.json` | Dependencies and scripts |
+| `docs/OPTIMIZATION_PLAN.md` | Task tracking |
 
 ## Verification Checklist
 
@@ -307,34 +289,20 @@ npm run lint
 # 3. Full build (includes validate)
 npm run build
 
-# 4. Check build output for regressions
-# Look at Route sizes in build output — they should not increase significantly
-
-# 5. Dev server smoke test (if available)
+# 4. Dev server smoke test (if available)
 npm run dev
 # Then visit: http://localhost:3000
 # Verify: events load, search works, filters work, descriptions expand
 ```
 
-## Dependencies — What's Used vs. Unused
+## Dependencies
 
-### Actually Used in Source Code
-- `next` — framework
-- `react` / `react-dom` — UI (migrating to Preact)
+### Production
+- `preact` — UI library
+
+### Dev Dependencies
+- `vite` / `@preact/preset-vite` — build tooling
 - `tailwindcss` / `@tailwindcss/postcss` — styling
-
-### Installed But NOT Imported (to be removed in Phase 1B)
-- `@auth/core` — not imported in frontend
-- `@aws-amplify/ui-react` — not imported
-- `aws-amplify` — not imported
-- `@headlessui/react` — not imported
-- `@heroicons/react` — not imported
-- `@hookform/resolvers` — not imported
-- `react-hook-form` — not imported
-- `date-fns` — not imported (uses native Date)
-- `zod` — not imported
-
-### Needs Verification Before Removing
-- `class-variance-authority` — check for `cva` imports
-- `clsx` — check for `clsx` or `cx` imports
-- `tailwind-merge` — check for `twMerge` or `cn` imports
+- `typescript` — type checking
+- `eslint` / `@typescript-eslint/*` — linting
+- `@types/react` / `@types/react-dom` — type definitions (for Preact compat)
