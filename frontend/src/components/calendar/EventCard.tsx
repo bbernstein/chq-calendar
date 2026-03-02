@@ -57,11 +57,15 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
 
                   {event.description && (
                     <div className="text-gray-600 dark:text-gray-300 text-sm mb-2">
-                      {event.description.split('\n').map((paragraph, i) => (
-                        paragraph.trim() ? (
-                          <p key={i} className={i > 0 ? 'mt-2' : ''}>{paragraph}</p>
-                        ) : null
-                      ))}
+                      {event.description
+                        .split(/\r?\n/)
+                        .map(line => line.trim())
+                        .filter(line => line.length > 0)
+                        .map((paragraph, index) => (
+                          <p key={index} className={index > 0 ? 'mt-2' : ''}>
+                            {paragraph}
+                          </p>
+                        ))}
                     </div>
                   )}
 
