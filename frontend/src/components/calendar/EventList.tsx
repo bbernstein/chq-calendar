@@ -18,11 +18,12 @@ interface EventListProps {
   onToggleFavorite: (eventId: string) => void;
   dateFilter: string;
   onShowNextDay?: () => void;
+  hasMoreDays?: boolean;
 }
 
 const BATCH_SIZE = 50;
 
-export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay }: EventListProps) {
+export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay, hasMoreDays }: EventListProps) {
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -60,6 +61,17 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
     }
   }
 
+  // Compute next day label for the "Show next day" button
+  const nextDayLabel = useMemo(() => {
+    if (dateFilter !== 'next' || groupedEvents.length === 0) return '';
+    const lastGroup = groupedEvents[groupedEvents.length - 1];
+    const lastEvent = lastGroup?.events[lastGroup.events.length - 1];
+    if (!lastEvent) return '';
+    const lastDate = new Date(lastEvent.startDate);
+    lastDate.setDate(lastDate.getDate() + 1);
+    return ` (${lastDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })})`;
+  }, [dateFilter, groupedEvents]);
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {visibleGroups.map((dayGroup) => (
@@ -90,17 +102,7 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
           Loading more events...
         </div>
       )}
-      {dateFilter === 'next' && visibleCount >= totalEvents && totalEvents > 0 && onShowNextDay && (() => {
-        // Find the last event's date and compute the next day label
-        const lastGroup = groupedEvents[groupedEvents.length - 1];
-        const lastEvent = lastGroup?.events[lastGroup.events.length - 1];
-        let nextDayLabel = '';
-        if (lastEvent) {
-          const lastDate = new Date(lastEvent.startDate);
-          lastDate.setDate(lastDate.getDate() + 1);
-          nextDayLabel = ` (${lastDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })})`;
-        }
-        return (
+      {dateFilter === 'next' && visibleCount >= totalEvents && totalEvents > 0 && hasMoreDays && onShowNextDay && (
           <div className="text-center py-4">
             <button
               type="button"
@@ -110,8 +112,7 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
               Show next day{nextDayLabel}
             </button>
           </div>
-        );
-      })()}
+      )}
     </div>
   );
 }

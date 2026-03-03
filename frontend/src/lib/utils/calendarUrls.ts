@@ -32,12 +32,14 @@ function toOutlookDate(dateStr: string): string {
 /**
  * Build a Google Calendar "Add Event" URL.
  * Opens in a new tab with the event pre-filled.
+ * Uses ctz=America/New_York so Google interprets local times as Eastern.
  */
 export function getGoogleCalendarUrl(event: Event): string {
   const params = new URLSearchParams();
   params.set('action', 'TEMPLATE');
   params.set('text', event.title);
   params.set('dates', `${toGoogleDate(event.startDate)}/${toGoogleDate(event.endDate)}`);
+  params.set('ctz', 'America/New_York');
   if (event.location) {
     params.set('location', event.location);
   }

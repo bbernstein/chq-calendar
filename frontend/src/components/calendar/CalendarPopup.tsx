@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { Event } from '@/lib/types';
 import { getGoogleCalendarUrl, getOutlookCalendarUrl, getWebcalUrl } from '@/lib/utils/calendarUrls';
@@ -14,23 +14,21 @@ export function CalendarPopup({ event, buttonRect, onClose }: CalendarPopupProps
   const popupRef = useRef<HTMLDivElement>(null);
   const clickHandlerRef = useRef<((e: MouseEvent) => void) | null>(null);
 
-  const stableOnClose = useCallback(onClose, [onClose]);
-
   // Close on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') stableOnClose();
+      if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [stableOnClose]);
+  }, [onClose]);
 
   // Close on click outside (setTimeout(0) to avoid instant close from the same click)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       const handleClickOutside = (e: MouseEvent) => {
         if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-          stableOnClose();
+          onClose();
         }
       };
       clickHandlerRef.current = handleClickOutside;
@@ -43,7 +41,7 @@ export function CalendarPopup({ event, buttonRect, onClose }: CalendarPopupProps
         clickHandlerRef.current = null;
       }
     };
-  }, [stableOnClose]);
+  }, [onClose]);
 
   const webcalUrl = getWebcalUrl(event.id);
   const googleUrl = getGoogleCalendarUrl(event);
@@ -71,7 +69,7 @@ export function CalendarPopup({ event, buttonRect, onClose }: CalendarPopupProps
           href={webcalUrl}
           className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           role="menuitem"
-          onClick={stableOnClose}
+          onClick={onClose}
         >
           <span className="w-5 text-center" aria-hidden="true">🍎</span>
           Apple Calendar
@@ -81,7 +79,7 @@ export function CalendarPopup({ event, buttonRect, onClose }: CalendarPopupProps
           type="button"
           className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors w-full text-left"
           role="menuitem"
-          onClick={() => { downloadICS(event); stableOnClose(); }}
+          onClick={() => { downloadICS(event); onClose(); }}
         >
           <span className="w-5 text-center" aria-hidden="true">🍎</span>
           Apple Calendar (.ics)
@@ -95,7 +93,7 @@ export function CalendarPopup({ event, buttonRect, onClose }: CalendarPopupProps
         rel="noopener noreferrer"
         className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         role="menuitem"
-        onClick={stableOnClose}
+        onClick={onClose}
       >
         <span className="w-5 text-center" aria-hidden="true">📅</span>
         Google Calendar
@@ -108,7 +106,7 @@ export function CalendarPopup({ event, buttonRect, onClose }: CalendarPopupProps
         rel="noopener noreferrer"
         className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         role="menuitem"
-        onClick={stableOnClose}
+        onClick={onClose}
       >
         <span className="w-5 text-center" aria-hidden="true">📧</span>
         Outlook

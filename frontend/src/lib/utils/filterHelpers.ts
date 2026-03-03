@@ -29,7 +29,9 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
   } else if (options.dateFilter === 'next') {
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    const endDate = options.adaptiveEndDate || new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000);
+    const endDateFallback = new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000);
+    endDateFallback.setHours(23, 59, 59, 999);
+    const endDate = options.adaptiveEndDate || endDateFallback;
     filtered = filtered.filter(event => {
       const eventDate = new Date(event.startDate);
       return eventDate >= oneHourAgo && eventDate <= endDate;
@@ -88,7 +90,10 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
   }
 
   // Favorites filter
-  if (options.showFavoritesOnly && options.favoriteIds && options.favoriteIds.size > 0) {
+  if (options.showFavoritesOnly) {
+    if (!options.favoriteIds || options.favoriteIds.size === 0) {
+      return [];
+    }
     filtered = filtered.filter(event => options.favoriteIds!.has(event.id));
   }
 

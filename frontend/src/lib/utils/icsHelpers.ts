@@ -13,6 +13,22 @@ function escapeICSText(text: string): string {
 }
 
 /**
+ * Fold long ICS lines per RFC 5545 (max 75 octets per line).
+ * Lines are folded with CRLF followed by a space.
+ */
+function foldLine(line: string): string {
+  if (line.length <= 75) return line;
+  const parts: string[] = [];
+  parts.push(line.substring(0, 75));
+  let pos = 75;
+  while (pos < line.length) {
+    parts.push(' ' + line.substring(pos, pos + 74));
+    pos += 74;
+  }
+  return parts.join('\r\n');
+}
+
+/**
  * Format a date string as an ICS local datetime: YYYYMMDDTHHMMSS
  */
 function formatICSDate(dateStr: string): string {
@@ -43,9 +59,11 @@ function formatICSTimestamp(): string {
 /**
  * Generate an RFC 5545 compliant ICS calendar string for a single event.
  *
- * - DTSTART/DTEND formatted as YYYYMMDDTHHMMSS (local time, no timezone)
+ * - DTSTART/DTEND use TZID=America/New_York for correct timezone display
+ * - Includes VTIMEZONE block for America/New_York (EDT/EST)
  * - If endDate equals startDate, defaults to start + 1 hour
  * - Escapes special chars in text fields (newlines, commas, semicolons, backslashes)
+ * - Folds long lines at 75 octets per RFC 5545
  * - Includes VALARM for 30-minute reminder
  * - UID format: {event.id}@chqcal.org
  * - PRODID: -//CHQ Calendar//chqcal.org//EN
@@ -72,11 +90,29 @@ export function generateICS(event: Event): string {
     'PRODID:-//CHQ Calendar//chqcal.org//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
+    // VTIMEZONE for America/New_York (EDT/EST)
+    'BEGIN:VTIMEZONE',
+    'TZID:America/New_York',
+    'BEGIN:DAYLIGHT',
+    'TZOFFSETFROM:-0500',
+    'TZOFFSETTO:-0400',
+    'TZNAME:EDT',
+    'DTSTART:19700308T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+    'END:DAYLIGHT',
+    'BEGIN:STANDARD',
+    'TZOFFSETFROM:-0400',
+    'TZOFFSETTO:-0500',
+    'TZNAME:EST',
+    'DTSTART:19701101T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+    'END:STANDARD',
+    'END:VTIMEZONE',
     'BEGIN:VEVENT',
     `UID:${event.id}@chqcal.org`,
     `DTSTAMP:${formatICSTimestamp()}`,
-    `DTSTART:${dtStart}`,
-    `DTEND:${dtEnd}`,
+    `DTSTART;TZID=America/New_York:${dtStart}`,
+    `DTEND;TZID=America/New_York:${dtEnd}`,
     `SUMMARY:${escapeICSText(event.title)}`,
   ];
 
@@ -99,8 +135,8 @@ export function generateICS(event: Event): string {
 
   lines.push('END:VEVENT', 'END:VCALENDAR');
 
-  // RFC 5545 requires CRLF line endings
-  return lines.join('\r\n') + '\r\n';
+  // Apply RFC 5545 line folding (75 octets max) and CRLF line endings
+  return lines.map(foldLine).join('\r\n') + '\r\n';
 }
 
 /**

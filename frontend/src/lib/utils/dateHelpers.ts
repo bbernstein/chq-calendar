@@ -113,36 +113,41 @@ export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: 
   if (futureEvents.length === 0) {
     const fallback = new Date(startDate);
     fallback.setDate(fallback.getDate() + 90);
+    fallback.setHours(23, 59, 59, 999);
     return fallback;
   }
 
   let accumulated = 0;
   let lastCompleteDayEnd: Date | null = null;
-  let currentDayStr = '';
+  let currentDayDate: Date | null = null;
 
   for (const event of futureEvents) {
     const eventDate = new Date(event.startDate);
-    const dayStr = eventDate.toDateString();
+    // Normalize event day to local midnight
+    const eventDay = new Date(
+      eventDate.getFullYear(),
+      eventDate.getMonth(),
+      eventDate.getDate()
+    );
 
-    if (dayStr !== currentDayStr) {
-      if (currentDayStr !== '') {
+    if (!currentDayDate || eventDay.getTime() !== currentDayDate.getTime()) {
+      if (currentDayDate) {
         // Mark end of previous day
-        const prevDayEnd = new Date(currentDayStr);
+        const prevDayEnd = new Date(currentDayDate);
         prevDayEnd.setHours(23, 59, 59, 999);
         lastCompleteDayEnd = prevDayEnd;
+        // Finished a complete day - check if we have enough events
+        if (accumulated >= minEvents) {
+          return lastCompleteDayEnd;
+        }
       }
-      // Finished a complete day - check if we have enough events
-      if (currentDayStr !== '' && accumulated >= minEvents) {
-        // We had enough events after the previous complete day
-        return lastCompleteDayEnd!;
-      }
-      currentDayStr = dayStr;
+      currentDayDate = eventDay;
     }
     accumulated++;
   }
 
   // Handle the last day
-  const lastDayEnd = new Date(currentDayStr);
+  const lastDayEnd = new Date(currentDayDate!);
   lastDayEnd.setHours(23, 59, 59, 999);
   return lastDayEnd;
 }

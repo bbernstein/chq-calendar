@@ -39,9 +39,8 @@ describe('getAdaptiveEndDate', () => {
 
   it('includes enough full days to meet minEvents', () => {
     const startDate = new Date('2026-06-30T07:00:00');
-    // Need 20 events. Day 1 has 10, not enough. Day 1+2 = 25, enough.
-    // So should return end of Day 1 (since we check AFTER completing day 1 that 10 < 20,
-    // then after completing day 2 we have 25 >= 20, return end of day 2)
+    // Need 20 events. Day 1 has 10 (< 20, not enough).
+    // Day 1 + Day 2 = 25 (>= 20, enough). Return end of Day 2.
     const endDate = getAdaptiveEndDate(events, startDate, 20);
     // End date should be end of Jul 1 (Day 2 complete, accumulated 25 >= 20)
     expect(endDate.getMonth()).toBe(6); // July = month 6
@@ -68,8 +67,14 @@ describe('getAdaptiveEndDate', () => {
   it('returns 90-day fallback for empty events array', () => {
     const startDate = new Date('2026-06-30T07:00:00');
     const endDate = getAdaptiveEndDate([], startDate, 50);
-    const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-    expect(diffDays).toBe(90);
+    // Fallback adds 90 days from start and sets to end-of-day
+    const expectedDate = new Date(startDate);
+    expectedDate.setDate(expectedDate.getDate() + 90);
+    expect(endDate.getFullYear()).toBe(expectedDate.getFullYear());
+    expect(endDate.getMonth()).toBe(expectedDate.getMonth());
+    expect(endDate.getDate()).toBe(expectedDate.getDate());
+    expect(endDate.getHours()).toBe(23);
+    expect(endDate.getMinutes()).toBe(59);
   });
 
   it('filters out events before startDate', () => {

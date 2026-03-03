@@ -60,6 +60,10 @@ function HomeContent() {
   }), [debouncedSearch, filters.dateFilter, filters.selectedWeeks, filters.selectedTagsLowerSet, filters.selectedLocationsLowerSet, seasonWeeks, currentWeekNumber, filters.showFavoritesOnly, favorites.favoriteIds, adaptiveEndDate]);
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
+  const hasMoreDays = useMemo(() => {
+    if (filters.dateFilter !== 'next' || !adaptiveEndDate || !events.length) return false;
+    return events.some(e => new Date(e.startDate) > adaptiveEndDate);
+  }, [filters.dateFilter, adaptiveEndDate, events]);
   const isThisWeekActive = filters.dateFilter === 'this-week' || (currentWeekNumber !== null && filters.selectedWeeks.length === 1 && filters.selectedWeeks[0] === currentWeekNumber);
   const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => isSelected || (filters.dateFilter === 'this-week' && currentWeekNumber === weekNumber);
 
@@ -104,7 +108,8 @@ function HomeContent() {
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay} />
+                dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay}
+                hasMoreDays={hasMoreDays} />
             )}
           </div>
         </div>

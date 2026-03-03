@@ -46,15 +46,26 @@ describe('generateICS', () => {
     expect(ics).toContain('PRODID:-//CHQ Calendar//chqcal.org//EN');
   });
 
-  it('formats dates correctly as DTSTART/DTEND', () => {
+  it('includes VTIMEZONE for America/New_York', () => {
+    const ics = generateICS(makeEvent());
+    expect(ics).toContain('BEGIN:VTIMEZONE');
+    expect(ics).toContain('TZID:America/New_York');
+    expect(ics).toContain('BEGIN:DAYLIGHT');
+    expect(ics).toContain('TZNAME:EDT');
+    expect(ics).toContain('BEGIN:STANDARD');
+    expect(ics).toContain('TZNAME:EST');
+    expect(ics).toContain('END:VTIMEZONE');
+  });
+
+  it('formats dates correctly with TZID as DTSTART/DTEND', () => {
     const event = makeEvent({
       startDate: '2026-07-15T14:00:00',
       endDate: '2026-07-15T15:30:00',
     });
     const ics = generateICS(event);
 
-    expect(ics).toContain('DTSTART:20260715T140000');
-    expect(ics).toContain('DTEND:20260715T153000');
+    expect(ics).toContain('DTSTART;TZID=America/New_York:20260715T140000');
+    expect(ics).toContain('DTEND;TZID=America/New_York:20260715T153000');
   });
 
   it('defaults end time to start + 1 hour when endDate equals startDate', () => {
@@ -64,8 +75,8 @@ describe('generateICS', () => {
     });
     const ics = generateICS(event);
 
-    expect(ics).toContain('DTSTART:20260715T140000');
-    expect(ics).toContain('DTEND:20260715T150000');
+    expect(ics).toContain('DTSTART;TZID=America/New_York:20260715T140000');
+    expect(ics).toContain('DTEND;TZID=America/New_York:20260715T150000');
   });
 
   it('includes 30-minute VALARM', () => {

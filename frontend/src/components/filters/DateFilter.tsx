@@ -22,13 +22,14 @@ interface DateFilterProps {
   favoriteCount: number;
 }
 
-function DateFilterButton({ label, title, isActive, onClick }: {
-  label: string; title: string; isActive: boolean; onClick: () => void;
+function DateFilterButton({ label, title, isActive, onClick, ariaLabel }: {
+  label: string; title: string; isActive: boolean; onClick: () => void; ariaLabel?: string;
 }) {
   return (
     <button
       onClick={onClick}
       title={title}
+      aria-label={ariaLabel}
       className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
         isActive
           ? 'bg-blue-600 text-white border-blue-600'
@@ -126,6 +127,7 @@ export function DateFilter({
           title={favoriteCount > 0 ? 'Show favorited events only' : 'No favorites saved yet'}
           isActive={showFavoritesOnly}
           onClick={onToggleFavoritesOnly}
+          ariaLabel={showFavoritesOnly ? 'Stop showing favorites only' : 'Show favorites only'}
         />
 
         {/* Desktop Week Selector */}
