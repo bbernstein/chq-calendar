@@ -848,6 +848,52 @@ resource "aws_api_gateway_integration" "calendar_options_integration" {
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.calendar_generator.invoke_arn
 }
+
+# Single event ICS endpoint: /calendar/events/{id}
+resource "aws_api_gateway_resource" "calendar_events_resource" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.calendar_resource.id
+  path_part   = "events"
+}
+
+resource "aws_api_gateway_resource" "calendar_event_id_resource" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.calendar_events_resource.id
+  path_part   = "{id}"
+}
+
+resource "aws_api_gateway_method" "calendar_event_id_get" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.calendar_event_id_resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_method" "calendar_event_id_options" {
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  resource_id   = aws_api_gateway_resource.calendar_event_id_resource.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "calendar_event_id_get_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.main.id
+  resource_id             = aws_api_gateway_resource.calendar_event_id_resource.id
+  http_method             = aws_api_gateway_method.calendar_event_id_get.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
+resource "aws_api_gateway_integration" "calendar_event_id_options_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.main.id
+  resource_id             = aws_api_gateway_resource.calendar_event_id_resource.id
+  http_method             = aws_api_gateway_method.calendar_event_id_options.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.calendar_generator.invoke_arn
+}
+
 # Feedback API Gateway resources
 resource "aws_api_gateway_resource" "feedback_resource" {
   rest_api_id = aws_api_gateway_rest_api.main.id
@@ -1090,6 +1136,8 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
     aws_api_gateway_integration.calendar_get_integration,
     aws_api_gateway_integration.calendar_integration,
     aws_api_gateway_integration.calendar_options_integration,
+    aws_api_gateway_integration.calendar_event_id_get_integration,
+    aws_api_gateway_integration.calendar_event_id_options_integration,
     aws_api_gateway_integration.feedback_integration,
     aws_api_gateway_integration.feedback_options_integration,
   ]
@@ -1105,6 +1153,12 @@ resource "aws_api_gateway_deployment" "calendar_deployment" {
       aws_api_gateway_integration.calendar_get_integration.id,
       aws_api_gateway_integration.calendar_integration.id,
       aws_api_gateway_integration.calendar_options_integration.id,
+      aws_api_gateway_resource.calendar_events_resource.id,
+      aws_api_gateway_resource.calendar_event_id_resource.id,
+      aws_api_gateway_method.calendar_event_id_get.id,
+      aws_api_gateway_method.calendar_event_id_options.id,
+      aws_api_gateway_integration.calendar_event_id_get_integration.id,
+      aws_api_gateway_integration.calendar_event_id_options_integration.id,
       aws_api_gateway_resource.feedback_resource.id,
       aws_api_gateway_method.feedback_post.id,
       aws_api_gateway_method.feedback_options.id,

@@ -1,4 +1,4 @@
-import type { SeasonWeek } from '@/lib/types';
+import type { Event, SeasonWeek } from '@/lib/types';
 
 export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
   // Start from June 1st and find the 4th Sunday
@@ -55,19 +55,6 @@ export function isToday(dateString: string): boolean {
   return eventDate.toDateString() === today.toDateString();
 }
 
-export function isNext(dateString: string): boolean {
-  const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  const eventDate = new Date(dateString);
-
-  // Calculate 6 days in future
-  const nextWeek = new Date(now);
-  nextWeek.setDate(now.getDate() + 6);
-  nextWeek.setHours(23, 59, 59, 999);
-
-  // Show events from one hour ago through 6 days in the future
-  return eventDate >= oneHourAgo && eventDate <= nextWeek;
-}
 
 export function isThisWeek(dateString: string, seasonWeeks: SeasonWeek[], currentWeekNumber: number | null): boolean {
   const eventDate = new Date(dateString);
@@ -111,4 +98,56 @@ export function getCurrentWeekNumber(seasonWeeks: SeasonWeek[]): number | null {
     }
   }
   return null;
+}
+
+/**
+ * Finds the end-of-day boundary needed to include at least `minEvents` events
+ * starting from `startDate`. Always returns a full day boundary (23:59:59.999).
+ * Expands day-by-day until enough events are accumulated.
+ */
+export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: number): Date {
+  const futureEvents = events
+    .filter(e => new Date(e.startDate) >= startDate)
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+  if (futureEvents.length === 0) {
+    const fallback = new Date(startDate);
+    fallback.setDate(fallback.getDate() + 90);
+    fallback.setHours(23, 59, 59, 999);
+    return fallback;
+  }
+
+  let accumulated = 0;
+  let lastCompleteDayEnd: Date | null = null;
+  let currentDayDate: Date | null = null;
+
+  for (const event of futureEvents) {
+    const eventDate = new Date(event.startDate);
+    // Normalize event day to local midnight
+    const eventDay = new Date(
+      eventDate.getFullYear(),
+      eventDate.getMonth(),
+      eventDate.getDate()
+    );
+
+    if (!currentDayDate || eventDay.getTime() !== currentDayDate.getTime()) {
+      if (currentDayDate) {
+        // Mark end of previous day
+        const prevDayEnd = new Date(currentDayDate);
+        prevDayEnd.setHours(23, 59, 59, 999);
+        lastCompleteDayEnd = prevDayEnd;
+        // Finished a complete day - check if we have enough events
+        if (accumulated >= minEvents) {
+          return lastCompleteDayEnd;
+        }
+      }
+      currentDayDate = eventDay;
+    }
+    accumulated++;
+  }
+
+  // Handle the last day
+  const lastDayEnd = new Date(currentDayDate!);
+  lastDayEnd.setHours(23, 59, 59, 999);
+  return lastDayEnd;
 }

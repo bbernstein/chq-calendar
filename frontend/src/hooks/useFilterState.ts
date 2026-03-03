@@ -14,6 +14,8 @@ interface FilterState {
   recentCategories: string[];
   availableCategories: string[];
   availableLocations: string[];
+  showFavoritesOnly: boolean;
+  extraDays: number;
   stateInitialized: boolean;
 }
 
@@ -26,6 +28,9 @@ type FilterAction =
   | { type: 'TOGGLE_DESCRIPTION'; payload: string }
   | { type: 'SET_AVAILABLE_CATEGORIES'; payload: string[] }
   | { type: 'SET_AVAILABLE_LOCATIONS'; payload: string[] }
+  | { type: 'TOGGLE_FAVORITES_ONLY' }
+  | { type: 'ADD_EXTRA_DAY' }
+  | { type: 'CLEAR_EXTRA_DAYS' }
   | { type: 'CLEAR_FILTERS' }
   | { type: 'LOAD_STATE'; payload: Partial<FilterState> }
   | { type: 'INIT' };
@@ -75,8 +80,14 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       return { ...state, availableCategories: action.payload };
     case 'SET_AVAILABLE_LOCATIONS':
       return { ...state, availableLocations: action.payload };
+    case 'TOGGLE_FAVORITES_ONLY':
+      return { ...state, showFavoritesOnly: !state.showFavoritesOnly };
+    case 'ADD_EXTRA_DAY':
+      return { ...state, extraDays: state.extraDays + 1 };
+    case 'CLEAR_EXTRA_DAYS':
+      return { ...state, extraDays: 0 };
     case 'CLEAR_FILTERS':
-      return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [] };
+      return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [], showFavoritesOnly: false, extraDays: 0 };
     case 'LOAD_STATE':
       return { ...state, ...action.payload, stateInitialized: true };
     case 'INIT':
@@ -97,6 +108,8 @@ const initialState: FilterState = {
   recentCategories: [],
   availableCategories: [],
   availableLocations: [],
+  showFavoritesOnly: false,
+  extraDays: 0,
   stateInitialized: false,
 };
 
@@ -112,6 +125,8 @@ export function useFilterState() {
   const toggleDescription = useCallback((id: string) => dispatch({ type: 'TOGGLE_DESCRIPTION', payload: id }), []);
   const setAvailableCategories = useCallback((cats: string[]) => dispatch({ type: 'SET_AVAILABLE_CATEGORIES', payload: cats }), []);
   const setAvailableLocations = useCallback((locs: string[]) => dispatch({ type: 'SET_AVAILABLE_LOCATIONS', payload: locs }), []);
+  const toggleFavoritesOnly = useCallback(() => dispatch({ type: 'TOGGLE_FAVORITES_ONLY' }), []);
+  const addExtraDay = useCallback(() => dispatch({ type: 'ADD_EXTRA_DAY' }), []);
   const clearFilters = useCallback(() => dispatch({ type: 'CLEAR_FILTERS' }), []);
 
   const isTagSelected = useCallback((tag: string) =>
@@ -130,7 +145,7 @@ export function useFilterState() {
     state.selectedTags.filter(t => state.availableCategories.includes(t) && !t.startsWith('Week ')).length,
     [state.selectedTags, state.availableCategories]
   );
-  const hasFilters = state.searchTerm || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.dateFilter !== 'all' || state.selectedWeeks.length > 0;
+  const hasFilters = state.searchTerm || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.dateFilter !== 'all' || state.selectedWeeks.length > 0 || state.showFavoritesOnly;
 
   // localStorage persistence
   useEffect(() => {
@@ -141,6 +156,7 @@ export function useFilterState() {
           selectedLocations: state.selectedLocations, dateFilter: state.dateFilter,
           selectedWeeks: state.selectedWeeks, expandedDescriptions: Array.from(state.expandedDescriptions),
           recentLocations: state.recentLocations, recentCategories: state.recentCategories,
+          showFavoritesOnly: state.showFavoritesOnly,
           lastSaved: Date.now(),
         }));
       } catch (e) { console.warn('Failed to save user state:', e); }
@@ -163,6 +179,7 @@ export function useFilterState() {
             expandedDescriptions: new Set<string>(parsed.expandedDescriptions || []),
             recentLocations: parsed.recentLocations || [],
             recentCategories: parsed.recentCategories || [],
+            showFavoritesOnly: parsed.showFavoritesOnly || false,
           }});
           return;
         }
@@ -170,6 +187,13 @@ export function useFilterState() {
     } catch (e) { console.warn('Failed to load user state:', e); }
     dispatch({ type: 'INIT' });
   }, []);
+
+  // Reset extra days when date filter changes
+  useEffect(() => {
+    if (state.stateInitialized && state.extraDays > 0) {
+      dispatch({ type: 'CLEAR_EXTRA_DAYS' });
+    }
+  }, [state.dateFilter]); // intentionally only depends on dateFilter
 
   return {
     expandedDescriptions: state.expandedDescriptions,
@@ -184,5 +208,7 @@ export function useFilterState() {
     recentCategories: state.recentCategories,
     selectedTagsLowerSet, selectedLocationsLowerSet, selectedCategoriesCount, hasFilters,
     toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected, clearFilters,
+    showFavoritesOnly: state.showFavoritesOnly, toggleFavoritesOnly,
+    extraDays: state.extraDays, addExtraDay,
   };
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Event } from '@/lib/types';
+import { downloadICS } from '@/lib/utils/icsHelpers';
 import { EventCard } from './EventCard';
 
 interface DayGroup {
@@ -13,11 +14,16 @@ interface EventListProps {
   onToggleDescription: (eventId: string) => void;
   onToggleTag: (tag: string) => void;
   isTagSelected: (tag: string) => boolean;
+  favoriteIds: Set<string>;
+  onToggleFavorite: (eventId: string) => void;
+  dateFilter: string;
+  onShowNextDay?: () => void;
+  hasMoreDays?: boolean;
 }
 
 const BATCH_SIZE = 50;
 
-export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected }: EventListProps) {
+export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay, hasMoreDays }: EventListProps) {
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -55,6 +61,17 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
     }
   }
 
+  // Compute next day label for the "Show next day" button
+  const nextDayLabel = useMemo(() => {
+    if (dateFilter !== 'next' || groupedEvents.length === 0) return '';
+    const lastGroup = groupedEvents[groupedEvents.length - 1];
+    const lastEvent = lastGroup?.events[lastGroup.events.length - 1];
+    if (!lastEvent) return '';
+    const lastDate = new Date(lastEvent.startDate);
+    lastDate.setDate(lastDate.getDate() + 1);
+    return ` (${lastDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })})`;
+  }, [dateFilter, groupedEvents]);
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {visibleGroups.map((dayGroup) => (
@@ -72,6 +89,9 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
                 onToggleDescription={onToggleDescription}
                 onToggleTag={onToggleTag}
                 isTagSelected={isTagSelected}
+                isFavorite={favoriteIds.has(event.id)}
+                onToggleFavorite={onToggleFavorite}
+                onDownloadICS={downloadICS}
               />
             ))}
           </div>
@@ -81,6 +101,17 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
         <div ref={sentinelRef} className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
           Loading more events...
         </div>
+      )}
+      {dateFilter === 'next' && visibleCount >= totalEvents && totalEvents > 0 && hasMoreDays && onShowNextDay && (
+          <div className="text-center py-4">
+            <button
+              type="button"
+              onClick={onShowNextDay}
+              className="px-4 py-2 text-sm bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-gray-600 transition-colors"
+            >
+              Show next day{nextDayLabel}
+            </button>
+          </div>
       )}
     </div>
   );
