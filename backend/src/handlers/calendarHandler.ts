@@ -364,10 +364,16 @@ const generateICalendar = (events: Event[]): string => {
   });
 
   events.forEach(event => {
+    let endDate = parseISO(event.endDate);
+    const startDate = parseISO(event.startDate);
+    // Default to start + 1 hour when endDate equals startDate (zero-duration)
+    if (endDate.getTime() <= startDate.getTime()) {
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    }
     calendar.createEvent({
       id: event.id,
-      start: parseISO(event.startDate),
-      end: parseISO(event.endDate),
+      start: startDate,
+      end: endDate,
       summary: event.title,
       description: event.description || '',
       location: event.location || '',
