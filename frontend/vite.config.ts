@@ -53,6 +53,9 @@ function devServerMiddleware(): PluginOption {
 // Proxy config shared between dev server and preview server.
 // Routes API/auth requests to the local backend (port 3001) and
 // cache requests to the production CDN.
+// NOTE: In dev mode, POST /api/feedback is intercepted by devServerMiddleware
+// (CAPTCHA-free mock) and never reaches the proxy. The backend route is only
+// proxied in preview mode or when using VITE_API_URL for direct access.
 const backendProxy = {
   '/auth': {
     target: 'http://localhost:3001',
