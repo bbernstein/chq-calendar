@@ -355,12 +355,10 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
 };
 
 // Helper function to generate iCal format
-const generateICalendar = (events: Event[], calendarName?: string): string => {
+export const generateICalendar = (events: Event[], calendarName?: string): string => {
   const calendar = ical({
     name: calendarName || 'Chautauqua Institution Calendar',
-    description: calendarName
-      ? `Event from Chautauqua Institution 2026 season`
-      : 'Dynamic calendar for Chautauqua Institution 2026 season',
+    description: 'Dynamic calendar for Chautauqua Institution 2026 season',
     timezone: 'America/New_York',
     url: 'https://chqcal.org'
   });
