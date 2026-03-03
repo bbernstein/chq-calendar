@@ -51,9 +51,9 @@ describe('getOutlookCalendarUrl', () => {
     expect(url).toContain('subject=Morning+Lecture');
     expect(url).toContain('location=Amphitheater');
     expect(url).toContain('body=A+great+lecture+on+philosophy');
-    // Dates should be in ISO-like format YYYY-MM-DDTHH:MM:SS
-    expect(url).toMatch(/startdt=\d{4}-\d{2}-\d{2}T\d{2}%3A\d{2}%3A\d{2}/);
-    expect(url).toMatch(/enddt=\d{4}-\d{2}-\d{2}T\d{2}%3A\d{2}%3A\d{2}/);
+    // Dates should be in ISO-like format with Eastern offset YYYY-MM-DDTHH:MM:SS-04:00
+    expect(url).toMatch(/startdt=\d{4}-\d{2}-\d{2}T\d{2}%3A\d{2}%3A\d{2}-0[45]%3A00/);
+    expect(url).toMatch(/enddt=\d{4}-\d{2}-\d{2}T\d{2}%3A\d{2}%3A\d{2}-0[45]%3A00/);
   });
 
   it('omits location when not provided', () => {

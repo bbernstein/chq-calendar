@@ -16,7 +16,31 @@ function toGoogleDate(dateStr: string): string {
 }
 
 /**
- * Format a Date as ISO 8601 string for Outlook (YYYY-MM-DDTHH:MM:SS).
+ * Determine Eastern timezone offset (EDT or EST) for a given date.
+ * US DST: second Sunday of March through first Sunday of November.
+ */
+function getEasternOffset(d: Date): string {
+  const month = d.getMonth(); // 0-indexed
+  // April through October: always EDT
+  if (month >= 3 && month <= 9) return '-04:00';
+  // December through February: always EST
+  if (month <= 1 || month === 11) return '-05:00';
+  // March: DST starts second Sunday
+  if (month === 2) {
+    const dayOfWeek = new Date(d.getFullYear(), 2, 1).getDay();
+    const secondSunday = dayOfWeek === 0 ? 8 : 15 - dayOfWeek;
+    return d.getDate() >= secondSunday ? '-04:00' : '-05:00';
+  }
+  // November: DST ends first Sunday
+  const dayOfWeek = new Date(d.getFullYear(), 10, 1).getDay();
+  const firstSunday = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
+  return d.getDate() < firstSunday ? '-04:00' : '-05:00';
+}
+
+/**
+ * Format a Date as ISO 8601 string with Eastern offset for Outlook.
+ * Outlook interprets naive times in the user's account timezone,
+ * so we append the Eastern offset to ensure correct display.
  */
 function toOutlookDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -26,7 +50,7 @@ function toOutlookDate(dateStr: string): string {
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
   const seconds = String(d.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${getEasternOffset(d)}`;
 }
 
 /**
