@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { API_BASE_URL } from '@/lib/api'
 
 function LoginContent() {
   const [error, setError] = useState('')
@@ -104,9 +105,7 @@ function LoginContent() {
   }, [])
 
   const handleGoogleLogin = () => {
-    // Relative path — Vite dev server proxies to localhost:3001,
-    // production uses CloudFront path routing to admin Lambda
-    window.location.href = '/auth/google';
+    window.location.href = `${API_BASE_URL}/auth/google`;
   }
 
   return (

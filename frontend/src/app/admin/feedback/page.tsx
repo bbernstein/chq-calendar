@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { API_BASE_URL } from '@/lib/api';
 
 interface FeedbackRecord {
   id: string;
@@ -64,9 +65,7 @@ export default function FeedbackManagementPage() {
     setUser(JSON.parse(userStr));
   }, []);
 
-  // Use relative paths — Vite dev server proxies to localhost:3001,
-  // production uses CloudFront path routing to admin Lambda
-  const apiUrl = '';
+  const apiUrl = API_BASE_URL;
 
   // Helper function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {

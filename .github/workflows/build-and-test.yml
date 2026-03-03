@@ -57,7 +57,7 @@ jobs:
       - name: Build frontend (includes type checking and linting)
         run: npm run build --workspace=frontend
         env:
-          VITE_API_URL: https://www.chqcal.org/api
+          VITE_API_URL: ""
 
       - name: Upload frontend build artifacts
         uses: actions/upload-artifact@v4

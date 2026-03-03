@@ -50,6 +50,28 @@ function devServerMiddleware(): PluginOption {
   };
 }
 
+// Proxy config shared between dev server and preview server.
+// Routes API/auth requests to the local backend (port 3001) and
+// cache requests to the production CDN.
+const backendProxy = {
+  '/auth': {
+    target: 'http://localhost:3001',
+    changeOrigin: true,
+  },
+  '/admin/api': {
+    target: 'http://localhost:3001',
+    changeOrigin: true,
+  },
+  '/api': {
+    target: 'http://localhost:3001',
+    changeOrigin: true,
+  },
+  '/cache': {
+    target: 'https://www.chqcal.org',
+    changeOrigin: true,
+  },
+};
+
 export default defineConfig({
   appType: 'mpa',
   plugins: [devServerMiddleware(), preact()],
@@ -74,23 +96,10 @@ export default defineConfig({
     watch: {
       usePolling: true,
     },
-    proxy: {
-      '/auth': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/admin/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '/cache': {
-        target: 'https://www.chqcal.org',
-        changeOrigin: true,
-      },
-    },
+    proxy: backendProxy,
+  },
+  preview: {
+    port: 3000,
+    proxy: backendProxy,
   },
 });

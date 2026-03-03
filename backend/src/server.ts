@@ -87,18 +87,20 @@ app.post('/calendar', async (req, res) => {
   }
 });
 
-// Feedback API routes
-app.post('/feedback', async (req, res) => {
+// Feedback API routes (support both /feedback and /api/feedback for flexibility)
+const handleFeedback = async (req: express.Request, res: express.Response) => {
   try {
     const event = expressToLambdaEvent(req);
-    event.path = '/feedback'; // Ensure proper path for calendar handler
+    event.path = '/feedback';
     const result = await calendarHandler(event, mockContext);
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Feedback API error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+app.post('/feedback', handleFeedback);
+app.post('/api/feedback', handleFeedback);
 
 // Admin OAuth routes
 app.get('/auth/google', async (req, res) => {

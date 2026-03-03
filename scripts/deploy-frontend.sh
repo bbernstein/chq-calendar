@@ -44,9 +44,9 @@ echo "📦 Installing frontend dependencies..."
 cd frontend
 npm install
 
-# Build the frontend
+# Build the frontend (VITE_API_URL left empty — CloudFront handles routing)
 echo "🔨 Building frontend..."
-export VITE_API_URL="${API_URL}"
+export VITE_API_URL=""
 npm run build
 
 # Check if build was successful
