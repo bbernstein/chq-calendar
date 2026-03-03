@@ -355,10 +355,12 @@ const queryEvents = async (filters?: CalendarRequest['filters']): Promise<Event[
 };
 
 // Helper function to generate iCal format
-const generateICalendar = (events: Event[]): string => {
+const generateICalendar = (events: Event[], calendarName?: string): string => {
   const calendar = ical({
-    name: 'Chautauqua Institution Calendar',
-    description: 'Dynamic calendar for Chautauqua Institution 2026 season',
+    name: calendarName || 'Chautauqua Institution Calendar',
+    description: calendarName
+      ? `Event from Chautauqua Institution 2026 season`
+      : 'Dynamic calendar for Chautauqua Institution 2026 season',
     timezone: 'America/New_York',
     url: 'https://chqcal.org'
   });
@@ -576,7 +578,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         return createResponse(404, { error: 'Event not found' });
       }
       const transformedEvent = transformDatabaseEvent(result.Item);
-      const icalData = generateICalendar([transformedEvent]);
+      const icalData = generateICalendar([transformedEvent], `CHQ: ${transformedEvent.title}`);
       const filename = transformedEvent.title
         .replace(/[^a-zA-Z0-9 ]/g, '-').replace(/\s+/g, '-').toLowerCase();
       return createResponse(200, icalData, {
