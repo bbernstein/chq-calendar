@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '@/lib/api';
 
 // Declare the global grecaptcha object
 declare global {
@@ -21,7 +22,7 @@ export default function FeedbackPage() {
   // reCAPTCHA site key - must be set via environment variable
   const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
-  const apiUrl = '/api';
+  const apiUrl = `${API_BASE_URL}/api`;
 
   useEffect(() => {
     // Only load reCAPTCHA if site key is configured

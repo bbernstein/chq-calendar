@@ -146,8 +146,8 @@ else
     cd frontend
     npm install
 
-    # Set environment variables
-    export VITE_API_URL=$API_URL
+    # VITE_API_URL left empty — CloudFront handles routing in production
+    export VITE_API_URL=""
 
     # Build
     npm run build

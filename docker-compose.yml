@@ -54,7 +54,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-      # Point to local backend for OAuth and admin features
+      # Points browser directly to backend (Docker proxy can't reach localhost:3001)
       - VITE_API_URL=http://localhost:3001
     volumes:
       - ./frontend:/app
