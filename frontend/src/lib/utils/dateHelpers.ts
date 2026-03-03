@@ -1,4 +1,4 @@
-import type { SeasonWeek } from '@/lib/types';
+import type { Event, SeasonWeek } from '@/lib/types';
 
 export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
   // Start from June 1st and find the 4th Sunday
@@ -111,4 +111,51 @@ export function getCurrentWeekNumber(seasonWeeks: SeasonWeek[]): number | null {
     }
   }
   return null;
+}
+
+/**
+ * Finds the end-of-day boundary needed to include at least `minEvents` events
+ * starting from `startDate`. Always returns a full day boundary (23:59:59.999).
+ * Expands day-by-day until enough events are accumulated.
+ */
+export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: number): Date {
+  const futureEvents = events
+    .filter(e => new Date(e.startDate) >= startDate)
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+  if (futureEvents.length === 0) {
+    const fallback = new Date(startDate);
+    fallback.setDate(fallback.getDate() + 90);
+    return fallback;
+  }
+
+  let accumulated = 0;
+  let lastCompleteDayEnd: Date | null = null;
+  let currentDayStr = '';
+
+  for (const event of futureEvents) {
+    const eventDate = new Date(event.startDate);
+    const dayStr = eventDate.toDateString();
+
+    if (dayStr !== currentDayStr) {
+      if (currentDayStr !== '') {
+        // Mark end of previous day
+        const prevDayEnd = new Date(currentDayStr);
+        prevDayEnd.setHours(23, 59, 59, 999);
+        lastCompleteDayEnd = prevDayEnd;
+      }
+      // Finished a complete day - check if we have enough events
+      if (currentDayStr !== '' && accumulated >= minEvents) {
+        // We had enough events after the previous complete day
+        return lastCompleteDayEnd!;
+      }
+      currentDayStr = dayStr;
+    }
+    accumulated++;
+  }
+
+  // Handle the last day
+  const lastDayEnd = new Date(currentDayStr);
+  lastDayEnd.setHours(23, 59, 59, 999);
+  return lastDayEnd;
 }
