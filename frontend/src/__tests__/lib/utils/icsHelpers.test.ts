@@ -206,6 +206,6 @@ describe('downloadICS', () => {
 
     downloadICS(makeEvent({ title: 'My Event Title' }));
 
-    expect(downloadAttr).toBe('My Event Title.ics');
+    expect(downloadAttr).toBe('my-event-title.ics');
   });
 });

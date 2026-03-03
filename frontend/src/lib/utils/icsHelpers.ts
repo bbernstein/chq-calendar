@@ -114,7 +114,7 @@ export function downloadICS(event: Event): void {
 
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `${event.title}.ics`;
+  anchor.download = `${event.title.replace(/[^a-zA-Z0-9 ]/g, '-').replace(/\s+/g, '-').toLowerCase()}.ics`;
   anchor.style.display = 'none';
 
   document.body.appendChild(anchor);

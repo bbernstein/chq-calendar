@@ -55,19 +55,6 @@ export function isToday(dateString: string): boolean {
   return eventDate.toDateString() === today.toDateString();
 }
 
-export function isNext(dateString: string): boolean {
-  const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  const eventDate = new Date(dateString);
-
-  // Calculate 6 days in future
-  const nextWeek = new Date(now);
-  nextWeek.setDate(now.getDate() + 6);
-  nextWeek.setHours(23, 59, 59, 999);
-
-  // Show events from one hour ago through 6 days in the future
-  return eventDate >= oneHourAgo && eventDate <= nextWeek;
-}
 
 export function isThisWeek(dateString: string, seasonWeeks: SeasonWeek[], currentWeekNumber: number | null): boolean {
   const eventDate = new Date(dateString);

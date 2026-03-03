@@ -18,7 +18,6 @@ interface EventListProps {
   onToggleFavorite: (eventId: string) => void;
   dateFilter: string;
   onShowNextDay?: () => void;
-  adaptiveEndDate?: Date;
 }
 
 const BATCH_SIZE = 50;
@@ -91,16 +90,28 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
           Loading more events...
         </div>
       )}
-      {dateFilter === 'next' && visibleCount >= totalEvents && totalEvents > 0 && onShowNextDay && (
-        <div className="text-center py-4">
-          <button
-            onClick={onShowNextDay}
-            className="px-4 py-2 text-sm bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-gray-600 transition-colors"
-          >
-            Show next day
-          </button>
-        </div>
-      )}
+      {dateFilter === 'next' && visibleCount >= totalEvents && totalEvents > 0 && onShowNextDay && (() => {
+        // Find the last event's date and compute the next day label
+        const lastGroup = groupedEvents[groupedEvents.length - 1];
+        const lastEvent = lastGroup?.events[lastGroup.events.length - 1];
+        let nextDayLabel = '';
+        if (lastEvent) {
+          const lastDate = new Date(lastEvent.startDate);
+          lastDate.setDate(lastDate.getDate() + 1);
+          nextDayLabel = ` (${lastDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })})`;
+        }
+        return (
+          <div className="text-center py-4">
+            <button
+              type="button"
+              onClick={onShowNextDay}
+              className="px-4 py-2 text-sm bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-gray-600 transition-colors"
+            >
+              Show next day{nextDayLabel}
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }

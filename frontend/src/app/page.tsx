@@ -43,8 +43,10 @@ function HomeContent() {
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const baseEnd = getAdaptiveEndDate(events, oneHourAgo, 50);
     if (filters.extraDays > 0) {
-      baseEnd.setDate(baseEnd.getDate() + filters.extraDays);
-      baseEnd.setHours(23, 59, 59, 999);
+      const extended = new Date(baseEnd);
+      extended.setDate(extended.getDate() + filters.extraDays);
+      extended.setHours(23, 59, 59, 999);
+      return extended;
     }
     return baseEnd;
   }, [filters.dateFilter, events, filters.extraDays]);
@@ -102,7 +104,7 @@ function HomeContent() {
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay} adaptiveEndDate={adaptiveEndDate} />
+                dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay} />
             )}
           </div>
         </div>

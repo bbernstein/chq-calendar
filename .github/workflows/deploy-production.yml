@@ -18,10 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js 22
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: package-lock.json
 
@@ -41,8 +41,8 @@ jobs:
       - name: Build frontend
         run: npm run build --workspace=frontend
         env:
-          VITE_API_URL: ""
-          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.VITE_RECAPTCHA_SITE_KEY }}
+          NEXT_PUBLIC_API_URL: https://www.chqcal.org/api
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
 
       - name: Deploy calendar Lambda function
         working-directory: ./backend
@@ -188,7 +188,7 @@ jobs:
             --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }}
 
           # Update environment variables for admin Lambda
-          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","JWT_SECRET":"${{ secrets.JWT_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
+          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","FEEDBACK_TABLE_NAME":"${{ secrets.FEEDBACK_TABLE_NAME }}","NEXTAUTH_SECRET":"${{ secrets.NEXTAUTH_SECRET }}","GOOGLE_CLIENT_ID":"${{ secrets.GOOGLE_CLIENT_ID }}","GOOGLE_CLIENT_SECRET":"${{ secrets.GOOGLE_CLIENT_SECRET }}","ADMIN_EMAIL_WHITELIST":"${{ secrets.ADMIN_EMAIL_WHITELIST }}","ADMIN_API_URL":"https://admin-api.chqcal.org"}}' > admin-env.json
           aws lambda update-function-configuration \
             --function-name ${{ secrets.ADMIN_LAMBDA_FUNCTION_NAME }} \
             --environment file://admin-env.json
@@ -196,127 +196,19 @@ jobs:
           # Clean up
           rm -rf package_temp lambda-admin.zip admin-env.json
 
-      - name: Deploy sync Lambda functions
-        working-directory: ./backend
-        run: |
-          # Create sync Lambda package with all required dependencies
-          echo "Building sync Lambda functions package..."
-
-          # Build the sync handler
-          npm run build:prod
-
-          # Create the sync Lambda package with only externalized dependencies
-          mkdir -p sync_package/node_modules
-          cp -r dist/ sync_package/
-
-          # Install the AWS SDK dependencies externalized by esbuild
-          cd sync_package
-          cat > package.json << 'EOF'
-          {
-            "name": "lambda-sync",
-            "version": "1.0.0",
-            "dependencies": {
-              "@aws-sdk/client-dynamodb": "^3.0.0",
-              "@aws-sdk/client-s3": "^3.0.0",
-              "@aws-sdk/lib-dynamodb": "^3.0.0"
-            }
-          }
-          EOF
-          npm install --omit=dev --no-package-lock
-          cd ..
-
-          # Create zip file for sync Lambda functions
-          cd sync_package
-          zip -r ../lambda-sync.zip . -x "*.git*" "*.DS_Store*" "node_modules/.cache/*"
-          cd ..
-
-          # Deploy data sync Lambda
-          echo "Deploying data sync Lambda function..."
-          aws lambda update-function-code \
-            --function-name chq-calendar-data-sync \
-            --zip-file fileb://lambda-sync.zip
-
-          # Wait for the code update to complete
-          echo "Waiting for data sync Lambda function to finish updating..."
-          aws lambda wait function-updated \
-            --function-name chq-calendar-data-sync
-
-          # Deploy manual sync Lambda
-          echo "Deploying manual sync Lambda function..."
-          aws lambda update-function-code \
-            --function-name chq-calendar-manual-sync \
-            --zip-file fileb://lambda-sync.zip
-
-          # Wait for the code update to complete
-          echo "Waiting for manual sync Lambda function to finish updating..."
-          aws lambda wait function-updated \
-            --function-name chq-calendar-manual-sync
-
-          # Deploy sync health Lambda
-          echo "Deploying sync health Lambda function..."
-          aws lambda update-function-code \
-            --function-name chq-calendar-sync-health \
-            --zip-file fileb://lambda-sync.zip
-
-          # Wait for the code update to complete
-          echo "Waiting for sync health Lambda function to finish updating..."
-          aws lambda wait function-updated \
-            --function-name chq-calendar-sync-health
-
-          # Deploy sync status Lambda
-          echo "Deploying sync status Lambda function..."
-          aws lambda update-function-code \
-            --function-name chq-calendar-sync-status \
-            --zip-file fileb://lambda-sync.zip
-
-          # Wait for the code update to complete
-          echo "Waiting for sync status Lambda function to finish updating..."
-          aws lambda wait function-updated \
-            --function-name chq-calendar-sync-status
-
-          # Deploy sync list Lambda
-          echo "Deploying sync list Lambda function..."
-          aws lambda update-function-code \
-            --function-name chq-calendar-sync-list \
-            --zip-file fileb://lambda-sync.zip
-
-          # Wait for the code update to complete
-          echo "Waiting for sync list Lambda function to finish updating..."
-          aws lambda wait function-updated \
-            --function-name chq-calendar-sync-list
-
-          # Update environment variables for sync Lambda functions
-          echo "Updating environment variables for sync Lambda functions..."
-          echo '{"Variables":{"NODE_ENV":"production","ENVIRONMENT":"prod","EVENTS_TABLE_NAME":"${{ secrets.EVENTS_TABLE_NAME }}","DATA_SOURCES_TABLE_NAME":"${{ secrets.DATA_SOURCES_TABLE_NAME }}","SYNC_STATUS_TABLE_NAME":"${{ secrets.SYNC_STATUS_TABLE_NAME }}","CACHE_S3_BUCKET":"${{ secrets.CACHE_S3_BUCKET }}","CACHE_MEMORY_TTL_MINUTES":"60","CACHE_S3_TTL_MINUTES":"60","CACHE_S3_KEY_PREFIX":"calendar-cache","ACTIVE_YEAR":"2026","API_MAX_CONCURRENT_REQUESTS":"10","API_REQUEST_DELAY_MS":"100"}}' > sync-env.json
-
-          # Update environment for all sync functions
-          for function_name in chq-calendar-data-sync chq-calendar-manual-sync chq-calendar-sync-health chq-calendar-sync-status chq-calendar-sync-list; do
-            echo "Updating environment for $function_name..."
-            aws lambda update-function-configuration \
-              --function-name $function_name \
-              --environment file://sync-env.json
-          done
-
-          # Clean up
-          rm -rf sync_package lambda-sync.zip sync-env.json
-
-          echo "✅ All sync Lambda functions deployed successfully!"
-
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
-          # Sync to S3 bucket (exclude cache directory to preserve backend-generated cache files)
+          # Sync to S3 bucket
           aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
             --delete \
-            --exclude "cache/*" \
             --exclude "*.map" \
             --cache-control "public, max-age=31536000, immutable" \
             --metadata-directive REPLACE
 
-          # Update HTML files with shorter cache (also exclude cache directory)
+          # Update HTML files with shorter cache
           aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
             --exclude "*" \
-            --exclude "cache/*" \
             --include "*.html" \
             --cache-control "public, max-age=3600" \
             --metadata-directive REPLACE
@@ -370,11 +262,11 @@ jobs:
         continue-on-error: true
         run: |
           echo "Triggering calendar data sync to refresh cache..."
-          PAYLOAD_B64=$(echo -n '{"detail-type":"Daily Sync","source":"github.deployment"}' | base64 -w 0)
+          echo '{"detail-type":"Deployment Sync","source":"github.deployment"}' | base64 | tr -d '\n' > /tmp/payload.b64
           aws lambda invoke \
             --function-name chq-calendar-data-sync \
             --invocation-type Event \
-            --payload "$PAYLOAD_B64" \
+            --payload fileb:///tmp/payload.b64 \
             /tmp/sync-response.json
 
           echo "Calendar sync triggered successfully - running in background to refresh cache data"

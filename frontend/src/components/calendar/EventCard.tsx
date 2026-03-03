@@ -30,6 +30,7 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
             </span>
             <span className="flex items-center flex-shrink-0 ml-2">
               <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); onToggleFavorite(event.id); }}
                 className={`p-1.5 rounded-full transition-colors ${
                   isFavorite
@@ -44,6 +45,7 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                 </svg>
               </button>
               <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); onDownloadICS(event); }}
                 className="p-1.5 rounded-full text-gray-300 dark:text-gray-600 hover:text-blue-500 transition-colors"
                 title="Add to calendar"
