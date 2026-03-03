@@ -10,6 +10,7 @@ import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/
 import { useEventData } from '@/hooks/useEventData';
 import { GlobalEventDataProvider, useGlobalEventData } from '@/components/providers/GlobalEventDataProvider';
 import { Header } from '@/components/layout/Header';
+import { CountdownBanner } from '@/components/layout/CountdownBanner';
 import { LoadingSpinner } from '@/components/layout/LoadingSpinner';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { SearchBar } from '@/components/filters/SearchBar';
@@ -63,6 +64,7 @@ function HomeContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <Header />
+      <CountdownBanner seasonWeeks={seasonWeeks} />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6">
           <div className="p-2 sm:p-4">
