@@ -556,6 +556,29 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       return createResponse(200, { events }, undefined, true); // Enable caching
     }
 
+    // Handle single event ICS download (for webcal:// protocol)
+    if (httpMethod === 'GET' && path.startsWith('/calendar/events/') && path !== '/calendar/events') {
+      const eventId = event.pathParameters?.id || path.split('/').pop();
+      if (!eventId) {
+        return createResponse(400, { error: 'Event ID is required' });
+      }
+      const result = await docClient.send(new GetCommand({
+        TableName: EVENTS_TABLE_NAME,
+        Key: { id: eventId }
+      }));
+      if (!result.Item) {
+        return createResponse(404, { error: 'Event not found' });
+      }
+      const transformedEvent = transformDatabaseEvent(result.Item);
+      const icalData = generateICalendar([transformedEvent]);
+      const filename = transformedEvent.title
+        .replace(/[^a-zA-Z0-9 ]/g, '-').replace(/\s+/g, '-').toLowerCase();
+      return createResponse(200, icalData, {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}.ics"`
+      }, true);
+    }
+
     // Handle health check
     if (httpMethod === 'GET' && path === '/health') {
       return createResponse(200, {

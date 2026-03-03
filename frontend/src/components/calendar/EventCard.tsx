@@ -1,5 +1,8 @@
+import { useState, useRef } from 'react';
 import type { Event } from '@/lib/types';
 import { getCategoryDisplayName } from '@/lib/constants';
+import { isDesktop } from '@/lib/utils/calendarUrls';
+import { CalendarPopup } from './CalendarPopup';
 
 interface EventCardProps {
   event: Event;
@@ -14,6 +17,17 @@ interface EventCardProps {
 }
 
 export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS }: EventCardProps) {
+  const [showPopup, setShowPopup] = useState(false);
+  const calendarButtonRef = useRef<HTMLButtonElement>(null);
+
+  const handleCalendarClick = () => {
+    if (isDesktop()) {
+      setShowPopup(prev => !prev);
+    } else {
+      onDownloadICS(event);
+    }
+  };
+
   return (
     <div className={`event-card py-2 sm:py-3 ${index > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors`}>
       <div className="flex justify-between items-start gap-2 sm:gap-4">
@@ -45,8 +59,9 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                 </svg>
               </button>
               <button
+                ref={calendarButtonRef}
                 type="button"
-                onClick={(e) => { e.stopPropagation(); onDownloadICS(event); }}
+                onClick={(e) => { e.stopPropagation(); handleCalendarClick(); }}
                 className="p-1.5 rounded-full text-gray-300 dark:text-gray-600 hover:text-blue-500 transition-colors"
                 title="Add to calendar"
                 aria-label="Add to calendar"
@@ -159,6 +174,15 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
           </div>
         )}
       </div>
+
+      {/* Calendar service picker popup (desktop only) */}
+      {showPopup && calendarButtonRef.current && (
+        <CalendarPopup
+          event={event}
+          buttonRect={calendarButtonRef.current.getBoundingClientRect()}
+          onClose={() => setShowPopup(false)}
+        />
+      )}
     </div>
   );
 }

@@ -87,6 +87,25 @@ app.post('/calendar', async (req, res) => {
   }
 });
 
+// Single event ICS download
+app.get('/calendar/events/:id', async (req, res) => {
+  try {
+    const event = expressToLambdaEvent(req);
+    event.pathParameters = { id: req.params.id };
+    const result = await calendarHandler(event, mockContext);
+    const contentType = result.headers?.['Content-Type'] || '';
+    if (typeof contentType === 'string' && contentType.includes('text/calendar')) {
+      Object.entries(result.headers || {}).forEach(([k, v]) => res.set(k, String(v)));
+      res.status(result.statusCode).send(result.body);
+    } else {
+      res.status(result.statusCode).json(JSON.parse(result.body));
+    }
+  } catch (error) {
+    console.error('Calendar event ICS error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Feedback API routes (support both /feedback and /api/feedback for flexibility)
 const handleFeedback = async (req: express.Request, res: express.Response) => {
   try {
