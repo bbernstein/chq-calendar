@@ -17,6 +17,9 @@ interface DateFilterProps {
     handleWeekTap: (weekNum: number) => void;
   };
   isWeekHighlighted: (weekNumber: number, isSelected: boolean) => boolean;
+  showFavoritesOnly: boolean;
+  onToggleFavoritesOnly: () => void;
+  favoriteCount: number;
 }
 
 function DateFilterButton({ label, title, isActive, onClick }: {
@@ -85,6 +88,7 @@ export function DateFilter({
   dateFilter, setDateFilter, selectedWeeks, setSelectedWeeks,
   currentWeekNumber, seasonWeeks, isThisWeekButtonActive,
   weekDrag, isWeekHighlighted,
+  showFavoritesOnly, onToggleFavoritesOnly, favoriteCount,
 }: DateFilterProps) {
   const toggleDateFilter = (filter: 'next' | 'today' | 'this-week') => {
     setDateFilter(dateFilter === filter ? 'all' : filter);
@@ -117,6 +121,12 @@ export function DateFilter({
         <DateFilterButton label="Now" title="Show events starting after the current time through the end of this week" isActive={dateFilter === 'next'} onClick={() => toggleDateFilter('next')} />
         <DateFilterButton label="Today" title="Show all events for today" isActive={dateFilter === 'today'} onClick={() => toggleDateFilter('today')} />
         <DateFilterButton label="This Week" title="Show events for this week" isActive={isThisWeekButtonActive} onClick={() => toggleDateFilter('this-week')} />
+        <DateFilterButton
+          label={`★ ${favoriteCount}`}
+          title={favoriteCount > 0 ? 'Show favorited events only' : 'No favorites saved yet'}
+          isActive={showFavoritesOnly}
+          onClick={onToggleFavoritesOnly}
+        />
 
         {/* Desktop Week Selector */}
         <div className="hidden sm:flex items-center gap-1 sm:gap-2">

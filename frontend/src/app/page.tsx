@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from 'react';
 import { ACTIVE_YEAR } from '@/lib/constants';
 import { useDebounce } from '@/hooks/useDebounce';
-import { getChautauquaSeasonWeeks, getCurrentWeekNumber } from '@/lib/utils/dateHelpers';
+import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import { useFilterState } from '@/hooks/useFilterState';
+import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
 import { GlobalEventDataProvider, useGlobalEventData } from '@/components/providers/GlobalEventDataProvider';
@@ -23,6 +24,7 @@ function HomeContent() {
   const seasonWeeks = useMemo(() => getChautauquaSeasonWeeks(ACTIVE_YEAR), []);
   const currentWeekNumber = useMemo(() => getCurrentWeekNumber(seasonWeeks), [seasonWeeks]);
   const filters = useFilterState();
+  const favorites = useFavorites();
   const locationScroll = useHorizontalScroll();
   const categoryScroll = useHorizontalScroll();
   const locationListScroll = useVerticalScroll();
@@ -34,11 +36,25 @@ function HomeContent() {
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
   const debouncedSearch = useDebounce(filters.searchTerm, 200);
+  const adaptiveEndDate = useMemo(() => {
+    if (filters.dateFilter !== 'next' || !events.length) return undefined;
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    const baseEnd = getAdaptiveEndDate(events, oneHourAgo, 50);
+    if (filters.extraDays > 0) {
+      baseEnd.setDate(baseEnd.getDate() + filters.extraDays);
+      baseEnd.setHours(23, 59, 59, 999);
+    }
+    return baseEnd;
+  }, [filters.dateFilter, events, filters.extraDays]);
   const filterOpts: FilterOptions = useMemo(() => ({
     searchTerm: debouncedSearch, dateFilter: filters.dateFilter, selectedWeeks: filters.selectedWeeks,
     selectedTagsLowerSet: filters.selectedTagsLowerSet, selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
     seasonWeeks, currentWeekNumber,
-  }), [debouncedSearch, filters.dateFilter, filters.selectedWeeks, filters.selectedTagsLowerSet, filters.selectedLocationsLowerSet, seasonWeeks, currentWeekNumber]);
+    showFavoritesOnly: filters.showFavoritesOnly,
+    favoriteIds: favorites.favoriteIds,
+    adaptiveEndDate,
+  }), [debouncedSearch, filters.dateFilter, filters.selectedWeeks, filters.selectedTagsLowerSet, filters.selectedLocationsLowerSet, seasonWeeks, currentWeekNumber, filters.showFavoritesOnly, favorites.favoriteIds, adaptiveEndDate]);
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
   const isThisWeekActive = filters.dateFilter === 'this-week' || (currentWeekNumber !== null && filters.selectedWeeks.length === 1 && filters.selectedWeeks[0] === currentWeekNumber);
@@ -57,6 +73,9 @@ function HomeContent() {
               currentWeekNumber={currentWeekNumber} seasonWeeks={seasonWeeks}
               isThisWeekButtonActive={isThisWeekActive} weekDrag={weekDrag}
               isWeekHighlighted={isWeekHighlighted}
+              showFavoritesOnly={filters.showFavoritesOnly}
+              onToggleFavoritesOnly={filters.toggleFavoritesOnly}
+              favoriteCount={favorites.favoriteCount}
             />
             <div className="space-y-3">
               <LocationFilter
@@ -79,7 +98,9 @@ function HomeContent() {
           <div className="p-4 sm:p-6">
             {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
-                onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected} />
+                onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
+                favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
+                dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay} adaptiveEndDate={adaptiveEndDate} />
             )}
           </div>
         </div>
