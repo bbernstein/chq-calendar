@@ -19,7 +19,6 @@ resource "aws_lambda_function" "data_sync" {
       CACHE_S3_KEY_PREFIX      = "cache/calendar-cache"
       CACHE_MEMORY_TTL_MINUTES = "60"
       CACHE_S3_TTL_MINUTES     = "60"
-      ACTIVE_YEAR              = "2026"
     }
   }
 
@@ -49,7 +48,6 @@ resource "aws_lambda_function" "manual_sync" {
       SYNC_STATUS_TABLE_NAME  = aws_dynamodb_table.sync_status.name
       NODE_ENV                = "production"
       USE_NEW_API             = "true"
-      ACTIVE_YEAR             = "2026"
     }
   }
 
@@ -176,12 +174,11 @@ resource "aws_cloudwatch_log_group" "sync_list" {
 }
 
 # EventBridge Rules for Scheduled Syncs
-# Hourly sync disabled - use daily sync instead
-# resource "aws_cloudwatch_event_rule" "hourly_sync" {
-#   name                = "chq-calendar-hourly-sync"
-#   description         = "Trigger hourly sync for current events"
-#   schedule_expression = "rate(60 minutes)" # Every 60 minutes for current day events
-# }
+resource "aws_cloudwatch_event_rule" "hourly_sync" {
+  name                = "chq-calendar-hourly-sync"
+  description         = "Trigger hourly near-term sync (active June-August only, handled in Lambda)"
+  schedule_expression = "rate(60 minutes)"
+}
 
 resource "aws_cloudwatch_event_rule" "daily_sync" {
   name                = "chq-calendar-daily-sync"
@@ -196,17 +193,16 @@ resource "aws_cloudwatch_event_rule" "weekly_full_sync" {
 }
 
 # EventBridge Targets
-# Hourly sync target disabled
-# resource "aws_cloudwatch_event_target" "hourly_sync" {
-#   rule      = aws_cloudwatch_event_rule.hourly_sync.name
-#   target_id = "HourlySyncTarget"
-#   arn       = aws_lambda_function.data_sync.arn
-#
-#   input = jsonencode({
-#     "detail-type" = "Hourly Sync"
-#     "source"      = "chq-calendar.scheduler"
-#   })
-# }
+resource "aws_cloudwatch_event_target" "hourly_sync" {
+  rule      = aws_cloudwatch_event_rule.hourly_sync.name
+  target_id = "HourlySyncTarget"
+  arn       = aws_lambda_function.data_sync.arn
+
+  input = jsonencode({
+    "detail-type" = "Hourly Sync"
+    "source"      = "chq-calendar.scheduler"
+  })
+}
 
 resource "aws_cloudwatch_event_target" "daily_sync" {
   rule      = aws_cloudwatch_event_rule.daily_sync.name
@@ -231,14 +227,13 @@ resource "aws_cloudwatch_event_target" "weekly_full_sync" {
 }
 
 # Lambda Permissions for EventBridge
-# Hourly sync permission disabled
-# resource "aws_lambda_permission" "allow_eventbridge_hourly" {
-#   statement_id  = "AllowExecutionFromEventBridgeHourly"
-#   action        = "lambda:InvokeFunction"
-#   function_name = aws_lambda_function.data_sync.function_name
-#   principal     = "events.amazonaws.com"
-#   source_arn    = aws_cloudwatch_event_rule.hourly_sync.arn
-# }
+resource "aws_lambda_permission" "allow_eventbridge_hourly" {
+  statement_id  = "AllowExecutionFromEventBridgeHourly"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.data_sync.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.hourly_sync.arn
+}
 
 resource "aws_lambda_permission" "allow_eventbridge_daily" {
   statement_id  = "AllowExecutionFromEventBridgeDaily"
