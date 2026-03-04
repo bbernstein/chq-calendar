@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { ACTIVE_YEAR } from '@/lib/constants';
+import { YearSelector } from '@/components/layout/YearSelector';
 
-export function Header() {
+interface HeaderProps {
+  selectedYear: number;
+  availableYears: number[];
+  defaultYear: number;
+  onYearChange: (year: number) => void;
+}
+
+export function Header({ selectedYear, availableYears, defaultYear, onYearChange }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -34,9 +41,12 @@ export function Header() {
             <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">
               CHQ Calendar
             </h1>
-            <span className="ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs sm:text-sm font-medium rounded-full">
-              {ACTIVE_YEAR} Season
-            </span>
+            <YearSelector
+              selectedYear={selectedYear}
+              availableYears={availableYears}
+              defaultYear={defaultYear}
+              onYearChange={onYearChange}
+            />
           </div>
           {/* Desktop */}
           <div className="hidden md:flex items-center gap-2">
