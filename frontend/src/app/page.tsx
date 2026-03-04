@@ -62,7 +62,7 @@ function HomeContent() {
         filters.reconcileFilters(filters.availableCategories, filters.availableLocations, false);
       }
     }
-  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations, isCurrentYear, filters.dateFilter]);
+  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations, isCurrentYear, filters.dateFilter, filters.reconcileFilters]);
   useEffect(() => {
     document.title = `Chautauqua Calendar | ${selectedYear} Season`;
   }, [selectedYear]);

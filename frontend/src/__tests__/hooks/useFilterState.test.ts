@@ -84,5 +84,20 @@ describe('useFilterState', () => {
       });
       expect(result.current.extraDays).toBe(0);
     });
+
+    it('preserves searchTerm on reconciliation', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.setSearchTerm('symphony'); });
+      act(() => { result.current.reconcileFilters([], [], false); });
+      expect(result.current.searchTerm).toBe('symphony');
+    });
+
+    it('sets dateFilter back to next when returning to current year', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.reconcileFilters([], [], false); });
+      expect(result.current.dateFilter).toBe('all');
+      act(() => { result.current.reconcileFilters([], [], true); });
+      expect(result.current.dateFilter).toBe('next');
+    });
   });
 });

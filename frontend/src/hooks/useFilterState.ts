@@ -96,7 +96,7 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
         selectedTags: state.selectedTags.filter(t => availCatsLower.has(t.toLowerCase())),
         selectedLocations: state.selectedLocations.filter(l => availLocsLower.has(l.toLowerCase())),
         selectedWeeks: [],
-        dateFilter: isCurrentYear ? 'next' as DateFilter : 'all' as DateFilter,
+        dateFilter: isCurrentYear ? 'next' : 'all',
         extraDays: 0,
       };
     }
