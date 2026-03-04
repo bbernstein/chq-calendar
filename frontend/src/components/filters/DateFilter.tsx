@@ -20,6 +20,7 @@ interface DateFilterProps {
   showFavoritesOnly: boolean;
   onToggleFavoritesOnly: () => void;
   favoriteCount: number;
+  isCurrentYear: boolean;
 }
 
 function DateFilterButton({ label, title, isActive, onClick, ariaLabel }: {
@@ -41,22 +42,25 @@ function DateFilterButton({ label, title, isActive, onClick, ariaLabel }: {
   );
 }
 
-function SelectedFilterInfo({ dateFilter, selectedWeeks, currentWeekNumber, seasonWeeks }: {
-  dateFilter: string; selectedWeeks: number[]; currentWeekNumber: number | null; seasonWeeks: SeasonWeek[];
+function SelectedFilterInfo({ dateFilter, selectedWeeks, currentWeekNumber, seasonWeeks, isCurrentYear }: {
+  dateFilter: string; selectedWeeks: number[]; currentWeekNumber: number | null; seasonWeeks: SeasonWeek[]; isCurrentYear: boolean;
 }) {
-  if (selectedWeeks.length === 0 && dateFilter === 'all') return null;
+  // Suppress time-relative descriptions for non-current years (buttons are hidden, but
+  // dateFilter may briefly be 'next'/'today'/'this-week' before reconciliation clears it)
+  const effectiveDateFilter = !isCurrentYear && (dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week') ? 'all' : dateFilter;
+  if (selectedWeeks.length === 0 && effectiveDateFilter === 'all') return null;
 
   const getDescription = () => {
-    if (dateFilter === 'today') {
+    if (effectiveDateFilter === 'today') {
       const today = new Date();
       const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
       const fullDate = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
       return `Today, ${dayName}, ${fullDate}`;
-    } else if (dateFilter === 'next') {
+    } else if (effectiveDateFilter === 'next') {
       const now = new Date();
       const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
       return `Next events after ${timeString}`;
-    } else if (dateFilter === 'this-week') {
+    } else if (effectiveDateFilter === 'this-week') {
       if (currentWeekNumber === null) return 'This Week (Not in season)';
       const currentWeek = seasonWeeks[currentWeekNumber - 1];
       const startStr = currentWeek.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -90,6 +94,7 @@ export function DateFilter({
   currentWeekNumber, seasonWeeks, isThisWeekButtonActive,
   weekDrag, isWeekHighlighted,
   showFavoritesOnly, onToggleFavoritesOnly, favoriteCount,
+  isCurrentYear,
 }: DateFilterProps) {
   const toggleDateFilter = (filter: 'next' | 'today' | 'this-week') => {
     setDateFilter(dateFilter === filter ? 'all' : filter);
@@ -119,9 +124,13 @@ export function DateFilter({
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
-        <DateFilterButton label="Now" title="Show events starting after the current time through the end of this week" isActive={dateFilter === 'next'} onClick={() => toggleDateFilter('next')} />
-        <DateFilterButton label="Today" title="Show all events for today" isActive={dateFilter === 'today'} onClick={() => toggleDateFilter('today')} />
-        <DateFilterButton label="This Week" title="Show events for this week" isActive={isThisWeekButtonActive} onClick={() => toggleDateFilter('this-week')} />
+        {isCurrentYear && (
+          <>
+            <DateFilterButton label="Now" title="Show events starting after the current time through the end of this week" isActive={dateFilter === 'next'} onClick={() => toggleDateFilter('next')} />
+            <DateFilterButton label="Today" title="Show all events for today" isActive={dateFilter === 'today'} onClick={() => toggleDateFilter('today')} />
+            <DateFilterButton label="This Week" title="Show events for this week" isActive={isThisWeekButtonActive} onClick={() => toggleDateFilter('this-week')} />
+          </>
+        )}
         <DateFilterButton
           label={`★ ${favoriteCount}`}
           title={favoriteCount > 0 ? 'Show favorited events only' : 'No favorites saved yet'}
@@ -152,6 +161,7 @@ export function DateFilter({
         selectedWeeks={selectedWeeks}
         currentWeekNumber={currentWeekNumber}
         seasonWeeks={seasonWeeks}
+        isCurrentYear={isCurrentYear}
       />
     </div>
   );

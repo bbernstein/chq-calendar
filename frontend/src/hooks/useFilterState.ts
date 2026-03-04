@@ -31,7 +31,7 @@ type FilterAction =
   | { type: 'TOGGLE_FAVORITES_ONLY' }
   | { type: 'ADD_EXTRA_DAY' }
   | { type: 'CLEAR_EXTRA_DAYS' }
-  | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[] } }
+  | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[]; isCurrentYear: boolean } }
   | { type: 'CLEAR_FILTERS' }
   | { type: 'LOAD_STATE'; payload: Partial<FilterState> }
   | { type: 'INIT' };
@@ -88,7 +88,7 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
     case 'CLEAR_EXTRA_DAYS':
       return { ...state, extraDays: 0 };
     case 'RECONCILE_FILTERS': {
-      const { availableCategories, availableLocations } = action.payload;
+      const { availableCategories, availableLocations, isCurrentYear } = action.payload;
       const availCatsLower = new Set(availableCategories.map(c => c.toLowerCase()));
       const availLocsLower = new Set(availableLocations.map(l => l.toLowerCase()));
       return {
@@ -96,7 +96,7 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
         selectedTags: state.selectedTags.filter(t => availCatsLower.has(t.toLowerCase())),
         selectedLocations: state.selectedLocations.filter(l => availLocsLower.has(l.toLowerCase())),
         selectedWeeks: [],
-        dateFilter: 'next' as DateFilter,
+        dateFilter: isCurrentYear ? 'next' : 'all',
         extraDays: 0,
       };
     }
@@ -143,8 +143,8 @@ export function useFilterState() {
   const addExtraDay = useCallback(() => dispatch({ type: 'ADD_EXTRA_DAY' }), []);
   const clearFilters = useCallback(() => dispatch({ type: 'CLEAR_FILTERS' }), []);
   const reconcileFilters = useCallback(
-    (availableCategories: string[], availableLocations: string[]) =>
-      dispatch({ type: 'RECONCILE_FILTERS', payload: { availableCategories, availableLocations } }),
+    (availableCategories: string[], availableLocations: string[], isCurrentYear: boolean) =>
+      dispatch({ type: 'RECONCILE_FILTERS', payload: { availableCategories, availableLocations, isCurrentYear } }),
     []
   );
 

@@ -39,8 +39,10 @@ function HomeContent() {
     locationListScroll.updateScrollState(); categoryListScroll.updateScrollState();
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ year: selectedYear, globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
+  const isCurrentYear = selectedYear === defaultYear;
   const prevYearRef = useRef(selectedYear);
   const pendingYearChangeRef = useRef(false);
+  const initialLoadRef = useRef(true);
   useEffect(() => {
     if (prevYearRef.current !== selectedYear) {
       prevYearRef.current = selectedYear;
@@ -49,10 +51,20 @@ function HomeContent() {
     }
     // Reconcile once the new year's data has finished loading
     if (pendingYearChangeRef.current && !loading && events.length > 0) {
-      filters.reconcileFilters(filters.availableCategories, filters.availableLocations);
+      filters.reconcileFilters(filters.availableCategories, filters.availableLocations, isCurrentYear);
       pendingYearChangeRef.current = false;
     }
-  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations]);
+    // On initial load with a non-current year, reconcile to clear time-relative filters
+    // (localStorage may have restored dateFilter:'next' from a previous current-year session)
+    // Mark initial load complete once loading finishes, regardless of event count,
+    // to avoid stale ref causing double reconciliation on subsequent year switches.
+    if (initialLoadRef.current && !loading) {
+      initialLoadRef.current = false;
+      if (!isCurrentYear && events.length > 0 && (filters.dateFilter === 'next' || filters.dateFilter === 'today' || filters.dateFilter === 'this-week')) {
+        filters.reconcileFilters(filters.availableCategories, filters.availableLocations, false);
+      }
+    }
+  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations, isCurrentYear, filters.dateFilter, filters.reconcileFilters]);
   useEffect(() => {
     document.title = `Chautauqua Calendar | ${selectedYear} Season`;
   }, [selectedYear]);
@@ -109,6 +121,7 @@ function HomeContent() {
               showFavoritesOnly={filters.showFavoritesOnly}
               onToggleFavoritesOnly={filters.toggleFavoritesOnly}
               favoriteCount={favorites.favoriteCount}
+              isCurrentYear={isCurrentYear}
             />
             <div className="space-y-3">
               <LocationFilter
