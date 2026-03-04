@@ -65,6 +65,21 @@ describe('useSelectedYear', () => {
     expect(new URL(window.location.href).searchParams.has('year')).toBe(false);
   });
 
+  it('re-evaluates URL param when years list changes', () => {
+    window.history.replaceState({}, '', '/?year=2025');
+
+    // Initially, 2025 is not available, so default (2026) is used
+    const { result, rerender } = renderHook(
+      (props) => useSelectedYear(props),
+      { initialProps: { years: [2026], defaultYear: 2026 } }
+    );
+    expect(result.current.selectedYear).toBe(2026);
+
+    // After manifest loads, 2025 becomes available
+    rerender({ years: [2025, 2026, 2027], defaultYear: 2026 });
+    expect(result.current.selectedYear).toBe(2025);
+  });
+
   it('preserves other URL params when updating year', () => {
     window.history.replaceState({}, '', '/?search=music&year=2025');
     const { result } = renderHook(() =>

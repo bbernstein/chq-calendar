@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 interface UseSelectedYearProps {
   years: number[];
@@ -26,6 +26,14 @@ export function useSelectedYear({ years, defaultYear }: UseSelectedYearProps): U
   const [selectedYear, setSelectedYearState] = useState(() =>
     getYearFromUrl(years, defaultYear)
   );
+
+  // Re-evaluate URL param when available years change (e.g., after manifest loads)
+  useEffect(() => {
+    const urlYear = getYearFromUrl(years, defaultYear);
+    if (urlYear !== selectedYear) {
+      setSelectedYearState(urlYear);
+    }
+  }, [years, defaultYear]);
 
   const setSelectedYear = useCallback((year: number) => {
     setSelectedYearState(year);
