@@ -1,6 +1,15 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { ApiEvent, ApiResponse, DateRange, ApiOptions, SyncResult } from '../types';
 
+/**
+ * Compute the default year using the Oct 1 turnover rule:
+ * If current month is October or later, default to next year; otherwise current year.
+ */
+function getDefaultYear(): number {
+  const now = new Date();
+  return now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+}
+
 export class EventsCalendarApiClient {
   private axiosInstance: AxiosInstance;
   private baseUrl: string;
@@ -237,7 +246,7 @@ export class EventsCalendarApiClient {
   /**
    * Get events for the entire Chautauqua season
    */
-  async getSeasonEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<ApiEvent[]> {
+  async getSeasonEvents(year: number = getDefaultYear()): Promise<ApiEvent[]> {
     const seasonDates = this.getChautauquaSeasonDates(year);
 
     console.log(`Fetching full season events from ${seasonDates.start.toISOString().split('T')[0]} to ${seasonDates.end.toISOString().split('T')[0]}`);
@@ -260,7 +269,7 @@ export class EventsCalendarApiClient {
   /**
    * Get events for the entire year (including pre-season and post-season)
    */
-  async getFullYearEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<ApiEvent[]> {
+  async getFullYearEvents(year: number = getDefaultYear()): Promise<ApiEvent[]> {
     const yearStart = new Date(year, 0, 1); // January 1st
     const yearEnd = new Date(year, 11, 31); // December 31st
 

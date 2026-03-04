@@ -18,6 +18,15 @@ export class EventsCalendarDataSyncService {
   private static readonly DYNAMODB_BATCH_WRITE_LIMIT = 25;
   private static readonly DYNAMODB_BATCH_GET_LIMIT = 100;
 
+  /**
+   * Compute the default year using the Oct 1 turnover rule:
+   * If current month is October or later, default to next year; otherwise current year.
+   */
+  private getDefaultYear(): number {
+    const now = new Date();
+    return now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+  }
+
   constructor(apiClient?: EventsCalendarApiClient, dbClient?: DynamoDBDocumentClient) {
     // Configure API client with parallelization settings from environment
     const maxConcurrentRequests = parseInt(process.env.API_MAX_CONCURRENT_REQUESTS || '10');
@@ -97,8 +106,7 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -115,7 +123,7 @@ export class EventsCalendarDataSyncService {
   /**
    * Sync all events for the entire year (including off-season)
    */
-  async syncFullYearEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
+  async syncFullYearEvents(year: number = this.getDefaultYear()): Promise<SyncResult> {
     console.log(`Starting full year sync for ${year}`);
 
     try {
@@ -195,7 +203,7 @@ export class EventsCalendarDataSyncService {
   /**
    * Sync all events for the Chautauqua season
    */
-  async syncAllSeasonEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
+  async syncAllSeasonEvents(year: number = this.getDefaultYear()): Promise<SyncResult> {
     console.log(`Starting full season sync for ${year}`);
 
     try {
@@ -231,8 +239,7 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -310,8 +317,7 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -334,7 +340,7 @@ export class EventsCalendarDataSyncService {
   /**
    * Perform daily sync (full season refresh)
    */
-  async performDailySync(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
+  async performDailySync(year: number = this.getDefaultYear()): Promise<SyncResult> {
     console.log('Starting daily full sync');
     return this.syncAllSeasonEvents(year);
   }
@@ -378,8 +384,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -770,7 +775,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
    * This ensures CloudFront can serve from S3 cache without invoking Lambda
    */
   private async warmCacheAfterSync(hasDataChanges: boolean, year?: number): Promise<void> {
-    const activeYear = year || parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+    const activeYear = year || this.getDefaultYear();
     console.log(`Starting cache warming for year ${activeYear} - hasDataChanges: ${hasDataChanges}`);
 
     try {
