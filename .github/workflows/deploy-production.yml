@@ -196,6 +196,63 @@ jobs:
           # Clean up
           rm -rf package_temp lambda-admin.zip admin-env.json
 
+      - name: Deploy sync Lambda functions
+        working-directory: ./backend
+        run: |
+          # Create a minimal package for sync handler with required dependencies
+          mkdir -p package_temp/node_modules
+
+          echo "Installing sync handler dependencies..."
+          cd package_temp
+
+          # Sync handler externalizes only AWS SDK modules (everything else is bundled by esbuild)
+          # Use the repo's lock file to ensure reproducible installs
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-sync",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/client-s3": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0"
+            }
+          }
+          EOF
+
+          npm install --omit=dev
+          cd ..
+
+          # Create package for sync handler
+          mkdir -p package_temp/dist
+          cp dist/syncHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-sync.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          # All sync functions share the same syncHandler.js (different exported handlers)
+          SYNC_FUNCTIONS=(
+            "chq-calendar-data-sync"
+            "chq-calendar-manual-sync"
+            "chq-calendar-sync-health"
+            "chq-calendar-sync-status"
+            "chq-calendar-sync-list"
+          )
+
+          for FUNC_NAME in "${SYNC_FUNCTIONS[@]}"; do
+            echo "Deploying sync code to ${FUNC_NAME}..."
+            aws lambda update-function-code \
+              --function-name "${FUNC_NAME}" \
+              --zip-file fileb://lambda-sync.zip
+
+            echo "Waiting for ${FUNC_NAME} to finish updating..."
+            aws lambda wait function-updated \
+              --function-name "${FUNC_NAME}"
+          done
+
+          # Clean up
+          rm -rf package_temp lambda-sync.zip
+
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
@@ -266,7 +323,7 @@ jobs:
           aws lambda invoke \
             --function-name chq-calendar-data-sync \
             --invocation-type Event \
-            --payload '{"source":"github.deployment","detail-type":"Deployment Sync"}' \
+            --payload '{"source":"chq-calendar.deployment","detail-type":"Weekly Full Sync"}' \
             /tmp/sync-response.json
 
           echo "Calendar sync triggered successfully - running in background to refresh cache data"
