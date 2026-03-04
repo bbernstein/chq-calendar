@@ -1,5 +1,6 @@
 export const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
 export const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+export const YEARS_MANIFEST_PATH = '/cache/calendar-cache/years.json';
 /**
  * Compute the default season year based on October 1 turnover.
  * Before Oct 1: current year. On/after Oct 1: next year.
