@@ -206,6 +206,7 @@ jobs:
           cd package_temp
 
           # Sync handler externalizes only AWS SDK modules (everything else is bundled by esbuild)
+          # Use the repo's lock file to ensure reproducible installs
           cat > package.json << 'EOF'
           {
             "name": "lambda-sync",
@@ -218,11 +219,8 @@ jobs:
           }
           EOF
 
-          npm install --omit=dev --no-package-lock
+          npm install --omit=dev
           cd ..
-
-          # Copy the original package.json back
-          cp package.json package_temp/package.json
 
           # Create package for sync handler
           mkdir -p package_temp/dist
