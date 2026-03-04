@@ -35,6 +35,7 @@ export interface GlobalEventData {
   tags: string[];
   weeks: number[];
   loadedAt: number | null;
+  year?: number;
   setGlobalEventData?: React.Dispatch<React.SetStateAction<GlobalEventData>>;
 }
 

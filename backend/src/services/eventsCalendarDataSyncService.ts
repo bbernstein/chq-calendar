@@ -4,7 +4,7 @@ import { MultiLayerCacheService } from './multiLayerCacheService';
 import { SyncStatusService } from './syncStatusService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 export class EventsCalendarDataSyncService {
   private apiClient: EventsCalendarApiClient;
@@ -998,7 +998,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     const startStr = start.toISOString().split('T')[0];
     const endStr = end.toISOString().split('T')[0];
 
-    console.log(`Performing near-term sync for ${startStr} to ${endStr}`);
+    console.log(`Performing near-term sync (year: ${year}) for ${startStr} to ${endStr}`);
     return this.syncDateRange(startStr, endStr);
   }
 
@@ -1028,22 +1028,27 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     const now = new Date();
     const defaultYear = now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
 
-    // Check which years have data by querying cache
+    // Check which years have data using HeadObject (cheaper than fetching full cache)
+    const bucket = process.env.CACHE_S3_BUCKET;
+    const prefix = process.env.CACHE_S3_KEY_PREFIX || 'cache/calendar-cache';
     const potentialYears: number[] = [];
     for (let year = 2025; year <= defaultYear + 1; year++) {
       potentialYears.push(year);
     }
 
     const availableYears: number[] = [];
-    for (const year of potentialYears) {
-      try {
-        const cacheKey = { filters: {}, year };
-        const data = await this.cacheService.get(cacheKey);
-        if (data && Array.isArray(data) && data.length > 0) {
+    if (bucket) {
+      const s3Client = this.cacheService.getS3Client();
+      for (const year of potentialYears) {
+        try {
+          await s3Client.send(new HeadObjectCommand({
+            Bucket: bucket,
+            Key: `${prefix}/all-events-${year}.json`,
+          }));
           availableYears.push(year);
+        } catch {
+          // Year doesn't have cached data
         }
-      } catch {
-        // Year doesn't have cached data
       }
     }
 
@@ -1058,8 +1063,6 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     };
 
     // Write manifest to S3
-    const bucket = process.env.CACHE_S3_BUCKET;
-    const prefix = process.env.CACHE_S3_KEY_PREFIX || 'cache/calendar-cache';
     if (bucket) {
       try {
         const s3Client = this.cacheService.getS3Client();

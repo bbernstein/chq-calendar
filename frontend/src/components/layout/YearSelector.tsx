@@ -41,7 +41,7 @@ export function YearSelector({ selectedYear, availableYears, defaultYear, onYear
       <button
         onClick={() => showDropdown && setIsOpen(!isOpen)}
         className={`ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs sm:text-sm font-medium rounded-full inline-flex items-center gap-1 ${showDropdown ? 'cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors' : 'cursor-default'}`}
-        aria-haspopup={showDropdown ? 'listbox' : undefined}
+        aria-haspopup={showDropdown ? 'menu' : undefined}
         aria-expanded={isOpen}
       >
         {selectedYear} Season
@@ -59,15 +59,15 @@ export function YearSelector({ selectedYear, availableYears, defaultYear, onYear
 
       {isOpen && (
         <div
-          role="listbox"
+          role="menu"
           className="absolute left-0 sm:left-2 mt-1 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-50 min-w-[160px] border border-gray-200 dark:border-gray-600"
           aria-label="Select season year"
         >
           {sortedYears.map((year) => (
             <button
               key={year}
-              role="option"
-              aria-selected={year === selectedYear}
+              role="menuitem"
+              aria-current={year === selectedYear ? 'true' : undefined}
               onClick={() => {
                 onYearChange(year);
                 setIsOpen(false);

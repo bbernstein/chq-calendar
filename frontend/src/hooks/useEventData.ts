@@ -27,7 +27,7 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
       }
     }
 
-    if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
+    if (!forceRefresh && globalEventData.events && globalEventData.loadedAt && globalEventData.year === year) {
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
       setAvailableCategories(globalEventData.categories.map(cat => decodeHtmlEntities(cat) || cat));
@@ -153,7 +153,8 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
             locations: sortedLocations,
             tags: sortedTags,
             weeks: weeks,
-            loadedAt: Date.now()
+            loadedAt: Date.now(),
+            year,
           });
         }
 

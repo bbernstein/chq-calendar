@@ -40,13 +40,17 @@ function HomeContent() {
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ year: selectedYear, globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
   const prevYearRef = useRef(selectedYear);
+  const pendingYearChangeRef = useRef(false);
   useEffect(() => {
     if (prevYearRef.current !== selectedYear) {
       prevYearRef.current = selectedYear;
-      // Reconcile after data loads for new year
-      if (!loading && events.length > 0) {
-        filters.reconcileFilters(filters.availableCategories, filters.availableLocations);
-      }
+      pendingYearChangeRef.current = true;
+      return;
+    }
+    // Reconcile once the new year's data has finished loading
+    if (pendingYearChangeRef.current && !loading && events.length > 0) {
+      filters.reconcileFilters(filters.availableCategories, filters.availableLocations);
+      pendingYearChangeRef.current = false;
     }
   }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations]);
   useEffect(() => {
