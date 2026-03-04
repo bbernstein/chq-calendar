@@ -31,6 +31,7 @@ type FilterAction =
   | { type: 'TOGGLE_FAVORITES_ONLY' }
   | { type: 'ADD_EXTRA_DAY' }
   | { type: 'CLEAR_EXTRA_DAYS' }
+  | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[] } }
   | { type: 'CLEAR_FILTERS' }
   | { type: 'LOAD_STATE'; payload: Partial<FilterState> }
   | { type: 'INIT' };
@@ -86,6 +87,19 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       return { ...state, extraDays: state.extraDays + 1 };
     case 'CLEAR_EXTRA_DAYS':
       return { ...state, extraDays: 0 };
+    case 'RECONCILE_FILTERS': {
+      const { availableCategories, availableLocations } = action.payload;
+      const availCatsLower = new Set(availableCategories.map(c => c.toLowerCase()));
+      const availLocsLower = new Set(availableLocations.map(l => l.toLowerCase()));
+      return {
+        ...state,
+        selectedTags: state.selectedTags.filter(t => availCatsLower.has(t.toLowerCase())),
+        selectedLocations: state.selectedLocations.filter(l => availLocsLower.has(l.toLowerCase())),
+        selectedWeeks: [],
+        dateFilter: 'next' as DateFilter,
+        extraDays: 0,
+      };
+    }
     case 'CLEAR_FILTERS':
       return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [], showFavoritesOnly: false, extraDays: 0 };
     case 'LOAD_STATE':
@@ -128,6 +142,11 @@ export function useFilterState() {
   const toggleFavoritesOnly = useCallback(() => dispatch({ type: 'TOGGLE_FAVORITES_ONLY' }), []);
   const addExtraDay = useCallback(() => dispatch({ type: 'ADD_EXTRA_DAY' }), []);
   const clearFilters = useCallback(() => dispatch({ type: 'CLEAR_FILTERS' }), []);
+  const reconcileFilters = useCallback(
+    (availableCategories: string[], availableLocations: string[]) =>
+      dispatch({ type: 'RECONCILE_FILTERS', payload: { availableCategories, availableLocations } }),
+    []
+  );
 
   const isTagSelected = useCallback((tag: string) =>
     state.selectedTags.some(t => t.toLowerCase() === tag.toLowerCase()),
@@ -210,5 +229,6 @@ export function useFilterState() {
     toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected, clearFilters,
     showFavoritesOnly: state.showFavoritesOnly, toggleFavoritesOnly,
     extraDays: state.extraDays, addExtraDay,
+    reconcileFilters,
   };
 }

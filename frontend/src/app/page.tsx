@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -39,6 +39,16 @@ function HomeContent() {
     locationListScroll.updateScrollState(); categoryListScroll.updateScrollState();
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ year: selectedYear, globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
+  const prevYearRef = useRef(selectedYear);
+  useEffect(() => {
+    if (prevYearRef.current !== selectedYear) {
+      prevYearRef.current = selectedYear;
+      // Reconcile after data loads for new year
+      if (!loading && events.length > 0) {
+        filters.reconcileFilters(filters.availableCategories, filters.availableLocations);
+      }
+    }
+  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations]);
   useEffect(() => {
     document.title = `Chautauqua Calendar | ${selectedYear} Season`;
   }, [selectedYear]);
