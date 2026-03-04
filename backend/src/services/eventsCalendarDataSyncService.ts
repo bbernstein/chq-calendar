@@ -4,6 +4,7 @@ import { MultiLayerCacheService } from './multiLayerCacheService';
 import { SyncStatusService } from './syncStatusService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 
 export class EventsCalendarDataSyncService {
   private apiClient: EventsCalendarApiClient;
@@ -836,6 +837,9 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
         }
       }
 
+      // Generate years manifest after cache warming
+      await this.generateYearsManifest();
+
       console.log('Cache warming completed successfully');
     } catch (error) {
       console.error('Cache warming failed:', error);
@@ -972,6 +976,99 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     } catch (error) {
       console.error('Error querying events for cache warming:', error);
       return [];
+    }
+  }
+
+  /**
+   * Sync near-term events: 7 days in the past through 14 days ahead.
+   * Used for hourly sync during the summer season (June-August).
+   */
+  async syncNearTerm(year: number): Promise<SyncResult> {
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(start.getDate() - 7);
+    const end = new Date(now);
+    end.setDate(end.getDate() + 14);
+
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end.toISOString().split('T')[0];
+
+    console.log(`Performing near-term sync for ${startStr} to ${endStr}`);
+    return this.syncDateRange(startStr, endStr);
+  }
+
+  /**
+   * Sync distant future events for current year (full year) and all of next year.
+   * Used for daily sync.
+   */
+  async syncDistantFuture(currentYear: number, nextYear: number): Promise<{
+    currentYear: SyncResult;
+    nextYear: SyncResult;
+  }> {
+    console.log(`Performing distant future sync: current year ${currentYear}, next year ${nextYear}`);
+    const currentResult = await this.syncFullYearEvents(currentYear);
+    const nextResult = await this.syncFullYearEvents(nextYear);
+
+    return {
+      currentYear: currentResult,
+      nextYear: nextResult,
+    };
+  }
+
+  /**
+   * Generate a years.json manifest listing which years have cached event data.
+   * Written to S3 so the frontend can discover available years.
+   */
+  private async generateYearsManifest(): Promise<void> {
+    const now = new Date();
+    const defaultYear = now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+
+    // Check which years have data by querying cache
+    const potentialYears: number[] = [];
+    for (let year = 2025; year <= defaultYear + 1; year++) {
+      potentialYears.push(year);
+    }
+
+    const availableYears: number[] = [];
+    for (const year of potentialYears) {
+      try {
+        const cacheKey = { filters: {}, year };
+        const data = await this.cacheService.get(cacheKey);
+        if (data && Array.isArray(data) && data.length > 0) {
+          availableYears.push(year);
+        }
+      } catch {
+        // Year doesn't have cached data
+      }
+    }
+
+    if (availableYears.length === 0) {
+      availableYears.push(defaultYear);
+    }
+
+    const manifest = {
+      years: availableYears.sort((a, b) => a - b),
+      defaultYear,
+      generated: new Date().toISOString(),
+    };
+
+    // Write manifest to S3
+    const bucket = process.env.CACHE_S3_BUCKET;
+    const prefix = process.env.CACHE_S3_KEY_PREFIX || 'cache/calendar-cache';
+    if (bucket) {
+      try {
+        const s3Client = this.cacheService.getS3Client();
+        await s3Client.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: `${prefix}/years.json`,
+          Body: JSON.stringify(manifest),
+          ContentType: 'application/json',
+          CacheControl: 'public, max-age=3600',
+        }));
+        console.log(`Years manifest written: ${JSON.stringify(manifest)}`);
+      } catch (error) {
+        console.error('Failed to write years manifest:', error);
+      }
     }
   }
 

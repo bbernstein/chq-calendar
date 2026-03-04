@@ -308,4 +308,11 @@ export class MultiLayerCacheService<T = any> {
     this.memoryCache.clear();
     console.log('All memory caches cleared');
   }
+
+  /**
+   * Get the S3 client instance for direct S3 operations (e.g., writing manifests)
+   */
+  getS3Client(): S3Client {
+    return this.s3Client;
+  }
 }

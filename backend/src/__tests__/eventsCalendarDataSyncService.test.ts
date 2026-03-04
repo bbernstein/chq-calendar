@@ -12,6 +12,7 @@ const mockApiClient = {
   getAllEventsInRange: jest.fn(),
   getSeasonEvents: jest.fn(),
   getNext7DaysEvents: jest.fn(),
+  getFullYearEvents: jest.fn(),
   healthCheck: jest.fn(),
   clearCache: jest.fn(),
 } as any;
@@ -643,6 +644,144 @@ describe('EventsCalendarDataSyncService', () => {
       expect(typeof stats.eventsByWeek).toBe('object');
       expect(typeof stats.eventsByCategory).toBe('object');
       expect(Array.isArray(stats.syncHistory)).toBe(true);
+    });
+  });
+
+  describe('syncNearTerm', () => {
+    it('should sync events for 7 days past through 14 days ahead', async () => {
+      const mockApiEvents = [
+        {
+          id: 1,
+          title: 'Near Term Event',
+          start_date: '2025-07-01T10:00:00',
+          end_date: '2025-07-01T11:00:00',
+          timezone: 'America/New_York',
+          categories: [],
+          status: 'publish',
+          featured: false,
+        },
+      ];
+
+      const mockTransformedEvent = {
+        id: 1,
+        uid: 'near-term-event-1',
+        title: 'Near Term Event',
+        startDate: '2025-07-01T10:00:00',
+        endDate: '2025-07-01T11:00:00',
+        timezone: 'America/New_York',
+        categories: [],
+        tags: [],
+        category: 'General',
+        week: 1,
+        dayOfWeek: 1,
+        confidence: 'confirmed',
+        syncStatus: 'synced',
+        lastModified: '2025-07-01T10:00:00',
+        source: 'events-calendar-api',
+        status: 'publish',
+        featured: false,
+        lastUpdated: new Date(),
+      };
+
+      mockApiClient.getAllEventsInRange.mockResolvedValue(mockApiEvents);
+      (EventTransformationService.transformApiEvents as jest.Mock).mockReturnValue([mockTransformedEvent]);
+
+      mockDbClient.send.mockImplementation((command: any) => {
+        if (command instanceof GetCommand) {
+          return Promise.resolve({ Item: null });
+        }
+        if (command instanceof PutCommand) {
+          return Promise.resolve({});
+        }
+        return Promise.resolve({});
+      });
+
+      const result = await syncService.syncNearTerm(2026);
+
+      expect(result.success).toBe(true);
+      expect(result.eventsProcessed).toBe(1);
+      expect(result.eventsCreated).toBe(1);
+      expect(mockApiClient.getAllEventsInRange).toHaveBeenCalled();
+
+      // Verify the date range passed covers -7 to +14 days
+      const callArgs = mockApiClient.getAllEventsInRange.mock.calls[0][0];
+      const startDate = new Date(callArgs.start);
+      const endDate = new Date(callArgs.end);
+      const diffDays = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
+      expect(diffDays).toBe(21); // 7 days back + 14 days forward = 21 day range
+    });
+
+    it('should handle errors during near-term sync', async () => {
+      mockApiClient.getAllEventsInRange.mockRejectedValue(new Error('Near-term sync error'));
+
+      const result = await syncService.syncNearTerm(2026);
+
+      expect(result.success).toBe(false);
+      expect(result.errors).toContain('Date range sync failed: Near-term sync error');
+    });
+  });
+
+  describe('syncDistantFuture', () => {
+    it('should sync events for current year and next year', async () => {
+      const mockApiEvents = [
+        {
+          id: 1,
+          title: 'Distant Future Event',
+          start_date: '2026-07-01T10:00:00',
+          end_date: '2026-07-01T11:00:00',
+          timezone: 'America/New_York',
+          categories: [],
+          status: 'publish',
+          featured: false,
+        },
+      ];
+
+      const mockTransformedEvent = {
+        id: 1,
+        uid: 'distant-future-event-1',
+        title: 'Distant Future Event',
+        startDate: '2026-07-01T10:00:00',
+        endDate: '2026-07-01T11:00:00',
+        timezone: 'America/New_York',
+        categories: [],
+        tags: [],
+        category: 'General',
+        week: 1,
+        dayOfWeek: 1,
+        confidence: 'confirmed',
+        syncStatus: 'synced',
+        lastModified: '2026-07-01T10:00:00',
+        source: 'events-calendar-api',
+        status: 'publish',
+        featured: false,
+        lastUpdated: new Date(),
+      };
+
+      // Mock the API client for getFullYearEvents (used by syncFullYearEvents)
+      mockApiClient.getFullYearEvents.mockResolvedValue(mockApiEvents);
+      (EventTransformationService.transformApiEvents as jest.Mock).mockReturnValue([mockTransformedEvent]);
+
+      mockDbClient.send.mockImplementation((command: any) => {
+        if (command instanceof GetCommand) {
+          return Promise.resolve({ Item: null });
+        }
+        if (command instanceof PutCommand) {
+          return Promise.resolve({});
+        }
+        if (command instanceof ScanCommand) {
+          return Promise.resolve({ Items: [] });
+        }
+        return Promise.resolve({});
+      });
+
+      const result = await syncService.syncDistantFuture(2026, 2027);
+
+      expect(result.currentYear).toBeDefined();
+      expect(result.nextYear).toBeDefined();
+      expect(result.currentYear.success).toBe(true);
+      expect(result.nextYear.success).toBe(true);
+      expect(mockApiClient.getFullYearEvents).toHaveBeenCalledWith(2026);
+      expect(mockApiClient.getFullYearEvents).toHaveBeenCalledWith(2027);
     });
   });
 

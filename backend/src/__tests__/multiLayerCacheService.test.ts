@@ -295,6 +295,14 @@ describe('MultiLayerCacheService', () => {
     });
   });
 
+  describe('getS3Client', () => {
+    it('should return the S3 client instance', () => {
+      const s3Client = cacheService.getS3Client();
+      expect(s3Client).toBeDefined();
+      expect(s3Client).toHaveProperty('send');
+    });
+  });
+
   describe('Error Handling and Edge Cases', () => {
     it('should handle undefined cache keys gracefully', async () => {
       mockS3Send.mockRejectedValueOnce(new Error('Not found') as any);
