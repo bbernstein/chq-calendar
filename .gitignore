@@ -58,6 +58,7 @@ backend/coverage/
 # Test data
 frontend/data/*
 frontend/public/data/*
+!frontend/public/data/years.json
 
 # Build outputs
 backend/dist-all/
