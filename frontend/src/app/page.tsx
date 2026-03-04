@@ -56,9 +56,11 @@ function HomeContent() {
     }
     // On initial load with a non-current year, reconcile to clear time-relative filters
     // (localStorage may have restored dateFilter:'next' from a previous current-year session)
-    if (initialLoadRef.current && !loading && events.length > 0) {
+    // Mark initial load complete once loading finishes, regardless of event count,
+    // to avoid stale ref causing double reconciliation on subsequent year switches.
+    if (initialLoadRef.current && !loading) {
       initialLoadRef.current = false;
-      if (!isCurrentYear && (filters.dateFilter === 'next' || filters.dateFilter === 'today' || filters.dateFilter === 'this-week')) {
+      if (!isCurrentYear && events.length > 0 && (filters.dateFilter === 'next' || filters.dateFilter === 'today' || filters.dateFilter === 'this-week')) {
         filters.reconcileFilters(filters.availableCategories, filters.availableLocations, false);
       }
     }
