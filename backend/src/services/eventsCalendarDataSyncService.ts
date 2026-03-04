@@ -4,6 +4,7 @@ import { MultiLayerCacheService } from './multiLayerCacheService';
 import { SyncStatusService } from './syncStatusService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 export class EventsCalendarDataSyncService {
   private apiClient: EventsCalendarApiClient;
@@ -16,6 +17,15 @@ export class EventsCalendarDataSyncService {
   // AWS service limits
   private static readonly DYNAMODB_BATCH_WRITE_LIMIT = 25;
   private static readonly DYNAMODB_BATCH_GET_LIMIT = 100;
+
+  /**
+   * Compute the default year using the Oct 1 turnover rule:
+   * If current month is October or later, default to next year; otherwise current year.
+   */
+  private getDefaultYear(): number {
+    const now = new Date();
+    return now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+  }
 
   constructor(apiClient?: EventsCalendarApiClient, dbClient?: DynamoDBDocumentClient) {
     // Configure API client with parallelization settings from environment
@@ -96,8 +106,7 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -114,7 +123,7 @@ export class EventsCalendarDataSyncService {
   /**
    * Sync all events for the entire year (including off-season)
    */
-  async syncFullYearEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
+  async syncFullYearEvents(year: number = this.getDefaultYear()): Promise<SyncResult> {
     console.log(`Starting full year sync for ${year}`);
 
     try {
@@ -194,7 +203,7 @@ export class EventsCalendarDataSyncService {
   /**
    * Sync all events for the Chautauqua season
    */
-  async syncAllSeasonEvents(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
+  async syncAllSeasonEvents(year: number = this.getDefaultYear()): Promise<SyncResult> {
     console.log(`Starting full season sync for ${year}`);
 
     try {
@@ -230,8 +239,7 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -309,8 +317,7 @@ export class EventsCalendarDataSyncService {
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -333,7 +340,7 @@ export class EventsCalendarDataSyncService {
   /**
    * Perform daily sync (full season refresh)
    */
-  async performDailySync(year: number = parseInt(process.env.ACTIVE_YEAR || '2026')): Promise<SyncResult> {
+  async performDailySync(year: number = this.getDefaultYear()): Promise<SyncResult> {
     console.log('Starting daily full sync');
     return this.syncAllSeasonEvents(year);
   }
@@ -377,8 +384,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
       // Warm S3 cache after successful sync
       if (result.success) {
         const hasDataChanges = result.eventsCreated > 0 || result.eventsUpdated > 0 || result.eventsDeleted > 0;
-        const year = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-        await this.warmCacheAfterSync(hasDataChanges, year);
+        await this.warmCacheAfterSync(hasDataChanges, this.getDefaultYear());
       }
 
       return result;
@@ -769,7 +775,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
    * This ensures CloudFront can serve from S3 cache without invoking Lambda
    */
   private async warmCacheAfterSync(hasDataChanges: boolean, year?: number): Promise<void> {
-    const activeYear = year || parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
+    const activeYear = year || this.getDefaultYear();
     console.log(`Starting cache warming for year ${activeYear} - hasDataChanges: ${hasDataChanges}`);
 
     try {
@@ -835,6 +841,9 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
           // Continue with next cache key even if one fails
         }
       }
+
+      // Generate years manifest after cache warming
+      await this.generateYearsManifest();
 
       console.log('Cache warming completed successfully');
     } catch (error) {
@@ -972,6 +981,102 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     } catch (error) {
       console.error('Error querying events for cache warming:', error);
       return [];
+    }
+  }
+
+  /**
+   * Sync near-term events: 7 days in the past through 14 days ahead.
+   * Used for hourly sync during the summer season (June-August).
+   */
+  async syncNearTerm(year: number): Promise<SyncResult> {
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(start.getDate() - 7);
+    const end = new Date(now);
+    end.setDate(end.getDate() + 14);
+
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end.toISOString().split('T')[0];
+
+    console.log(`Performing near-term sync (year: ${year}) for ${startStr} to ${endStr}`);
+    return this.syncDateRange(startStr, endStr);
+  }
+
+  /**
+   * Sync distant future events for current year (full year) and all of next year.
+   * Used for daily sync.
+   */
+  async syncDistantFuture(currentYear: number, nextYear: number): Promise<{
+    currentYear: SyncResult;
+    nextYear: SyncResult;
+  }> {
+    console.log(`Performing distant future sync: current year ${currentYear}, next year ${nextYear}`);
+    const currentResult = await this.syncFullYearEvents(currentYear);
+    const nextResult = await this.syncFullYearEvents(nextYear);
+
+    return {
+      currentYear: currentResult,
+      nextYear: nextResult,
+    };
+  }
+
+  /**
+   * Generate a years.json manifest listing which years have cached event data.
+   * Written to S3 so the frontend can discover available years.
+   */
+  private async generateYearsManifest(): Promise<void> {
+    const now = new Date();
+    const defaultYear = now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+
+    // Check which years have data using HeadObject (cheaper than fetching full cache)
+    const bucket = process.env.CACHE_S3_BUCKET;
+    const prefix = process.env.CACHE_S3_KEY_PREFIX || 'cache/calendar-cache';
+    const potentialYears: number[] = [];
+    for (let year = 2025; year <= defaultYear + 1; year++) {
+      potentialYears.push(year);
+    }
+
+    const availableYears: number[] = [];
+    if (bucket) {
+      const s3Client = this.cacheService.getS3Client();
+      for (const year of potentialYears) {
+        try {
+          await s3Client.send(new HeadObjectCommand({
+            Bucket: bucket,
+            Key: `${prefix}/all-events-${year}.json`,
+          }));
+          availableYears.push(year);
+        } catch {
+          // Year doesn't have cached data
+        }
+      }
+    }
+
+    if (availableYears.length === 0) {
+      availableYears.push(defaultYear);
+    }
+
+    const manifest = {
+      years: availableYears.sort((a, b) => a - b),
+      defaultYear,
+      generated: new Date().toISOString(),
+    };
+
+    // Write manifest to S3
+    if (bucket) {
+      try {
+        const s3Client = this.cacheService.getS3Client();
+        await s3Client.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: `${prefix}/years.json`,
+          Body: JSON.stringify(manifest),
+          ContentType: 'application/json',
+          CacheControl: 'public, max-age=3600',
+        }));
+        console.log(`Years manifest written: ${JSON.stringify(manifest)}`);
+      } catch (error) {
+        console.error('Failed to write years manifest:', error);
+      }
     }
   }
 

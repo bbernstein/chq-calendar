@@ -1,31 +1,33 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Event, GlobalEventData, SeasonWeek } from '@/lib/types';
-import { CACHE_EXPIRY_MS, ACTIVE_YEAR, getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
+import { CACHE_EXPIRY_MS, getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
 import { decodeHtmlEntities, decodeEventHtmlEntities } from '@/lib/utils/eventHelpers';
 
 interface UseEventDataProps {
+  year: number;
   globalEventData: GlobalEventData;
   seasonWeeks: SeasonWeek[];
   setAvailableCategories: (categories: string[]) => void;
   setAvailableLocations: (locations: string[]) => void;
 }
 
-export function useEventData({ globalEventData, seasonWeeks, setAvailableCategories, setAvailableLocations }: UseEventDataProps) {
+export function useEventData({ year, globalEventData, seasonWeeks, setAvailableCategories, setAvailableLocations }: UseEventDataProps) {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
+  const cacheKey = `chq-calendar-events-${year}`;
 
   const fetchAllEvents = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
       try {
-        localStorage.removeItem('chq-calendar-events');
+        localStorage.removeItem(cacheKey);
       } catch (e) {
         console.warn('Failed to clear localStorage:', e);
       }
     }
 
-    if (!forceRefresh && globalEventData.events && globalEventData.loadedAt) {
+    if (!forceRefresh && globalEventData.events && globalEventData.loadedAt && globalEventData.year === year) {
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
       setAvailableCategories(globalEventData.categories.map(cat => decodeHtmlEntities(cat) || cat));
@@ -42,7 +44,7 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
 
     if (!forceRefresh) {
       try {
-        const cachedData = localStorage.getItem('chq-calendar-events');
+        const cachedData = localStorage.getItem(cacheKey);
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
           if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v3-categories') {
@@ -54,7 +56,7 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
             isLoadingRef.current = false;
             return;
           } else {
-            localStorage.removeItem('chq-calendar-events');
+            localStorage.removeItem(cacheKey);
           }
         }
       } catch (e) {
@@ -66,8 +68,8 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
     try {
       const response = await fetch(
         import.meta.env.DEV
-          ? `/data/all-events-${ACTIVE_YEAR}.json`
-          : `/cache/calendar-cache/all-events-${ACTIVE_YEAR}.json`,
+          ? `/data/all-events-${year}.json`
+          : `/cache/calendar-cache/all-events-${year}.json`,
         {
           method: 'GET',
           headers: {
@@ -151,12 +153,13 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
             locations: sortedLocations,
             tags: sortedTags,
             weeks: weeks,
-            loadedAt: Date.now()
+            loadedAt: Date.now(),
+            year,
           });
         }
 
         try {
-          localStorage.setItem('chq-calendar-events', JSON.stringify({
+          localStorage.setItem(cacheKey, JSON.stringify({
             events: fetchedEvents,
             categories: sortedCategories,
             locations: sortedLocations,
@@ -177,7 +180,13 @@ export function useEventData({ globalEventData, seasonWeeks, setAvailableCategor
       setLoading(false);
       isLoadingRef.current = false;
     }
-  }, [dataLoaded, globalEventData, seasonWeeks, setAvailableCategories, setAvailableLocations]);
+  }, [year, cacheKey, dataLoaded, globalEventData, seasonWeeks, setAvailableCategories, setAvailableLocations]);
+
+  useEffect(() => {
+    setDataLoaded(false);
+    setEvents([]);
+    isLoadingRef.current = false;
+  }, [year]);
 
   useEffect(() => {
     fetchAllEvents();

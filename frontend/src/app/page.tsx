@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from 'react';
-import { ACTIVE_YEAR } from '@/lib/constants';
+import { useEffect, useMemo, useRef } from 'react';
+import { useAvailableYears } from '@/hooks/useAvailableYears';
+import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
@@ -21,8 +22,10 @@ import { ActiveFilters } from '@/components/filters/ActiveFilters';
 import { EventList } from '@/components/calendar/EventList';
 
 function HomeContent() {
+  const { years: availableYears, defaultYear } = useAvailableYears();
+  const { selectedYear, setSelectedYear } = useSelectedYear({ years: availableYears, defaultYear });
   const globalEventData = useGlobalEventData();
-  const seasonWeeks = useMemo(() => getChautauquaSeasonWeeks(ACTIVE_YEAR), []);
+  const seasonWeeks = useMemo(() => getChautauquaSeasonWeeks(selectedYear), [selectedYear]);
   const currentWeekNumber = useMemo(() => getCurrentWeekNumber(seasonWeeks), [seasonWeeks]);
   const filters = useFilterState();
   const favorites = useFavorites();
@@ -35,7 +38,24 @@ function HomeContent() {
     locationScroll.updateScrollState(); categoryScroll.updateScrollState();
     locationListScroll.updateScrollState(); categoryListScroll.updateScrollState();
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
-  const { events, loading } = useEventData({ globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
+  const { events, loading } = useEventData({ year: selectedYear, globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
+  const prevYearRef = useRef(selectedYear);
+  const pendingYearChangeRef = useRef(false);
+  useEffect(() => {
+    if (prevYearRef.current !== selectedYear) {
+      prevYearRef.current = selectedYear;
+      pendingYearChangeRef.current = true;
+      return;
+    }
+    // Reconcile once the new year's data has finished loading
+    if (pendingYearChangeRef.current && !loading && events.length > 0) {
+      filters.reconcileFilters(filters.availableCategories, filters.availableLocations);
+      pendingYearChangeRef.current = false;
+    }
+  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations]);
+  useEffect(() => {
+    document.title = `Chautauqua Calendar | ${selectedYear} Season`;
+  }, [selectedYear]);
   const debouncedSearch = useDebounce(filters.searchTerm, 200);
   const adaptiveEndDate = useMemo(() => {
     if (filters.dateFilter !== 'next' || !events.length) return undefined;
@@ -69,8 +89,13 @@ function HomeContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <Header />
-      <CountdownBanner seasonWeeks={seasonWeeks} />
+      <Header
+        selectedYear={selectedYear}
+        availableYears={availableYears}
+        defaultYear={defaultYear}
+        onYearChange={setSelectedYear}
+      />
+      {selectedYear === defaultYear && <CountdownBanner seasonWeeks={seasonWeeks} />}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6">
           <div className="p-2 sm:p-4">
@@ -116,7 +141,7 @@ function HomeContent() {
       </main>
       <footer className="bg-gray-800 text-white mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
-          <p className="text-gray-400">© 2026 Chautauqua Calendar by Bernie and Claude</p>
+          <p className="text-gray-400">&copy; {new Date().getFullYear()} Chautauqua Calendar by Bernie and Claude</p>
         </div>
       </footer>
     </div>

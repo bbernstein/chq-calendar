@@ -20,34 +20,54 @@ const syncService = new EventsCalendarDataSyncService(undefined, docClient);
 const statusService = new SyncStatusService(docClient);
 
 /**
+ * Compute the default year using the Oct 1 turnover rule:
+ * If current month is October or later, default to next year; otherwise current year.
+ */
+function getDefaultYear(): number {
+  const now = new Date();
+  return now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+}
+
+/**
  * Scheduled sync handler - triggered by EventBridge rules
  */
 export const scheduledSyncHandler = async (event: any, context: Context): Promise<void> => {
   console.log('Starting scheduled sync operation:', JSON.stringify(event));
 
   try {
-    let result;
+    const defaultYear = getDefaultYear();
     const detailType = event['detail-type'];
 
-    // Get the active year from environment variable or default to current year
-    const activeYear = parseInt(process.env.ACTIVE_YEAR || new Date().getFullYear().toString());
-    console.log(`Active year configured as: ${activeYear}`);
+    if (detailType === 'Hourly Sync') {
+      // Hourly: only runs June-August, syncs near-term events
+      const currentMonth = new Date().getMonth(); // 0-indexed
+      if (currentMonth < 5 || currentMonth > 7) {
+        console.log(`Skipping hourly sync — current month ${currentMonth + 1} is outside June–August`);
+        return;
+      }
+      console.log(`Performing hourly near-term sync for ${defaultYear}`);
+      const result = await syncService.syncNearTerm(defaultYear);
+      console.log('Hourly sync completed:', result);
 
-    if (detailType === 'Weekly Full Sync') {
-      console.log(`Performing weekly full year sync for ${activeYear}`);
-      // Use full year sync instead of just season
-      result = await syncService.syncFullYearEvents(activeYear);
     } else if (detailType === 'Daily Sync') {
-      console.log(`Performing daily sync for year ${activeYear}`);
-      // Daily sync also uses full year
-      result = await syncService.syncFullYearEvents(activeYear);
-    } else {
-      // Default to hourly sync (incremental)
-      console.log('Performing hourly incremental sync');
-      result = await syncService.performIncrementalSync();
-    }
+      console.log(`Performing daily sync: current year ${defaultYear}, next year ${defaultYear + 1}`);
+      const result = await syncService.syncDistantFuture(defaultYear, defaultYear + 1);
+      console.log('Daily sync completed:', result);
 
-    console.log('Sync completed:', result);
+    } else if (detailType === 'Weekly Full Sync') {
+      // Full refresh: all years that may have data
+      console.log('Performing weekly full sync');
+      for (const year of [defaultYear - 1, defaultYear, defaultYear + 1]) {
+        console.log(`Full sync for year ${year}`);
+        await syncService.syncFullYearEvents(year);
+      }
+
+    } else {
+      // Default: incremental sync
+      console.log('Performing incremental sync');
+      const result = await syncService.performIncrementalSync();
+      console.log('Incremental sync completed:', result);
+    }
   } catch (error) {
     console.error('Sync failed:', error);
     throw error;
