@@ -32,7 +32,14 @@ export async function runCli(argv: string[]): Promise<number> {
     console.error('Usage: chq-validate-feed <path-or-url>');
     return 2;
   }
-  const { body, isHtml } = await loadInput(arg);
+  let body: string;
+  let isHtml: boolean;
+  try {
+    ({ body, isHtml } = await loadInput(arg));
+  } catch (e) {
+    console.error(`Could not read "${arg}": ${(e as Error).message}`);
+    return 1;
+  }
   let report: ValidationReport;
   if (isHtml) {
     const ex = extractFromHtml(body);
@@ -48,7 +55,12 @@ export async function runCli(argv: string[]): Promise<number> {
       console.error(`Could not parse JSON: ${(e as Error).message}`);
       return 1;
     }
-    report = validateFeed(parsed);
+    try {
+      report = validateFeed(parsed);
+    } catch (e) {
+      console.error(`Validation failed: ${(e as Error).message}`);
+      return 1;
+    }
   }
   printReport(report);
   return report.ok ? 0 : 1;

@@ -107,7 +107,7 @@ export function extractFromHtml(html: string, opts: ExtractOptions = {}): Extrac
 
   const publisher: PublisherInfo | null = eventsBlocks[0]?.publisher ?? pagePublisher;
   if (publisher == null) {
-    return { feed: { formatVersion: '1.0', publisher: { id: '', name: '', contactEmail: '' }, events: [] }, errors: [] };
+    return { feed: null, errors: [{ path: '/', message: 'No chq-publisher, chq-events, or chq-event comments found on the page.', code: 'no-feed-content' }] };
   }
 
   const allEvents = [...events, ...eventsBlocks.flatMap(b => b.events)];

@@ -128,7 +128,7 @@ A full example is at [`examples/aggregator-page.html`](./examples/aggregator-pag
 Run the validator against your file or URL:
 
 ```bash
-npx @chq-calendar/publisher-format <path-or-url>
+npx -p @chq-calendar/publisher-format chq-validate-feed <path-or-url>
 ```
 
 It prints `OK` plus the event count, or a list of errors with JSON-Pointer paths into the offending field. Fix and re-run until it's green; we run the same validator at ingest.

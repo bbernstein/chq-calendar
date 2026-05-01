@@ -8,8 +8,23 @@ interface RawEvent {
   venue?: { id?: number | string; name?: string; address?: string };
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+};
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => NAMED_ENTITIES[name] ?? m);
+}
+
+function normalize(input: string): string {
+  return decodeHtmlEntities(input).trim();
+}
+
 function slugify(input: string): string {
-  return input.toLowerCase().trim()
+  return normalize(input).toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
@@ -22,17 +37,18 @@ function deriveFromCache(cachePath: string) {
 
   for (const ev of events) {
     if (Array.isArray(ev.categories)) {
-      for (const c of ev.categories) if (c?.name) categorySet.add(c.name.trim());
+      for (const c of ev.categories) if (c?.name) categorySet.add(normalize(c.name));
     }
-    if (ev.category) categorySet.add(ev.category.trim());
+    if (ev.category) categorySet.add(normalize(ev.category));
 
     if (ev.venue?.name) {
-      const id = slugify(ev.venue.name);
+      const name = normalize(ev.venue.name);
+      const id = slugify(name);
       if (!venueMap.has(id)) {
         venueMap.set(id, {
           id,
-          name: ev.venue.name.trim(),
-          ...(ev.venue.address ? { address: ev.venue.address } : {}),
+          name,
+          ...(ev.venue.address ? { address: normalize(ev.venue.address) } : {}),
         });
       }
     }
