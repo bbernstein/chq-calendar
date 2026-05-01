@@ -1,0 +1,30 @@
+name: Validate publisher feed examples
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'tools/publisher-format/**'
+      - 'docs/publisher/**'
+      - '.github/workflows/validate-publisher-examples.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install
+        run: npm ci
+      - name: Build publisher-format
+        run: cd tools/publisher-format && npm run build
+      - name: Run unit tests
+        run: cd tools/publisher-format && npm test
+      - name: Validate example feeds
+        run: |
+          set -e
+          for f in docs/publisher/examples/*.json docs/publisher/examples/*.html; do
+            node tools/publisher-format/dist/cli.js "$f"
+          done
