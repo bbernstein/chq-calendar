@@ -91,7 +91,7 @@ A feed is a JSON object with publisher metadata and an array of events:
 | `startDate` | ISO 8601 datetime with offset | yes | Timezone offset is **required** (e.g., `-04:00`). Naive timestamps are rejected. |
 | `endDate` | ISO 8601 datetime with offset | yes | Must be ≥ `startDate`. |
 | `category` | string | yes | Must be one value from the published CHQ category vocabulary (see §5). |
-| `status` | enum | yes | One of `"scheduled"`, `"cancelled"`, `"rescheduled"`. See §4.4. |
+| `status` | enum | no | One of `"scheduled"`, `"cancelled"`, `"rescheduled"`. Defaults to `"scheduled"` if omitted. Optional and informational — see §2.4 and §4.4. |
 | `lastModified` | ISO 8601 datetime with offset | yes | Updated by the publisher whenever any event field changes. The ingester uses this to detect updates without diffing. |
 | `description` | string | no | Plain text or limited HTML (see §2.5). |
 | `venueId` | string | no | One of the canonical CHQ venue IDs (see §5). Mutually exclusive with `venue`. |
@@ -116,12 +116,14 @@ Exactly one of `venueId` or `venue` may be present. Events with neither are reje
 - `endDate` must be greater than or equal to `startDate`.
 - All-day events: encode as `T00:00:00` to `T23:59:59` in the publisher's local timezone. (No separate "all-day" flag in v1.0.)
 
-### 2.4 Identity, updates, and cancellation
+### 2.4 Identity, updates, and removal
 
 - **Identity:** `(publisherId, eventId)` is the global key. An event ID must be stable across publishes — the same occurrence keeps the same ID even if the title or time changes.
 - **Updates:** when any field changes, the publisher updates `lastModified`. The ingester compares stored vs. incoming `lastModified` and applies the update if newer.
-- **Cancellation:** publishers set `status: "cancelled"` and bump `lastModified`. They **keep** the event in the feed for at least 30 days after the original `startDate` so consumers see the cancellation. The ingester does **not** infer cancellation from absence (an event vanishing from the feed is treated as "no longer published" but does not retroactively cancel an event that already happened or was already in users' subscriptions — see §4.4).
-- **Reschedule:** publishers set `status: "rescheduled"` and update `startDate`/`endDate`. The cancellation/reschedule distinction is informational for the UI; both keep the event record alive.
+- **Reschedule (preferred path):** the publisher updates `startDate`/`endDate` (and bumps `lastModified`) on the same event ID, optionally setting `status: "rescheduled"` to communicate the change in the UI. The event keeps the same record.
+- **Cancellation (preferred path):** the publisher sets `status: "cancelled"` and bumps `lastModified`. The event remains visible in the calendar with a "Cancelled" treatment.
+- **Removal (default path):** if a publisher simply deletes an event from their feed, the ingester removes future events that are absent from the feed (see §4.4). Past events that are absent are left untouched (they are historical record). This means publishers who do not follow the "set status to cancelled" discipline still get correct behavior — silent deletion just propagates.
+- The `status: "cancelled"` and `status: "rescheduled"` paths are **optional and informational**. Publishers who use them get a richer UI treatment (e.g., struck-through cards, "moved to …" banners). Publishers who don't get correct removal/update behavior automatically.
 
 ### 2.5 Description content
 
@@ -236,9 +238,27 @@ For each event in the validated feed:
 - If it is in storage and incoming `lastModified` is newer → **update**.
 - If it is in storage and incoming `lastModified` is older or equal → **no-op**.
 
-Events stored under this publisher but **absent** from the current feed are **not** auto-cancelled. They retain their last-known state. (This avoids accidental cancellation when a publisher accidentally publishes an empty file or filters out past events.)
+Then for each event stored under this publisher that is **absent** from the current feed:
 
-For genuine cancellations the publisher must include the event in the feed with `status: "cancelled"`.
+- If `startDate < now` → **leave untouched.** The event is historical record. Publishers commonly prune past events from their listings, and that pruning must not affect the calendar's history.
+- If `startDate >= now` → **mark for removal.** A publisher silently deleting a future event from their feed is the most common way they will signal "this isn't happening." We honor that.
+
+#### Sanity threshold
+
+Before applying the marked removals, the ingester checks a sanity threshold to catch accidents (empty file, broken CMS export, stub page returned by a misconfigured server):
+
+- Let `R` = number of future events marked for removal in this fetch.
+- Let `F` = number of future events stored for this publisher *before* this fetch.
+- If `R > max(0.5 * F, 5)` → **halt reconciliation.** Storage is left untouched (no inserts, updates, or removals from this fetch are applied). The pending change set is recorded in the admin dashboard with a clear summary ("Publisher X's last fetch would remove N of M future events"), and the admin + publisher contact are notified. Subsequent fetches that produce the same removal set continue to be blocked until the admin explicitly approves in the dashboard, at which point the pending fetch is applied and normal cadence resumes.
+- Otherwise → apply the removals normally.
+
+#### Interaction with `status: "cancelled"` and `status: "rescheduled"`
+
+These statuses remain valid and useful for publishers who want to actively communicate the change rather than silently remove. They are not required for correct behavior. Specifically:
+
+- A publisher who sets `status: "cancelled"` keeps the event in their feed; the ingester applies the update and the calendar UI shows a cancelled treatment.
+- A publisher who deletes the event from their feed produces the same end-user effect (event no longer on the calendar), but with no cancelled treatment — the event simply disappears.
+- A publisher who reschedules by updating `startDate` on the same event ID gets a clean update; setting `status: "rescheduled"` lets the UI signal the change to users.
 
 ### 4.5 Trust tiers
 
