@@ -9,7 +9,8 @@
   },
   "engines": { "node": ">=22.0.0" },
   "scripts": {
-    "build": "tsc",
+    "copy-schema": "cp src/feed.schema.json ../../docs/publisher/feed.schema.json",
+    "build": "tsc && npm run copy-schema",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint src/",
