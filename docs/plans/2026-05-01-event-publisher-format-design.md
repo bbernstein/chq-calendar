@@ -22,6 +22,35 @@
 - Not a recurrence engine. Publishers expand recurring events themselves (a publisher-side helper tool may be built later, but it is out of scope here).
 - Not a federated or real-time push system. Ingestion is a scheduled pull from registered publisher URLs.
 - Not a redesign of the existing `Event` shape that the frontend consumes. This format feeds into the existing pipeline; the pipeline transforms feed events into the existing internal `EventData` / `Event` types.
+- **Not a replacement for, or modification of, the existing chq.org primary events feed.** The publisher-feed pipeline is strictly additive — see §1.1.
+
+### 1.1 Isolation guarantee: do not break the primary feed
+
+The existing chq.org → `syncHandler` → DynamoDB → `all-events.json` pipeline is the authoritative source of CHQ programming and must not be affected by this work, either at runtime or during development. The publisher-feed pipeline is built as a parallel, additive layer with the following hard rules:
+
+**Runtime isolation**
+
+- **Separate Lambda.** The publisher-feed ingester is a new Lambda (working name `publisherIngestHandler`). The existing `syncHandler` is not modified to support publisher feeds and does not call into publisher-ingest code.
+- **Separate DynamoDB partitioning.** Publisher events are stored under a distinct partition key prefix (e.g., `PUB#<publisherId>`) that does not collide with the partition keys used by primary chq.org events. The primary table schema is not modified.
+- **Separate published cache file.** The frontend already fetches `/cache/calendar-cache/all-events.json`. That file continues to contain **only** the primary chq.org events, byte-for-byte unchanged in shape and ordering. Publisher events are written to a new sidecar file: `/cache/calendar-cache/publisher-events.json`. The frontend fetches both, then merges client-side at render time. This means a bug in publisher ingest cannot corrupt the primary cache — at worst, the sidecar file is missing or stale and the calendar falls back to primary-only.
+- **Independent failure modes.** A failure in the publisher pipeline (parse error, DynamoDB throttle, threshold halt) cannot prevent primary-feed sync from running, and vice versa. They share no critical path.
+- **Independent deploy cadence.** The publisher pipeline can be enabled, disabled, or rolled back via a feature flag without touching the primary pipeline.
+
+**Frontend isolation**
+
+- The frontend's existing fetch and parse path for `all-events.json` is unchanged.
+- A new fetch for `publisher-events.json` is added, gated behind a build-time flag (e.g., `VITE_ENABLE_PUBLISHER_FEEDS`). When the flag is off, the frontend behaves exactly as it does today. When on, it fetches both files, merges, and renders. Merging is a small, well-tested function (concat + dedupe by `(sourcePublisherId, id)` for publisher events; primary events are passed through untouched).
+- Publisher events carry `sourcePublisherId` and `sourcePublisherName` fields (per §4.6) so they are distinguishable in the data and in the UI; if filtering or rendering of publisher events fails, primary events are unaffected.
+
+**Development isolation**
+
+- All publisher-pipeline code lives in clearly-named new files/modules. Existing files in the primary pipeline (`syncHandler.ts`, `eventTransformationService.ts`, etc.) may be **read** by the new code but are not modified except where explicitly required for shared types.
+- New tests cover only publisher-pipeline behavior; existing primary-pipeline tests must continue to pass without modification.
+- Any change to a shared type or shared utility that is touched by both pipelines is called out explicitly in the implementation plan and reviewed for primary-pipeline impact before merging.
+
+**Verification gate**
+
+- Before publisher events are surfaced on the live site, the implementation plan must include a verification step confirming that `all-events.json` is byte-equivalent to a pre-change baseline for at least one full primary-feed sync cycle. This is the single most important guard against silent regression of the primary feed.
 
 ## 2. The feed format
 
@@ -264,15 +293,17 @@ These statuses remain valid and useful for publishers who want to actively commu
 
 For each new or updated event:
 
-- `trustLevel: "auto"` → the event is written to the published cache and goes live immediately.
-- `trustLevel: "review"` → the event is written to a pending queue. It does not appear on the public calendar until an admin approves it in the dashboard. Approval moves it to the published cache.
+- `trustLevel: "auto"` → the event is written to the publisher sidecar cache (`publisher-events.json`, see §1.1) and goes live immediately.
+- `trustLevel: "review"` → the event is written to a pending queue. It does not appear in the publisher sidecar cache until an admin approves it in the dashboard. Approval moves it to the sidecar cache.
 - `trustLevel: "flagged"` → same as `"review"`, but the queue UI flags this publisher visibly (e.g., a recently-onboarded source whose feeds have been correct but is still being watched).
 
 Admins can change a publisher's `trustLevel` at any time. Promoting a publisher from `"review"` to `"auto"` does not retroactively auto-approve queued events.
 
+In all three cases, the primary `all-events.json` is **never** modified by this pipeline.
+
 ### 4.6 Mapping into the internal Event shape
 
-Feed events are transformed into the existing internal `EventData` (backend) / `Event` (frontend) shape at ingest time:
+Feed events are transformed into the existing internal `Event` shape at ingest time so the frontend can render publisher events with the same components used for primary events. They are **stored separately** (publisher DynamoDB partition and `publisher-events.json` sidecar — see §1.1) and only merged into a single render-time list in the browser. The internal shape is reused for code reuse; the data paths remain isolated.
 
 | Feed field | Internal field | Notes |
 |---|---|---|
