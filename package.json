@@ -8,7 +8,8 @@
   },
   "workspaces": [
     "frontend",
-    "backend"
+    "backend",
+    "tools/publisher-format"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=frontend",
