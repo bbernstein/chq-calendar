@@ -1,0 +1,12 @@
+{
+  "formatVersion": "1.0",
+  "publisher": { "id": "test-pub", "name": "Test Pub", "contactEmail": "test@example.org" },
+  "events": [{
+    "id": "ev1", "title": "Test Lecture",
+    "startDate": "2026-07-04T19:00:00-04:00",
+    "endDate":   "2026-07-04T18:00:00-04:00",
+    "category": "Special Lectures",
+    "venueId":  "hall-of-philosophy",
+    "lastModified": "2026-05-01T12:00:00-04:00"
+  }]
+}

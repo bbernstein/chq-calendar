@@ -1,0 +1,156 @@
+{
+  "venues": [
+    {
+      "id": "alumni-hall-ballroom",
+      "name": "Alumni Hall Ballroom",
+      "address": "Alumni Hall Ballroom"
+    },
+    {
+      "id": "amphitheater",
+      "name": "Amphitheater",
+      "address": "Amphitheater"
+    },
+    {
+      "id": "athenaeum-hotel",
+      "name": "Athenaeum Hotel",
+      "address": "Athenaeum Hotel"
+    },
+    {
+      "id": "athenaeum-parlor",
+      "name": "Athenaeum Parlor",
+      "address": "Athenaeum Parlor"
+    },
+    {
+      "id": "bestor-plaza",
+      "name": "Bestor Plaza",
+      "address": "Bestor Plaza"
+    },
+    {
+      "id": "bratton-theater",
+      "name": "Bratton Theater",
+      "address": "Bratton Theater"
+    },
+    {
+      "id": "chautauqua-cinema",
+      "name": "Chautauqua Cinema",
+      "address": "Chautauqua Cinema"
+    },
+    {
+      "id": "chautauqua-institution",
+      "name": "Chautauqua Institution"
+    },
+    {
+      "id": "cva-large-drawing-room",
+      "name": "CVA: Large Drawing Room"
+    },
+    {
+      "id": "elizabeth-s-lenna-hall",
+      "name": "Elizabeth S. Lenna Hall",
+      "address": "Elizabeth S. Lenna Hall"
+    },
+    {
+      "id": "fletcher-music-hall",
+      "name": "Fletcher Music Hall",
+      "address": "Fletcher Music Hall"
+    },
+    {
+      "id": "fowler-kellogg-art-center-2nd-floor",
+      "name": "Fowler-Kellogg Art Center 2nd floor"
+    },
+    {
+      "id": "fowler-kellogg-art-center-1st-floor",
+      "name": "Fowler-Kellogg Art Center: 1st Floor"
+    },
+    {
+      "id": "hall-of-christ-sanctuary",
+      "name": "Hall of Christ: Sanctuary"
+    },
+    {
+      "id": "hall-of-philosophy",
+      "name": "Hall of Philosophy",
+      "address": "Hall of Philosophy"
+    },
+    {
+      "id": "heinz-beach",
+      "name": "Heinz Beach",
+      "address": "Heinz Beach"
+    },
+    {
+      "id": "heirloom-at-athenaeum",
+      "name": "Heirloom (at Athenaeum)"
+    },
+    {
+      "id": "hultquist-101",
+      "name": "Hultquist 101",
+      "address": "Hultquist 101"
+    },
+    {
+      "id": "hurlbut-church-sanctuary",
+      "name": "Hurlbut Church sanctuary",
+      "address": "Hurlbut Church sanctuary"
+    },
+    {
+      "id": "john-r-turney-sailing-center",
+      "name": "John R. Turney Sailing Center"
+    },
+    {
+      "id": "literary-arts-grove",
+      "name": "Literary Arts Grove"
+    },
+    {
+      "id": "melvin-johnson-sculpture-garden",
+      "name": "Melvin Johnson Sculpture Garden",
+      "address": "Melvin Johnson Sculpture Garden"
+    },
+    {
+      "id": "miller-park",
+      "name": "Miller Park",
+      "address": "Miller Park"
+    },
+    {
+      "id": "norton-hall",
+      "name": "Norton Hall",
+      "address": "Norton Hall"
+    },
+    {
+      "id": "outdoor-classroom",
+      "name": "Outdoor Classroom"
+    },
+    {
+      "id": "roe-green-theater-center",
+      "name": "Roe Green Theater Center"
+    },
+    {
+      "id": "smith-wilkes-hall",
+      "name": "Smith Wilkes Hall",
+      "address": "Smith Wilkes Hall"
+    },
+    {
+      "id": "sports-club",
+      "name": "Sports Club",
+      "address": "Sports Club"
+    },
+    {
+      "id": "strohl-art-center-2nd-floor",
+      "name": "Strohl Art Center 2nd Floor"
+    },
+    {
+      "id": "strohl-art-center-main-galleries",
+      "name": "Strohl Art Center: Main Galleries"
+    },
+    {
+      "id": "turner-conference-room",
+      "name": "Turner Conference Room",
+      "address": "Turner Conference Room"
+    },
+    {
+      "id": "women-s-club",
+      "name": "Women’s Club"
+    },
+    {
+      "id": "zoom",
+      "name": "Zoom",
+      "address": "Zoom"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "formatVersion": "1.0",
+  "publisher": {
+    "id": "example-pub",
+    "name": "Example Publisher",
+    "contactEmail": "events@example.org"
+  },
+  "events": [
+    {
+      "id": "ev-2026-07-04-talk",
+      "title": "Sample Talk on Civic Life",
+      "startDate": "2026-07-04T18:00:00-04:00",
+      "endDate": "2026-07-04T19:00:00-04:00",
+      "category": "Special Lectures",
+      "venueId": "hall-of-philosophy",
+      "lastModified": "2026-05-01T12:00:00-04:00"
+    }
+  ]
+}

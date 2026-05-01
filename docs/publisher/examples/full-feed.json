@@ -1,0 +1,38 @@
+{
+  "formatVersion": "1.0",
+  "publisher": {
+    "id": "example-pub",
+    "name": "Example Publisher",
+    "contactEmail": "events@example.org",
+    "url": "https://example.org"
+  },
+  "events": [
+    {
+      "id": "ev-2026-07-04-keynote",
+      "title": "Keynote: The Civic Imagination",
+      "startDate": "2026-07-04T18:00:00-04:00",
+      "endDate": "2026-07-04T19:30:00-04:00",
+      "category": "Special Lectures",
+      "venueId": "hall-of-philosophy",
+      "lastModified": "2026-05-01T12:00:00-04:00",
+      "status": "scheduled",
+      "description": "<p>An evening keynote on the role of <strong>civic imagination</strong> in shared institutions.</p>",
+      "tags": ["civic", "lecture", "keynote"],
+      "presenter": "Dr. Jane Doe",
+      "url": "https://example.org/events/keynote",
+      "cost": "Free with gate ticket",
+      "attachments": [
+        {
+          "url": "https://example.org/events/keynote/poster.png",
+          "type": "image/png",
+          "isImage": true
+        },
+        {
+          "url": "https://example.org/events/keynote/program.pdf",
+          "type": "application/pdf",
+          "isImage": false
+        }
+      ]
+    }
+  ]
+}
