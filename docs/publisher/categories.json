@@ -1,0 +1,176 @@
+{
+  "categories": [
+    {
+      "id": "chq-assembly",
+      "name": "CHQ Assembly"
+    },
+    {
+      "id": "chamber-music",
+      "name": "Chamber Music"
+    },
+    {
+      "id": "chautauqua-institution-program",
+      "name": "Chautauqua Institution Program"
+    },
+    {
+      "id": "chautauqua-lecture-series",
+      "name": "Chautauqua Lecture Series"
+    },
+    {
+      "id": "chautauqua-literary-and-scientific-circle-clsc",
+      "name": "Chautauqua Literary and Scientific Circle (CLSC)"
+    },
+    {
+      "id": "chautauqua-symphony-orchestra-classical-concerts",
+      "name": "Chautauqua Symphony Orchestra/Classical Concerts"
+    },
+    {
+      "id": "chautauqua-writers-center",
+      "name": "Chautauqua Writers’ Center"
+    },
+    {
+      "id": "climate-change-initiative-program",
+      "name": "Climate Change Initiative Program"
+    },
+    {
+      "id": "community-group-event",
+      "name": "Community Group Event"
+    },
+    {
+      "id": "community-group-program",
+      "name": "Community Group Program"
+    },
+    {
+      "id": "culinary-experiences",
+      "name": "Culinary Experiences"
+    },
+    {
+      "id": "dance",
+      "name": "Dance"
+    },
+    {
+      "id": "faith-and-spiritual-programming",
+      "name": "Faith and Spiritual Programming"
+    },
+    {
+      "id": "family-entertainment",
+      "name": "Family Entertainment"
+    },
+    {
+      "id": "featured-events",
+      "name": "Featured Events"
+    },
+    {
+      "id": "festivals",
+      "name": "Festivals"
+    },
+    {
+      "id": "gallery-exhibitions",
+      "name": "Gallery Exhibitions"
+    },
+    {
+      "id": "general",
+      "name": "General"
+    },
+    {
+      "id": "interfaith-lecture-series",
+      "name": "Interfaith Lecture Series"
+    },
+    {
+      "id": "literary-arts",
+      "name": "Literary Arts"
+    },
+    {
+      "id": "master-class",
+      "name": "Master Class"
+    },
+    {
+      "id": "movies",
+      "name": "Movies"
+    },
+    {
+      "id": "opera",
+      "name": "Opera"
+    },
+    {
+      "id": "popular-entertainment-amp-concerts",
+      "name": "Popular Entertainment &amp; Concerts"
+    },
+    {
+      "id": "recreation",
+      "name": "Recreation"
+    },
+    {
+      "id": "school-of-music",
+      "name": "School of Music"
+    },
+    {
+      "id": "special-events",
+      "name": "Special Events"
+    },
+    {
+      "id": "special-lectures",
+      "name": "Special Lectures"
+    },
+    {
+      "id": "theater",
+      "name": "Theater"
+    },
+    {
+      "id": "visual-arts",
+      "name": "Visual Arts"
+    },
+    {
+      "id": "week-eight-august-15-22",
+      "name": "Week Eight (August 15–22)"
+    },
+    {
+      "id": "week-five-july-25-august-1",
+      "name": "Week Five (July 25–August 1)"
+    },
+    {
+      "id": "week-four-july-18-25",
+      "name": "Week Four (July 18–25)"
+    },
+    {
+      "id": "week-nine-august-16-24",
+      "name": "Week Nine (August 16–24)"
+    },
+    {
+      "id": "week-nine-august-22-30",
+      "name": "Week Nine (August 22–30)"
+    },
+    {
+      "id": "week-one-june-27-july-4",
+      "name": "Week One (June 27–July 4)"
+    },
+    {
+      "id": "week-seven-august-8-15",
+      "name": "Week Seven (August 8–15)"
+    },
+    {
+      "id": "week-six-august-1-8",
+      "name": "Week Six (August 1–8)"
+    },
+    {
+      "id": "week-three-july-11-18",
+      "name": "Week Three (July 11–18)"
+    },
+    {
+      "id": "week-two-july-4-11",
+      "name": "Week Two (July 4–11)"
+    },
+    {
+      "id": "weekly-chaplains",
+      "name": "Weekly Chaplains"
+    },
+    {
+      "id": "weekly-themes",
+      "name": "Weekly Themes"
+    },
+    {
+      "id": "youth-programs-and-activities",
+      "name": "Youth Programs and Activities"
+    }
+  ]
+}
