@@ -1,5 +1,7 @@
 # Event Publisher Format — Plan 2: Backend Ingest Pipeline
 
+> **Status: COMPLETE** — merged in [PR #70](https://github.com/bbernstein/chq-calendar/pull/70) on 2026-05-02.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the publisher-feed ingest pipeline as a strictly additive layer that does not touch the existing chq.org primary pipeline. Produce `publisher-events-${year}.json` sidecar files in the same S3 prefix as the primary cache, plus a publishers DynamoDB table and a pending-events queue. Ship a verification gate that proves `all-events-${year}.json` is byte-equivalent to a pre-change baseline.
@@ -61,21 +63,21 @@ scripts/
 **Files:**
 - Modify: `backend/package.json`
 
-- [ ] **Step 1: Add dependency**
+- [x] **Step 1: Add dependency**
 
 Edit `backend/package.json`, in the `dependencies` block:
 ```json
 "@chq-calendar/publisher-format": "*"
 ```
 
-- [ ] **Step 2: Install**
+- [x] **Step 2: Install**
 
 ```bash
 cd /Users/bernard/src/chq/chq-calendar && npm install
 ```
 Expected: workspace symlink created in `backend/node_modules/@chq-calendar/publisher-format`.
 
-- [ ] **Step 3: Smoke-test the import works**
+- [x] **Step 3: Smoke-test the import works**
 
 Create a temp file `backend/src/__smoke__.ts`:
 ```ts
@@ -88,7 +90,7 @@ cd backend && npx ts-node src/__smoke__.ts
 ```
 Expected: `function`. Then delete `__smoke__.ts`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add backend/package.json package-lock.json
@@ -102,7 +104,7 @@ git commit -m "Plan 2, Task 1: add publisher-format as backend workspace dep"
 **Files:**
 - Create: `backend/src/types/publisher.ts`
 
-- [ ] **Step 1: Write the types**
+- [x] **Step 1: Write the types**
 
 ```ts
 import type { FeedEvent, PublisherInfo } from '@chq-calendar/publisher-format';
@@ -158,7 +160,7 @@ export interface ReconcileResult {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add backend/src/types/publisher.ts
@@ -172,7 +174,7 @@ git commit -m "Plan 2, Task 2: backend domain types for publisher pipeline"
 **Files:**
 - Create: `infrastructure/publisher-ingest.tf`
 
-- [ ] **Step 1: Write the table definitions**
+- [x] **Step 1: Write the table definitions**
 
 ```hcl
 resource "aws_dynamodb_table" "publishers" {
@@ -202,20 +204,20 @@ resource "aws_dynamodb_table" "publisher_events" {
 }
 ```
 
-- [ ] **Step 2: Plan and review**
+- [x] **Step 2: Plan and review**
 
 ```bash
 cd infrastructure && terraform plan -out=tfplan-publisher-tables
 ```
 Expected: only the two new resources are added. **The plan must NOT show any change to `aws_dynamodb_table.events`, `data_sources`, `sync_status`, or `feedback`.** If it does, something is wrong — abort and investigate.
 
-- [ ] **Step 3: Apply**
+- [x] **Step 3: Apply**
 
 ```bash
 terraform apply tfplan-publisher-tables
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add infrastructure/publisher-ingest.tf
@@ -230,7 +232,7 @@ git commit -m "Plan 2, Task 3: provision chq-publishers and chq-publisher-events
 - Create: `backend/src/services/publisherRegistryService.ts`
 - Test: `backend/src/__tests__/publisherRegistryService.test.ts`
 
-- [ ] **Step 1: Write a failing test**
+- [x] **Step 1: Write a failing test**
 
 ```ts
 import { PublisherRegistryService } from '../services/publisherRegistryService';
@@ -270,14 +272,14 @@ describe('PublisherRegistryService', () => {
 });
 ```
 
-- [ ] **Step 2: Run — fails (no implementation)**
+- [x] **Step 2: Run — fails (no implementation)**
 
 ```bash
 cd backend && npx jest publisherRegistryService.test.ts
 ```
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `publisherRegistryService.ts`**
+- [x] **Step 3: Implement `publisherRegistryService.ts`**
 
 ```ts
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
@@ -328,14 +330,14 @@ export class PublisherRegistryService {
 }
 ```
 
-- [ ] **Step 4: Run — passes**
+- [x] **Step 4: Run — passes**
 
 ```bash
 cd backend && npx jest publisherRegistryService.test.ts
 ```
 Expected: 2 passing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/services/publisherRegistryService.ts backend/src/__tests__/publisherRegistryService.test.ts
@@ -352,7 +354,7 @@ git commit -m "Plan 2, Task 4: PublisherRegistryService"
 
 The store persists `StoredPublisherEvent` records and supports: read all events for a publisher, write/update/delete one event, transactional batch apply.
 
-- [ ] **Step 1: Write the test first**
+- [x] **Step 1: Write the test first**
 
 ```ts
 import { PublisherEventStore } from '../services/publisherEventStore';
@@ -388,7 +390,7 @@ describe('PublisherEventStore', () => {
 });
 ```
 
-- [ ] **Step 2: Implement `publisherEventStore.ts`**
+- [x] **Step 2: Implement `publisherEventStore.ts`**
 
 ```ts
 import { QueryCommand, TransactWriteCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
@@ -428,7 +430,7 @@ export class PublisherEventStore {
 }
 ```
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 cd backend && npx jest publisherEventStore.test.ts
@@ -446,7 +448,7 @@ git commit -m "Plan 2, Task 5: PublisherEventStore"
 
 The reconciler takes (storedEvents, incomingFeed, now) and produces a `ReconcileResult` with the diff and whether the threshold halt fired. It does NOT do any I/O.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 import { reconcile } from '../services/publisherReconciler';
@@ -519,7 +521,7 @@ describe('reconcile', () => {
 });
 ```
 
-- [ ] **Step 2: Implement `publisherReconciler.ts`**
+- [x] **Step 2: Implement `publisherReconciler.ts`**
 
 ```ts
 import type { FeedDocument, FeedEvent } from '@chq-calendar/publisher-format';
@@ -587,7 +589,7 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
 }
 ```
 
-- [ ] **Step 3: Run, commit**
+- [x] **Step 3: Run, commit**
 
 ```bash
 cd backend && npx jest publisherReconciler.test.ts
@@ -605,7 +607,7 @@ git commit -m "Plan 2, Task 6: reconciler with §4.4 absent-vs-cancelled and thr
 - Create: `backend/src/__tests__/fixtures/valid-feed.json`
 - Create: `backend/src/__tests__/fixtures/valid-feed-page.html`
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 import * as fs from 'fs';
@@ -643,11 +645,11 @@ describe('fetchAndParseFeed', () => {
 });
 ```
 
-- [ ] **Step 2: Author fixture files**
+- [x] **Step 2: Author fixture files**
 
 `backend/src/__tests__/fixtures/valid-feed.json` and `valid-feed-page.html`: copy from `tools/publisher-format/__tests__/fixtures/` (real categories/venues, publisher.id = `test-pub`).
 
-- [ ] **Step 3: Implement `publisherFeedFetcher.ts`**
+- [x] **Step 3: Implement `publisherFeedFetcher.ts`**
 
 ```ts
 import { extractFromHtml, validateFeed } from '@chq-calendar/publisher-format';
@@ -711,7 +713,7 @@ export async function fetchAndParseFeed(input: FetchFeedInput, fetchFn: FetchFn 
 }
 ```
 
-- [ ] **Step 4: Run, commit**
+- [x] **Step 4: Run, commit**
 
 ```bash
 cd backend && npx jest publisherFeedFetcher.test.ts
@@ -729,7 +731,7 @@ git commit -m "Plan 2, Task 7: publisher feed fetcher (JSON + HTML)"
 
 This service writes `publisher-events-${year}.json` to the same S3 bucket and prefix as the primary cache. Shape: `{ data: StoredPublisherEvent['payload'][] }` to match the existing `{ data: [...] }` envelope the frontend already understands.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 import { PublisherSidecarPublisher } from '../services/publisherSidecarPublisher';
@@ -759,7 +761,7 @@ describe('PublisherSidecarPublisher', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```ts
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
@@ -791,7 +793,7 @@ export class PublisherSidecarPublisher {
 }
 ```
 
-- [ ] **Step 3: Run, commit**
+- [x] **Step 3: Run, commit**
 
 ```bash
 cd backend && npx jest publisherSidecarPublisher.test.ts
@@ -826,7 +828,7 @@ after all publishers:
   write sidecar (per-year)
 ```
 
-- [ ] **Step 1: Write integration test**
+- [x] **Step 1: Write integration test**
 
 ```ts
 import { runIngest } from '../handlers/publisherIngestHandler';
@@ -863,7 +865,7 @@ describe('runIngest (integration)', () => {
 });
 ```
 
-- [ ] **Step 2: Add `listAllPublished` to `PublisherEventStore`**
+- [x] **Step 2: Add `listAllPublished` to `PublisherEventStore`**
 
 In `publisherEventStore.ts`, add:
 ```ts
@@ -886,7 +888,7 @@ async listAllPublished(): Promise<StoredPublisherEvent[]> {
 }
 ```
 
-- [ ] **Step 3: Implement `publisherIngestHandler.ts`**
+- [x] **Step 3: Implement `publisherIngestHandler.ts`**
 
 ```ts
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -940,7 +942,7 @@ export async function scheduledHandler(): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: Run integration test, commit**
+- [x] **Step 4: Run integration test, commit**
 
 ```bash
 cd backend && npx jest publisherIngestHandler.integration.test.ts
@@ -956,7 +958,7 @@ git commit -m "Plan 2, Task 9: publisherIngestHandler Lambda entry"
 - Modify: `backend/package.json` (extend `build:prod` to also bundle `publisherIngestHandler.ts`)
 - Modify: `infrastructure/publisher-ingest.tf`
 
-- [ ] **Step 1: Extend `backend/package.json` `build:prod`**
+- [x] **Step 1: Extend `backend/package.json` `build:prod`**
 
 Append to the existing single-line `build:prod` script (preserve all existing entries; just add the bundling step for the new handler at the end before `cp -r src/services dist/`):
 
@@ -964,7 +966,7 @@ Append to the existing single-line `build:prod` script (preserve all existing en
 && npx esbuild src/handlers/publisherIngestHandler.ts --bundle --platform=node --target=node22 --outfile=dist/publisherIngestHandler.js --external:@aws-sdk/client-dynamodb --external:@aws-sdk/client-s3 --external:@aws-sdk/lib-dynamodb
 ```
 
-- [ ] **Step 2: Add Lambda + IAM + schedule to `infrastructure/publisher-ingest.tf`**
+- [x] **Step 2: Add Lambda + IAM + schedule to `infrastructure/publisher-ingest.tf`**
 
 Append:
 
@@ -1046,7 +1048,7 @@ resource "aws_lambda_permission" "publisher_ingest_allow_events" {
 }
 ```
 
-- [ ] **Step 3: Build, deploy package, plan**
+- [x] **Step 3: Build, deploy package, plan**
 
 ```bash
 cd /Users/bernard/src/chq/chq-calendar/backend && npm run package:terraform
@@ -1054,13 +1056,13 @@ cd /Users/bernard/src/chq/chq-calendar/infrastructure && terraform plan -out=tfp
 ```
 Expected: only the new Lambda + IAM + EventBridge resources are added. **No change to `aws_lambda_function.data_sync`, `manual_sync`, `calendarHandler`, `adminHandler`, or to `aws_iam_role.lambda_role`.** If any of those appear in the plan, abort and fix.
 
-- [ ] **Step 4: Apply**
+- [x] **Step 4: Apply**
 
 ```bash
 terraform apply tfplan-publisher-lambda
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/package.json infrastructure/publisher-ingest.tf
@@ -1076,7 +1078,7 @@ git commit -m "Plan 2, Task 10: deploy publisherIngestHandler Lambda + EventBrid
 
 This script grabs the current primary cache from S3, waits a primary-sync cycle, grabs again, and confirms byte-equivalence. The publisher pipeline being live during this window is part of the test — proves the new pipeline does not touch the primary file.
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 ```bash
 #!/usr/bin/env bash
@@ -1114,7 +1116,7 @@ else
 fi
 ```
 
-- [ ] **Step 2: Run it against the deployed environment**
+- [x] **Step 2: Run it against the deployed environment**
 
 ```bash
 chmod +x scripts/verify-primary-cache-unchanged.sh
@@ -1122,7 +1124,7 @@ chmod +x scripts/verify-primary-cache-unchanged.sh
 ```
 Expected: `PASS`. If it fails, **stop** — there is unexpected coupling between the two pipelines and Plan 2 must be revised before any further work proceeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/verify-primary-cache-unchanged.sh
@@ -1133,9 +1135,19 @@ git commit -m "Plan 2, Task 11: verification gate proving primary cache untouche
 
 ## Plan 2 self-review
 
-- [ ] §1.1 isolation: separate Lambda ✅, separate DynamoDB tables ✅, separate sidecar key ✅, separate IAM role ✅, no edits to existing primary-pipeline Tasks files (verify with `git diff main -- backend/src/handlers/syncHandler.ts backend/src/services/eventTransformationService.ts` — should be empty).
-- [ ] §4.4 reconciliation, including absent-vs-cancelled and threshold halt: covered by Tasks 6 + 9 + 11.
-- [ ] §4.5 trust tiers (auto vs review/flagged → state=published vs pending): covered by Task 6.
-- [ ] §4.3 validation (matching publisher.id): covered by Task 7.
-- [ ] §1.1 verification gate: covered by Task 11.
-- [ ] No placeholders, all paths and commands concrete.
+- [x] §1.1 isolation: separate Lambda ✅, separate DynamoDB tables ✅, separate sidecar key ✅, separate IAM role ✅, no edits to existing primary-pipeline Tasks files (verify with `git diff main -- backend/src/handlers/syncHandler.ts backend/src/services/eventTransformationService.ts` — should be empty).
+- [x] §4.4 reconciliation, including absent-vs-cancelled and threshold halt: covered by Tasks 6 + 9 + 11.
+- [x] §4.5 trust tiers (auto vs review/flagged → state=published vs pending): covered by Task 6.
+- [x] §4.3 validation (matching publisher.id): covered by Task 7.
+- [x] §1.1 verification gate: covered by Task 11.
+- [x] No placeholders, all paths and commands concrete.
+
+---
+
+## Follow-ups deferred from PR #70
+
+Three LOW-severity items were identified in the final review and intentionally left for follow-up issues — they do not block the pipeline being live and are not required for Plans 3 or 4 to proceed.
+
+- **SSRF guard on publisher `sourceUrl`** — `publisherFeedFetcher.ts` accepts whatever URL the admin records. A misconfigured record pointing at `http://169.254.169.254/` (IMDS) or an internal VPC service would be fetched without restriction. Add a scheme/hostname allowlist (require `https`, reject RFC-1918 / link-local) as a defense-in-depth backstop against operator error.
+- **`by-state` GSI hot partition awareness** — nearly all reads hit `state='published'`. DynamoDB handles this fine at current publisher volume, but as event counts grow this may need re-partitioning (e.g. compose the hash with a year shard).
+- **Lambda DLQ / Errors alarm** — `aws_cloudwatch_event_target.publisher_ingest_target` has no `retry_policy` block (so EventBridge uses its defaults: up to 185 attempts over 24 hours), the Lambda has no `dead_letter_config`, and there is no `aws_cloudwatch_metric_alarm` on the function's `Errors` metric. The CloudWatch log group makes failures inspectable but nothing actively surfaces them. A `dead_letter_config` SQS queue plus an Errors-metric alarm would page on repeated failures rather than letting them burn through the retry budget unnoticed.

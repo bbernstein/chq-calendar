@@ -1,5 +1,7 @@
 # Event Publisher Format — Plan 1: Foundation (Format, Schema, Validator, Reference Artifacts)
 
+> **Status: COMPLETE** — merged in [PR #69](https://github.com/bbernstein/chq-calendar/pull/69) on 2026-05-01.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the publisher-feed format itself: TypeScript types, a JSON Schema, a parser/validator (JSON + HTML-embedded variants), a CLI for publishers to self-check their feeds, and the canonical reference artifacts (`categories.json`, `venues.json`, authoring guide). No backend ingest, no frontend changes — this plan produces a standalone, publisher-facing package with zero runtime contact with the existing chq.org pipeline.
@@ -73,7 +75,7 @@ docs/publisher/
 - Create: `tools/publisher-format/src/index.ts`
 - Modify: root `package.json` (add the new package to the workspaces array)
 
-- [ ] **Step 1: Create the package directory and `package.json`**
+- [x] **Step 1: Create the package directory and `package.json`**
 
 ```json
 {
@@ -110,7 +112,7 @@ docs/publisher/
 }
 ```
 
-- [ ] **Step 2: Create `tsconfig.json`**
+- [x] **Step 2: Create `tsconfig.json`**
 
 ```json
 {
@@ -131,7 +133,7 @@ docs/publisher/
 }
 ```
 
-- [ ] **Step 3: Create `jest.config.js`**
+- [x] **Step 3: Create `jest.config.js`**
 
 ```js
 module.exports = {
@@ -142,17 +144,17 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Create `src/index.ts` (placeholder, expanded in later tasks)**
+- [x] **Step 4: Create `src/index.ts` (placeholder, expanded in later tasks)**
 
 ```ts
 export {};
 ```
 
-- [ ] **Step 5: Add to the root workspaces array**
+- [x] **Step 5: Add to the root workspaces array**
 
 Read root `package.json`. Find the `"workspaces"` array (it currently includes `"frontend"` and `"backend"`). Add `"tools/publisher-format"` to it.
 
-- [ ] **Step 6: Install and confirm bootstrap works**
+- [x] **Step 6: Install and confirm bootstrap works**
 
 Run from repo root:
 ```bash
@@ -161,7 +163,7 @@ cd tools/publisher-format && npm test
 ```
 Expected: jest reports "No tests found" with exit 0 (we use `--passWithNoTests` implicitly when no tests exist; if not, this is fine — proceed to next task which writes the first test).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tools/publisher-format/ package.json package-lock.json
@@ -176,7 +178,7 @@ git commit -m "Plan 1, Task 1: bootstrap @chq-calendar/publisher-format package"
 - Create: `tools/publisher-format/src/types.ts`
 - Test: `tools/publisher-format/__tests__/types.test.ts` (compile-time only — no runtime tests for type aliases)
 
-- [ ] **Step 1: Write `src/types.ts`**
+- [x] **Step 1: Write `src/types.ts`**
 
 ```ts
 /** ISO 8601 datetime with required timezone offset, e.g. "2026-07-04T18:00:00-04:00". */
@@ -244,7 +246,7 @@ export interface ValidationReport {
 }
 ```
 
-- [ ] **Step 2: Add a no-op test that imports the types so TS catches breaking changes**
+- [x] **Step 2: Add a no-op test that imports the types so TS catches breaking changes**
 
 Create `__tests__/types.test.ts`:
 
@@ -271,14 +273,14 @@ describe('types module', () => {
 });
 ```
 
-- [ ] **Step 3: Run the test**
+- [x] **Step 3: Run the test**
 
 ```bash
 cd tools/publisher-format && npx jest __tests__/types.test.ts
 ```
 Expected: PASS, 1 test.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tools/publisher-format/src/types.ts tools/publisher-format/__tests__/types.test.ts
@@ -294,7 +296,7 @@ git commit -m "Plan 1, Task 2: define publisher-feed TypeScript types"
 - Create: `tools/publisher-format/src/schema.ts`
 - Test: `tools/publisher-format/__tests__/schema.test.ts`
 
-- [ ] **Step 1: Write `src/feed.schema.json`**
+- [x] **Step 1: Write `src/feed.schema.json`**
 
 This is the source-of-truth schema. Use Draft 2020-12. The schema must cover all fields from §2 of the spec, including:
 - `formatVersion`, `publisher`, `events` required at the top
@@ -381,14 +383,14 @@ This is the source-of-truth schema. Use Draft 2020-12. The schema must cover all
 }
 ```
 
-- [ ] **Step 2: Write `src/schema.ts`**
+- [x] **Step 2: Write `src/schema.ts`**
 
 ```ts
 import schema from './feed.schema.json';
 export const FEED_JSON_SCHEMA = schema;
 ```
 
-- [ ] **Step 3: Write a failing test that loads the schema and compiles it with Ajv**
+- [x] **Step 3: Write a failing test that loads the schema and compiles it with Ajv**
 
 `__tests__/schema.test.ts`:
 ```ts
@@ -436,14 +438,14 @@ describe('feed.schema.json', () => {
 });
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 ```bash
 cd tools/publisher-format && npx jest __tests__/schema.test.ts
 ```
 Expected: 3 passing tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/publisher-format/src/feed.schema.json tools/publisher-format/src/schema.ts tools/publisher-format/__tests__/schema.test.ts
@@ -463,7 +465,7 @@ git commit -m "Plan 1, Task 3: add canonical JSON Schema for publisher feeds"
 
 **Data source:** the script reads the existing primary cache file from S3 (or a local copy). The cache file shape is `{ data: Event[] }` where each event may have `category`, `categories[].name`, `venue.name`, `venue.id`, `venue.address`. The script enumerates distinct values, normalizes them, and writes lookup files.
 
-- [ ] **Step 1: Determine input source**
+- [x] **Step 1: Determine input source**
 
 Run from repo root:
 ```bash
@@ -477,7 +479,7 @@ curl -sSf https://www.chqcal.org/cache/calendar-cache/all-events-2026.json -o /t
 ```
 Note the path you use; pass it to the script in step 3.
 
-- [ ] **Step 2: Write `scripts/derive-publisher-references.ts`**
+- [x] **Step 2: Write `scripts/derive-publisher-references.ts`**
 
 ```ts
 #!/usr/bin/env ts-node
@@ -545,7 +547,7 @@ function main() {
 main();
 ```
 
-- [ ] **Step 3: Run the script**
+- [x] **Step 3: Run the script**
 
 ```bash
 cd /Users/bernard/src/chq/chq-calendar
@@ -553,7 +555,7 @@ npx ts-node scripts/derive-publisher-references.ts /tmp/all-events-2026.json
 ```
 Expected output: e.g. `Wrote 12 categories and 47 venues to /Users/bernard/src/chq/chq-calendar/docs/publisher`.
 
-- [ ] **Step 4: Manually inspect the outputs**
+- [x] **Step 4: Manually inspect the outputs**
 
 ```bash
 cat docs/publisher/categories.json
@@ -562,7 +564,7 @@ cat docs/publisher/venues.json | head -30
 
 Sanity-check: do the categories look plausible (Lecture, Music, Worship, etc.)? Do venue names match what you'd expect (Hall of Philosophy, Amphitheater, etc.)? If the data has obvious noise (HTML entities, trailing whitespace, blank entries), tweak the slugify/normalization in the script and re-run.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/derive-publisher-references.ts docs/publisher/categories.json docs/publisher/venues.json
@@ -591,7 +593,7 @@ git commit -m "Plan 1, Task 4: derive categories.json and venues.json from exist
 4. `endDate >= startDate`.
 5. `description` is sanitized (warning, not error: report which tags were stripped).
 
-- [ ] **Step 1: Write `src/references.ts`**
+- [x] **Step 1: Write `src/references.ts`**
 
 ```ts
 import * as fs from 'fs';
@@ -621,7 +623,7 @@ export function loadReferences(docsDir = DEFAULT_DOCS_DIR): References {
 }
 ```
 
-- [ ] **Step 2: Write `src/validateFeed.ts`**
+- [x] **Step 2: Write `src/validateFeed.ts`**
 
 ```ts
 import Ajv, { type ErrorObject } from 'ajv';
@@ -712,7 +714,7 @@ export function validateFeed(input: unknown, opts: ValidateOptions = {}): Valida
 }
 ```
 
-- [ ] **Step 3: Create fixtures**
+- [x] **Step 3: Create fixtures**
 
 `__tests__/fixtures/valid-feed.json`:
 ```json
@@ -737,7 +739,7 @@ export function validateFeed(input: unknown, opts: ValidateOptions = {}): Valida
 
 `__tests__/fixtures/invalid-end-before-start.json` — same as above with `endDate` set before `startDate`.
 
-- [ ] **Step 4: Write `__tests__/validateFeed.test.ts`**
+- [x] **Step 4: Write `__tests__/validateFeed.test.ts`**
 
 ```ts
 import * as fs from 'fs';
@@ -761,7 +763,7 @@ describe('validateFeed (schema layer)', () => {
 });
 ```
 
-- [ ] **Step 5: Write `__tests__/validateFeed.businessRules.test.ts`**
+- [x] **Step 5: Write `__tests__/validateFeed.businessRules.test.ts`**
 
 ```ts
 import * as fs from 'fs';
@@ -791,14 +793,14 @@ describe('validateFeed (business rules)', () => {
 });
 ```
 
-- [ ] **Step 6: Run all tests**
+- [x] **Step 6: Run all tests**
 
 ```bash
 cd tools/publisher-format && npm test
 ```
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tools/publisher-format/src/references.ts tools/publisher-format/src/validateFeed.ts tools/publisher-format/__tests__/
@@ -824,7 +826,7 @@ The extractor must produce a single combined `FeedDocument`. Spec rules (§3):
 - Each `chq-events` comment's `publisher.id` must match the registered publisher for the URL being fetched. **In this offline tool we don't yet know the registered publisher** — so the extractor accepts a `registeredPublisherId` argument (optional). If supplied, blocks with mismatched IDs are reported as errors. If omitted, no enforcement (publisher-self-validation case).
 - Multi-publisher aggregator pages where multiple distinct `publisher.id` values appear are rejected (per §3.3).
 
-- [ ] **Step 1: Write `src/extractFromHtml.ts`**
+- [x] **Step 1: Write `src/extractFromHtml.ts`**
 
 ```ts
 import * as cheerio from 'cheerio';
@@ -944,7 +946,7 @@ export function extractFromHtml(html: string, opts: ExtractOptions = {}): Extrac
 }
 ```
 
-- [ ] **Step 2: Create the four HTML fixtures**
+- [x] **Step 2: Create the four HTML fixtures**
 
 `__tests__/fixtures/single-event-page.html`:
 ```html
@@ -972,7 +974,7 @@ export function extractFromHtml(html: string, opts: ExtractOptions = {}): Extrac
 
 (Use real category and venue values from Task 4 in all fixtures.)
 
-- [ ] **Step 3: Write `__tests__/extractFromHtml.test.ts`**
+- [x] **Step 3: Write `__tests__/extractFromHtml.test.ts`**
 
 ```ts
 import * as fs from 'fs';
@@ -1021,14 +1023,14 @@ describe('extractFromHtml', () => {
 });
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 ```bash
 cd tools/publisher-format && npm test
 ```
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/publisher-format/src/extractFromHtml.ts tools/publisher-format/__tests__/extractFromHtml.test.ts tools/publisher-format/__tests__/fixtures/*.html
@@ -1045,7 +1047,7 @@ git commit -m "Plan 1, Task 6: HTML comment extraction with §3.3 enforcement"
 
 The CLI: `chq-validate-feed <path-or-url>` — fetches the input, detects JSON vs HTML by content-type or extension, validates, and prints a human-readable report.
 
-- [ ] **Step 1: Write `src/cli.ts`**
+- [x] **Step 1: Write `src/cli.ts`**
 
 ```ts
 #!/usr/bin/env node
@@ -1109,7 +1111,7 @@ if (require.main === module) {
 }
 ```
 
-- [ ] **Step 2: Write `__tests__/cli.test.ts`**
+- [x] **Step 2: Write `__tests__/cli.test.ts`**
 
 ```ts
 import * as path from 'path';
@@ -1131,14 +1133,14 @@ describe('runCli', () => {
 });
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 cd tools/publisher-format && npm test
 ```
 Expected: all tests pass.
 
-- [ ] **Step 4: Build and smoke-test the CLI binary**
+- [x] **Step 4: Build and smoke-test the CLI binary**
 
 ```bash
 cd tools/publisher-format && npm run build
@@ -1146,7 +1148,7 @@ node dist/cli.js __tests__/fixtures/valid-feed.json
 ```
 Expected: `OK — feed validated successfully (1 events)`, exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/publisher-format/src/cli.ts tools/publisher-format/__tests__/cli.test.ts
@@ -1162,7 +1164,7 @@ git commit -m "Plan 1, Task 7: chq-validate-feed CLI"
 - Create: `docs/publisher/feed.schema.json` (a copy of the canonical schema)
 - Modify: `tools/publisher-format/package.json` (add `prepublishOnly` to copy schema)
 
-- [ ] **Step 1: Replace `src/index.ts`**
+- [x] **Step 1: Replace `src/index.ts`**
 
 ```ts
 export type * from './types';
@@ -1172,13 +1174,13 @@ export { extractFromHtml, type ExtractOptions, type ExtractResult } from './extr
 export { loadReferences, type References, type CategoryRef, type VenueRef } from './references';
 ```
 
-- [ ] **Step 2: Copy schema into `docs/publisher/`**
+- [x] **Step 2: Copy schema into `docs/publisher/`**
 
 ```bash
 cp tools/publisher-format/src/feed.schema.json docs/publisher/feed.schema.json
 ```
 
-- [ ] **Step 3: Add a build hook so the docs copy stays in sync**
+- [x] **Step 3: Add a build hook so the docs copy stays in sync**
 
 Edit `tools/publisher-format/package.json`, add to `scripts`:
 ```json
@@ -1186,7 +1188,7 @@ Edit `tools/publisher-format/package.json`, add to `scripts`:
 "build": "tsc && npm run copy-schema"
 ```
 
-- [ ] **Step 4: Run build and confirm**
+- [x] **Step 4: Run build and confirm**
 
 ```bash
 cd tools/publisher-format && npm run build
@@ -1194,7 +1196,7 @@ ls -la ../../docs/publisher/feed.schema.json
 ```
 Expected: file timestamp is fresh.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/publisher-format/src/index.ts tools/publisher-format/package.json docs/publisher/feed.schema.json
@@ -1211,7 +1213,7 @@ git commit -m "Plan 1, Task 8: public library exports and ship schema to docs/"
 - Create: `docs/publisher/examples/full-feed.json`
 - Create: `docs/publisher/examples/aggregator-page.html`
 
-- [ ] **Step 1: Write `docs/publisher/AUTHORING.md`**
+- [x] **Step 1: Write `docs/publisher/AUTHORING.md`**
 
 The guide must cover, in order:
 
@@ -1228,11 +1230,11 @@ The guide must cover, in order:
 
 Aim for ~400-700 words. Include copy-pasteable code blocks for each example.
 
-- [ ] **Step 2: Write the example files**
+- [x] **Step 2: Write the example files**
 
 Use real category and venue values. `minimal-feed.json` has one event with only required fields. `full-feed.json` has an event using every optional field (description with HTML, attachments, tags, presenter, cost, status).
 
-- [ ] **Step 3: Validate the examples with the CLI**
+- [x] **Step 3: Validate the examples with the CLI**
 
 ```bash
 cd /Users/bernard/src/chq/chq-calendar
@@ -1242,7 +1244,7 @@ node tools/publisher-format/dist/cli.js docs/publisher/examples/aggregator-page.
 ```
 Expected: all three print `OK` and exit 0.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/publisher/AUTHORING.md docs/publisher/examples/
@@ -1258,7 +1260,7 @@ git commit -m "Plan 1, Task 9: authoring guide and validated example feeds"
 
 This protects against drift: if anyone changes `categories.json`, `venues.json`, or the schema in a way that breaks the published examples, CI fails.
 
-- [ ] **Step 1: Create the workflow**
+- [x] **Step 1: Create the workflow**
 
 ```yaml
 name: Validate publisher feed examples
@@ -1291,7 +1293,7 @@ jobs:
           done
 ```
 
-- [ ] **Step 2: Commit and push the branch; verify CI runs green**
+- [x] **Step 2: Commit and push the branch; verify CI runs green**
 
 ```bash
 git add .github/workflows/validate-publisher-examples.yml
@@ -1304,8 +1306,8 @@ Open the resulting GH Actions run; expected: green.
 
 ## Plan 1 self-review (run before declaring done)
 
-- [ ] Spec coverage: §2 (format) covered by Tasks 2, 3, 5. §3 (HTML variant) covered by Task 6. §5 (reference artifacts) covered by Tasks 4, 8, 9. §1.1 (isolation) holds trivially — no primary-pipeline files touched.
-- [ ] No placeholders left in any task. The `<USE_REAL_CATEGORY>` / `<USE_REAL_VENUE_ID>` markers in fixture descriptions are explicit substitution points, not TBDs.
-- [ ] All file paths are real and absolute-from-repo-root.
-- [ ] `npm test` and `npm run build` pass for `tools/publisher-format`.
-- [ ] `all-events-2026.json` was not modified by any task in this plan (verify via `git status` — should never appear).
+- [x] Spec coverage: §2 (format) covered by Tasks 2, 3, 5. §3 (HTML variant) covered by Task 6. §5 (reference artifacts) covered by Tasks 4, 8, 9. §1.1 (isolation) holds trivially — no primary-pipeline files touched.
+- [x] No placeholders left in any task. The `<USE_REAL_CATEGORY>` / `<USE_REAL_VENUE_ID>` markers in fixture descriptions are explicit substitution points, not TBDs.
+- [x] All file paths are real and absolute-from-repo-root.
+- [x] `npm test` and `npm run build` pass for `tools/publisher-format`.
+- [x] `all-events-2026.json` was not modified by any task in this plan (verify via `git status` — should never appear).
