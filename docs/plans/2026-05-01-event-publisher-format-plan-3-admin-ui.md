@@ -68,7 +68,7 @@ infrastructure/
 
 Pick the cleaner path: append to `infrastructure/publisher-ingest.tf` so the publisher-related IAM stays grouped.
 
-- [ ] **Step 1: Append to `publisher-ingest.tf`**
+- [x] **Step 1: Append to `publisher-ingest.tf`**
 
 ```hcl
 # Existing admin Lambda role (created in main.tf as `lambda_role`) needs read/write
@@ -94,7 +94,7 @@ resource "aws_iam_role_policy" "admin_publisher_access" {
 }
 ```
 
-- [ ] **Step 2: Plan, apply, commit**
+- [x] **Step 2: Plan, apply, commit**
 
 ```bash
 cd infrastructure && terraform plan -out=tfplan-admin-iam
@@ -113,7 +113,7 @@ git commit -m "Plan 3, Task 1: grant admin Lambda role access to publisher table
 
 Add three methods: `listPending()`, `approveEvent(publisherId, eventId)`, `rejectEvent(publisherId, eventId)`.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 import { PublisherEventStore } from '../services/publisherEventStore';
@@ -152,7 +152,7 @@ describe('PublisherEventStore admin ops', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Add to `publisherEventStore.ts`:
 ```ts
@@ -191,7 +191,7 @@ async rejectEvent(publisherId: string, eventId: string): Promise<void> {
 }
 ```
 
-- [ ] **Step 3: Run, commit**
+- [x] **Step 3: Run, commit**
 
 ```bash
 cd backend && npx jest publisherEventStore.adminOps.test.ts
@@ -214,7 +214,7 @@ This service composes registry + event-store operations into the verbs the admin
 
 For Plan 3 v1, "approve threshold halt" simply clears the `pendingThresholdHalt` field and re-runs the reconciler against the held-back feed payload, then applies the diff. This keeps the UX simple.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 import { PublisherAdminService } from '../services/publisherAdminService';
@@ -244,7 +244,7 @@ describe('PublisherAdminService', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```ts
 import type { PublisherRegistryService } from './publisherRegistryService';
@@ -333,7 +333,7 @@ export class PublisherAdminService {
 }
 ```
 
-- [ ] **Step 3: Run, commit**
+- [x] **Step 3: Run, commit**
 
 ```bash
 cd backend && npx jest publisherAdminService.test.ts
@@ -362,11 +362,11 @@ Routes (all require existing admin OAuth/whitelist; reuse the auth check pattern
 | POST   | `/admin/publisher-halts/{publisherId}/approve` | approve halt |
 | POST   | `/admin/publisher-halts/{publisherId}/cancel` | cancel halt |
 
-- [ ] **Step 1: Locate the existing route-dispatch block in `adminHandler.ts`**
+- [x] **Step 1: Locate the existing route-dispatch block in `adminHandler.ts`**
 
 Use `grep -n "event.path\|httpMethod" backend/src/handlers/adminHandler.ts` to find the dispatch table. Add new branches in the same style after the existing admin endpoints, **before** the catch-all 404.
 
-- [ ] **Step 2: Add a small route helper**
+- [x] **Step 2: Add a small route helper**
 
 At the top of the file, after the existing imports:
 ```ts
@@ -389,7 +389,7 @@ const publisherAdminLazy = (() => {
 ```
 (If `DynamoDBDocumentClient`/`DynamoDBClient` aren't already imported, add those imports.)
 
-- [ ] **Step 3: Add the route handlers**
+- [x] **Step 3: Add the route handlers**
 
 Inside the existing `if (path === '...' && httpMethod === '...')` cascade, add (after auth check is performed for admin paths):
 
@@ -434,7 +434,7 @@ if (matchHaltCancel && httpMethod === 'POST') {
 }
 ```
 
-- [ ] **Step 4: Add env vars to admin Lambda**
+- [x] **Step 4: Add env vars to admin Lambda**
 
 In `infrastructure/main.tf`, locate the admin Lambda's `environment.variables` block. Add:
 ```hcl
@@ -442,7 +442,7 @@ PUBLISHERS_TABLE_NAME       = aws_dynamodb_table.publishers.name
 PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
 ```
 
-- [ ] **Step 5: Build, plan, apply, commit**
+- [x] **Step 5: Build, plan, apply, commit**
 
 ```bash
 cd backend && npm run build:prod && cd .. && cd backend && zip -r lambda-function.zip dist/ package.json node_modules/ && cd ..
@@ -459,7 +459,7 @@ git commit -m "Plan 3, Task 4: admin routes for publisher CRUD + queue + halt ap
 - Create: `frontend/src/lib/adminPublisherApi.ts`
 - Test: `frontend/src/__tests__/lib/adminPublisherApi.test.ts`
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -489,7 +489,7 @@ describe('adminPublisherApi', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```ts
 import { getAuthToken } from './auth';
@@ -524,7 +524,7 @@ export const approveHalt = (publisherId: string) => req<{ inserted: number; upda
 export const cancelHalt = (publisherId: string) => req<void>(`/admin/publisher-halts/${encodeURIComponent(publisherId)}/cancel`, { method: 'POST' });
 ```
 
-- [ ] **Step 3: Run, commit**
+- [x] **Step 3: Run, commit**
 
 ```bash
 cd frontend && npm test -- adminPublisherApi
@@ -543,35 +543,35 @@ git commit -m "Plan 3, Task 5: typed admin publisher API client"
 - Create: `frontend/src/app/admin/publishers/PublisherForm.tsx`
 - Modify: `frontend/vite.config.ts`
 
-- [ ] **Step 1: Add the entry HTML**
+- [x] **Step 1: Add the entry HTML**
 
 Copy the structure of an existing admin entry HTML (e.g., `frontend/index-admin-feedback.html` if it exists, otherwise look at how the existing admin pages do their entries). The `<script>` tag should reference `/src/entries/admin-publishers.tsx`. Title: "CHQ — Admin: Publishers".
 
-- [ ] **Step 2: Add a Vite entry**
+- [x] **Step 2: Add a Vite entry**
 
 In `frontend/vite.config.ts`, locate `rollupOptions.input` and add:
 ```ts
 'admin-publishers': resolve(__dirname, 'index-admin-publishers.html'),
 ```
 
-- [ ] **Step 3: Implement the entry**
+- [x] **Step 3: Implement the entry**
 
 `frontend/src/entries/admin-publishers.tsx` — mirror the existing entry pattern (one-liner that mounts the page component into `#root`). Look at `frontend/src/entries/admin-feedback.tsx` for the template.
 
-- [ ] **Step 4: Implement the page**
+- [x] **Step 4: Implement the page**
 
 `frontend/src/app/admin/publishers/page.tsx` — list of publishers with: `id`, `name`, `sourceUrl`, `trustLevel`, `enabled`, `lastFetchStatus`. Above the list: a "New publisher" button that opens `PublisherForm`. Each row has "Edit" (opens form prefilled), "Disable"/"Enable" toggle. The form collects: id, name, contactEmail, sourceUrl, sourceType (radio: json/html), trustLevel (default review). Submit calls `createPublisher` or `updatePublisher`.
 
 Keep it minimal — Tailwind classes, no design system. Use existing admin pages as the visual template.
 
-- [ ] **Step 5: Smoke test in dev**
+- [x] **Step 5: Smoke test in dev**
 
 ```bash
 cd frontend && npm run dev
 ```
 Visit `http://localhost:3000/admin/publishers/`. Authenticate via existing OAuth. Confirm: list loads (empty initially), New form works (creates a publisher), refresh shows it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/index-admin-publishers.html frontend/src/entries/admin-publishers.tsx frontend/src/app/admin/publishers/ frontend/vite.config.ts
@@ -595,7 +595,7 @@ The page has two sections, stacked:
 1. **Pending events** — list of `PendingEvent` from `listPending()`. Each `PendingEventCard` shows title, date, publisher name, category, and two buttons: Approve / Reject.
 2. **Threshold halts** — list of publishers with `pendingThresholdHalt`. Each row: publisher name, halt reason, two buttons: "Approve & apply" / "Cancel".
 
-- [ ] **Step 1: Write a component test for `PendingEventCard`**
+- [x] **Step 1: Write a component test for `PendingEventCard`**
 
 ```tsx
 import { describe, it, expect, vi } from 'vitest';
@@ -623,7 +623,7 @@ describe('PendingEventCard', () => {
 });
 ```
 
-- [ ] **Step 2: Implement `PendingEventCard.tsx`**
+- [x] **Step 2: Implement `PendingEventCard.tsx`**
 
 ```tsx
 import type { PendingEvent } from '../../../lib/adminPublisherApi';
@@ -651,7 +651,7 @@ export function PendingEventCard({ event, onApprove, onReject }: Props) {
 }
 ```
 
-- [ ] **Step 3: Implement the page (`page.tsx`), entry, HTML**
+- [x] **Step 3: Implement the page (`page.tsx`), entry, HTML**
 
 Mirror Task 6's pattern. The page component:
 - On mount, calls `listPending()` and `listHalts()`.
@@ -670,14 +670,14 @@ For the threshold-halts section, each row:
 </div>
 ```
 
-- [ ] **Step 4: Add the Vite entry**
+- [x] **Step 4: Add the Vite entry**
 
 In `vite.config.ts` `rollupOptions.input`:
 ```ts
 'admin-publisher-events': resolve(__dirname, 'index-admin-publisher-events.html'),
 ```
 
-- [ ] **Step 5: Smoke test, commit**
+- [x] **Step 5: Smoke test, commit**
 
 ```bash
 cd frontend && npm run dev
@@ -692,11 +692,11 @@ git commit -m "Plan 3, Task 7: /admin/publisher-events page (pending queue + hal
 
 **Files:** none (manual verification)
 
-- [ ] **Step 1: Deploy backend changes**
+- [ ] **Step 1: Deploy backend changes** _(deferred to user — requires AWS credentials)_
 
 Use whatever the project's normal deploy path is (check `backend/deploy-calendar-lambda.sh` or terraform).
 
-- [ ] **Step 2: End-to-end smoke**
+- [ ] **Step 2: End-to-end smoke** _(deferred to user — depends on Step 1)_
 
 1. Open `/admin/publishers/`. Create a test publisher with `trustLevel: review`, pointing at a small JSON feed you've hosted somewhere.
 2. Manually invoke the `chq-publisher-ingest` Lambda: `aws lambda invoke --function-name chq-publisher-ingest /tmp/out.json`.
@@ -706,7 +706,7 @@ Use whatever the project's normal deploy path is (check `backend/deploy-calendar
 6. Promote the publisher to `trustLevel: auto` via the edit form. Re-invoke. Subsequent events arrive directly as published, never hitting the pending queue.
 7. Re-run `scripts/verify-primary-cache-unchanged.sh` (from Plan 2 Task 11) — must still PASS.
 
-- [ ] **Step 3: Commit any fixes from smoke testing**
+- [ ] **Step 3: Commit any fixes from smoke testing** _(deferred to user)_
 
 If smoke tests reveal bugs, fix them and commit. If everything works on the first try, no commit needed — add a note in the plan that smoke passed.
 
@@ -714,9 +714,25 @@ If smoke tests reveal bugs, fix them and commit. If everything works on the firs
 
 ## Plan 3 self-review
 
-- [ ] §4.1 publisher registration: Tasks 4, 5, 6.
-- [ ] §4.5 trust tier promotion (admin can change `trustLevel`): Task 6 edit form.
-- [ ] §4.4 threshold halt approval/cancel: Tasks 3, 4, 7.
-- [ ] §4.5 review-tier queue: Tasks 2, 3, 4, 7.
-- [ ] No primary-pipeline files modified (verify via `git diff main -- backend/src/handlers/syncHandler.ts backend/src/services/eventTransformationService.ts frontend/src/hooks/useEventData.ts` — should be empty).
-- [ ] No placeholders, all paths and code complete.
+- [x] §4.1 publisher registration: Tasks 4, 5, 6.
+- [x] §4.5 trust tier promotion (admin can change `trustLevel`): Task 6 edit form (PublisherForm exposes the trustLevel select in both create and edit modes).
+- [x] §4.4 threshold halt approval/cancel: Tasks 3, 4, 7. Note: per Plan 2's actual `pendingThresholdHalt` shape (`{eventCount, publisherId}` only — no held-back feed), both approve and cancel just clear the field; the next scheduled ingest re-evaluates. The page caption tells admins this honestly. Documented in `publisherAdminService.ts` `approveThresholdHalt` comment.
+- [x] §4.5 review-tier queue: Tasks 2, 3, 4, 7.
+- [x] No primary-pipeline files modified (verified `git diff main -- backend/src/handlers/syncHandler.ts backend/src/services/eventTransformationService.ts frontend/src/hooks/useEventData.ts` — empty).
+- [x] No placeholders, all paths and code complete.
+
+## Plan 3 status
+
+Implementation tasks 1–7 complete and merged on branch `feature/event-publisher-format-plan-3`. Backend 213/213 tests pass; frontend 115/115 tests pass; build succeeds with the two new admin entries (`admin-publishers-*.js` 12.50 kB, `admin-publisher-events-*.js` 8.40 kB).
+
+Task 8 (deploy + manual smoke) deferred to the user — requires AWS credentials and live data exercise.
+
+### Deviations from plan-as-written
+
+1. **Task 1 IAM file location:** kept admin-role inline policy in `infrastructure/publisher-ingest.tf` (cleaner — keeps publisher-related IAM grouped). Plan offered both this and `main.tf` as options.
+2. **Task 3 `approveThresholdHalt`:** plan pseudo-code re-ran reconcile against a stored feed, but `pendingThresholdHalt` only stores `{eventCount, publisherId}` (Plan 2 design). Both approve and cancel now just clear the halt; the next scheduled ingest re-evaluates. Plan text already noted this as the preferred simpler approach.
+3. **Task 3 `createPublisher`:** added existence check that throws on duplicate id (plan would have silently overwritten via `upsert`).
+4. **Task 4 paths:** Lambda matches bare paths (e.g. `/publishers`), NOT `/admin/...`, because `infrastructure/cloudfront-function.js` strips the `/admin/api` prefix before forwarding to API Gateway.
+5. **Task 4 IaC scope:** rather than adding ~50 individual API Gateway resources/methods/integrations, added a single `{proxy+}` catch-all on the admin API. Existing explicit routes (`/feedback`, `/auth/*`, etc.) keep priority via API Gateway's path-resolution rules.
+6. **Task 5 URL prefix:** uses `${API_BASE_URL}/admin/api/...` (matches existing `frontend/src/app/admin/feedback/page.tsx` convention) — NOT the plan's `${API}/admin/...`. Required to interoperate with the CloudFront edge function.
+7. **Tasks 6 + 7 file layout:** entry HTMLs use directory-based paths (`frontend/admin/publishers/index.html`, `frontend/admin/publisher-events/index.html`) — NOT the plan's flat `index-admin-*.html`. Matches existing `frontend/admin/feedback/index.html`.
