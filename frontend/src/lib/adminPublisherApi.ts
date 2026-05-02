@@ -70,11 +70,19 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (res.status === 401 || res.status === 403) {
     // Token expired or revoked: clear stored credentials and bounce to login.
-    // Matches the implicit behavior of the existing /admin/feedback page,
-    // which doesn't have this seam because its fetch is inline.
-    removeAuthToken();
-    if (typeof window !== 'undefined') {
-      window.location.href = '/admin/login/';
+    // Matches the existing /admin/feedback page's authenticatedFetch behavior,
+    // including its localhost guard: on dev the dummy token never passes JWT
+    // verification, so the 401 is expected and we surface it to the caller
+    // without clearing storage or redirecting (the page bootstrap already
+    // sets the dummy token and we'd loop forever otherwise).
+    const isLocalhost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    if (!isLocalhost) {
+      removeAuthToken();
+      if (typeof window !== 'undefined') {
+        window.location.href = '/admin/login/';
+      }
     }
     throw new Error(`${res.status}: authentication expired`);
   }

@@ -244,18 +244,24 @@ describe('error handling', () => {
 describe('auth-expiry handling', () => {
   let originalLocation: Location;
 
+  function setLocation(hostname: string) {
+    delete (window as unknown as { location?: Location }).location;
+    (window as unknown as { location: { href: string; hostname: string } }).location = {
+      href: '',
+      hostname,
+    };
+  }
+
   beforeEach(() => {
     originalLocation = window.location;
-    // Override window.location with a writable href setter we can inspect.
-    delete (window as unknown as { location?: Location }).location;
-    (window as unknown as { location: { href: string } }).location = { href: '' };
   });
 
   afterEach(() => {
     (window as unknown as { location: Location }).location = originalLocation;
   });
 
-  it('on 401: clears stored credentials, redirects to /admin/login/, and throws', async () => {
+  it('on 401 in production: clears stored credentials, redirects to /admin/login/, and throws', async () => {
+    setLocation('www.chqcal.org');
     localStorage.setItem('chq_auth_token', 'stale');
     localStorage.setItem('chq_auth_user', '{"email":"x"}');
     fetchMock.mockResolvedValueOnce(makeErrorResponse(401, 'unauthorized'));
@@ -266,7 +272,8 @@ describe('auth-expiry handling', () => {
     expect(window.location.href).toBe('/admin/login/');
   });
 
-  it('on 403: clears stored credentials, redirects to /admin/login/, and throws', async () => {
+  it('on 403 in production: clears stored credentials, redirects to /admin/login/, and throws', async () => {
+    setLocation('www.chqcal.org');
     localStorage.setItem('chq_auth_token', 'stale');
     localStorage.setItem('chq_auth_user', '{"email":"x"}');
     fetchMock.mockResolvedValueOnce(makeErrorResponse(403, 'forbidden'));
@@ -274,6 +281,31 @@ describe('auth-expiry handling', () => {
     await expect(listPublishers()).rejects.toThrow('authentication expired');
     expect(localStorage.getItem('chq_auth_token')).toBeNull();
     expect(window.location.href).toBe('/admin/login/');
+  });
+
+  it('on 401 on localhost: throws but leaves credentials intact and does NOT redirect', async () => {
+    setLocation('localhost');
+    localStorage.setItem('chq_auth_token', 'dummy-local-token');
+    localStorage.setItem('chq_auth_user', '{"email":"dev@localhost.local"}');
+    fetchMock.mockResolvedValueOnce(makeErrorResponse(401, 'unauthorized'));
+
+    await expect(listPublishers()).rejects.toThrow('authentication expired');
+    // Credentials must persist so the page bootstrap's dummy token isn't
+    // wiped out — otherwise the page bootstrap would re-set it on the next
+    // mount and we'd loop forever.
+    expect(localStorage.getItem('chq_auth_token')).toBe('dummy-local-token');
+    expect(localStorage.getItem('chq_auth_user')).toBe('{"email":"dev@localhost.local"}');
+    expect(window.location.href).toBe(''); // no redirect issued
+  });
+
+  it('on 403 on 127.0.0.1: throws but leaves credentials intact and does NOT redirect', async () => {
+    setLocation('127.0.0.1');
+    localStorage.setItem('chq_auth_token', 'dummy-local-token');
+    fetchMock.mockResolvedValueOnce(makeErrorResponse(403, 'forbidden'));
+
+    await expect(listPublishers()).rejects.toThrow('authentication expired');
+    expect(localStorage.getItem('chq_auth_token')).toBe('dummy-local-token');
+    expect(window.location.href).toBe('');
   });
 });
 
