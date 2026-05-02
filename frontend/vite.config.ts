@@ -91,6 +91,7 @@ export default defineConfig({
         feedback: resolve(__dirname, 'feedback/index.html'),
         'admin-login': resolve(__dirname, 'admin/login/index.html'),
         'admin-feedback': resolve(__dirname, 'admin/feedback/index.html'),
+        'admin-publishers': resolve(__dirname, 'admin/publishers/index.html'),
       },
     },
   },
