@@ -69,4 +69,14 @@ describe('EventCard publisher attribution and status', () => {
     const link = screen.queryByRole('link', { name: /Test/ });
     expect(link).toBeNull();
   });
+
+  it('keeps the title link when status=rescheduled and url is set', () => {
+    render(
+      <EventCard
+        event={baseEvent({ url: 'https://example.com/event', status: 'rescheduled' })}
+        {...noopProps}
+      />,
+    );
+    expect(screen.getByRole('link', { name: /Test/ })).toBeInTheDocument();
+  });
 });

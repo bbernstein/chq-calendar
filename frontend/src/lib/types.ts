@@ -26,7 +26,11 @@ export interface Event {
   /** Set on events that came from a registered publisher feed (not chq.org). */
   sourcePublisherId?: string;
   sourcePublisherName?: string;
-  /** Optional status from the publisher; primary events leave this undefined. */
+  /**
+   * Optional status from the publisher; primary events leave this undefined.
+   * 'scheduled' and undefined both render normally — only 'cancelled' and
+   * 'rescheduled' produce visible UI treatment.
+   */
   status?: 'scheduled' | 'cancelled' | 'rescheduled';
   // Pre-computed set containing lowercase versions of tags and categories
   // combined, used for efficient filtering

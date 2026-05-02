@@ -47,7 +47,7 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
         const cachedData = localStorage.getItem(cacheKey);
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
-          if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v3-categories') {
+          if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v4-publisher-feeds') {
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
             setAvailableCategories(parsed.categories.map((cat: string) => decodeHtmlEntities(cat) || cat));
@@ -66,15 +66,10 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
 
     setLoading(true);
     try {
-      const primaryUrl = import.meta.env.DEV
-        ? `/data/all-events-${year}.json`
-        : `/cache/calendar-cache/all-events-${year}.json`;
       const sidecarEnabled = String(import.meta.env.VITE_ENABLE_PUBLISHER_FEEDS) === 'true';
-      const sidecarUrl = sidecarEnabled
-        ? (import.meta.env.DEV
-            ? `/data/publisher-events-${year}.json`
-            : `/cache/calendar-cache/publisher-events-${year}.json`)
-        : null;
+      const cacheBase = import.meta.env.DEV ? '/data' : '/cache/calendar-cache';
+      const primaryUrl = `${cacheBase}/all-events-${year}.json`;
+      const sidecarUrl = sidecarEnabled ? `${cacheBase}/publisher-events-${year}.json` : null;
 
       const [primaryResp, sidecarResp] = await Promise.all([
         fetch(primaryUrl, { method: 'GET', headers: { 'Accept': 'application/json' } }),
@@ -89,11 +84,14 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
 
         // Sidecar is purely additive: any failure (404, parse error, network) falls back
         // to primary-only. Use concat (not push) so we never mutate the response body.
+        // Dedupe by id so a publisher echoing a primary event doesn't render twice.
         if (sidecarResp && sidecarResp.ok) {
           try {
             const sidecarJson = await sidecarResp.json();
             if (Array.isArray(sidecarJson.data)) {
-              rawEvents = rawEvents.concat(sidecarJson.data);
+              const seenIds = new Set<string>(rawEvents.map((e: Event) => e.id));
+              const additions = sidecarJson.data.filter((e: Event) => e && e.id && !seenIds.has(e.id));
+              rawEvents = rawEvents.concat(additions);
             }
           } catch {
             // Ignore sidecar parse errors; primary remains intact.
@@ -185,7 +183,7 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
             tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
-            version: 'v3-categories'
+            version: 'v4-publisher-feeds'
           }));
         } catch (e) {
           console.warn('Failed to save to localStorage:', e);

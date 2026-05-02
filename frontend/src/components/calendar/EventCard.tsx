@@ -95,7 +95,9 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
             )}
           </h4>
 
-          {/* Status badges and publisher attribution (publisher feeds only) */}
+          {/* Status badges and publisher attribution.
+              Currently set only by publisher-feed events; renders correctly
+              for any event that has these fields (no source check required). */}
           {(event.status === 'cancelled' || event.status === 'rescheduled' || event.sourcePublisherName) && (
             <div className="flex flex-wrap items-center gap-2 mb-1">
               {event.status === 'cancelled' && (

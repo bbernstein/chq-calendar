@@ -96,6 +96,42 @@ describe('useEventData with publisher feeds', () => {
     expect(result.current.events[0].id).toBe('p1');
   });
 
+  it('dedupes by id so a publisher echoing a primary event renders once', async () => {
+    const dupBody = {
+      data: [
+        {
+          id: 'p1', // same id as primary
+          title: 'Publisher dup',
+          startDate: '2026-07-04T00:00:00Z',
+          endDate: '2026-07-04T01:00:00Z',
+          sourcePublisherId: 'pub-x',
+          sourcePublisherName: 'Pub X',
+        },
+        {
+          id: 'pub2',
+          title: 'Publisher unique',
+          startDate: '2026-07-06T00:00:00Z',
+          endDate: '2026-07-06T01:00:00Z',
+          sourcePublisherId: 'pub-x',
+          sourcePublisherName: 'Pub X',
+        },
+      ],
+    };
+    globalThis.fetch = vi.fn(async (url) => {
+      if (String(url).includes('publisher-events')) {
+        return { ok: true, json: async () => dupBody } as Response;
+      }
+      return { ok: true, json: async () => PRIMARY_BODY } as Response;
+    }) as typeof fetch;
+
+    const { result } = renderHook(() => useEventData(makeProps()));
+    await waitFor(() => expect(result.current.events.length).toBe(2));
+    expect(result.current.events.map((e) => e.id).sort()).toEqual(['p1', 'pub2']);
+    // The primary 'p1' wins (publisher dup is dropped) — primary feed is authoritative.
+    const p1 = result.current.events.find((e) => e.id === 'p1');
+    expect(p1?.title).toBe('Primary');
+  });
+
   it('skips the sidecar fetch entirely when the flag is off', async () => {
     vi.stubEnv('VITE_ENABLE_PUBLISHER_FEEDS', 'false');
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => PRIMARY_BODY } as Response));
