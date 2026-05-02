@@ -205,6 +205,22 @@ app.patch('/admin/api/feedback/bulk', async (req, res) => {
   }
 });
 
+// Catch-all for everything else under /admin/api/* (e.g. publisher CRUD,
+// publisher-events queue, publisher-halts management). Mirrors the {proxy+}
+// resource added on the production admin API Gateway. The explicit /feedback
+// routes above keep priority because Express matches in declaration order.
+app.all('/admin/api/*', async (req, res) => {
+  try {
+    const event = expressToLambdaEvent(req);
+    event.path = req.path.replace(/^\/admin\/api/, '') || '/';
+    const result = await adminHandler(event, mockContext);
+    res.status(result.statusCode).json(result.body ? JSON.parse(result.body) : null);
+  } catch (error) {
+    console.error('Admin API proxy error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

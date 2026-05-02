@@ -68,13 +68,30 @@ export class PublisherEventStore {
   }
 
   async approveEvent(publisherId: string, eventId: string): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { publisherId, eventId },
-      UpdateExpression: 'SET #s = :s, updatedAt = :now',
-      ExpressionAttributeNames: { '#s': 'state' },
-      ExpressionAttributeValues: { ':s': 'published', ':now': new Date().toISOString() },
-    }));
+    // Guard against UpdateItem's upsert behavior: without attribute_exists,
+    // approving a stale/nonexistent event ID would create a phantom row with
+    // only state + updatedAt set, which the next sidecar publish would emit
+    // into the cache as a corrupt record. Also require state=pending so a
+    // late /approve that races a /reject can't resurrect a deleted row.
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { publisherId, eventId },
+        UpdateExpression: 'SET #s = :published, updatedAt = :now',
+        ConditionExpression: 'attribute_exists(publisherId) AND #s = :pending',
+        ExpressionAttributeNames: { '#s': 'state' },
+        ExpressionAttributeValues: {
+          ':published': 'published',
+          ':pending': 'pending',
+          ':now': new Date().toISOString(),
+        },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new Error(`cannot approve ${publisherId}/${eventId}: not pending or no longer exists`);
+      }
+      throw err;
+    }
   }
 
   async rejectEvent(publisherId: string, eventId: string): Promise<void> {

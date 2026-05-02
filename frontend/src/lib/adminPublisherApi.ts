@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '@/lib/api';
-import { getAuthToken } from '@/lib/auth';
+import { getAuthToken, removeAuthToken } from '@/lib/auth';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +68,16 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...(init.headers ?? {}),
     },
   });
+  if (res.status === 401 || res.status === 403) {
+    // Token expired or revoked: clear stored credentials and bounce to login.
+    // Matches the implicit behavior of the existing /admin/feedback page,
+    // which doesn't have this seam because its fetch is inline.
+    removeAuthToken();
+    if (typeof window !== 'undefined') {
+      window.location.href = '/admin/login/';
+    }
+    throw new Error(`${res.status}: authentication expired`);
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status}: ${text}`);

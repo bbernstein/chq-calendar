@@ -217,8 +217,8 @@ describe('Authorization header', () => {
 
 describe('error handling', () => {
   it('throws an error with the status code when the response is not ok', async () => {
-    fetchMock.mockResolvedValueOnce(makeErrorResponse(403, 'Forbidden'));
-    await expect(listPublishers()).rejects.toThrow('403');
+    fetchMock.mockResolvedValueOnce(makeErrorResponse(409, 'Conflict'));
+    await expect(listPublishers()).rejects.toThrow('409');
   });
 
   it('includes the response body text in the error message', async () => {
@@ -235,6 +235,46 @@ describe('error handling', () => {
       sourceUrl: 'https://example.com',
       sourceType: 'json',
     })).rejects.toThrow('400');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 401/403 auth-expiry handling
+// ---------------------------------------------------------------------------
+
+describe('auth-expiry handling', () => {
+  let originalLocation: Location;
+
+  beforeEach(() => {
+    originalLocation = window.location;
+    // Override window.location with a writable href setter we can inspect.
+    delete (window as unknown as { location?: Location }).location;
+    (window as unknown as { location: { href: string } }).location = { href: '' };
+  });
+
+  afterEach(() => {
+    (window as unknown as { location: Location }).location = originalLocation;
+  });
+
+  it('on 401: clears stored credentials, redirects to /admin/login/, and throws', async () => {
+    localStorage.setItem('chq_auth_token', 'stale');
+    localStorage.setItem('chq_auth_user', '{"email":"x"}');
+    fetchMock.mockResolvedValueOnce(makeErrorResponse(401, 'unauthorized'));
+
+    await expect(listPublishers()).rejects.toThrow('authentication expired');
+    expect(localStorage.getItem('chq_auth_token')).toBeNull();
+    expect(localStorage.getItem('chq_auth_user')).toBeNull();
+    expect(window.location.href).toBe('/admin/login/');
+  });
+
+  it('on 403: clears stored credentials, redirects to /admin/login/, and throws', async () => {
+    localStorage.setItem('chq_auth_token', 'stale');
+    localStorage.setItem('chq_auth_user', '{"email":"x"}');
+    fetchMock.mockResolvedValueOnce(makeErrorResponse(403, 'forbidden'));
+
+    await expect(listPublishers()).rejects.toThrow('authentication expired');
+    expect(localStorage.getItem('chq_auth_token')).toBeNull();
+    expect(window.location.href).toBe('/admin/login/');
   });
 });
 

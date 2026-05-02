@@ -309,7 +309,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     const matchPubPatch = path.match(/^\/publishers\/([^/]+)$/);
     if (matchPubPatch && httpMethod === 'PATCH') {
       try {
-        const publisher = await publisherAdmin().updatePublisher(matchPubPatch[1], requestBody);
+        const publisher = await publisherAdmin().updatePublisher(decodeURIComponent(matchPubPatch[1]), requestBody);
         return createResponse(200, { publisher });
       } catch (error) {
         console.error('Error updating publisher:', error);
@@ -335,10 +335,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     const matchApprove = path.match(/^\/publisher-events\/([^/]+)\/([^/]+)\/approve$/);
     if (matchApprove && httpMethod === 'POST') {
       try {
-        await publisherAdmin().approveEvent(matchApprove[1], matchApprove[2]);
+        await publisherAdmin().approveEvent(decodeURIComponent(matchApprove[1]), decodeURIComponent(matchApprove[2]));
         return createResponse(204, {});
       } catch (error) {
         console.error('Error approving publisher event:', error);
+        const message = error instanceof Error ? error.message : '';
+        if (message.startsWith('cannot approve')) {
+          return createResponse(409, { error: message });
+        }
         return createResponse(500, { error: 'Failed to approve event' });
       }
     }
@@ -346,7 +350,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     const matchReject = path.match(/^\/publisher-events\/([^/]+)\/([^/]+)\/reject$/);
     if (matchReject && httpMethod === 'POST') {
       try {
-        await publisherAdmin().rejectEvent(matchReject[1], matchReject[2]);
+        await publisherAdmin().rejectEvent(decodeURIComponent(matchReject[1]), decodeURIComponent(matchReject[2]));
         return createResponse(204, {});
       } catch (error) {
         console.error('Error rejecting publisher event:', error);
@@ -368,7 +372,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     const matchHaltApprove = path.match(/^\/publisher-halts\/([^/]+)\/approve$/);
     if (matchHaltApprove && httpMethod === 'POST') {
       try {
-        await publisherAdmin().approveThresholdHalt(matchHaltApprove[1]);
+        await publisherAdmin().approveThresholdHalt(decodeURIComponent(matchHaltApprove[1]));
         return createResponse(200, {});
       } catch (error) {
         console.error('Error approving threshold halt:', error);
@@ -379,7 +383,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     const matchHaltCancel = path.match(/^\/publisher-halts\/([^/]+)\/cancel$/);
     if (matchHaltCancel && httpMethod === 'POST') {
       try {
-        await publisherAdmin().cancelThresholdHalt(matchHaltCancel[1]);
+        await publisherAdmin().cancelThresholdHalt(decodeURIComponent(matchHaltCancel[1]));
         return createResponse(200, {});
       } catch (error) {
         console.error('Error cancelling threshold halt:', error);

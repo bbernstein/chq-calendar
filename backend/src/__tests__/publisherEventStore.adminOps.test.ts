@@ -19,12 +19,25 @@ describe('PublisherEventStore admin ops', () => {
     expect(cmd.input.ExpressionAttributeValues[':s']).toBe('pending');
   });
 
-  it('approveEvent updates state to published', async () => {
+  it('approveEvent updates state to published guarded by attribute_exists + state=pending', async () => {
     mockClient.send.mockResolvedValue({});
     await store.approveEvent('p', 'e');
     const cmd: any = mockClient.send.mock.calls[0][0];
     expect(cmd.input.UpdateExpression).toContain('#s');
-    expect(cmd.input.ExpressionAttributeValues[':s']).toBe('published');
+    expect(cmd.input.ExpressionAttributeValues[':published']).toBe('published');
+    expect(cmd.input.ConditionExpression).toBe('attribute_exists(publisherId) AND #s = :pending');
+    expect(cmd.input.ExpressionAttributeValues[':pending']).toBe('pending');
+  });
+
+  it('approveEvent throws a descriptive error when ConditionalCheckFailedException is raised', async () => {
+    const err = Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' });
+    mockClient.send.mockRejectedValue(err);
+    await expect(store.approveEvent('p', 'e')).rejects.toThrow(/cannot approve p\/e/);
+  });
+
+  it('approveEvent re-throws other errors unchanged', async () => {
+    mockClient.send.mockRejectedValue(new Error('boom'));
+    await expect(store.approveEvent('p', 'e')).rejects.toThrow('boom');
   });
 
   it('rejectEvent deletes the row guarded by state=pending', async () => {
