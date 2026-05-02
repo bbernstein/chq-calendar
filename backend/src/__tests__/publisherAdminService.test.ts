@@ -219,25 +219,28 @@ describe('PublisherAdminService', () => {
 
   // ── listThresholdHalts ─────────────────────────────────────────────────────
 
-  it('listThresholdHalts returns only publishers with pendingThresholdHalt set', async () => {
+  it('listThresholdHalts returns only publishers with pendingThresholdHalt set, including disabled ones', async () => {
     const withHalt = makeRecord({
       id: 'pub-halt',
+      enabled: false, // disabled but still has a halt that needs to be cleared
       pendingThresholdHalt: {
         detectedAt: '2026-05-01T10:00:00.000Z',
         incomingFeed: { eventCount: 500, publisherId: 'pub-halt' },
       },
     });
     const withoutHalt = makeRecord({ id: 'pub-ok' });
-    registry.listEnabled.mockResolvedValue([withHalt, withoutHalt]);
+    registry.listAll.mockResolvedValue([withHalt, withoutHalt]);
 
     const result = await svc.listThresholdHalts();
 
     expect(result).toEqual([withHalt]);
     expect(result).not.toContainEqual(expect.objectContaining({ id: 'pub-ok' }));
+    expect(registry.listAll).toHaveBeenCalledTimes(1);
+    expect(registry.listEnabled).not.toHaveBeenCalled();
   });
 
   it('listThresholdHalts returns empty array when no halts', async () => {
-    registry.listEnabled.mockResolvedValue([makeRecord({ id: 'pub-ok' })]);
+    registry.listAll.mockResolvedValue([makeRecord({ id: 'pub-ok' })]);
     const result = await svc.listThresholdHalts();
     expect(result).toEqual([]);
   });

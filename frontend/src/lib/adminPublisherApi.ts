@@ -80,24 +80,42 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
 // Publisher CRUD
 // ---------------------------------------------------------------------------
 
-export const listPublishers = (): Promise<PublisherRecord[]> =>
-  req<PublisherRecord[]>('/publishers');
+// Backend wraps responses in named keys ({ publishers, publisher, events, halts })
+// matching the convention from /admin/api/feedback. Unwrap here so callers
+// receive the bare arrays / records they expect.
 
-export const createPublisher = (input: CreatePublisherInput): Promise<PublisherRecord> =>
-  req<PublisherRecord>('/publishers', { method: 'POST', body: JSON.stringify(input) });
+export const listPublishers = async (): Promise<PublisherRecord[]> => {
+  const r = await req<{ publishers: PublisherRecord[] }>('/publishers');
+  return r.publishers;
+};
 
-export const updatePublisher = (id: string, patch: Partial<PublisherRecord>): Promise<PublisherRecord> =>
-  req<PublisherRecord>(`/publishers/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
+export const createPublisher = async (input: CreatePublisherInput): Promise<PublisherRecord> => {
+  const r = await req<{ publisher: PublisherRecord }>('/publishers', {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
+  return r.publisher;
+};
+
+export const updatePublisher = async (
+  id: string,
+  patch: Partial<PublisherRecord>,
+): Promise<PublisherRecord> => {
+  const r = await req<{ publisher: PublisherRecord }>(
+    `/publishers/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+  );
+  return r.publisher;
+};
 
 // ---------------------------------------------------------------------------
 // Pending events
 // ---------------------------------------------------------------------------
 
-export const listPending = (): Promise<PendingEvent[]> =>
-  req<PendingEvent[]>('/publisher-events/pending');
+export const listPending = async (): Promise<PendingEvent[]> => {
+  const r = await req<{ events: PendingEvent[] }>('/publisher-events/pending');
+  return r.events;
+};
 
 export const approveEvent = (publisherId: string, eventId: string): Promise<void> =>
   req<void>(
@@ -115,8 +133,10 @@ export const rejectEvent = (publisherId: string, eventId: string): Promise<void>
 // Threshold halts
 // ---------------------------------------------------------------------------
 
-export const listHalts = (): Promise<PublisherRecord[]> =>
-  req<PublisherRecord[]>('/publisher-halts');
+export const listHalts = async (): Promise<PublisherRecord[]> => {
+  const r = await req<{ halts: PublisherRecord[] }>('/publisher-halts');
+  return r.halts;
+};
 
 export const approveHalt = (
   publisherId: string

@@ -27,10 +27,24 @@ describe('PublisherEventStore admin ops', () => {
     expect(cmd.input.ExpressionAttributeValues[':s']).toBe('published');
   });
 
-  it('rejectEvent deletes the row', async () => {
+  it('rejectEvent deletes the row guarded by state=pending', async () => {
     mockClient.send.mockResolvedValue({});
     await store.rejectEvent('p', 'e');
     const cmd: any = mockClient.send.mock.calls[0][0];
     expect(cmd.constructor.name).toBe('DeleteCommand');
+    expect(cmd.input.ConditionExpression).toBe('#s = :pending');
+    expect(cmd.input.ExpressionAttributeNames['#s']).toBe('state');
+    expect(cmd.input.ExpressionAttributeValues[':pending']).toBe('pending');
+  });
+
+  it('rejectEvent treats ConditionalCheckFailedException as a no-op success', async () => {
+    const err = Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' });
+    mockClient.send.mockRejectedValue(err);
+    await expect(store.rejectEvent('p', 'e')).resolves.toBeUndefined();
+  });
+
+  it('rejectEvent re-throws other errors', async () => {
+    mockClient.send.mockRejectedValue(new Error('boom'));
+    await expect(store.rejectEvent('p', 'e')).rejects.toThrow('boom');
   });
 });

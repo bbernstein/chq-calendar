@@ -69,7 +69,10 @@ export class PublisherAdminService {
   }
 
   async listThresholdHalts(): Promise<PublisherRecord[]> {
-    const all = await this.registry.listEnabled();
+    // listAll, not listEnabled — a publisher disabled while it has a halt
+    // would otherwise become invisible and the halt unresolvable without
+    // re-enabling first.
+    const all = await this.registry.listAll();
     return all.filter(p => p.pendingThresholdHalt != null);
   }
 

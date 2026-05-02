@@ -66,9 +66,11 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('listPublishers', () => {
-  it('GETs the URL ending in /admin/api/publishers', async () => {
-    fetchMock.mockResolvedValueOnce(makeOkResponse([]));
-    await listPublishers();
+  it('GETs the URL ending in /admin/api/publishers and unwraps the publishers envelope', async () => {
+    const records = [{ id: 'p1' }, { id: 'p2' }];
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ publishers: records }));
+    const result = await listPublishers();
+    expect(result).toEqual(records);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/admin\/api\/publishers$/),
       expect.any(Object)
@@ -77,15 +79,16 @@ describe('listPublishers', () => {
 });
 
 describe('createPublisher', () => {
-  it('POSTs JSON with Content-Type: application/json and the provided id in the body', async () => {
-    fetchMock.mockResolvedValueOnce(makeOkResponse({ id: 'pub-1' }));
-    await createPublisher({
+  it('POSTs JSON, sends Content-Type and id, and unwraps the publisher envelope', async () => {
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ publisher: { id: 'pub-1', name: 'Test Publisher' } }));
+    const result = await createPublisher({
       id: 'pub-1',
       name: 'Test Publisher',
       contactEmail: 'test@example.com',
       sourceUrl: 'https://example.com/feed.json',
       sourceType: 'json',
     });
+    expect(result).toMatchObject({ id: 'pub-1', name: 'Test Publisher' });
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/admin\/api\/publishers$/);
     expect(options.method).toBe('POST');
@@ -95,9 +98,10 @@ describe('createPublisher', () => {
 });
 
 describe('updatePublisher', () => {
-  it('PATCHes the URL ending in /admin/api/publishers/<id>', async () => {
-    fetchMock.mockResolvedValueOnce(makeOkResponse({ id: 'pub-1', enabled: false }));
-    await updatePublisher('pub-1', { enabled: false });
+  it('PATCHes the URL ending in /admin/api/publishers/<id> and unwraps the publisher envelope', async () => {
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ publisher: { id: 'pub-1', enabled: false } }));
+    const result = await updatePublisher('pub-1', { enabled: false });
+    expect(result).toMatchObject({ id: 'pub-1', enabled: false });
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/admin\/api\/publishers\/pub-1$/);
     expect(options.method).toBe('PATCH');
@@ -105,7 +109,7 @@ describe('updatePublisher', () => {
   });
 
   it('URL-encodes publisher ids that contain special characters', async () => {
-    fetchMock.mockResolvedValueOnce(makeOkResponse({}));
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ publisher: { id: 'pub/with space' } }));
     await updatePublisher('pub/with space', { enabled: true });
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain(encodeURIComponent('pub/with space'));
@@ -113,9 +117,11 @@ describe('updatePublisher', () => {
 });
 
 describe('listPending', () => {
-  it('GETs /admin/api/publisher-events/pending', async () => {
-    fetchMock.mockResolvedValueOnce(makeOkResponse([]));
-    await listPending();
+  it('GETs /admin/api/publisher-events/pending and unwraps the events envelope', async () => {
+    const events = [{ publisherId: 'p', eventId: 'e' }];
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ events }));
+    const result = await listPending();
+    expect(result).toEqual(events);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/admin\/api\/publisher-events\/pending$/),
       expect.any(Object)
@@ -144,9 +150,11 @@ describe('rejectEvent', () => {
 });
 
 describe('listHalts', () => {
-  it('GETs /admin/api/publisher-halts', async () => {
-    fetchMock.mockResolvedValueOnce(makeOkResponse([]));
-    await listHalts();
+  it('GETs /admin/api/publisher-halts and unwraps the halts envelope', async () => {
+    const halts = [{ id: 'p1', pendingThresholdHalt: { detectedAt: 't' } }];
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ halts }));
+    const result = await listHalts();
+    expect(result).toEqual(halts);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/admin\/api\/publisher-halts$/),
       expect.any(Object)
@@ -188,7 +196,7 @@ describe('cancelHalt', () => {
 describe('Authorization header', () => {
   it('includes Bearer token when one is present in localStorage', async () => {
     localStorage.setItem('chq_auth_token', 'fake-jwt');
-    fetchMock.mockResolvedValueOnce(makeOkResponse([]));
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ publishers: [] }));
     await listPublishers();
     const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer fake-jwt');
@@ -196,7 +204,7 @@ describe('Authorization header', () => {
 
   it('omits Authorization header when no token is set', async () => {
     // localStorage is cleared in beforeEach — no token present
-    fetchMock.mockResolvedValueOnce(makeOkResponse([]));
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ publishers: [] }));
     await listPublishers();
     const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
     expect(headers['Authorization']).toBeUndefined();

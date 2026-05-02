@@ -78,10 +78,21 @@ export class PublisherEventStore {
   }
 
   async rejectEvent(publisherId: string, eventId: string): Promise<void> {
-    await this.db.send(new DeleteCommand({
-      TableName: this.tableName,
-      Key: { publisherId, eventId },
-    }));
+    // Guard against deleting an already-published event if /reject races a
+    // /approve or arrives after publication. ConditionalCheckFailedException
+    // is treated as a no-op — the row exists in a state we cannot reject from.
+    try {
+      await this.db.send(new DeleteCommand({
+        TableName: this.tableName,
+        Key: { publisherId, eventId },
+        ConditionExpression: '#s = :pending',
+        ExpressionAttributeNames: { '#s': 'state' },
+        ExpressionAttributeValues: { ':pending': 'pending' },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return;
+      throw err;
+    }
   }
 
   async applyDiff(diff: ReconcileDiff): Promise<void> {

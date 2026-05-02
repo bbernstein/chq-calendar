@@ -298,6 +298,10 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         return createResponse(201, { publisher });
       } catch (error) {
         console.error('Error creating publisher:', error);
+        const message = error instanceof Error ? error.message : '';
+        if (message.startsWith('publisher already exists')) {
+          return createResponse(409, { error: message });
+        }
         return createResponse(500, { error: 'Failed to create publisher' });
       }
     }
@@ -309,6 +313,10 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         return createResponse(200, { publisher });
       } catch (error) {
         console.error('Error updating publisher:', error);
+        const message = error instanceof Error ? error.message : '';
+        if (message.startsWith('unknown publisher')) {
+          return createResponse(404, { error: message });
+        }
         return createResponse(500, { error: 'Failed to update publisher' });
       }
     }
