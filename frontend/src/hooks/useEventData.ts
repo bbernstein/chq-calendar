@@ -66,21 +66,39 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
 
     setLoading(true);
     try {
-      const response = await fetch(
-        import.meta.env.DEV
-          ? `/data/all-events-${year}.json`
-          : `/cache/calendar-cache/all-events-${year}.json`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
+      const primaryUrl = import.meta.env.DEV
+        ? `/data/all-events-${year}.json`
+        : `/cache/calendar-cache/all-events-${year}.json`;
+      const sidecarEnabled = String(import.meta.env.VITE_ENABLE_PUBLISHER_FEEDS) === 'true';
+      const sidecarUrl = sidecarEnabled
+        ? (import.meta.env.DEV
+            ? `/data/publisher-events-${year}.json`
+            : `/cache/calendar-cache/publisher-events-${year}.json`)
+        : null;
+
+      const [primaryResp, sidecarResp] = await Promise.all([
+        fetch(primaryUrl, { method: 'GET', headers: { 'Accept': 'application/json' } }),
+        sidecarUrl
+          ? fetch(sidecarUrl, { method: 'GET', headers: { 'Accept': 'application/json' } }).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      if (primaryResp.ok) {
+        const data = await primaryResp.json();
+        const primaryRaw = data.data || [];
+
+        let publisherRaw: unknown[] = [];
+        // Sidecar is purely additive: any failure (404, parse error, network) falls back to primary-only.
+        if (sidecarResp && sidecarResp.ok) {
+          try {
+            const sidecarJson = await sidecarResp.json();
+            publisherRaw = sidecarJson.data || [];
+          } catch {
+            publisherRaw = [];
           }
         }
-      );
 
-      if (response.ok) {
-        const data = await response.json();
-        const rawEvents = data.data || [];
+        const rawEvents = [...primaryRaw, ...publisherRaw];
         const fetchedEvents = rawEvents.map(decodeEventHtmlEntities);
         setEvents(fetchedEvents);
         setDataLoaded(true);
