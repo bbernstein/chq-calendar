@@ -74,8 +74,14 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
           </div>
 
           {/* Event title */}
-          <h4 className="text-sm sm:text-lg font-semibold text-gray-900 dark:text-white mb-1 leading-tight">
-            {event.url ? (
+          <h4
+            className={`text-sm sm:text-lg font-semibold mb-1 leading-tight ${
+              event.status === 'cancelled'
+                ? 'line-through text-gray-500 dark:text-gray-400'
+                : 'text-gray-900 dark:text-white'
+            }`}
+          >
+            {event.url && event.status !== 'cancelled' ? (
               <a
                 href={event.url}
                 target="_blank"
@@ -88,6 +94,27 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
               event.title
             )}
           </h4>
+
+          {/* Status badges and publisher attribution (publisher feeds only) */}
+          {(event.status === 'cancelled' || event.status === 'rescheduled' || event.sourcePublisherName) && (
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              {event.status === 'cancelled' && (
+                <span className="inline-block px-2 py-0.5 rounded bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs font-semibold">
+                  Cancelled
+                </span>
+              )}
+              {event.status === 'rescheduled' && (
+                <span className="inline-block px-2 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-xs font-semibold">
+                  Rescheduled
+                </span>
+              )}
+              {event.sourcePublisherName && (
+                <span className="text-xs italic text-gray-500 dark:text-gray-400">
+                  via {event.sourcePublisherName}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Description with disclosure widget */}
           {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0)) && (

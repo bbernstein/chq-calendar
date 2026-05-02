@@ -85,20 +85,21 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
 
       if (primaryResp.ok) {
         const data = await primaryResp.json();
-        const primaryRaw = data.data || [];
+        let rawEvents = data.data || [];
 
-        let publisherRaw: unknown[] = [];
-        // Sidecar is purely additive: any failure (404, parse error, network) falls back to primary-only.
+        // Sidecar is purely additive: any failure (404, parse error, network) falls back
+        // to primary-only. Use concat (not push) so we never mutate the response body.
         if (sidecarResp && sidecarResp.ok) {
           try {
             const sidecarJson = await sidecarResp.json();
-            publisherRaw = sidecarJson.data || [];
+            if (Array.isArray(sidecarJson.data)) {
+              rawEvents = rawEvents.concat(sidecarJson.data);
+            }
           } catch {
-            publisherRaw = [];
+            // Ignore sidecar parse errors; primary remains intact.
           }
         }
 
-        const rawEvents = [...primaryRaw, ...publisherRaw];
         const fetchedEvents = rawEvents.map(decodeEventHtmlEntities);
         setEvents(fetchedEvents);
         setDataLoaded(true);
