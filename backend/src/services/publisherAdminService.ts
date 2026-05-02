@@ -22,6 +22,10 @@ export class PublisherAdminService {
   }
 
   async createPublisher(input: CreatePublisherInput): Promise<PublisherRecord> {
+    const conflict = await this.registry.get(input.id);
+    if (conflict != null) {
+      throw new Error(`publisher already exists: ${input.id}`);
+    }
     const rec: PublisherRecord = {
       id: input.id,
       name: input.name,

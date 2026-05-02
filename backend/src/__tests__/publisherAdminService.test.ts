@@ -71,6 +71,7 @@ describe('PublisherAdminService', () => {
   // ── createPublisher ────────────────────────────────────────────────────────
 
   it('createPublisher uses trustLevel "review" by default', async () => {
+    registry.get.mockResolvedValue(null);
     registry.upsert.mockResolvedValue(undefined);
     const rec = await svc.createPublisher({
       id: 'pub-1',
@@ -89,6 +90,7 @@ describe('PublisherAdminService', () => {
   });
 
   it('createPublisher honors an explicit trustLevel', async () => {
+    registry.get.mockResolvedValue(null);
     registry.upsert.mockResolvedValue(undefined);
     const rec = await svc.createPublisher({
       id: 'pub-2',
@@ -101,6 +103,18 @@ describe('PublisherAdminService', () => {
     expect(rec.trustLevel).toBe('auto');
     expect(rec.id).toBe('pub-2');
     expect(rec.sourceType).toBe('html');
+  });
+
+  it('createPublisher refuses to overwrite an existing record with the same id', async () => {
+    registry.get.mockResolvedValue(makeRecord({ id: 'pub-1' }));
+    await expect(svc.createPublisher({
+      id: 'pub-1',
+      name: 'Conflicting',
+      contactEmail: 'x@example.com',
+      sourceUrl: 'https://example.com/feed.json',
+      sourceType: 'json',
+    })).rejects.toThrow('publisher already exists: pub-1');
+    expect(registry.upsert).not.toHaveBeenCalled();
   });
 
   // ── updatePublisher ────────────────────────────────────────────────────────
