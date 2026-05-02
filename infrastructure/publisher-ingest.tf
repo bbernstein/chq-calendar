@@ -79,12 +79,27 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
         ]
       },
       {
-        Effect   = "Allow",
-        Action   = ["s3:PutObject"],
+        Effect = "Allow",
+        Action = ["s3:PutObject", "s3:DeleteObject"],
         Resource = "${aws_s3_bucket.frontend_bucket.arn}/cache/calendar-cache/publisher-events-*.json"
+      },
+      {
+        Effect   = "Allow",
+        Action   = ["s3:ListBucket"],
+        Resource = aws_s3_bucket.frontend_bucket.arn,
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["cache/calendar-cache/publisher-events-*"]
+          }
+        }
       }
     ]
   })
+}
+
+resource "aws_cloudwatch_log_group" "publisher_ingest" {
+  name              = "/aws/lambda/chq-publisher-ingest"
+  retention_in_days = 14
 }
 
 resource "aws_lambda_function" "publisher_ingest" {
@@ -104,6 +119,12 @@ resource "aws_lambda_function" "publisher_ingest" {
       CACHE_S3_KEY_PREFIX         = "cache/calendar-cache"
     }
   }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.publisher_ingest_basic,
+    aws_iam_role_policy.publisher_ingest_scoped,
+    aws_cloudwatch_log_group.publisher_ingest,
+  ]
 
   source_code_hash = filebase64sha256("../backend/lambda-function.zip")
 }

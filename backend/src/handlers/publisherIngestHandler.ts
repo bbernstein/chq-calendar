@@ -42,6 +42,9 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
       continue;
     }
     await deps.store.applyDiff(result.diff);
+    if (p.pendingThresholdHalt) {
+      await deps.registry.setThresholdHalt(p.id, undefined);
+    }
     await deps.registry.recordFetchOutcome(p.id, { status: 'ok' });
   }
   const all = await deps.store.listAllPublished();

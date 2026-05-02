@@ -1,10 +1,23 @@
 jest.unmock('@aws-sdk/client-s3');
 
+import {
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3';
 import { PublisherSidecarPublisher } from '../services/publisherSidecarPublisher';
 import type { StoredPublisherEvent } from '../types/publisher';
 
 const mockSend = jest.fn();
 const mockS3: any = { send: mockSend };
+
+function mockListReturns(...years: number[]): void {
+  const Contents = years.map(y => ({ Key: `cache/calendar-cache/publisher-events-${y}.json` }));
+  mockSend.mockImplementation((cmd: any) => {
+    if (cmd instanceof ListObjectsV2Command) return Promise.resolve({ Contents });
+    return Promise.resolve({});
+  });
+}
 
 const ev = (id: string, year = 2026, state: 'published' | 'pending' = 'published'): StoredPublisherEvent => ({
   publisherId: 'p',
@@ -32,28 +45,38 @@ describe('PublisherSidecarPublisher', () => {
   });
 
   it('groups by year and writes one object per year', async () => {
+    mockListReturns();
     const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
     await pub.publish([ev('a', 2026), ev('b', 2026), ev('c', 2027)]);
-    expect(mockSend).toHaveBeenCalledTimes(2);
+    const puts = mockSend.mock.calls.filter(c => c[0] instanceof PutObjectCommand);
+    expect(puts).toHaveLength(2);
   });
 
-  it('writes nothing for empty input', async () => {
+  it('writes nothing for empty input when no existing sidecars', async () => {
+    mockListReturns();
     const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
     await pub.publish([]);
-    expect(mockSend).not.toHaveBeenCalled();
+    const puts = mockSend.mock.calls.filter(c => c[0] instanceof PutObjectCommand);
+    const deletes = mockSend.mock.calls.filter(c => c[0] instanceof DeleteObjectCommand);
+    expect(puts).toHaveLength(0);
+    expect(deletes).toHaveLength(0);
   });
 
-  it('writes nothing when no events are in published state', async () => {
+  it('writes nothing for the body when no events are in published state', async () => {
+    mockListReturns();
     const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
     await pub.publish([ev('a', 2026, 'pending'), ev('b', 2027, 'pending')]);
-    expect(mockSend).not.toHaveBeenCalled();
+    const puts = mockSend.mock.calls.filter(c => c[0] instanceof PutObjectCommand);
+    expect(puts).toHaveLength(0);
   });
 
   it('uses correct S3 key shape', async () => {
-    mockSend.mockResolvedValue({});
+    mockListReturns();
     const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
     await pub.publish([ev('a', 2026)]);
-    const cmd: any = mockSend.mock.calls[0][0];
+    const putCall = mockSend.mock.calls.find(c => c[0] instanceof PutObjectCommand);
+    expect(putCall).toBeDefined();
+    const cmd: any = putCall![0];
     expect(cmd.input.Bucket).toBe('bucket');
     expect(cmd.input.Key).toBe('cache/calendar-cache/publisher-events-2026.json');
     expect(cmd.input.ContentType).toBe('application/json');
@@ -63,12 +86,31 @@ describe('PublisherSidecarPublisher', () => {
   });
 
   it('only includes published events in the body', async () => {
-    mockSend.mockResolvedValue({});
+    mockListReturns();
     const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
     await pub.publish([ev('a', 2026, 'published'), ev('b', 2026, 'pending')]);
-    const cmd: any = mockSend.mock.calls[0][0];
+    const putCall = mockSend.mock.calls.find(c => c[0] instanceof PutObjectCommand);
+    const cmd: any = putCall![0];
     const body = JSON.parse(cmd.input.Body as string);
     expect(body.data).toHaveLength(1);
     expect(body.data[0].id).toBe('a');
+  });
+
+  it('deletes a stale sidecar when its year drops to zero published events', async () => {
+    mockListReturns(2025, 2026);
+    const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
+    await pub.publish([ev('a', 2026)]);
+    const deletes = mockSend.mock.calls.filter(c => c[0] instanceof DeleteObjectCommand);
+    expect(deletes).toHaveLength(1);
+    const cmd: any = deletes[0][0];
+    expect(cmd.input.Key).toBe('cache/calendar-cache/publisher-events-2025.json');
+  });
+
+  it('deletes all sidecars when all published events are removed', async () => {
+    mockListReturns(2025, 2026, 2027);
+    const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
+    await pub.publish([]);
+    const deletes = mockSend.mock.calls.filter(c => c[0] instanceof DeleteObjectCommand);
+    expect(deletes).toHaveLength(3);
   });
 });

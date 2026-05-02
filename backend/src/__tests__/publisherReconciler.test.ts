@@ -118,6 +118,30 @@ describe('reconcile', () => {
     expect(r.diff.inserts[0].state).toBe('pending');
   });
 
+  it('updates stored event when trust-level promotes pending → published', () => {
+    const stored = [ev('a', '2026-07-01T00:00:00-04:00', '2026-05-01T00:00:00-04:00', 'pending')];
+    const r = reconcile({
+      stored,
+      feed: feed([{ id: 'a', title: 'A', startDate: '2026-07-01T00:00:00-04:00', endDate: '2026-07-01T01:00:00-04:00', category: 'Lecture', lastModified: '2026-05-01T00:00:00-04:00' }]),
+      now: NOW,
+      trustLevel: 'auto',
+    });
+    expect(r.diff.updates).toHaveLength(1);
+    expect(r.diff.updates[0].state).toBe('published');
+  });
+
+  it('updates stored event when trust-level demotes published → pending', () => {
+    const stored = [ev('a', '2026-07-01T00:00:00-04:00', '2026-05-01T00:00:00-04:00', 'published')];
+    const r = reconcile({
+      stored,
+      feed: feed([{ id: 'a', title: 'A', startDate: '2026-07-01T00:00:00-04:00', endDate: '2026-07-01T01:00:00-04:00', category: 'Lecture', lastModified: '2026-05-01T00:00:00-04:00' }]),
+      now: NOW,
+      trustLevel: 'review',
+    });
+    expect(r.diff.updates).toHaveLength(1);
+    expect(r.diff.updates[0].state).toBe('pending');
+  });
+
   it('routes to pending when trustLevel is flagged', () => {
     const r = reconcile({
       stored: [],

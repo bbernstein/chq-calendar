@@ -94,6 +94,86 @@ describe('runIngest (integration)', () => {
     expect(registry.recordFetchOutcome).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'network_error' }));
   });
 
+  it('clears pendingThresholdHalt when a previously halted publisher succeeds', async () => {
+    const registry = {
+      listEnabled: jest.fn().mockResolvedValue([{
+        id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
+        sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
+        pendingThresholdHalt: { detectedAt: 'earlier', incomingFeed: { events: [], publisher: { id: 'p1', name: 'X', contactEmail: 'a@b' } } },
+      }]),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok',
+      report: { ok: true, errors: [], warnings: [] },
+      feed: {
+        formatVersion: '1.0',
+        publisher: { id: 'p1', name: 'X', contactEmail: 'a@b' },
+        events: [{
+          id: 'e1', title: 'E',
+          startDate: '2026-07-04T18:00:00-04:00',
+          endDate: '2026-07-04T19:00:00-04:00',
+          category: 'Lecture',
+          lastModified: '2026-05-01T00:00:00-04:00',
+        }],
+      },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockResolvedValue(undefined),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    expect(registry.setThresholdHalt).toHaveBeenCalledWith('p1', undefined);
+    expect(registry.recordFetchOutcome).toHaveBeenCalledWith('p1', { status: 'ok' });
+  });
+
+  it('does not call setThresholdHalt on success when no halt was pending', async () => {
+    const registry = {
+      listEnabled: jest.fn().mockResolvedValue([{
+        id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
+        sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
+      }]),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok',
+      report: { ok: true, errors: [], warnings: [] },
+      feed: {
+        formatVersion: '1.0',
+        publisher: { id: 'p1', name: 'X', contactEmail: 'a@b' },
+        events: [],
+      },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockResolvedValue(undefined),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    expect(registry.setThresholdHalt).not.toHaveBeenCalled();
+  });
+
   it('records threshold halt and does not apply diff', async () => {
     const registry = {
       listEnabled: jest.fn().mockResolvedValue([{

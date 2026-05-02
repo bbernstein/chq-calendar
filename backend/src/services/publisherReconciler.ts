@@ -49,7 +49,10 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
     const newRec = toStored(inc, feed.publisher, trustLevel, nowIso);
     if (!ex) {
       inserts.push(newRec);
-    } else if (Date.parse(inc.lastModified) > Date.parse(ex.lastModified)) {
+    } else if (
+      Date.parse(inc.lastModified) > Date.parse(ex.lastModified) ||
+      ex.state !== newRec.state
+    ) {
       updates.push(newRec);
     } else {
       unchanged++;

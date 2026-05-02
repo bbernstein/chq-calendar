@@ -24,6 +24,20 @@ describe('PublisherRegistryService', () => {
     expect(cmd.input.FilterExpression).toContain('enabled');
   });
 
+  it('listEnabled paginates through LastEvaluatedKey', async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Items: [{ id: 'a', enabled: true, name: 'A', contactEmail: 'a@b', sourceUrl: 'x', sourceType: 'json', trustLevel: 'auto', createdAt: 't' }],
+        LastEvaluatedKey: { id: 'a' },
+      })
+      .mockResolvedValueOnce({
+        Items: [{ id: 'b', enabled: true, name: 'B', contactEmail: 'b@b', sourceUrl: 'y', sourceType: 'json', trustLevel: 'auto', createdAt: 't' }],
+      });
+    const r = await svc.listEnabled();
+    expect(r.map(p => p.id)).toEqual(['a', 'b']);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+  });
+
   it('recordFetchOutcome updates lastFetchedAt and status', async () => {
     mockSend.mockResolvedValue({});
     await svc.recordFetchOutcome('a', { status: 'ok' });

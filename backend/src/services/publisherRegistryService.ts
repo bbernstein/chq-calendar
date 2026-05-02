@@ -14,12 +14,19 @@ export class PublisherRegistryService {
   }
 
   async listEnabled(): Promise<PublisherRecord[]> {
-    const r = await this.db.send(new ScanCommand({
-      TableName: this.tableName,
-      FilterExpression: 'enabled = :t',
-      ExpressionAttributeValues: { ':t': true },
-    }));
-    return (r.Items ?? []) as PublisherRecord[];
+    const out: PublisherRecord[] = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: 'enabled = :t',
+        ExpressionAttributeValues: { ':t': true },
+        ExclusiveStartKey: last,
+      }));
+      out.push(...((r.Items ?? []) as PublisherRecord[]));
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return out;
   }
 
   async upsert(rec: PublisherRecord): Promise<void> {
