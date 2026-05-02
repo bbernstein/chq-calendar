@@ -5,6 +5,18 @@ import { handler as calendarHandler } from './handlers/calendarHandler';
 import { handler as adminHandler } from './handlers/adminHandler';
 import { APIGatewayProxyEvent, Context } from 'aws-lambda';
 
+// Local dev convenience: this server file only ever runs under `npm run dev`,
+// never in production (the prod admin Lambda invokes adminHandler directly,
+// not through this Express wrapper). Auto-enable DEV_AUTH_BYPASS so admin
+// pages work out of the box without requiring a real Google OAuth flow.
+// adminHandler.ts double-gates on `!isProduction` (NODE_ENV !== 'production'
+// AND ENVIRONMENT !== 'prod'), so even if this var leaked into a prod env
+// the bypass would still be inert.
+if (!process.env.DEV_AUTH_BYPASS) {
+  process.env.DEV_AUTH_BYPASS = 'true';
+  console.log('🔓 Local dev: DEV_AUTH_BYPASS=true (admin auth bypassed; set DEV_AUTH_BYPASS=false to override)');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
