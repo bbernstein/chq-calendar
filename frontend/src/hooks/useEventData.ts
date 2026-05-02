@@ -71,11 +71,21 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
       const primaryUrl = `${cacheBase}/all-events-${year}.json`;
       const sidecarUrl = sidecarEnabled ? `${cacheBase}/publisher-events-${year}.json` : null;
 
+      // Cap sidecar latency so a slow/hung publisher endpoint can't delay the
+      // primary calendar render. AbortSignal.timeout returns ok:false-equivalent
+      // (rejected promise) which we already swallow with .catch(() => null).
+      const SIDECAR_TIMEOUT_MS = 3000;
+      const sidecarFetch = sidecarUrl
+        ? fetch(sidecarUrl, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(SIDECAR_TIMEOUT_MS),
+          }).catch(() => null)
+        : Promise.resolve(null);
+
       const [primaryResp, sidecarResp] = await Promise.all([
         fetch(primaryUrl, { method: 'GET', headers: { 'Accept': 'application/json' } }),
-        sidecarUrl
-          ? fetch(sidecarUrl, { method: 'GET', headers: { 'Accept': 'application/json' } }).catch(() => null)
-          : Promise.resolve(null),
+        sidecarFetch,
       ]);
 
       if (primaryResp.ok) {
