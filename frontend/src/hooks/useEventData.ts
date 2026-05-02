@@ -47,7 +47,7 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
         const cachedData = localStorage.getItem(cacheKey);
         if (cachedData) {
           const parsed = JSON.parse(cachedData);
-          if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v3-categories') {
+          if (parsed.timestamp && Date.now() - parsed.timestamp < CACHE_EXPIRY_MS && parsed.version === 'v4-publisher-feeds') {
             const decodedEvents = parsed.events.map(decodeEventHtmlEntities);
             setEvents(decodedEvents);
             setAvailableCategories(parsed.categories.map((cat: string) => decodeHtmlEntities(cat) || cat));
@@ -66,21 +66,48 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
 
     setLoading(true);
     try {
-      const response = await fetch(
-        import.meta.env.DEV
-          ? `/data/all-events-${year}.json`
-          : `/cache/calendar-cache/all-events-${year}.json`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
+      const sidecarEnabled = String(import.meta.env.VITE_ENABLE_PUBLISHER_FEEDS) === 'true';
+      const cacheBase = import.meta.env.DEV ? '/data' : '/cache/calendar-cache';
+      const primaryUrl = `${cacheBase}/all-events-${year}.json`;
+      const sidecarUrl = sidecarEnabled ? `${cacheBase}/publisher-events-${year}.json` : null;
+
+      // Cap sidecar latency so a slow/hung publisher endpoint can't delay the
+      // primary calendar render. AbortSignal.timeout returns ok:false-equivalent
+      // (rejected promise) which we already swallow with .catch(() => null).
+      const SIDECAR_TIMEOUT_MS = 3000;
+      const sidecarFetch = sidecarUrl
+        ? fetch(sidecarUrl, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(SIDECAR_TIMEOUT_MS),
+          }).catch(() => null)
+        : Promise.resolve(null);
+
+      const [primaryResp, sidecarResp] = await Promise.all([
+        fetch(primaryUrl, { method: 'GET', headers: { 'Accept': 'application/json' } }),
+        sidecarFetch,
+      ]);
+
+      if (primaryResp.ok) {
+        const data = await primaryResp.json();
+        let rawEvents = data.data || [];
+
+        // Sidecar is purely additive: any failure (404, parse error, network) falls back
+        // to primary-only. Use concat (not push) so we never mutate the response body.
+        // Dedupe by id so a publisher echoing a primary event doesn't render twice.
+        if (sidecarResp && sidecarResp.ok) {
+          try {
+            const sidecarJson = await sidecarResp.json();
+            if (Array.isArray(sidecarJson.data)) {
+              const seenIds = new Set<string>(rawEvents.map((e: Event) => e.id));
+              const additions = sidecarJson.data.filter((e: Event) => e && e.id && !seenIds.has(e.id));
+              rawEvents = rawEvents.concat(additions);
+            }
+          } catch {
+            // Ignore sidecar parse errors; primary remains intact.
           }
         }
-      );
 
-      if (response.ok) {
-        const data = await response.json();
-        const rawEvents = data.data || [];
         const fetchedEvents = rawEvents.map(decodeEventHtmlEntities);
         setEvents(fetchedEvents);
         setDataLoaded(true);
@@ -166,7 +193,7 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
             tags: sortedTags,
             weeks: weeks,
             timestamp: Date.now(),
-            version: 'v3-categories'
+            version: 'v4-publisher-feeds'
           }));
         } catch (e) {
           console.warn('Failed to save to localStorage:', e);

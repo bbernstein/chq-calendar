@@ -43,6 +43,10 @@ jobs:
         env:
           VITE_API_URL: ""
           VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+          # Enable fetching/rendering of registered publisher feeds. Sidecar fetch
+          # is fault-tolerant: 404/parse errors fall back to primary-only behavior,
+          # so this is safe to leave on even before any publisher is onboarded.
+          VITE_ENABLE_PUBLISHER_FEEDS: "true"
 
       - name: Deploy calendar Lambda function
         working-directory: ./backend
