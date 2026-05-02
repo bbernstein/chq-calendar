@@ -544,7 +544,7 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_error_rate" {
   statistic           = "Average"
   threshold           = "5"
   alarm_description   = "This metric monitors CloudFront 4xx error rate"
-  alarm_actions       = []  # Add SNS topic ARN here if you want notifications
+  alarm_actions       = [] # Add SNS topic ARN here if you want notifications
 
   dimensions = {
     DistributionId = aws_cloudfront_distribution.frontend_distribution.id
@@ -564,9 +564,9 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_origin_latency" {
   namespace           = "AWS/CloudFront"
   period              = "300"
   statistic           = "Average"
-  threshold           = "5000"  # 5 seconds
+  threshold           = "5000" # 5 seconds
   alarm_description   = "This metric monitors CloudFront origin latency"
-  alarm_actions       = []  # Add SNS topic ARN here if you want notifications
+  alarm_actions       = [] # Add SNS topic ARN here if you want notifications
 
   dimensions = {
     DistributionId = aws_cloudfront_distribution.frontend_distribution.id
@@ -771,13 +771,15 @@ resource "aws_lambda_function" "admin_handler" {
 
   environment {
     variables = {
-      FEEDBACK_TABLE_NAME   = aws_dynamodb_table.feedback.name
-      ENVIRONMENT           = var.environment
-      JWT_SECRET            = var.jwt_secret
-      GOOGLE_CLIENT_ID      = var.google_client_id
-      GOOGLE_CLIENT_SECRET  = var.google_client_secret
-      ADMIN_EMAIL_WHITELIST = var.admin_email_whitelist
-      ADMIN_API_URL         = "https://admin-api.${var.domain_name}"
+      FEEDBACK_TABLE_NAME         = aws_dynamodb_table.feedback.name
+      ENVIRONMENT                 = var.environment
+      JWT_SECRET                  = var.jwt_secret
+      GOOGLE_CLIENT_ID            = var.google_client_id
+      GOOGLE_CLIENT_SECRET        = var.google_client_secret
+      ADMIN_EMAIL_WHITELIST       = var.admin_email_whitelist
+      ADMIN_API_URL               = "https://admin-api.${var.domain_name}"
+      PUBLISHERS_TABLE_NAME       = aws_dynamodb_table.publishers.name
+      PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
     }
   }
 }
@@ -1288,6 +1290,33 @@ resource "aws_api_gateway_integration" "direct_feedback_bulk_options_integration
   uri                     = aws_lambda_function.admin_handler.invoke_arn
 }
 
+# Catch-all proxy for admin API. Routes any unmatched path (e.g. the publisher
+# admin endpoints added in Plan 3) to the admin Lambda, which dispatches by
+# event.path internally. More-specific resources (e.g. /feedback, /auth/*)
+# take precedence under API Gateway's path-resolution rules.
+resource "aws_api_gateway_resource" "admin_proxy" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  parent_id   = aws_api_gateway_rest_api.admin.root_resource_id
+  path_part   = "{proxy+}"
+}
+
+resource "aws_api_gateway_method" "admin_proxy_any" {
+  rest_api_id   = aws_api_gateway_rest_api.admin.id
+  resource_id   = aws_api_gateway_resource.admin_proxy.id
+  http_method   = "ANY"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "admin_proxy_any" {
+  rest_api_id = aws_api_gateway_rest_api.admin.id
+  resource_id = aws_api_gateway_resource.admin_proxy.id
+  http_method = aws_api_gateway_method.admin_proxy_any.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.admin_handler.invoke_arn
+}
+
 resource "aws_api_gateway_deployment" "admin_deployment" {
   depends_on = [
     aws_api_gateway_integration.auth_google_integration,
@@ -1304,6 +1333,7 @@ resource "aws_api_gateway_deployment" "admin_deployment" {
     aws_api_gateway_integration.direct_feedback_options_integration,
     aws_api_gateway_integration.direct_feedback_bulk_patch_integration,
     aws_api_gateway_integration.direct_feedback_bulk_options_integration,
+    aws_api_gateway_integration.admin_proxy_any,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.admin.id
@@ -1346,6 +1376,9 @@ resource "aws_api_gateway_deployment" "admin_deployment" {
       aws_api_gateway_method.direct_feedback_bulk_options.id,
       aws_api_gateway_integration.direct_feedback_bulk_patch_integration.id,
       aws_api_gateway_integration.direct_feedback_bulk_options_integration.id,
+      aws_api_gateway_resource.admin_proxy.id,
+      aws_api_gateway_method.admin_proxy_any.id,
+      aws_api_gateway_integration.admin_proxy_any.id,
     ]))
   }
 

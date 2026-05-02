@@ -5,6 +5,18 @@ import { handler as calendarHandler } from './handlers/calendarHandler';
 import { handler as adminHandler } from './handlers/adminHandler';
 import { APIGatewayProxyEvent, Context } from 'aws-lambda';
 
+// Local dev convenience: this server file only ever runs under `npm run dev`,
+// never in production (the prod admin Lambda invokes adminHandler directly,
+// not through this Express wrapper). Auto-enable DEV_AUTH_BYPASS so admin
+// pages work out of the box without requiring a real Google OAuth flow.
+// adminHandler.ts double-gates on `!isProduction` (NODE_ENV !== 'production'
+// AND ENVIRONMENT !== 'prod'), so even if this var leaked into a prod env
+// the bypass would still be inert.
+if (!process.env.DEV_AUTH_BYPASS) {
+  process.env.DEV_AUTH_BYPASS = 'true';
+  console.log('🔓 Local dev: DEV_AUTH_BYPASS=true (admin auth bypassed; set DEV_AUTH_BYPASS=false to override)');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -201,6 +213,22 @@ app.patch('/admin/api/feedback/bulk', async (req, res) => {
     res.status(result.statusCode).json(JSON.parse(result.body));
   } catch (error) {
     console.error('Admin API error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Catch-all for everything else under /admin/api/* (e.g. publisher CRUD,
+// publisher-events queue, publisher-halts management). Mirrors the {proxy+}
+// resource added on the production admin API Gateway. The explicit /feedback
+// routes above keep priority because Express matches in declaration order.
+app.all('/admin/api/*', async (req, res) => {
+  try {
+    const event = expressToLambdaEvent(req);
+    event.path = req.path.replace(/^\/admin\/api/, '') || '/';
+    const result = await adminHandler(event, mockContext);
+    res.status(result.statusCode).json(result.body ? JSON.parse(result.body) : null);
+  } catch (error) {
+    console.error('Admin API proxy error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

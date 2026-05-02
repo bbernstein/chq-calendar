@@ -1,6 +1,8 @@
 import {
+  DeleteCommand,
   QueryCommand,
   TransactWriteCommand,
+  UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
 import type { ReconcileDiff, StoredPublisherEvent } from '../types/publisher';
@@ -45,6 +47,69 @@ export class PublisherEventStore {
       last = r.LastEvaluatedKey;
     } while (last);
     return out;
+  }
+
+  async listPending(): Promise<StoredPublisherEvent[]> {
+    const out: StoredPublisherEvent[] = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'by-state',
+        KeyConditionExpression: '#s = :s',
+        ExpressionAttributeNames: { '#s': 'state' },
+        ExpressionAttributeValues: { ':s': 'pending' },
+        ExclusiveStartKey: last,
+      }));
+      out.push(...((r.Items ?? []) as StoredPublisherEvent[]));
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return out;
+  }
+
+  async approveEvent(publisherId: string, eventId: string): Promise<void> {
+    // Guard against UpdateItem's upsert behavior: without attribute_exists,
+    // approving a stale/nonexistent event ID would create a phantom row with
+    // only state + updatedAt set, which the next sidecar publish would emit
+    // into the cache as a corrupt record. Also require state=pending so a
+    // late /approve that races a /reject can't resurrect a deleted row.
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { publisherId, eventId },
+        UpdateExpression: 'SET #s = :published, updatedAt = :now',
+        ConditionExpression: 'attribute_exists(publisherId) AND #s = :pending',
+        ExpressionAttributeNames: { '#s': 'state' },
+        ExpressionAttributeValues: {
+          ':published': 'published',
+          ':pending': 'pending',
+          ':now': new Date().toISOString(),
+        },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new Error(`cannot approve ${publisherId}/${eventId}: not pending or no longer exists`);
+      }
+      throw err;
+    }
+  }
+
+  async rejectEvent(publisherId: string, eventId: string): Promise<void> {
+    // Guard against deleting an already-published event if /reject races a
+    // /approve or arrives after publication. ConditionalCheckFailedException
+    // is treated as a no-op — the row exists in a state we cannot reject from.
+    try {
+      await this.db.send(new DeleteCommand({
+        TableName: this.tableName,
+        Key: { publisherId, eventId },
+        ConditionExpression: '#s = :pending',
+        ExpressionAttributeNames: { '#s': 'state' },
+        ExpressionAttributeValues: { ':pending': 'pending' },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return;
+      throw err;
+    }
   }
 
   async applyDiff(diff: ReconcileDiff): Promise<void> {
