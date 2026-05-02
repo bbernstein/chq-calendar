@@ -3,6 +3,9 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
+import { PublisherAdminService } from '../services/publisherAdminService';
+import { PublisherRegistryService } from '../services/publisherRegistryService';
+import { PublisherEventStore } from '../services/publisherEventStore';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({ 
@@ -16,6 +19,18 @@ const dynamoClient = new DynamoDBClient({
   }),
 });
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
+
+// Lazy singleton for PublisherAdminService — one instance per Lambda warm container.
+let _publisherAdmin: PublisherAdminService | null = null;
+function publisherAdmin(): PublisherAdminService {
+  if (!_publisherAdmin) {
+    _publisherAdmin = new PublisherAdminService(
+      new PublisherRegistryService(docClient, process.env.PUBLISHERS_TABLE_NAME ?? 'chq-publishers'),
+      new PublisherEventStore(docClient, process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chq-publisher-events'),
+    );
+  }
+  return _publisherAdmin;
+}
 
 // Environment variables
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
@@ -264,6 +279,104 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     
     if (!user) {
       return createResponse(401, { error: 'Authentication required' });
+    }
+
+    // Publisher CRUD endpoints
+    if (path === '/publishers' && httpMethod === 'GET') {
+      try {
+        const publishers = await publisherAdmin().listPublishers();
+        return createResponse(200, { publishers });
+      } catch (error) {
+        console.error('Error listing publishers:', error);
+        return createResponse(500, { error: 'Failed to list publishers' });
+      }
+    }
+
+    if (path === '/publishers' && httpMethod === 'POST') {
+      try {
+        const publisher = await publisherAdmin().createPublisher(requestBody);
+        return createResponse(201, { publisher });
+      } catch (error) {
+        console.error('Error creating publisher:', error);
+        return createResponse(500, { error: 'Failed to create publisher' });
+      }
+    }
+
+    const matchPubPatch = path.match(/^\/publishers\/([^/]+)$/);
+    if (matchPubPatch && httpMethod === 'PATCH') {
+      try {
+        const publisher = await publisherAdmin().updatePublisher(matchPubPatch[1], requestBody);
+        return createResponse(200, { publisher });
+      } catch (error) {
+        console.error('Error updating publisher:', error);
+        return createResponse(500, { error: 'Failed to update publisher' });
+      }
+    }
+
+    // Publisher pending events queue
+    if (path === '/publisher-events/pending' && httpMethod === 'GET') {
+      try {
+        const events = await publisherAdmin().listPendingEvents();
+        return createResponse(200, { events });
+      } catch (error) {
+        console.error('Error listing pending publisher events:', error);
+        return createResponse(500, { error: 'Failed to list pending events' });
+      }
+    }
+
+    const matchApprove = path.match(/^\/publisher-events\/([^/]+)\/([^/]+)\/approve$/);
+    if (matchApprove && httpMethod === 'POST') {
+      try {
+        await publisherAdmin().approveEvent(matchApprove[1], matchApprove[2]);
+        return createResponse(204, {});
+      } catch (error) {
+        console.error('Error approving publisher event:', error);
+        return createResponse(500, { error: 'Failed to approve event' });
+      }
+    }
+
+    const matchReject = path.match(/^\/publisher-events\/([^/]+)\/([^/]+)\/reject$/);
+    if (matchReject && httpMethod === 'POST') {
+      try {
+        await publisherAdmin().rejectEvent(matchReject[1], matchReject[2]);
+        return createResponse(204, {});
+      } catch (error) {
+        console.error('Error rejecting publisher event:', error);
+        return createResponse(500, { error: 'Failed to reject event' });
+      }
+    }
+
+    // Publisher threshold-halt management
+    if (path === '/publisher-halts' && httpMethod === 'GET') {
+      try {
+        const halts = await publisherAdmin().listThresholdHalts();
+        return createResponse(200, { halts });
+      } catch (error) {
+        console.error('Error listing publisher halts:', error);
+        return createResponse(500, { error: 'Failed to list publisher halts' });
+      }
+    }
+
+    const matchHaltApprove = path.match(/^\/publisher-halts\/([^/]+)\/approve$/);
+    if (matchHaltApprove && httpMethod === 'POST') {
+      try {
+        await publisherAdmin().approveThresholdHalt(matchHaltApprove[1]);
+        return createResponse(200, {});
+      } catch (error) {
+        console.error('Error approving threshold halt:', error);
+        return createResponse(500, { error: 'Failed to approve threshold halt' });
+      }
+    }
+
+    const matchHaltCancel = path.match(/^\/publisher-halts\/([^/]+)\/cancel$/);
+    if (matchHaltCancel && httpMethod === 'POST') {
+      try {
+        await publisherAdmin().cancelThresholdHalt(matchHaltCancel[1]);
+        return createResponse(200, {});
+      } catch (error) {
+        console.error('Error cancelling threshold halt:', error);
+        return createResponse(500, { error: 'Failed to cancel threshold halt' });
+      }
     }
 
     // Admin feedback management endpoints
