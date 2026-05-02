@@ -1,7 +1,7 @@
 # Event Publisher Format — Plan 1: Foundation (Format, Schema, Validator, Reference Artifacts)
 
 > **Status: COMPLETE** — merged in [PR #69](https://github.com/bbernstein/chq-calendar/pull/69) on 2026-05-01.
->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the publisher-feed format itself: TypeScript types, a JSON Schema, a parser/validator (JSON + HTML-embedded variants), a CLI for publishers to self-check their feeds, and the canonical reference artifacts (`categories.json`, `venues.json`, authoring guide). No backend ingest, no frontend changes — this plan produces a standalone, publisher-facing package with zero runtime contact with the existing chq.org pipeline.

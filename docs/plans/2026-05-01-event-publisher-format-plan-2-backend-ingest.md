@@ -1,7 +1,7 @@
 # Event Publisher Format — Plan 2: Backend Ingest Pipeline
 
 > **Status: COMPLETE** — merged in [PR #70](https://github.com/bbernstein/chq-calendar/pull/70) on 2026-05-02.
->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the publisher-feed ingest pipeline as a strictly additive layer that does not touch the existing chq.org primary pipeline. Produce `publisher-events-${year}.json` sidecar files in the same S3 prefix as the primary cache, plus a publishers DynamoDB table and a pending-events queue. Ship a verification gate that proves `all-events-${year}.json` is byte-equivalent to a pre-change baseline.
