@@ -70,4 +70,21 @@ describe('fetchAndParseFeed', () => {
     expect(r.fetchStatus).toBe('network_error');
     expect(r.report.errors[0].message).toContain('connection refused');
   });
+
+  it('passes an AbortSignal to fetch (timeout protection)', async () => {
+    const fetchFn: any = jest.fn(async (_url: string, init: any) => ({
+      ok: true,
+      status: 200,
+      text: async () => fix('valid-feed.json'),
+      headers: { get: () => 'application/json' },
+      _signal: init.signal,
+    }));
+    await fetchAndParseFeed(
+      { url: 'https://x/feed.json', sourceType: 'json', registeredPublisherId: 'test-pub' },
+      fetchFn,
+    );
+    const init = fetchFn.mock.calls[0][1];
+    expect(init.signal).toBeDefined();
+    expect(init.signal.constructor.name).toBe('AbortSignal');
+  });
 });

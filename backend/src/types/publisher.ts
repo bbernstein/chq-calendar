@@ -1,4 +1,4 @@
-import type { FeedEvent, PublisherInfo } from '@chq-calendar/publisher-format';
+import type { FeedEvent } from '@chq-calendar/publisher-format';
 
 export type TrustLevel = 'auto' | 'review' | 'flagged';
 export type SourceType = 'json' | 'html';
@@ -18,7 +18,7 @@ export interface PublisherRecord {
   lastFetchMessage?: string;
   pendingThresholdHalt?: {
     detectedAt: string;
-    incomingFeed: { events: FeedEvent[]; publisher: PublisherInfo };
+    incomingFeed: { eventCount: number; publisherId: string };
   };
 }
 

@@ -16,17 +16,22 @@ export interface FetchFeedOutput {
 
 type FetchFn = typeof fetch;
 
+const FETCH_TIMEOUT_MS = 30_000;
+
 export async function fetchAndParseFeed(
   input: FetchFeedInput,
   fetchFn: FetchFn = fetch,
 ): Promise<FetchFeedOutput> {
   let res: Response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     res = await fetchFn(input.url, {
       method: 'GET',
       headers: {
         Accept: input.sourceType === 'json' ? 'application/json' : 'text/html',
       },
+      signal: controller.signal,
     });
   } catch (e) {
     return {
@@ -38,6 +43,8 @@ export async function fetchAndParseFeed(
         warnings: [],
       },
     };
+  } finally {
+    clearTimeout(timer);
   }
   if (!res.ok) {
     return {

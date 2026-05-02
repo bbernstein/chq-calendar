@@ -7,6 +7,14 @@ resource "aws_dynamodb_table" "publishers" {
     name = "id"
     type = "S"
   }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
 }
 
 resource "aws_dynamodb_table" "publisher_events" {
@@ -35,6 +43,14 @@ resource "aws_dynamodb_table" "publisher_events" {
     hash_key        = "state"
     range_key       = "publisherId"
     projection_type = "ALL"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
   }
 }
 

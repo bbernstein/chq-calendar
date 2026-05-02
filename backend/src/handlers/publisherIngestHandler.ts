@@ -18,34 +18,49 @@ export interface IngestDeps {
 export async function runIngest(deps: IngestDeps): Promise<void> {
   const publishers = await deps.registry.listEnabled();
   for (const p of publishers) {
-    const f = await deps.fetcher({
-      url: p.sourceUrl,
-      sourceType: p.sourceType,
-      registeredPublisherId: p.id,
-    });
-    if (f.fetchStatus !== 'ok' || !f.feed) {
-      const message = f.report.errors.map(e => e.message).join('; ').slice(0, 500);
-      await deps.registry.recordFetchOutcome(p.id, { status: f.fetchStatus, message });
-      continue;
-    }
-    const stored = await deps.store.listForPublisher(p.id);
-    const result = reconcile({ stored, feed: f.feed, now: deps.now, trustLevel: p.trustLevel });
-    if (!result.applied) {
-      await deps.registry.setThresholdHalt(p.id, {
-        detectedAt: deps.now.toISOString(),
-        incomingFeed: { events: f.feed.events, publisher: f.feed.publisher },
+    try {
+      const f = await deps.fetcher({
+        url: p.sourceUrl,
+        sourceType: p.sourceType,
+        registeredPublisherId: p.id,
       });
-      await deps.registry.recordFetchOutcome(p.id, {
-        status: 'threshold_halt',
-        message: result.haltedByThreshold!.reason,
-      });
-      continue;
+      if (f.fetchStatus !== 'ok' || !f.feed) {
+        const message = f.report.errors.map(e => e.message).join('; ').slice(0, 500);
+        await deps.registry.recordFetchOutcome(p.id, { status: f.fetchStatus, message });
+        continue;
+      }
+      const stored = await deps.store.listForPublisher(p.id);
+      const result = reconcile({ stored, feed: f.feed, now: deps.now, trustLevel: p.trustLevel });
+      if (!result.applied) {
+        await deps.registry.setThresholdHalt(p.id, {
+          detectedAt: deps.now.toISOString(),
+          incomingFeed: {
+            eventCount: f.feed.events.length,
+            publisherId: f.feed.publisher.id,
+          },
+        });
+        await deps.registry.recordFetchOutcome(p.id, {
+          status: 'threshold_halt',
+          message: result.haltedByThreshold!.reason,
+        });
+        continue;
+      }
+      await deps.store.applyDiff(result.diff);
+      if (p.pendingThresholdHalt) {
+        await deps.registry.setThresholdHalt(p.id, undefined);
+      }
+      await deps.registry.recordFetchOutcome(p.id, { status: 'ok' });
+    } catch (err) {
+      console.error(`[publisher-ingest] publisher ${p.id} failed:`, err);
+      try {
+        await deps.registry.recordFetchOutcome(p.id, {
+          status: 'network_error',
+          message: `unhandled error: ${(err as Error).message ?? String(err)}`.slice(0, 500),
+        });
+      } catch (recordErr) {
+        console.error(`[publisher-ingest] failed to record outcome for ${p.id}:`, recordErr);
+      }
     }
-    await deps.store.applyDiff(result.diff);
-    if (p.pendingThresholdHalt) {
-      await deps.registry.setThresholdHalt(p.id, undefined);
-    }
-    await deps.registry.recordFetchOutcome(p.id, { status: 'ok' });
   }
   const all = await deps.store.listAllPublished();
   await deps.sidecar.publish(all);

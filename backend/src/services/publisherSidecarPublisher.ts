@@ -20,6 +20,7 @@ export class PublisherSidecarPublisher {
     const byYear = new Map<number, StoredPublisherEvent[]>();
     for (const e of published) {
       const y = Number(e.startDate.slice(0, 4));
+      if (!Number.isFinite(y)) continue;
       if (!byYear.has(y)) byYear.set(y, []);
       byYear.get(y)!.push(e);
     }
