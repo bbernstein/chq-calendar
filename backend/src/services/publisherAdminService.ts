@@ -18,7 +18,9 @@ export class PublisherAdminService {
   ) {}
 
   listPublishers(): Promise<PublisherRecord[]> {
-    return this.registry.listEnabled();
+    // Admin UI must see disabled rows so they can re-enable them; listEnabled
+    // would orphan disabled publishers from the page.
+    return this.registry.listAll();
   }
 
   async createPublisher(input: CreatePublisherInput): Promise<PublisherRecord> {

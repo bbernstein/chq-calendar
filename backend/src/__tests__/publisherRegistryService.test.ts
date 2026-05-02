@@ -38,6 +38,19 @@ describe('PublisherRegistryService', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
+  it('listAll returns all publishers without a filter (so disabled rows are included)', async () => {
+    mockSend.mockResolvedValue({
+      Items: [
+        { id: 'a', enabled: true, name: 'A', contactEmail: 'a@b', sourceUrl: 'x', sourceType: 'json', trustLevel: 'auto', createdAt: 't' },
+        { id: 'b', enabled: false, name: 'B', contactEmail: 'b@b', sourceUrl: 'y', sourceType: 'json', trustLevel: 'auto', createdAt: 't' },
+      ],
+    });
+    const r = await svc.listAll();
+    expect(r.map(p => p.id)).toEqual(['a', 'b']);
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.FilterExpression).toBeUndefined();
+  });
+
   it('recordFetchOutcome updates lastFetchedAt and status', async () => {
     mockSend.mockResolvedValue({});
     await svc.recordFetchOutcome('a', { status: 'ok' });

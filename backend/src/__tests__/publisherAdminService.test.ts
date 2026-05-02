@@ -41,6 +41,7 @@ function makePendingEvent(overrides: Partial<StoredPublisherEvent> = {}): Stored
 describe('PublisherAdminService', () => {
   let registry: {
     listEnabled: jest.Mock;
+    listAll: jest.Mock;
     get: jest.Mock;
     upsert: jest.Mock;
     setThresholdHalt: jest.Mock;
@@ -56,6 +57,7 @@ describe('PublisherAdminService', () => {
     jest.resetAllMocks();
     registry = {
       listEnabled: jest.fn(),
+      listAll: jest.fn(),
       get: jest.fn(),
       upsert: jest.fn(),
       setThresholdHalt: jest.fn(),
@@ -66,6 +68,20 @@ describe('PublisherAdminService', () => {
       rejectEvent: jest.fn(),
     };
     svc = new PublisherAdminService(registry as any, store as any);
+  });
+
+  // ── listPublishers ─────────────────────────────────────────────────────────
+
+  it('listPublishers includes disabled publishers (delegates to listAll, not listEnabled)', async () => {
+    const enabled = makeRecord({ id: 'pub-on', enabled: true });
+    const disabled = makeRecord({ id: 'pub-off', enabled: false });
+    registry.listAll.mockResolvedValue([enabled, disabled]);
+
+    const result = await svc.listPublishers();
+
+    expect(result).toEqual([enabled, disabled]);
+    expect(registry.listAll).toHaveBeenCalledTimes(1);
+    expect(registry.listEnabled).not.toHaveBeenCalled();
   });
 
   // ── createPublisher ────────────────────────────────────────────────────────

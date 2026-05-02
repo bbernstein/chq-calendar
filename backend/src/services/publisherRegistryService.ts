@@ -29,6 +29,20 @@ export class PublisherRegistryService {
     return out;
   }
 
+  async listAll(): Promise<PublisherRecord[]> {
+    const out: PublisherRecord[] = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new ScanCommand({
+        TableName: this.tableName,
+        ExclusiveStartKey: last,
+      }));
+      out.push(...((r.Items ?? []) as PublisherRecord[]));
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return out;
+  }
+
   async upsert(rec: PublisherRecord): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.tableName, Item: rec }));
   }
