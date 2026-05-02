@@ -148,13 +148,15 @@ export const listHalts = async (): Promise<PublisherRecord[]> => {
   return r.halts;
 };
 
-export const approveHalt = (
-  publisherId: string
-): Promise<{ inserted: number; updated: number; removed: number } | Record<string, never>> =>
-  req<{ inserted: number; updated: number; removed: number } | Record<string, never>>(
+// Backend currently returns `{}` for halt approval (Plan 3 Task 3 deviation:
+// the next scheduled ingest re-evaluates rather than re-running reconcile here).
+// Typed as void so callers don't depend on a stats payload that isn't returned.
+export const approveHalt = async (publisherId: string): Promise<void> => {
+  await req<Record<string, never>>(
     `/publisher-halts/${encodeURIComponent(publisherId)}/approve`,
     { method: 'POST' }
   );
+};
 
 export const cancelHalt = (publisherId: string): Promise<void> =>
   req<void>(`/publisher-halts/${encodeURIComponent(publisherId)}/cancel`, { method: 'POST' });

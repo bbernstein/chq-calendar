@@ -164,18 +164,17 @@ describe('listHalts', () => {
 
 describe('approveHalt', () => {
   it('POSTs to /admin/api/publisher-halts/<publisherId>/approve', async () => {
-    fetchMock.mockResolvedValueOnce(makeOkResponse({ inserted: 3, updated: 1, removed: 0 }));
-    const result = await approveHalt('pub-1');
+    fetchMock.mockResolvedValueOnce(makeOkResponse({}));
+    await approveHalt('pub-1');
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/admin\/api\/publisher-halts\/pub-1\/approve$/);
     expect(options.method).toBe('POST');
-    expect(result).toMatchObject({ inserted: 3, updated: 1, removed: 0 });
   });
 
-  it('also works when the backend returns an empty object {}', async () => {
+  it('resolves to undefined regardless of backend body shape', async () => {
     fetchMock.mockResolvedValueOnce(makeOkResponse({}));
     const result = await approveHalt('pub-1');
-    expect(result).toEqual({});
+    expect(result).toBeUndefined();
   });
 });
 
