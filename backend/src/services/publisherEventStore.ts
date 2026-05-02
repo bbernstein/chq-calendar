@@ -1,6 +1,8 @@
 import {
+  DeleteCommand,
   QueryCommand,
   TransactWriteCommand,
+  UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
 import type { ReconcileDiff, StoredPublisherEvent } from '../types/publisher';
@@ -45,6 +47,41 @@ export class PublisherEventStore {
       last = r.LastEvaluatedKey;
     } while (last);
     return out;
+  }
+
+  async listPending(): Promise<StoredPublisherEvent[]> {
+    const out: StoredPublisherEvent[] = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'by-state',
+        KeyConditionExpression: '#s = :s',
+        ExpressionAttributeNames: { '#s': 'state' },
+        ExpressionAttributeValues: { ':s': 'pending' },
+        ExclusiveStartKey: last,
+      }));
+      out.push(...((r.Items ?? []) as StoredPublisherEvent[]));
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return out;
+  }
+
+  async approveEvent(publisherId: string, eventId: string): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { publisherId, eventId },
+      UpdateExpression: 'SET #s = :s, updatedAt = :now',
+      ExpressionAttributeNames: { '#s': 'state' },
+      ExpressionAttributeValues: { ':s': 'published', ':now': new Date().toISOString() },
+    }));
+  }
+
+  async rejectEvent(publisherId: string, eventId: string): Promise<void> {
+    await this.db.send(new DeleteCommand({
+      TableName: this.tableName,
+      Key: { publisherId, eventId },
+    }));
   }
 
   async applyDiff(diff: ReconcileDiff): Promise<void> {
