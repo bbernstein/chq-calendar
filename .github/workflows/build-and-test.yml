@@ -25,6 +25,9 @@ jobs:
       - name: Install all workspace dependencies
         run: npm ci
 
+      - name: Build publisher-format workspace (backend dep)
+        run: npm run build --workspace=@chq-calendar/publisher-format
+
       - name: Build backend Lambda handlers (includes tests)
         run: npm run build --workspace=backend
 
