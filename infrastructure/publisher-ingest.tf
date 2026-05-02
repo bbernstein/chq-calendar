@@ -95,8 +95,8 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
         ]
       },
       {
-        Effect = "Allow",
-        Action = ["s3:PutObject", "s3:DeleteObject"],
+        Effect   = "Allow",
+        Action   = ["s3:PutObject", "s3:DeleteObject"],
         Resource = "${aws_s3_bucket.frontend_bucket.arn}/cache/calendar-cache/publisher-events-*.json"
       },
       {
@@ -163,4 +163,32 @@ resource "aws_lambda_permission" "publisher_ingest_allow_events" {
   function_name = aws_lambda_function.publisher_ingest.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.publisher_ingest_schedule.arn
+}
+
+# The existing admin Lambda role (created in main.tf as `lambda_role`) needs
+# read/write access to the publisher tables for the admin endpoints in
+# adminHandler.ts (Plan 3). Kept here so all publisher-related IAM stays grouped.
+resource "aws_iam_role_policy" "admin_publisher_access" {
+  name = "chq-admin-publisher-access"
+  role = aws_iam_role.lambda_role.name
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Action = [
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:TransactWriteItems"
+      ],
+      Resource = [
+        aws_dynamodb_table.publishers.arn,
+        aws_dynamodb_table.publisher_events.arn,
+        "${aws_dynamodb_table.publisher_events.arn}/index/by-state"
+      ]
+    }]
+  })
 }
