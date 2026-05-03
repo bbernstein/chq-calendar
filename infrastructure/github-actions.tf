@@ -96,14 +96,10 @@ resource "aws_iam_policy" "github_actions" {
       {
         # Toggling the ci-e2e-test publisher's `enabled` flag from the
         # deploy workflow's post-deploy E2E test. Scoped to the publishers
-        # table only — github-actions is not authorized to write to the
-        # event tables.
-        Sid    = "DynamoDBToggleCiE2ePublisher"
-        Effect = "Allow"
-        Action = [
-          "dynamodb:UpdateItem",
-          "dynamodb:GetItem"
-        ]
+        # table and to the single action the workflow actually performs.
+        Sid      = "DynamoDBToggleCiE2ePublisher"
+        Effect   = "Allow"
+        Action   = "dynamodb:UpdateItem"
         Resource = aws_dynamodb_table.publishers.arn
       },
       {

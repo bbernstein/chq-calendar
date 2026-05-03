@@ -62,6 +62,12 @@ resource "aws_dynamodb_table_item" "ci_e2e_publisher" {
     # lastFetchedAt / lastFetchStatus / lastFetchMessage. None of those should
     # cause a Terraform diff — Terraform owns the row's existence and its
     # static identifying fields, not its runtime state.
+    #
+    # Tradeoff: aws_dynamodb_table_item exposes only the whole `item` JSON,
+    # so this also silences drift on the static fields above (name,
+    # contactEmail, sourceUrl, sourceType, trustLevel, createdAt). To
+    # re-apply a change to any of those, replace the row explicitly:
+    #     terraform apply -replace='aws_dynamodb_table_item.ci_e2e_publisher[0]'
     ignore_changes = [item]
   }
 }

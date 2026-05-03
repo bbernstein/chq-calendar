@@ -14,6 +14,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    # Serialize deploys: two concurrent runs would interleave the
+    # ci-e2e-test publisher's enable/disable toggles and corrupt the
+    # post-deploy retraction assertion. cancel-in-progress=false so an
+    # in-flight deploy completes (including its cleanup trap) before the
+    # next one starts.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -364,59 +372,84 @@ jobs:
       - name: Publisher disable→retract end-to-end test
         # Validates the full publisher-ingest pipeline against real DynamoDB +
         # real S3 sidecar. Catches regressions that unit tests miss: Lambda
-        # version mismatch, IAM drift, sidecar publisher errors, S3/CloudFront
-        # cache problems. Requires `var.enable_ci_e2e_publisher = true` so the
+        # version mismatch, IAM drift, sidecar publisher errors. Reads the
+        # sidecar directly from S3 (not via CloudFront) — the default cache
+        # behavior has `query_string = false` and the sidecar object has
+        # `max-age=300`, so any URL-based poll would see stale content for
+        # up to 5 minutes regardless of cache-buster query strings.
+        # Requires `var.enable_ci_e2e_publisher = true` so the
         # ci-e2e-test publisher row + static feed exist.
         shell: bash
         env:
           # github.event.head_commit.timestamp is only set on push; fall back
           # to the run start time for workflow_dispatch.
           DEPLOY_START_RAW: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
         run: |
           set -euo pipefail
 
           PUBLISHER_ID="ci-e2e-test"
           PUBLISHERS_TABLE="chautauqua-calendar-publishers"
           LAMBDA="chautauqua-calendar-publisher-ingest"
-          FEED_URL="https://www.chqcal.org/cache/ci-e2e/feed.json"
+          # Local feed file in the checkout — this is the same file Terraform
+          # uploads to S3, so deriving the year locally avoids any cache /
+          # propagation race with the freshly-deployed S3 object.
+          LOCAL_FEED_PATH="$GITHUB_WORKSPACE/infrastructure/ci-e2e-feed.json"
 
           # Sidecar key is publisher-events-${year}.json where ${year} comes
           # from each event's startDate (see publisherSidecarPublisher.ts).
-          # Derive from the live test feed — do NOT hardcode the year, or the
-          # polling URL drifts off the actual sidecar object as the season
-          # rolls over.
-          SIDECAR_YEAR=$(curl -fsS "${FEED_URL}?cb=$(date +%s%N)" \
-            | jq -r '.events[0].startDate[0:4]')
-          if [ -z "$SIDECAR_YEAR" ] || [ "$SIDECAR_YEAR" = "null" ]; then
-            echo "::error::Could not derive sidecar year from $FEED_URL — is the test feed deployed?"
+          # Derive from the local checkout — do NOT hardcode the year, or the
+          # S3 key drifts off the actual sidecar object as the season rolls
+          # over.
+          SIDECAR_YEAR=$(jq -r '.events[0].startDate[0:4]' "$LOCAL_FEED_PATH")
+          if ! [[ "$SIDECAR_YEAR" =~ ^[0-9]{4}$ ]]; then
+            echo "::error::SIDECAR_YEAR '${SIDECAR_YEAR}' from $LOCAL_FEED_PATH is not a 4-digit year"
             exit 1
           fi
-          SIDECAR_URL="https://www.chqcal.org/cache/calendar-cache/publisher-events-${SIDECAR_YEAR}.json"
-          echo "[ci-e2e] sidecar year = ${SIDECAR_YEAR}"
+          SIDECAR_S3_KEY="cache/calendar-cache/publisher-events-${SIDECAR_YEAR}.json"
+          echo "[ci-e2e] sidecar year=${SIDECAR_YEAR}, s3 key=${SIDECAR_S3_KEY}"
 
-          # Count test-publisher events in the live sidecar. Returns:
-          #   0  on 404 (sidecar absent ≡ zero events from any publisher) or
-          #      on 200 with no events from $PUBLISHER_ID
-          #   N  on 200 with N events from $PUBLISHER_ID
-          #   "" on transient curl/jq failure — caller uses its own fallback
-          #      (events-appear poll: treat as 0; events-retract poll: treat as 1)
+          # Verify the Lambda's response file isn't holding a FunctionError —
+          # `aws lambda invoke --invocation-type RequestResponse` returns
+          # exit 0 even when the handler throws; the error lives in the
+          # response payload as the magic key "FunctionError".
+          assert_no_function_error() {
+            local file="$1" label="$2"
+            if grep -q '"FunctionError"' "$file" 2>/dev/null; then
+              echo "::error::${label}: Lambda returned a FunctionError"
+              cat "$file"
+              return 1
+            fi
+          }
+
+          # Count test-publisher events in the sidecar by reading the S3
+          # object directly. Bypasses CloudFront entirely — see step
+          # description for why URL-based polling can't work here. Returns:
+          #   0  if the sidecar object is missing (zero events from any
+          #      publisher) or present but with no events from $PUBLISHER_ID
+          #   N  on a present sidecar with N events from $PUBLISHER_ID
+          #   "" on transient AWS / jq failure — caller uses its own fallback
+          #      (events-appear poll: treat as 0; events-retract poll: 1)
           count_test_events_in_sidecar() {
-            local response body http
-            response=$(curl -sS -w '\n%{http_code}' "${SIDECAR_URL}?cb=$(date +%s%N)") || { echo ""; return; }
-            http=$(printf '%s' "$response" | tail -n1)
-            body=$(printf '%s' "$response" | sed '$d')
-            if [ "$http" = "404" ]; then
+            # Note: don't combine `local body=$(...)` with $? checks — `local`
+            # masks the rc. Run the AWS call as its own statement.
+            if aws s3api get-object \
+                --bucket "$S3_BUCKET" --key "$SIDECAR_S3_KEY" \
+                /tmp/ci-e2e-sidecar.json >/dev/null 2>/tmp/ci-e2e-s3.err; then
+              jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length" \
+                /tmp/ci-e2e-sidecar.json 2>/dev/null \
+                || echo ""
+              return
+            fi
+            if grep -q 'NoSuchKey\|Not Found\|404' /tmp/ci-e2e-s3.err; then
+              # Sidecar object absent ≡ no events from any publisher
+              # in this year — definitionally zero from $PUBLISHER_ID.
               echo 0
               return
             fi
-            if [ "$http" != "200" ]; then
-              echo "[ci-e2e] sidecar HTTP $http (transient)" >&2
-              echo ""
-              return
-            fi
-            printf '%s' "$body" \
-              | jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length" 2>/dev/null \
-              || echo ""
+            echo "[ci-e2e] s3 get-object failed (transient):" >&2
+            cat /tmp/ci-e2e-s3.err >&2
+            echo ""
           }
 
           cleanup() {
@@ -429,9 +462,12 @@ jobs:
               --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
               --update-expression 'SET enabled = :f' \
               --expression-attribute-values '{":f":{"BOOL":false}}' || true
-            # Final ingest to retract anything left.
+            # Final ingest to retract anything left. Fire-and-forget
+            # (--invocation-type Event) so a slow Lambda doesn't hold the
+            # CI runner — we already swallow errors here, so synchronous
+            # waiting buys us nothing.
             aws lambda invoke --function-name "$LAMBDA" \
-              --invocation-type RequestResponse \
+              --invocation-type Event \
               --cli-binary-format raw-in-base64-out --payload '{}' \
               /tmp/ci-e2e-cleanup.json || true
           }
@@ -481,6 +517,7 @@ jobs:
           echo "[ci-e2e] ingest #1 response:"
           cat /tmp/ci-e2e-ingest1.json
           echo
+          assert_no_function_error /tmp/ci-e2e-ingest1.json "ingest #1"
 
           # 3. Poll sidecar for the test events to appear. Use a cache-buster
           #    query string to bypass CloudFront edge cache; the underlying S3
@@ -516,6 +553,7 @@ jobs:
           echo "[ci-e2e] ingest #2 response:"
           cat /tmp/ci-e2e-ingest2.json
           echo
+          assert_no_function_error /tmp/ci-e2e-ingest2.json "ingest #2"
 
           # 6. Poll sidecar for the test events to disappear.
           COUNT=1  # fail-closed so a transient curl error doesn't immediately
