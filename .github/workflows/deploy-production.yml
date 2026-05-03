@@ -503,13 +503,33 @@ jobs:
           print(f"[ci-e2e] Lambda LastModified {lm.isoformat()} >= deploy start {ds.isoformat()}")
           PY
 
-          # 1. Enable the test publisher.
+          # 1. Pre-test cleanliness assertion: if a previous run failed
+          #    after ingest #1 but before cleanup, leftover ci-e2e-test
+          #    events would still be in the sidecar. Without this check
+          #    the "events appeared" poll would short-circuit on iteration
+          #    1 and mask a broken pipeline. The cleanup trap from the
+          #    previous run *should* have purged them, but cleanup itself
+          #    is best-effort — verify before we trust it.
+          INITIAL_RAW=$(count_test_events_in_sidecar)
+          INITIAL_COUNT=${INITIAL_RAW:-0}
+          if [ "$INITIAL_COUNT" -gt 0 ]; then
+            echo "::error::Sidecar already has ${INITIAL_COUNT} stale ${PUBLISHER_ID} event(s) before test start; manual cleanup required"
+            exit 1
+          fi
+
+          # 2. Enable the test publisher. `attribute_exists(id)` makes this
+          #    a strict update — if the row was never provisioned (e.g.
+          #    var.enable_ci_e2e_publisher = false), DynamoDB throws
+          #    ConditionalCheckFailedException instead of silently
+          #    upserting a partial {id, enabled} row that the next hourly
+          #    ingest would choke on.
           aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
             --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
+            --condition-expression 'attribute_exists(id)' \
             --update-expression 'SET enabled = :t' \
             --expression-attribute-values '{":t":{"BOOL":true}}'
 
-          # 2. Trigger ingest synchronously.
+          # 3. Trigger ingest synchronously.
           aws lambda invoke --function-name "$LAMBDA" \
             --invocation-type RequestResponse \
             --cli-binary-format raw-in-base64-out --payload '{}' \
@@ -519,10 +539,9 @@ jobs:
           echo
           assert_no_function_error /tmp/ci-e2e-ingest1.json "ingest #1"
 
-          # 3. Poll sidecar for the test events to appear. Use a cache-buster
-          #    query string to bypass CloudFront edge cache; the underlying S3
-          #    object is what changes.
-          COUNT=0  # fail-open so a transient curl error in the loop doesn't
+          # 4. Poll sidecar (read directly from S3 in count_test_events_in_sidecar)
+          #    for the test events to appear.
+          COUNT=0  # fail-open so a transient AWS error in the loop doesn't
                    # immediately mark the test as passing for "events appeared"
                    # (we only break on COUNT>=1).
           for i in $(seq 1 30); do
@@ -539,13 +558,14 @@ jobs:
             exit 1
           fi
 
-          # 4. Disable the publisher.
+          # 5. Disable the publisher (same condition guard as step 2).
           aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
             --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
+            --condition-expression 'attribute_exists(id)' \
             --update-expression 'SET enabled = :f' \
             --expression-attribute-values '{":f":{"BOOL":false}}'
 
-          # 5. Trigger ingest again.
+          # 6. Trigger ingest again.
           aws lambda invoke --function-name "$LAMBDA" \
             --invocation-type RequestResponse \
             --cli-binary-format raw-in-base64-out --payload '{}' \
@@ -555,7 +575,7 @@ jobs:
           echo
           assert_no_function_error /tmp/ci-e2e-ingest2.json "ingest #2"
 
-          # 6. Poll sidecar for the test events to disappear.
+          # 7. Poll sidecar for the test events to disappear.
           COUNT=1  # fail-closed so a transient curl error doesn't immediately
                    # mark the retraction as successful.
           for i in $(seq 1 30); do

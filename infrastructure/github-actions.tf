@@ -95,12 +95,19 @@ resource "aws_iam_policy" "github_actions" {
       },
       {
         # Toggling the ci-e2e-test publisher's `enabled` flag from the
-        # deploy workflow's post-deploy E2E test. Scoped to the publishers
-        # table and to the single action the workflow actually performs.
+        # deploy workflow's post-deploy E2E test. Scoped three ways:
+        # the table (resource), the single action the workflow performs
+        # (UpdateItem), and the partition key value via `LeadingKeys` so a
+        # leaked github-actions token cannot disable any other publisher.
         Sid      = "DynamoDBToggleCiE2ePublisher"
         Effect   = "Allow"
         Action   = "dynamodb:UpdateItem"
         Resource = aws_dynamodb_table.publishers.arn
+        Condition = {
+          "ForAllValues:StringEquals" = {
+            "dynamodb:LeadingKeys" = ["ci-e2e-test"]
+          }
+        }
       },
       {
         Sid    = "CloudWatchLogs"
