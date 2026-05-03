@@ -182,19 +182,17 @@ Manual end-to-end after deploy (mirrors the 2026-05-03 repro):
 
 ## Implementation status (added 2026-05-03)
 
-**Status:** implemented on this branch (`fix/publisher-disable-retracts-events`). All planned tests added and green; full backend suite (240 tests) passes; frontend build passes.
+**Status:** implemented on this branch (`fix/publisher-disable-retracts-events`). All planned tests added and green; full backend suite (238 tests) passes; frontend build passes.
 
 **Deviations from the plan above** (intentional, called out for the PR reviewer):
 
-- Added a new `PublisherRegistryService.listDisabled()` method instead of using `listAll().filter(p => !p.enabled)`. Rationale: parallel structure with the existing `listEnabled()`, and avoids scanning + discarding enabled rows when there are many publishers. Filter is `enabled = :f` with `:f = false`.
-- `deleteAllForPublisher` returns the deleted count (per plan) but the retraction loop in `runIngest` does **not** currently call `recordFetchOutcome` with the `"disabled — retracted N event(s)"` message. The retraction succeeds silently (errors are still logged). Open question from the plan ("Should disabled retraction emit a different `lastFetchStatus`?") was deferred — easy follow-up if the admin UI signal is wanted.
-- The "re-enable resumes normal fetch with no leftover events" case is covered implicitly (re-enable simply moves the publisher back into the enabled loop and the disabled loop has nothing to retract) but not exercised by a dedicated integration test. The three integration tests added cover: only-disabled, partial-failure across multiple disabled, and call-ordering.
+- Followed the plan's `listAll()` approach: `runIngest` makes a single `listAll()` call and splits enabled/disabled in memory. (An earlier iteration added a `listDisabled()` helper that issued a second `Scan`, which was wasteful — DynamoDB `Scan` reads every row regardless of `FilterExpression`. Removed it after PR review.)
+- The retraction loop logs `[publisher-ingest] retracted N event(s) for disabled publisher <id>` to CloudWatch when N>0. It does **not** call `recordFetchOutcome` with a "disabled — retracted N event(s)" message on the publisher row — the open question from the plan ("Should disabled retraction emit a different `lastFetchStatus`?") was deferred. Easy follow-up if the admin UI signal is wanted.
+- The "re-enable resumes normal fetch with no leftover events" case is covered implicitly (re-enable moves the publisher back into the enabled branch of the in-memory split, and the disabled branch has nothing to retract) but not exercised by a dedicated integration test. The three integration tests added cover: only-disabled, partial-failure across multiple disabled, and call-ordering.
 - `disabled` was **not** added to the `FetchStatus` union and no UI changes were made — punted per the open question.
 
 **Files actually changed:**
-- `backend/src/services/publisherRegistryService.ts` — added `listDisabled()`.
 - `backend/src/services/publisherEventStore.ts` — added `deleteAllForPublisher(publisherId)`.
-- `backend/src/handlers/publisherIngestHandler.ts` — disable-retraction loop after the enabled-publisher loop, before `listAllPublished` + sidecar publish.
-- `backend/src/__tests__/publisherRegistryService.test.ts` — `listDisabled` filter + pagination cases.
+- `backend/src/handlers/publisherIngestHandler.ts` — single `listAll()` call, in-memory split into enabled + disabled, disable-retraction loop after the enabled-publisher loop and before `listAllPublished` + sidecar publish.
 - `backend/src/__tests__/publisherEventStore.test.ts` — empty / single-batch / >100-batch chunking cases for `deleteAllForPublisher`.
-- `backend/src/__tests__/publisherIngestHandler.integration.test.ts` — three new cases plus stub updates to existing tests so they declare `listDisabled` + `deleteAllForPublisher` on their mocks.
+- `backend/src/__tests__/publisherIngestHandler.integration.test.ts` — three new cases plus stub updates: every existing test's registry mock switched from `listEnabled` to `listAll`; every store mock declares `deleteAllForPublisher`.

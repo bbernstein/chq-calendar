@@ -17,7 +17,15 @@ export interface IngestDeps {
 }
 
 export async function runIngest(deps: IngestDeps): Promise<void> {
-  const publishers = await deps.registry.listEnabled();
+  // Single Scan: DynamoDB Scan reads every row regardless of FilterExpression,
+  // so two scans (listEnabled + listDisabled) doubles RCU for no benefit. The
+  // in-memory split also catches publishers whose `enabled` attribute is
+  // missing (treated as falsy → disabled), which a `enabled = :f` filter
+  // would silently skip.
+  const allPublishers = await deps.registry.listAll();
+  const publishers = allPublishers.filter(p => p.enabled);
+  const disabled = allPublishers.filter(p => !p.enabled);
+
   for (const p of publishers) {
     try {
       const f = await deps.fetcher({
@@ -68,10 +76,12 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
   // from the sidecar on the next ingest run, not linger until manual cleanup.
   // We hard-delete instead of going through the reconciler because the reconciler
   // would skip past events and trip the threshold halt on a 100% removal.
-  const disabled = await deps.registry.listDisabled();
   for (const p of disabled) {
     try {
-      await deps.store.deleteAllForPublisher(p.id);
+      const n = await deps.store.deleteAllForPublisher(p.id);
+      if (n > 0) {
+        console.log(`[publisher-ingest] retracted ${n} event(s) for disabled publisher ${p.id}`);
+      }
     } catch (err) {
       console.error(`[publisher-ingest] failed to retract events for disabled publisher ${p.id}:`, err);
     }

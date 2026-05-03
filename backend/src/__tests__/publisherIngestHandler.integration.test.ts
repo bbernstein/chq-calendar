@@ -3,13 +3,12 @@ import { runIngest } from '../handlers/publisherIngestHandler';
 describe('runIngest (integration)', () => {
   it('processes one auto publisher end to end', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([{
+      listAll: jest.fn().mockResolvedValue([{
         id: 'test-pub', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
         sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -64,13 +63,12 @@ describe('runIngest (integration)', () => {
 
   it('records fetch failure and skips reconciliation', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([{
+      listAll: jest.fn().mockResolvedValue([{
         id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
         sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'network_error',
@@ -100,14 +98,13 @@ describe('runIngest (integration)', () => {
 
   it('clears pendingThresholdHalt when a previously halted publisher succeeds', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([{
+      listAll: jest.fn().mockResolvedValue([{
         id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
         sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
         pendingThresholdHalt: { detectedAt: 'earlier', incomingFeed: { eventCount: 0, publisherId: 'p1' } },
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -146,13 +143,12 @@ describe('runIngest (integration)', () => {
 
   it('does not call setThresholdHalt on success when no halt was pending', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([{
+      listAll: jest.fn().mockResolvedValue([{
         id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
         sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -184,13 +180,12 @@ describe('runIngest (integration)', () => {
 
   it('records threshold halt and does not apply diff', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([{
+      listAll: jest.fn().mockResolvedValue([{
         id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
         sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -239,13 +234,12 @@ describe('runIngest (integration)', () => {
 
   it('threshold halt stores a compact summary, not the full feed payload', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([{
+      listAll: jest.fn().mockResolvedValue([{
         id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
         sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -293,7 +287,7 @@ describe('runIngest (integration)', () => {
 
   it('continues to next publisher when one publisher throws, and still publishes sidecar', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([
+      listAll: jest.fn().mockResolvedValue([
         { id: 'broken', name: 'Broken', contactEmail: 'a@b', sourceUrl: 'https://x',
           sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't' },
         { id: 'good', name: 'Good', contactEmail: 'a@b', sourceUrl: 'https://y',
@@ -301,7 +295,6 @@ describe('runIngest (integration)', () => {
       ]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockImplementation(async (req: any) => ({
       fetchStatus: 'ok',
@@ -350,13 +343,12 @@ describe('runIngest (integration)', () => {
 
   it('still publishes sidecar when every publisher throws', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([
+      listAll: jest.fn().mockResolvedValue([
         { id: 'a', name: 'A', contactEmail: 'a@b', sourceUrl: 'https://x',
           sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't' },
       ]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
-      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockRejectedValue(new Error('boom'));
     const store = {
@@ -381,8 +373,7 @@ describe('runIngest (integration)', () => {
 
   it('retracts events for disabled publishers and republishes the sidecar', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([]),
-      listDisabled: jest.fn().mockResolvedValue([
+      listAll: jest.fn().mockResolvedValue([
         { id: 'gone', name: 'Gone', contactEmail: 'g@b', sourceUrl: 'https://x',
           sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't' },
       ]),
@@ -414,8 +405,7 @@ describe('runIngest (integration)', () => {
 
   it('continues to next disabled publisher when one retraction throws', async () => {
     const registry = {
-      listEnabled: jest.fn().mockResolvedValue([]),
-      listDisabled: jest.fn().mockResolvedValue([
+      listAll: jest.fn().mockResolvedValue([
         { id: 'broken-disable', name: 'BD', contactEmail: 'a@b', sourceUrl: 'https://x',
           sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't' },
         { id: 'good-disable', name: 'GD', contactEmail: 'a@b', sourceUrl: 'https://y',
@@ -452,19 +442,18 @@ describe('runIngest (integration)', () => {
   it('runs enabled-publisher ingest before disable retraction so sidecar reflects both', async () => {
     const callOrder: string[] = [];
     const registry = {
-      listEnabled: jest.fn().mockImplementation(async () => {
-        callOrder.push('listEnabled');
-        return [{
-          id: 'live', name: 'Live', contactEmail: 'a@b', sourceUrl: 'https://x',
-          sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
-        }];
-      }),
-      listDisabled: jest.fn().mockImplementation(async () => {
-        callOrder.push('listDisabled');
-        return [{
-          id: 'gone', name: 'Gone', contactEmail: 'g@b', sourceUrl: 'https://y',
-          sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't',
-        }];
+      listAll: jest.fn().mockImplementation(async () => {
+        callOrder.push('listAll');
+        return [
+          {
+            id: 'live', name: 'Live', contactEmail: 'a@b', sourceUrl: 'https://x',
+            sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
+          },
+          {
+            id: 'gone', name: 'Gone', contactEmail: 'g@b', sourceUrl: 'https://y',
+            sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't',
+          },
+        ];
       }),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
@@ -505,8 +494,7 @@ describe('runIngest (integration)', () => {
     });
 
     expect(callOrder).toEqual([
-      'listEnabled',
-      'listDisabled',
+      'listAll',
       'deleteAllForPublisher',
       'listAllPublished',
       'publish',
