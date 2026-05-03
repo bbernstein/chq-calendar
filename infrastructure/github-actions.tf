@@ -40,7 +40,8 @@ resource "aws_iam_policy" "github_actions" {
           aws_lambda_function.manual_sync.arn,
           aws_lambda_function.sync_health.arn,
           aws_lambda_function.sync_status.arn,
-          aws_lambda_function.sync_list.arn
+          aws_lambda_function.sync_list.arn,
+          aws_lambda_function.publisher_ingest.arn
         ]
       },
       {
