@@ -181,5 +181,37 @@ describe('PublisherSidecarPublisher', () => {
       const p = getPayload();
       expect(p.venue).toEqual({ name: 'Hall of Philosophy' });
     });
+
+    it('preserves publisher-supplied venue fields (e.g. url) when merging the lookup', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy', address: '34 South Ave' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([
+        venueEvent({
+          venue: { name: 'Custom Hall', url: 'https://example.com/hall' },
+        }),
+      ]);
+      const p = getPayload();
+      // Publisher's venue.name + url survive; address is supplied by the lookup.
+      expect(p.venue).toEqual({
+        name: 'Custom Hall',
+        url: 'https://example.com/hall',
+        address: '34 South Ave',
+      });
+    });
+
+    it('passes through events with no venueId unchanged', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([venueEvent({ venueId: undefined })]);
+      const p = getPayload();
+      expect(p.location).toBeUndefined();
+      expect(p.venue).toBeUndefined();
+    });
   });
 });

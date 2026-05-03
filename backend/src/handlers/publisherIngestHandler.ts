@@ -1,10 +1,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
-import { loadReferences } from '@chq-calendar/publisher-format';
+import { loadReferences, type VenueReference } from '@chq-calendar/publisher-format';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
-import { PublisherSidecarPublisher, type VenueLookup } from '../services/publisherSidecarPublisher';
+import { PublisherSidecarPublisher } from '../services/publisherSidecarPublisher';
 import { fetchAndParseFeed } from '../services/publisherFeedFetcher';
 import { reconcile } from '../services/publisherReconciler';
 
@@ -69,8 +69,16 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
 
 export async function scheduledHandler(): Promise<void> {
   const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-  const refs = loadReferences();
-  const venuesById = new Map<string, VenueLookup>(refs.venues.map(v => [v.id, v]));
+  // Don't let a missing/malformed refs bundle take down the whole Lambda —
+  // unknown venueIds already gracefully pass through unchanged in the
+  // sidecar publisher. Worst case: events render with venueId but no name.
+  let venuesById = new Map<string, VenueReference>();
+  try {
+    const refs = loadReferences();
+    venuesById = new Map(refs.venues.map(v => [v.id, v]));
+  } catch (err) {
+    console.warn('[publisher-ingest] failed to load venue refs, venue enrichment disabled:', err);
+  }
   await runIngest({
     registry: new PublisherRegistryService(ddb, process.env.PUBLISHERS_TABLE_NAME!),
     store: new PublisherEventStore(ddb, process.env.PUBLISHER_EVENTS_TABLE_NAME!),

@@ -4,15 +4,10 @@ import {
   PutObjectCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
+import type { VenueReference } from '@chq-calendar/publisher-format';
 import type { StoredPublisherEvent } from '../types/publisher';
 
 const SIDECAR_KEY_PATTERN = /\/publisher-events-(\d{4})\.json$/;
-
-export interface VenueLookup {
-  id: string;
-  name: string;
-  address?: string;
-}
 
 export class PublisherSidecarPublisher {
   constructor(
@@ -23,9 +18,10 @@ export class PublisherSidecarPublisher {
      * Optional venue lookup. When provided, payloads with a `venueId` get a
      * resolved `location` (and `venue.name`/`venue.address`) added so the
      * frontend's location filter and EventCard rendering work without
-     * publisher-aware code paths.
+     * publisher-aware code paths. Publisher-supplied `location` and `venue`
+     * fields are merged with the lookup, never overwritten.
      */
-    private readonly venuesById: Map<string, VenueLookup> = new Map(),
+    private readonly venuesById: Map<string, VenueReference> = new Map(),
   ) {}
 
   async publish(events: StoredPublisherEvent[]): Promise<void> {
@@ -65,20 +61,22 @@ export class PublisherSidecarPublisher {
     return `${this.keyPrefix}/publisher-events-${year}.json`;
   }
 
-  private enrichPayload(payload: StoredPublisherEvent['payload']): Record<string, unknown> {
-    const p = payload as unknown as Record<string, unknown>;
-    const venueId = typeof p.venueId === 'string' ? p.venueId : undefined;
-    if (!venueId) return p;
+  private enrichPayload(payload: StoredPublisherEvent['payload']): StoredPublisherEvent['payload'] {
+    const venueId = payload.venueId;
+    if (!venueId) return payload;
     const venue = this.venuesById.get(venueId);
-    if (!venue) return p;
-    const enriched: Record<string, unknown> = { ...p };
+    if (!venue) return payload;
+    const enriched: StoredPublisherEvent['payload'] & { location?: string } = { ...payload };
     // Don't overwrite a location the publisher explicitly supplied.
     if (typeof enriched.location !== 'string' || enriched.location.length === 0) {
       enriched.location = venue.name;
     }
+    // Merge venue rather than replace — preserves publisher-supplied url
+    // and any future fields on VenueRef.
     enriched.venue = {
-      name: venue.name,
-      ...(venue.address ? { address: venue.address } : {}),
+      ...(enriched.venue ?? {}),
+      name: enriched.venue?.name ?? venue.name,
+      ...(venue.address && !enriched.venue?.address ? { address: venue.address } : {}),
     };
     return enriched;
   }
