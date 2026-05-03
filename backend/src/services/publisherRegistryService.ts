@@ -1,6 +1,6 @@
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { FetchStatus, PublisherRecord } from '../types/publisher';
+import type { ApplicationStatus, FetchStatus, PublisherRecord } from '../types/publisher';
 
 export class PublisherRegistryService {
   constructor(
@@ -66,6 +66,65 @@ export class PublisherRegistryService {
       Key: { id },
       UpdateExpression: 'SET pendingThresholdHalt = :h',
       ExpressionAttributeValues: { ':h': halt ?? null },
+    }));
+  }
+
+  // ─── Phase B (publisher portal apply flow) ─────────────────────────────
+  //
+  // Email lookup uses Scan because there is no GSI on contactEmail and the
+  // publishers table is small (low double-digits expected). If the table
+  // grows past a few hundred rows, add `by-contactEmail` GSI and switch.
+  // Email comparison is case-insensitive (we store lowercase, but defensively
+  // normalize the query too).
+  async getByEmail(email: string): Promise<PublisherRecord[]> {
+    const normalized = email.trim().toLowerCase();
+    const out: PublisherRecord[] = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: 'contactEmail = :e',
+        ExpressionAttributeValues: { ':e': normalized },
+        ExclusiveStartKey: last,
+      }));
+      out.push(...((r.Items ?? []) as PublisherRecord[]));
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return out;
+  }
+
+  async listPending(): Promise<PublisherRecord[]> {
+    const out: PublisherRecord[] = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: 'applicationStatus = :s',
+        ExpressionAttributeValues: { ':s': 'pending' as ApplicationStatus },
+        ExclusiveStartKey: last,
+      }));
+      out.push(...((r.Items ?? []) as PublisherRecord[]));
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return out;
+  }
+
+  async setApplicationStatus(
+    id: string,
+    status: ApplicationStatus,
+    opts: { reviewerEmail?: string; rejectionReason?: string } = {},
+  ): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression:
+        'SET applicationStatus = :s, reviewedAt = :now, reviewerEmail = :r, rejectionReason = :rr',
+      ExpressionAttributeValues: {
+        ':s': status,
+        ':now': new Date().toISOString(),
+        ':r': opts.reviewerEmail ?? null,
+        ':rr': opts.rejectionReason ?? null,
+      },
     }));
   }
 }

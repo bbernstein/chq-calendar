@@ -72,4 +72,60 @@ describe('PublisherRegistryService', () => {
     const cmd: any = mockSend.mock.calls[0][0];
     expect(cmd.input.ExpressionAttributeValues[':h']).toBeNull();
   });
+
+  // ─── Phase B (publisher portal apply flow) ─────────────────────────────
+
+  it('getByEmail normalizes to lowercase before scanning', async () => {
+    mockSend.mockResolvedValue({ Items: [] });
+    await svc.getByEmail('  Foo@Bar.COM  ');
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.FilterExpression).toBe('contactEmail = :e');
+    expect(cmd.input.ExpressionAttributeValues[':e']).toBe('foo@bar.com');
+  });
+
+  it('getByEmail returns matched publishers with pagination', async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Items: [{ id: 'a', contactEmail: 'x@y.com' }],
+        LastEvaluatedKey: { id: 'a' },
+      })
+      .mockResolvedValueOnce({
+        Items: [{ id: 'b', contactEmail: 'x@y.com' }],
+      });
+    const r = await svc.getByEmail('x@y.com');
+    expect(r.map(p => p.id)).toEqual(['a', 'b']);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('listPending filters on applicationStatus = pending', async () => {
+    mockSend.mockResolvedValue({
+      Items: [{ id: 'p1', applicationStatus: 'pending' }],
+    });
+    const r = await svc.listPending();
+    expect(r.map(p => p.id)).toEqual(['p1']);
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.FilterExpression).toBe('applicationStatus = :s');
+    expect(cmd.input.ExpressionAttributeValues[':s']).toBe('pending');
+  });
+
+  it('setApplicationStatus to approved records reviewer + clears rejection reason', async () => {
+    mockSend.mockResolvedValue({});
+    await svc.setApplicationStatus('p1', 'approved', { reviewerEmail: 'admin@chqcal.org' });
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Key).toEqual({ id: 'p1' });
+    expect(cmd.input.ExpressionAttributeValues[':s']).toBe('approved');
+    expect(cmd.input.ExpressionAttributeValues[':r']).toBe('admin@chqcal.org');
+    expect(cmd.input.ExpressionAttributeValues[':rr']).toBeNull();
+  });
+
+  it('setApplicationStatus to rejected records rejection reason', async () => {
+    mockSend.mockResolvedValue({});
+    await svc.setApplicationStatus('p1', 'rejected', {
+      reviewerEmail: 'admin@chqcal.org',
+      rejectionReason: 'feed not parseable',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.ExpressionAttributeValues[':s']).toBe('rejected');
+    expect(cmd.input.ExpressionAttributeValues[':rr']).toBe('feed not parseable');
+  });
 });

@@ -3,6 +3,7 @@ import type { FeedEvent } from '@chq-calendar/publisher-format';
 export type TrustLevel = 'auto' | 'review' | 'flagged';
 export type SourceType = 'json' | 'html';
 export type FetchStatus = 'ok' | 'parse_error' | 'validation_error' | 'network_error' | 'threshold_halt';
+export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
 
 export interface PublisherRecord {
   id: string;
@@ -20,6 +21,31 @@ export interface PublisherRecord {
     detectedAt: string;
     incomingFeed: { eventCount: number; publisherId: string };
   };
+  // Phase B (publisher portal — apply flow). All optional. Existing rows
+  // pre-dating Phase B have no applicationStatus and are treated as approved
+  // by callers (`isApproved` helper below).
+  applicationStatus?: ApplicationStatus;
+  appliedAt?: string;
+  reviewedAt?: string;
+  reviewerEmail?: string;
+  rejectionReason?: string;
+  organization?: string;
+  applicantNotes?: string;
+}
+
+// Existing publishers (pre-Phase-B) have no applicationStatus and must be
+// treated as approved. New rows created via the apply flow start as 'pending'.
+export function isApproved(p: Pick<PublisherRecord, 'applicationStatus'>): boolean {
+  return p.applicationStatus === undefined || p.applicationStatus === 'approved';
+}
+
+export interface ApplyFormPayload {
+  name: string;             // human display name (publisher name)
+  email: string;            // contact email; normalized to lowercase before storage
+  organization?: string;    // affiliated org, if different from name
+  sourceUrl: string;
+  sourceType: SourceType;
+  notes?: string;           // optional message to admin
 }
 
 export interface StoredPublisherEvent {
