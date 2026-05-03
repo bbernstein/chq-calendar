@@ -19,6 +19,22 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 export interface MailService {
   sendApplyMagicLink(toEmail: string, applicantName: string, magicLinkUrl: string): Promise<{ messageId: string }>;
   sendLoginMagicLink(toEmail: string, magicLinkUrl: string): Promise<{ messageId: string }>;
+  sendApprovalEmail(opts: ApprovalEmailOpts): Promise<{ messageId: string }>;
+  sendRejectionEmail(opts: RejectionEmailOpts): Promise<{ messageId: string }>;
+}
+
+export interface ApprovalEmailOpts {
+  to: string;
+  publisherName: string;
+  statusUrl: string;
+  loginUrl: string;
+}
+
+export interface RejectionEmailOpts {
+  to: string;
+  publisherName: string;
+  reason?: string;
+  applyAgainUrl: string;
 }
 
 export class SesMailService implements MailService {
@@ -45,6 +61,26 @@ export class SesMailService implements MailService {
     const text = loginText(magicLinkUrl);
     const html = loginHtml(magicLinkUrl);
     return this._send(toEmail, subject, text, html);
+  }
+
+  async sendApprovalEmail(opts: ApprovalEmailOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Your Chautauqua Calendar publisher application is approved';
+    const text = approvalText(opts);
+    const html = approvalHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendRejectionEmail(opts: RejectionEmailOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Update on your Chautauqua Calendar publisher application';
+    const text = rejectionText(opts);
+    const html = rejectionHtml(opts);
+    return this._send(opts.to, subject, text, html);
   }
 
   private async _send(to: string, subject: string, text: string, html: string) {
@@ -128,6 +164,75 @@ function loginHtml(url: string): string {
     '<p>Click the link below within 15 minutes to sign in to your Chautauqua Calendar publisher account:</p>',
     `<p><a href="${safeUrl}">${safeUrl}</a></p>`,
     '<p>If you did not request this, you can safely ignore this email.</p>',
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+function approvalText(o: ApprovalEmailOpts): string {
+  return [
+    `Hi ${o.publisherName || 'there'},`,
+    '',
+    'Good news — your Chautauqua Calendar publisher application has been approved.',
+    'Your feed is now in the ingest schedule and your events will start appearing on chqcal.org after the next sync.',
+    '',
+    'Sign in to view your status and recent fetch history:',
+    o.loginUrl,
+    '',
+    'You can check your status anytime here:',
+    o.statusUrl,
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function approvalHtml(o: ApprovalEmailOpts): string {
+  const safeName = escapeHtml(o.publisherName || 'there');
+  const safeLogin = encodeURI(o.loginUrl);
+  const safeStatus = encodeURI(o.statusUrl);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    `<p>Hi ${safeName},</p>`,
+    '<p>Good news — your Chautauqua Calendar publisher application has been <strong>approved</strong>.</p>',
+    '<p>Your feed is now in the ingest schedule and your events will start appearing on chqcal.org after the next sync.</p>',
+    `<p>Sign in to view your status and recent fetch history: <a href="${safeLogin}">${safeLogin}</a></p>`,
+    `<p>You can check your status anytime here: <a href="${safeStatus}">${safeStatus}</a></p>`,
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+function rejectionText(o: RejectionEmailOpts): string {
+  const lines = [
+    `Hi ${o.publisherName || 'there'},`,
+    '',
+    'Thanks for applying to publish events on chqcal.org. After review, we are not able to approve your application at this time.',
+  ];
+  if (o.reason && o.reason.trim().length > 0) {
+    lines.push('', 'Reviewer note:', o.reason.trim());
+  }
+  lines.push(
+    '',
+    'You are welcome to address any issues and apply again here:',
+    o.applyAgainUrl,
+    '',
+    '— Chautauqua Calendar',
+  );
+  return lines.join('\n');
+}
+
+function rejectionHtml(o: RejectionEmailOpts): string {
+  const safeName = escapeHtml(o.publisherName || 'there');
+  const safeApply = encodeURI(o.applyAgainUrl);
+  const reasonBlock = o.reason && o.reason.trim().length > 0
+    ? `<p><strong>Reviewer note:</strong></p><blockquote style="margin:0 0 0 1em;padding-left:1em;border-left:3px solid #ccc;color:#444">${escapeHtml(o.reason.trim())}</blockquote>`
+    : '';
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    `<p>Hi ${safeName},</p>`,
+    '<p>Thanks for applying to publish events on chqcal.org. After review, we are not able to approve your application at this time.</p>',
+    reasonBlock,
+    `<p>You are welcome to address any issues and apply again here: <a href="${safeApply}">${safeApply}</a></p>`,
     '<p>— Chautauqua Calendar</p>',
     '</body></html>',
   ].join('');

@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'preact/hooks';
 import {
   listPublishers,
   createPublisher,
   updatePublisher,
+  listPendingApplications,
   type PublisherRecord,
   type CreatePublisherInput,
 } from '@/lib/adminPublisherApi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { logout } from '@/lib/auth';
 import { PublisherForm } from './PublisherForm';
+import { PendingApplications } from './PendingApplications';
 
 // Discriminated union for form open/closed state.
 type FormMode =
@@ -21,6 +23,7 @@ const CLOSED: FormMode = { kind: 'closed' };
 export default function PublishersPage() {
   const user = useAdminAuth();
   const [publishers, setPublishers] = useState<PublisherRecord[]>([]);
+  const [pending, setPending] = useState<PublisherRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<FormMode>(CLOSED);
@@ -34,10 +37,23 @@ export default function PublishersPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listPublishers();
-      setPublishers(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load publishers.');
+      // Fetch both lists in parallel; either failing surfaces an error but
+      // we keep whichever resolved successfully so partial UI still renders.
+      const [allRes, pendingRes] = await Promise.allSettled([
+        listPublishers(),
+        listPendingApplications(),
+      ]);
+      if (allRes.status === 'fulfilled') {
+        setPublishers(allRes.value);
+      }
+      if (pendingRes.status === 'fulfilled') {
+        setPending(pendingRes.value);
+      }
+      const firstError = [allRes, pendingRes].find(r => r.status === 'rejected');
+      if (firstError && firstError.status === 'rejected') {
+        const reason = firstError.reason;
+        setError(reason instanceof Error ? reason.message : 'Failed to load publishers.');
+      }
     } finally {
       setLoading(false);
     }
@@ -90,6 +106,12 @@ export default function PublishersPage() {
   // -------------------------------------------------------------------------
   // Render helpers
   // -------------------------------------------------------------------------
+  // The pending section renders pending applications separately; exclude
+  // them from the main table to avoid duplicate rows.
+  const nonPendingPublishers = publishers.filter(
+    p => p.applicationStatus !== 'pending',
+  );
+
   const isLocalhost =
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -111,7 +133,7 @@ export default function PublishersPage() {
   // -------------------------------------------------------------------------
   // Loading / unauthenticated guard
   // -------------------------------------------------------------------------
-  if (!user || (loading && publishers.length === 0)) {
+  if (!user || (loading && publishers.length === 0 && pending.length === 0)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
         <div className="text-center">
@@ -149,7 +171,12 @@ export default function PublishersPage() {
                 </div>
               )}
               <div className="text-sm text-gray-600 dark:text-gray-300">
-                {publishers.length} publisher{publishers.length !== 1 ? 's' : ''}
+                {nonPendingPublishers.length} publisher{nonPendingPublishers.length !== 1 ? 's' : ''}
+                {pending.length > 0 && (
+                  <span className="ml-1 text-amber-700 dark:text-amber-400">
+                    · {pending.length} pending
+                  </span>
+                )}
               </div>
               {user && (
                 <div className="flex items-center gap-3">
@@ -204,6 +231,9 @@ export default function PublishersPage() {
           />
         )}
 
+        {/* Pending applications */}
+        <PendingApplications applications={pending} onChange={fetchPublishers} />
+
         {/* Publisher list */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
           {loading && publishers.length > 0 && (
@@ -212,7 +242,7 @@ export default function PublishersPage() {
             </div>
           )}
 
-          {publishers.length === 0 && !loading ? (
+          {nonPendingPublishers.length === 0 && !loading ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">
               No publishers yet. Click &quot;+ New publisher&quot; to add one.
             </div>
@@ -242,7 +272,7 @@ export default function PublishersPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {publishers.map(p => (
+                  {nonPendingPublishers.map(p => (
                     <tr key={p.id} className={p.enabled ? '' : 'opacity-60'}>
                       <td className="px-6 py-4">
                         <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.name}</div>

@@ -5,6 +5,8 @@ import { getAuthToken, removeAuthToken } from '@/lib/auth';
 // Types
 // ---------------------------------------------------------------------------
 
+export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
+
 export interface PublisherRecord {
   id: string;
   name: string;
@@ -21,6 +23,15 @@ export interface PublisherRecord {
     detectedAt: string;
     incomingFeed: { eventCount: number; publisherId: string };
   };
+  // Phase B/C — apply flow. Optional; admin-created rows have no
+  // applicationStatus and are treated as approved by the UI.
+  applicationStatus?: ApplicationStatus;
+  appliedAt?: string;
+  reviewedAt?: string;
+  reviewerEmail?: string;
+  rejectionReason?: string;
+  organization?: string;
+  applicantNotes?: string;
 }
 
 export interface PendingEvent {
@@ -168,3 +179,31 @@ export const approveHalt = async (publisherId: string): Promise<void> => {
 
 export const cancelHalt = (publisherId: string): Promise<void> =>
   req<void>(`/publisher-halts/${encodeURIComponent(publisherId)}/cancel`, { method: 'POST' });
+
+// ---------------------------------------------------------------------------
+// Phase C — pending application review
+// ---------------------------------------------------------------------------
+
+export const listPendingApplications = async (): Promise<PublisherRecord[]> => {
+  const r = await req<{ applications: PublisherRecord[] }>('/publisher-applications/pending');
+  return r.applications;
+};
+
+export const approveApplication = async (id: string): Promise<PublisherRecord> => {
+  const r = await req<{ publisher: PublisherRecord }>(
+    `/publisher-applications/${encodeURIComponent(id)}/approve`,
+    { method: 'POST' },
+  );
+  return r.publisher;
+};
+
+export const rejectApplication = async (
+  id: string,
+  reason?: string,
+): Promise<PublisherRecord> => {
+  const r = await req<{ publisher: PublisherRecord }>(
+    `/publisher-applications/${encodeURIComponent(id)}/reject`,
+    { method: 'POST', body: JSON.stringify({ reason: reason ?? '' }) },
+  );
+  return r.publisher;
+};

@@ -62,4 +62,102 @@ describe('SesMailService', () => {
     ).rejects.toThrow(/SES_FROM_ADDRESS/);
     expect(mockSend).not.toHaveBeenCalled();
   });
+
+  // ─── Phase C: approval / rejection emails ─────────────────────────────
+
+  it('sendApprovalEmail uses approval subject and embeds login + status URLs', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-app-1' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    const out = await svc.sendApprovalEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme Concerts',
+      statusUrl: 'https://x.test/publish/status/',
+      loginUrl: 'https://x.test/publish/login/',
+    });
+    expect(out.messageId).toBe('mid-app-1');
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Destination.ToAddresses).toEqual(['pub@example.com']);
+    expect(cmd.input.Content.Simple.Subject.Data).toMatch(/approved/i);
+    const text = cmd.input.Content.Simple.Body.Text.Data;
+    expect(text).toContain('Acme Concerts');
+    expect(text).toContain('https://x.test/publish/login/');
+    expect(text).toContain('https://x.test/publish/status/');
+    const html = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).toContain('Acme Concerts');
+    expect(html).toContain('https://x.test/publish/login/');
+  });
+
+  it('sendApprovalEmail HTML-escapes the publisher name', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-app-2' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendApprovalEmail({
+      to: 'p@x.com',
+      publisherName: '<script>alert(1)</script>',
+      statusUrl: 'https://x.test/s',
+      loginUrl: 'https://x.test/l',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    const html: string = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).not.toContain('<script>alert');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('sendRejectionEmail includes reviewer reason when supplied', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-rej-1' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendRejectionEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme',
+      reason: 'Source URL returned non-public events.',
+      applyAgainUrl: 'https://x.test/publish/apply/',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Content.Simple.Subject.Data).toMatch(/Update on your/i);
+    const text = cmd.input.Content.Simple.Body.Text.Data;
+    expect(text).toContain('Source URL returned non-public events.');
+    expect(text).toContain('https://x.test/publish/apply/');
+    const html = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).toContain('blockquote');
+    expect(html).toContain('Source URL returned non-public events.');
+  });
+
+  it('sendRejectionEmail omits the reason block when reason is missing', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-rej-2' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendRejectionEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme',
+      applyAgainUrl: 'https://x.test/publish/apply/',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    const html = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).not.toContain('blockquote');
+    expect(html).not.toContain('Reviewer note');
+  });
+
+  it('sendRejectionEmail HTML-escapes the reviewer reason', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-rej-3' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendRejectionEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme',
+      reason: '<img src=x onerror=alert(1)>',
+      applyAgainUrl: 'https://x.test/publish/apply/',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    const html: string = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('approval/rejection emails throw if SES_FROM_ADDRESS is empty', async () => {
+    const svc = new SesMailService(mockClient, '');
+    await expect(
+      svc.sendApprovalEmail({ to: 'a@b.com', publisherName: 'X', statusUrl: 'https://x', loginUrl: 'https://x' }),
+    ).rejects.toThrow(/SES_FROM_ADDRESS/);
+    await expect(
+      svc.sendRejectionEmail({ to: 'a@b.com', publisherName: 'X', applyAgainUrl: 'https://x' }),
+    ).rejects.toThrow(/SES_FROM_ADDRESS/);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
 });

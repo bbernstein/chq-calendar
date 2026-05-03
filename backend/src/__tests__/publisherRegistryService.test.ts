@@ -1,6 +1,6 @@
 jest.unmock('@aws-sdk/lib-dynamodb');
 
-import { PublisherRegistryService } from '../services/publisherRegistryService';
+import { ConcurrentApplicationUpdateError, PublisherRegistryService } from '../services/publisherRegistryService';
 
 const mockSend = jest.fn();
 const mockClient: any = { send: mockSend };
@@ -127,5 +127,47 @@ describe('PublisherRegistryService', () => {
     const cmd: any = mockSend.mock.calls[0][0];
     expect(cmd.input.ExpressionAttributeValues[':s']).toBe('rejected');
     expect(cmd.input.ExpressionAttributeValues[':rr']).toBe('feed not parseable');
+  });
+
+  it('setApplicationStatus with expectedFromStatus emits a ConditionExpression', async () => {
+    mockSend.mockResolvedValue({});
+    await svc.setApplicationStatus('p1', 'approved', {
+      reviewerEmail: 'admin@chqcal.org',
+      expectedFromStatus: 'pending',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.ConditionExpression).toBe('applicationStatus = :expected');
+    expect(cmd.input.ExpressionAttributeValues[':expected']).toBe('pending');
+  });
+
+  it('setApplicationStatus with enabled flag includes it in the SET clause', async () => {
+    mockSend.mockResolvedValue({});
+    await svc.setApplicationStatus('p1', 'approved', {
+      reviewerEmail: 'admin@chqcal.org',
+      enabled: true,
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.UpdateExpression).toMatch(/enabled = :enabled/);
+    expect(cmd.input.ExpressionAttributeValues[':enabled']).toBe(true);
+  });
+
+  it('setApplicationStatus translates ConditionalCheckFailedException to ConcurrentApplicationUpdateError when condition was supplied', async () => {
+    const ddbErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+    mockSend.mockRejectedValue(ddbErr);
+    await expect(svc.setApplicationStatus('p1', 'approved', {
+      reviewerEmail: 'admin@chqcal.org',
+      expectedFromStatus: 'pending',
+    })).rejects.toBeInstanceOf(ConcurrentApplicationUpdateError);
+  });
+
+  it('setApplicationStatus surfaces ConditionalCheckFailedException unchanged when no condition was supplied', async () => {
+    const ddbErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+    mockSend.mockRejectedValue(ddbErr);
+    // No expectedFromStatus → the error should pass through (this code path
+    // shouldn't normally trigger because there's no condition, but if some
+    // other DDB constraint fails we don't want to mis-translate).
+    await expect(svc.setApplicationStatus('p1', 'approved', {
+      reviewerEmail: 'admin@chqcal.org',
+    })).rejects.not.toBeInstanceOf(ConcurrentApplicationUpdateError);
   });
 });
