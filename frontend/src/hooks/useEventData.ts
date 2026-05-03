@@ -72,8 +72,21 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
       const sidecarUrl = sidecarEnabled ? `${cacheBase}/publisher-events-${year}.json` : null;
 
       // Cap sidecar latency so a slow/hung publisher endpoint can't delay the
-      // primary calendar render. AbortSignal.timeout returns ok:false-equivalent
-      // (rejected promise) which we already swallow with .catch(() => null).
+      // primary calendar render. AbortSignal.timeout causes fetch to throw an
+      // AbortError on expiry (a rejected promise), which we already swallow
+      // with .catch(() => null).
+      //
+      // Why Promise.all (coupled render) and not "render primary, append sidecar
+      // later": evaluated 2026-05-03 and deliberately kept coupled. Decoupling
+      // would (a) re-derive categories/locations/tags after sidecar arrives,
+      // churning the filter sidebar mid-interaction, (b) shift layout/scroll as
+      // events are appended into already-rendered day groups, (c) split the
+      // localStorage cache write and globalEventData publish into two stages,
+      // (d) blur `dataLoaded` semantics, and (e) ~double the test surface.
+      // Primary and sidecar live on the same CloudFront distribution and the
+      // sidecar payload is small (~KB), so the 3s ceiling is defensive against
+      // a worst case that has not been observed. Revisit only if telemetry
+      // shows the sidecar measurably delaying primary render.
       const SIDECAR_TIMEOUT_MS = 3000;
       const sidecarFetch = sidecarUrl
         ? fetch(sidecarUrl, {

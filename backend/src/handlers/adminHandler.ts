@@ -25,8 +25,8 @@ let _publisherAdmin: PublisherAdminService | null = null;
 function publisherAdmin(): PublisherAdminService {
   if (!_publisherAdmin) {
     _publisherAdmin = new PublisherAdminService(
-      new PublisherRegistryService(docClient, process.env.PUBLISHERS_TABLE_NAME ?? 'chq-publishers'),
-      new PublisherEventStore(docClient, process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chq-publisher-events'),
+      new PublisherRegistryService(docClient, process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers'),
+      new PublisherEventStore(docClient, process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chautauqua-calendar-publisher-events'),
     );
   }
   return _publisherAdmin;
