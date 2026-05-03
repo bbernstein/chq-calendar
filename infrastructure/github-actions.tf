@@ -33,6 +33,10 @@ resource "aws_iam_policy" "github_actions" {
           "lambda:GetFunction",
           "lambda:GetFunctionConfiguration"
         ]
+        # Every new aws_lambda_function resource that the deploy workflow
+        # ships MUST be added below, or `lambda:UpdateFunctionCode` will
+        # fail with AccessDeniedException at deploy time. (We learned this
+        # the hard way when publisher_ingest was missing — see PR #80.)
         Resource = [
           aws_lambda_function.calendar_generator.arn,
           aws_lambda_function.admin_handler.arn,
