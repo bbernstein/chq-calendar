@@ -1,0 +1,20 @@
+{
+  "formatVersion": "1.0",
+  "publisher": {
+    "id": "ci-e2e-test",
+    "name": "[CI] End-to-end deploy test",
+    "contactEmail": "bernard+ci-e2e@thebernsteins.com"
+  },
+  "events": [
+    {
+      "id": "ci-e2e-event-1",
+      "title": "[CI-E2E] Deploy test event (do not display)",
+      "startDate": "2026-07-01T12:00:00-04:00",
+      "endDate": "2026-07-01T13:00:00-04:00",
+      "category": "Special Events",
+      "venueId": "amphitheater",
+      "description": "Synthetic event used by the deploy-production workflow to validate the publisher ingest disable→retract flow. Should never be visible on the public calendar for more than a few seconds.",
+      "lastModified": "2026-05-03T00:00:00-04:00"
+    }
+  ]
+}

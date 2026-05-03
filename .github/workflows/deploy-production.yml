@@ -14,6 +14,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    # Serialize deploys: two concurrent runs would interleave the
+    # ci-e2e-test publisher's enable/disable toggles and corrupt the
+    # post-deploy retraction assertion. cancel-in-progress=false so an
+    # in-flight deploy completes (including its cleanup trap) before the
+    # next one starts.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -360,6 +368,231 @@ jobs:
           echo "  1. API Gateway configuration for /api/* routes"
           echo "  2. CloudFront behavior rules for API paths"
           echo "  3. Lambda function URL configuration"
+
+      - name: Publisher disable→retract end-to-end test
+        # Validates the full publisher-ingest pipeline against real DynamoDB +
+        # real S3 sidecar. Catches regressions that unit tests miss: Lambda
+        # version mismatch, IAM drift, sidecar publisher errors. Reads the
+        # sidecar directly from S3 (not via CloudFront) — the default cache
+        # behavior has `query_string = false` and the sidecar object has
+        # `max-age=300`, so any URL-based poll would see stale content for
+        # up to 5 minutes regardless of cache-buster query strings.
+        # Requires `var.enable_ci_e2e_publisher = true` so the
+        # ci-e2e-test publisher row + static feed exist.
+        shell: bash
+        env:
+          # github.event.head_commit.timestamp is only set on push; fall back
+          # to the run start time for workflow_dispatch.
+          DEPLOY_START_RAW: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+
+          PUBLISHER_ID="ci-e2e-test"
+          PUBLISHERS_TABLE="chautauqua-calendar-publishers"
+          LAMBDA="chautauqua-calendar-publisher-ingest"
+          # Local feed file in the checkout — this is the same file Terraform
+          # uploads to S3, so deriving the year locally avoids any cache /
+          # propagation race with the freshly-deployed S3 object.
+          LOCAL_FEED_PATH="$GITHUB_WORKSPACE/infrastructure/ci-e2e-feed.json"
+
+          # Sidecar key is publisher-events-${year}.json where ${year} comes
+          # from each event's startDate (see publisherSidecarPublisher.ts).
+          # Derive from the local checkout — do NOT hardcode the year, or the
+          # S3 key drifts off the actual sidecar object as the season rolls
+          # over.
+          SIDECAR_YEAR=$(jq -r '.events[0].startDate[0:4]' "$LOCAL_FEED_PATH")
+          if ! [[ "$SIDECAR_YEAR" =~ ^[0-9]{4}$ ]]; then
+            echo "::error::SIDECAR_YEAR '${SIDECAR_YEAR}' from $LOCAL_FEED_PATH is not a 4-digit year"
+            exit 1
+          fi
+          SIDECAR_S3_KEY="cache/calendar-cache/publisher-events-${SIDECAR_YEAR}.json"
+          echo "[ci-e2e] sidecar year=${SIDECAR_YEAR}, s3 key=${SIDECAR_S3_KEY}"
+
+          # Verify the Lambda's response file isn't holding a FunctionError —
+          # `aws lambda invoke --invocation-type RequestResponse` returns
+          # exit 0 even when the handler throws; the error lives in the
+          # response payload as the magic key "FunctionError".
+          assert_no_function_error() {
+            local file="$1" label="$2"
+            if grep -q '"FunctionError"' "$file" 2>/dev/null; then
+              echo "::error::${label}: Lambda returned a FunctionError"
+              cat "$file"
+              return 1
+            fi
+          }
+
+          # Count test-publisher events in the sidecar by reading the S3
+          # object directly. Bypasses CloudFront entirely — see step
+          # description for why URL-based polling can't work here. Returns:
+          #   0  if the sidecar object is missing (zero events from any
+          #      publisher) or present but with no events from $PUBLISHER_ID
+          #   N  on a present sidecar with N events from $PUBLISHER_ID
+          #   "" on transient AWS / jq failure — caller uses its own fallback
+          #      (events-appear poll: treat as 0; events-retract poll: 1)
+          count_test_events_in_sidecar() {
+            # Note: don't combine `local body=$(...)` with $? checks — `local`
+            # masks the rc. Run the AWS call as its own statement.
+            if aws s3api get-object \
+                --bucket "$S3_BUCKET" --key "$SIDECAR_S3_KEY" \
+                /tmp/ci-e2e-sidecar.json >/dev/null 2>/tmp/ci-e2e-s3.err; then
+              jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length" \
+                /tmp/ci-e2e-sidecar.json 2>/dev/null \
+                || echo ""
+              return
+            fi
+            if grep -q 'NoSuchKey\|Not Found\|404' /tmp/ci-e2e-s3.err; then
+              # Sidecar object absent ≡ no events from any publisher
+              # in this year — definitionally zero from $PUBLISHER_ID.
+              echo 0
+              return
+            fi
+            echo "[ci-e2e] s3 get-object failed (transient):" >&2
+            cat /tmp/ci-e2e-s3.err >&2
+            echo ""
+          }
+
+          cleanup() {
+            # Cleanup must never propagate a failure: surfacing a cleanup
+            # error on top of an already-failed test loses the original
+            # signal. Disable -e for the body and || true each AWS call.
+            set +e
+            echo "[ci-e2e] cleanup: disabling $PUBLISHER_ID and purging events"
+            aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
+              --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
+              --update-expression 'SET enabled = :f' \
+              --expression-attribute-values '{":f":{"BOOL":false}}' || true
+            # Final ingest to retract anything left. Fire-and-forget
+            # (--invocation-type Event) so a slow Lambda doesn't hold the
+            # CI runner — we already swallow errors here, so synchronous
+            # waiting buys us nothing.
+            aws lambda invoke --function-name "$LAMBDA" \
+              --invocation-type Event \
+              --cli-binary-format raw-in-base64-out --payload '{}' \
+              /tmp/ci-e2e-cleanup.json || true
+          }
+          trap cleanup EXIT
+
+          # 0. Verify the Lambda was actually updated by this deploy. Catches
+          #    the PR #78 trap where the disable→retract code was merged but
+          #    the Lambda zip never shipped.
+          LAST_MODIFIED=$(aws lambda get-function --function-name "$LAMBDA" \
+            --query 'Configuration.LastModified' --output text)
+          # Pass values via env (not shell substitution into the heredoc) to
+          # avoid injection from any unexpected characters and to keep the
+          # Python source quoted-as-written. AWS LastModified comes back like
+          # `2026-05-03T14:55:12.000+0000` — the `+0000` form is not parseable
+          # by datetime.fromisoformat on Python <3.11, so normalize.
+          LAST_MODIFIED="$LAST_MODIFIED" \
+          DEPLOY_START_RAW="$DEPLOY_START_RAW" \
+          python3 - <<'PY'
+          import os, re, sys
+          from datetime import datetime
+
+          def parse(ts: str) -> datetime:
+              # fromisoformat accepts +00:00 and (3.11+) Z; normalize +0000 → +00:00
+              t = ts.replace('Z', '+00:00')
+              t = re.sub(r'([+-]\d{2})(\d{2})$', r'\1:\2', t)
+              return datetime.fromisoformat(t)
+
+          lm = parse(os.environ['LAST_MODIFIED'])
+          ds = parse(os.environ['DEPLOY_START_RAW'])
+          if lm < ds:
+              print(f"::error::Lambda LastModified {lm.isoformat()} predates deploy start {ds.isoformat()} — code did not ship")
+              sys.exit(1)
+          print(f"[ci-e2e] Lambda LastModified {lm.isoformat()} >= deploy start {ds.isoformat()}")
+          PY
+
+          # 1. Pre-test cleanliness assertion: if a previous run failed
+          #    after ingest #1 but before cleanup, leftover ci-e2e-test
+          #    events would still be in the sidecar. Without this check
+          #    the "events appeared" poll would short-circuit on iteration
+          #    1 and mask a broken pipeline. The cleanup trap from the
+          #    previous run *should* have purged them, but cleanup itself
+          #    is best-effort — verify before we trust it.
+          INITIAL_RAW=$(count_test_events_in_sidecar)
+          INITIAL_COUNT=${INITIAL_RAW:-0}
+          if [ "$INITIAL_COUNT" -gt 0 ]; then
+            echo "::error::Sidecar already has ${INITIAL_COUNT} stale ${PUBLISHER_ID} event(s) before test start; manual cleanup required"
+            exit 1
+          fi
+
+          # 2. Enable the test publisher. `attribute_exists(id)` makes this
+          #    a strict update — if the row was never provisioned (e.g.
+          #    var.enable_ci_e2e_publisher = false), DynamoDB throws
+          #    ConditionalCheckFailedException instead of silently
+          #    upserting a partial {id, enabled} row that the next hourly
+          #    ingest would choke on.
+          aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
+            --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
+            --condition-expression 'attribute_exists(id)' \
+            --update-expression 'SET enabled = :t' \
+            --expression-attribute-values '{":t":{"BOOL":true}}'
+
+          # 3. Trigger ingest synchronously.
+          aws lambda invoke --function-name "$LAMBDA" \
+            --invocation-type RequestResponse \
+            --cli-binary-format raw-in-base64-out --payload '{}' \
+            /tmp/ci-e2e-ingest1.json
+          echo "[ci-e2e] ingest #1 response:"
+          cat /tmp/ci-e2e-ingest1.json
+          echo
+          assert_no_function_error /tmp/ci-e2e-ingest1.json "ingest #1"
+
+          # 4. Poll sidecar (read directly from S3 in count_test_events_in_sidecar)
+          #    for the test events to appear.
+          COUNT=0  # fail-open so a transient AWS error in the loop doesn't
+                   # immediately mark the test as passing for "events appeared"
+                   # (we only break on COUNT>=1).
+          for i in $(seq 1 30); do
+            RAW=$(count_test_events_in_sidecar)
+            COUNT=${RAW:-0}  # transient → 0, keep polling
+            if [ "$COUNT" -ge 1 ]; then
+              echo "[ci-e2e] events present after ${i}s (count=$COUNT)"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$COUNT" -lt 1 ]; then
+            echo "::error::Test events did not appear in sidecar within 30s"
+            exit 1
+          fi
+
+          # 5. Disable the publisher (same condition guard as step 2).
+          aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
+            --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
+            --condition-expression 'attribute_exists(id)' \
+            --update-expression 'SET enabled = :f' \
+            --expression-attribute-values '{":f":{"BOOL":false}}'
+
+          # 6. Trigger ingest again.
+          aws lambda invoke --function-name "$LAMBDA" \
+            --invocation-type RequestResponse \
+            --cli-binary-format raw-in-base64-out --payload '{}' \
+            /tmp/ci-e2e-ingest2.json
+          echo "[ci-e2e] ingest #2 response:"
+          cat /tmp/ci-e2e-ingest2.json
+          echo
+          assert_no_function_error /tmp/ci-e2e-ingest2.json "ingest #2"
+
+          # 7. Poll sidecar for the test events to disappear.
+          COUNT=1  # fail-closed so a transient curl error doesn't immediately
+                   # mark the retraction as successful.
+          for i in $(seq 1 30); do
+            RAW=$(count_test_events_in_sidecar)
+            COUNT=${RAW:-1}  # transient → 1, keep polling
+            if [ "$COUNT" -eq 0 ]; then
+              echo "[ci-e2e] events retracted after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$COUNT" -ne 0 ]; then
+            echo "::error::Test events were not retracted within 30s (count=$COUNT)"
+            exit 1
+          fi
+
+          echo "✅ Publisher disable→retract end-to-end test passed"
 
       - name: Trigger calendar data sync
         continue-on-error: true
