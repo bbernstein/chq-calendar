@@ -96,6 +96,8 @@ export default defineConfig({
         'admin-publisher-events': resolve(__dirname, 'admin/publisher-events/index.html'),
         publish: resolve(__dirname, 'publish/index.html'),
         'publish-test': resolve(__dirname, 'publish/test/index.html'),
+        'publish-apply': resolve(__dirname, 'publish/apply/index.html'),
+        'publish-verify': resolve(__dirname, 'publish/verify/index.html'),
       },
     },
   },

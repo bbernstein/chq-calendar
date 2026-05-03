@@ -98,22 +98,19 @@ export default function PublishLandingPage() {
               </p>
             </a>
 
-            {/*
-              Phase B note: /publish/apply/ doesn't exist yet. Surfacing as a
-              disabled placeholder so the program is discoverable but the link
-              can't dead-end the user.
-            */}
-            <div className="block p-5 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 rounded-lg opacity-75">
-              <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">
+            <a
+              href="/publish/apply/"
+              className="block p-5 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+            >
+              <h4 className="text-lg font-semibold text-blue-900 dark:text-blue-200 mb-1">
                 Apply to be a publisher
               </h4>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                Submit your contact info and feed URL for review.
+              <p className="text-sm text-blue-800 dark:text-blue-300">
+                Submit your contact info and feed URL for review. We&apos;ll
+                send a verification email and an admin will approve before
+                your events go live.
               </p>
-              <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300">
-                Coming soon
-              </span>
-            </div>
+            </a>
           </section>
 
           {/* Help / contact */}
