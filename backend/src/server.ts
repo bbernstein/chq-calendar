@@ -217,6 +217,26 @@ app.patch('/admin/api/feedback/bulk', async (req, res) => {
   }
 });
 
+// Public publisher-portal API. Exposed at /api/publisher-test (no auth)
+// so the prospective-publisher test page can call it without bumping into
+// the admin auth middleware. Routes to the same adminHandler — the path
+// `/publisher-test` is what the handler matches on.
+app.post('/api/publisher-test', async (req, res) => {
+  try {
+    const event = expressToLambdaEvent(req);
+    event.path = '/publisher-test';
+    const result = await adminHandler(event, mockContext);
+    // Forward Retry-After when present (used on 429 rate-limit responses).
+    if (result.headers?.['Retry-After']) {
+      res.set('Retry-After', String(result.headers['Retry-After']));
+    }
+    res.status(result.statusCode).json(result.body ? JSON.parse(result.body) : null);
+  } catch (error) {
+    console.error('Publisher-test API error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Catch-all for everything else under /admin/api/* (e.g. publisher CRUD,
 // publisher-events queue, publisher-halts management). Mirrors the {proxy+}
 // resource added on the production admin API Gateway. The explicit /feedback
@@ -245,6 +265,7 @@ app.listen(PORT, () => {
   console.log(`💬 Feedback API: http://localhost:${PORT}/feedback`);
   console.log(`🔐 Admin OAuth: http://localhost:${PORT}/auth/google`);
   console.log(`⚙️  Admin API: http://localhost:${PORT}/admin/api/feedback`);
+  console.log(`🧪 Publisher test API: http://localhost:${PORT}/api/publisher-test`);
   console.log(`❤️  Health: http://localhost:${PORT}/health`);
 });
 

@@ -6,6 +6,7 @@ import { google } from 'googleapis';
 import { PublisherAdminService } from '../services/publisherAdminService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
+import { handlePublisherTest } from './publisherPortalHandler';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({ 
@@ -312,6 +313,25 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           body: '',
         };
       }
+    }
+
+    // ─── Public (un-authenticated) publisher portal endpoints ─────────────
+    //
+    // Routing decision (Phase A, Option X from the design plan): we host
+    // `/publisher-test` inside adminHandler.ts rather than spinning up a
+    // separate Lambda + Terraform plumbing for it. The actual handler logic
+    // lives in `publisherPortalHandler.ts`; we delegate to it here.
+    //
+    // The single trade-off — adminHandler is no longer 100% admin-only — is
+    // acceptable for Phase A. Phase D can wire publisherPortalHandler.ts up
+    // as its own Lambda Function URL with no further refactoring.
+    //
+    // Auth: this endpoint is intentionally OPEN. Prospective publishers need
+    // to iterate on their feed before they're registered. Abuse mitigation
+    // is the URL guard (services/urlGuard.ts) and the in-memory rate
+    // limiter inside publisherPortalHandler.ts.
+    if (path === '/publisher-test' && httpMethod === 'POST') {
+      return await handlePublisherTest(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development

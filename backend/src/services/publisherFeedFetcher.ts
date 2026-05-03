@@ -6,6 +6,13 @@ export interface FetchFeedInput {
   url: string;
   sourceType: SourceType;
   registeredPublisherId: string;
+  /**
+   * When true, skip the `feed.publisher.id === registeredPublisherId` check.
+   * Used by the public publisher-test endpoint, where prospective publishers
+   * iterate on their feed before they have an assigned id. Production ingest
+   * MUST leave this false (the default).
+   */
+  skipPublisherIdCheck?: boolean;
 }
 
 export interface FetchFeedOutput {
@@ -68,7 +75,7 @@ export async function fetchAndParseFeed(
         report: { ok: false, errors: ex.errors, warnings: [] },
       };
     }
-    if (ex.feed.publisher.id !== input.registeredPublisherId) {
+    if (!input.skipPublisherIdCheck && ex.feed.publisher.id !== input.registeredPublisherId) {
       return {
         fetchStatus: 'validation_error',
         feed: null,
@@ -105,7 +112,7 @@ export async function fetchAndParseFeed(
   if (!report.ok || !report.feed) {
     return { fetchStatus: 'validation_error', feed: null, report };
   }
-  if (report.feed.publisher.id !== input.registeredPublisherId) {
+  if (!input.skipPublisherIdCheck && report.feed.publisher.id !== input.registeredPublisherId) {
     return {
       fetchStatus: 'validation_error',
       feed: null,
