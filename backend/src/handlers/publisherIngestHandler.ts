@@ -1,9 +1,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
+import { loadReferences } from '@chq-calendar/publisher-format';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
-import { PublisherSidecarPublisher } from '../services/publisherSidecarPublisher';
+import { PublisherSidecarPublisher, type VenueLookup } from '../services/publisherSidecarPublisher';
 import { fetchAndParseFeed } from '../services/publisherFeedFetcher';
 import { reconcile } from '../services/publisherReconciler';
 
@@ -68,6 +69,8 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
 
 export async function scheduledHandler(): Promise<void> {
   const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  const refs = loadReferences();
+  const venuesById = new Map<string, VenueLookup>(refs.venues.map(v => [v.id, v]));
   await runIngest({
     registry: new PublisherRegistryService(ddb, process.env.PUBLISHERS_TABLE_NAME!),
     store: new PublisherEventStore(ddb, process.env.PUBLISHER_EVENTS_TABLE_NAME!),
@@ -75,6 +78,7 @@ export async function scheduledHandler(): Promise<void> {
       new S3Client({}),
       process.env.CACHE_S3_BUCKET!,
       process.env.CACHE_S3_KEY_PREFIX!,
+      venuesById,
     ),
     fetcher: fetchAndParseFeed,
     now: new Date(),

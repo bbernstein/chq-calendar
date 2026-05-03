@@ -8,11 +8,24 @@ import type { StoredPublisherEvent } from '../types/publisher';
 
 const SIDECAR_KEY_PATTERN = /\/publisher-events-(\d{4})\.json$/;
 
+export interface VenueLookup {
+  id: string;
+  name: string;
+  address?: string;
+}
+
 export class PublisherSidecarPublisher {
   constructor(
     private readonly s3: S3Client,
     private readonly bucket: string,
     private readonly keyPrefix: string,
+    /**
+     * Optional venue lookup. When provided, payloads with a `venueId` get a
+     * resolved `location` (and `venue.name`/`venue.address`) added so the
+     * frontend's location filter and EventCard rendering work without
+     * publisher-aware code paths.
+     */
+    private readonly venuesById: Map<string, VenueLookup> = new Map(),
   ) {}
 
   async publish(events: StoredPublisherEvent[]): Promise<void> {
@@ -28,7 +41,7 @@ export class PublisherSidecarPublisher {
     const existingYears = await this.listExistingSidecarYears();
 
     for (const [year, group] of byYear) {
-      const body = JSON.stringify({ data: group.map(g => g.payload) });
+      const body = JSON.stringify({ data: group.map(g => this.enrichPayload(g.payload)) });
       await this.s3.send(new PutObjectCommand({
         Bucket: this.bucket,
         Key: this.keyForYear(year),
@@ -50,6 +63,24 @@ export class PublisherSidecarPublisher {
 
   private keyForYear(year: number): string {
     return `${this.keyPrefix}/publisher-events-${year}.json`;
+  }
+
+  private enrichPayload(payload: StoredPublisherEvent['payload']): Record<string, unknown> {
+    const p = payload as unknown as Record<string, unknown>;
+    const venueId = typeof p.venueId === 'string' ? p.venueId : undefined;
+    if (!venueId) return p;
+    const venue = this.venuesById.get(venueId);
+    if (!venue) return p;
+    const enriched: Record<string, unknown> = { ...p };
+    // Don't overwrite a location the publisher explicitly supplied.
+    if (typeof enriched.location !== 'string' || enriched.location.length === 0) {
+      enriched.location = venue.name;
+    }
+    enriched.venue = {
+      name: venue.name,
+      ...(venue.address ? { address: venue.address } : {}),
+    };
+    return enriched;
   }
 
   private async listExistingSidecarYears(): Promise<Set<number>> {
