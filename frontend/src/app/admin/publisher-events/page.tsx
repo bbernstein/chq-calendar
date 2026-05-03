@@ -9,43 +9,17 @@ import {
   type PendingEvent,
   type PublisherRecord,
 } from '@/lib/adminPublisherApi';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { PendingEventCard } from './PendingEventCard';
 
 export default function PublisherEventsPage() {
-  const [user, setUser] = useState<{ email: string; name: string } | null>(null);
+  const user = useAdminAuth();
   const [pending, setPending] = useState<PendingEvent[]>([]);
   const [halts, setHalts] = useState<PublisherRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // in-flight keys: evt:<publisherId>:<eventId> or halt:<publisherId>
   const [inFlight, setInFlight] = useState<Set<string>>(new Set());
-
-  // -------------------------------------------------------------------------
-  // Auth bootstrap (mirrors admin/publishers/page.tsx lines 31-53 exactly)
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    const isLocalhost =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    if (isLocalhost) {
-      const dummyUser = { email: 'dev@localhost.local', name: 'Local Dev User' };
-      setUser(dummyUser);
-      localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
-      localStorage.setItem('chq_auth_token', 'dummy-local-token');
-      return;
-    }
-
-    const token = localStorage.getItem('chq_auth_token');
-    const userStr = localStorage.getItem('chq_auth_user');
-
-    if (!token || !userStr) {
-      window.location.href = '/admin/login/';
-      return;
-    }
-
-    setUser(JSON.parse(userStr));
-  }, []);
 
   // -------------------------------------------------------------------------
   // Data fetch
