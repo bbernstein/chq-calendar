@@ -38,6 +38,33 @@ describe('PublisherRegistryService', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
+  it('listDisabled returns only disabled publishers', async () => {
+    mockSend.mockResolvedValue({
+      Items: [
+        { id: 'b', enabled: false, name: 'B', contactEmail: 'b@b', sourceUrl: 'y', sourceType: 'json', trustLevel: 'auto', createdAt: 't' },
+      ],
+    });
+    const r = await svc.listDisabled();
+    expect(r.map(p => p.id)).toEqual(['b']);
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.FilterExpression).toContain('enabled');
+    expect(cmd.input.ExpressionAttributeValues[':f']).toBe(false);
+  });
+
+  it('listDisabled paginates through LastEvaluatedKey', async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Items: [{ id: 'a', enabled: false, name: 'A', contactEmail: 'a@b', sourceUrl: 'x', sourceType: 'json', trustLevel: 'auto', createdAt: 't' }],
+        LastEvaluatedKey: { id: 'a' },
+      })
+      .mockResolvedValueOnce({
+        Items: [{ id: 'b', enabled: false, name: 'B', contactEmail: 'b@b', sourceUrl: 'y', sourceType: 'json', trustLevel: 'auto', createdAt: 't' }],
+      });
+    const r = await svc.listDisabled();
+    expect(r.map(p => p.id)).toEqual(['a', 'b']);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+  });
+
   it('listAll returns all publishers without a filter (so disabled rows are included)', async () => {
     mockSend.mockResolvedValue({
       Items: [

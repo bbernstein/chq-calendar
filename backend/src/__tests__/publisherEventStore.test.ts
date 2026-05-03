@@ -64,6 +64,45 @@ describe('PublisherEventStore', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
+  it('deleteAllForPublisher is a no-op when no events exist', async () => {
+    mockSend.mockResolvedValue({ Items: [] });
+    const n = await store.deleteAllForPublisher('p');
+    expect(n).toBe(0);
+    // Only the list query, no TransactWrite
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('deleteAllForPublisher issues a single TransactWrite with all event keys', async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Items: [
+          { publisherId: 'p', eventId: 'e1', state: 'published' },
+          { publisherId: 'p', eventId: 'e2', state: 'published' },
+        ],
+      })
+      .mockResolvedValueOnce({});
+    const n = await store.deleteAllForPublisher('p');
+    expect(n).toBe(2);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    const txn: any = mockSend.mock.calls[1][0];
+    expect(txn.input.TransactItems).toHaveLength(2);
+    expect(txn.input.TransactItems[0].Delete.Key).toEqual({ publisherId: 'p', eventId: 'e1' });
+    expect(txn.input.TransactItems[1].Delete.Key).toEqual({ publisherId: 'p', eventId: 'e2' });
+  });
+
+  it('deleteAllForPublisher chunks at 100 keys per TransactWrite', async () => {
+    const items = Array.from({ length: 250 }, (_, i) => ({
+      publisherId: 'p', eventId: `e${i}`, state: 'published',
+    }));
+    mockSend
+      .mockResolvedValueOnce({ Items: items })
+      .mockResolvedValue({});
+    const n = await store.deleteAllForPublisher('p');
+    expect(n).toBe(250);
+    // 1 list call + ceil(250/100) = 3 transact calls = 4 total
+    expect(mockSend).toHaveBeenCalledTimes(4);
+  });
+
   it('listAllPublished queries the by-state GSI', async () => {
     mockSend.mockResolvedValue({ Items: [{ publisherId: 'p', eventId: 'e1', state: 'published' }] });
     const r = await store.listAllPublished();

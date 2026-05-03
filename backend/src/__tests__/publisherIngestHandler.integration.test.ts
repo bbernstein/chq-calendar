@@ -9,6 +9,7 @@ describe('runIngest (integration)', () => {
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -44,6 +45,7 @@ describe('runIngest (integration)', () => {
         },
         updatedAt: 't',
       }]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -68,6 +70,7 @@ describe('runIngest (integration)', () => {
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'network_error',
@@ -78,6 +81,7 @@ describe('runIngest (integration)', () => {
       listForPublisher: jest.fn(),
       applyDiff: jest.fn(),
       listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -103,6 +107,7 @@ describe('runIngest (integration)', () => {
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -123,6 +128,7 @@ describe('runIngest (integration)', () => {
       listForPublisher: jest.fn().mockResolvedValue([]),
       applyDiff: jest.fn().mockResolvedValue(undefined),
       listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -146,6 +152,7 @@ describe('runIngest (integration)', () => {
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -160,6 +167,7 @@ describe('runIngest (integration)', () => {
       listForPublisher: jest.fn().mockResolvedValue([]),
       applyDiff: jest.fn().mockResolvedValue(undefined),
       listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -182,6 +190,7 @@ describe('runIngest (integration)', () => {
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -211,6 +220,7 @@ describe('runIngest (integration)', () => {
       listForPublisher: jest.fn().mockResolvedValue(stored),
       applyDiff: jest.fn().mockResolvedValue(undefined),
       listAllPublished: jest.fn().mockResolvedValue(stored),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -235,6 +245,7 @@ describe('runIngest (integration)', () => {
       }]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockResolvedValue({
       fetchStatus: 'ok',
@@ -262,6 +273,7 @@ describe('runIngest (integration)', () => {
       listForPublisher: jest.fn().mockResolvedValue(stored),
       applyDiff: jest.fn().mockResolvedValue(undefined),
       listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -289,6 +301,7 @@ describe('runIngest (integration)', () => {
       ]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockImplementation(async (req: any) => ({
       fetchStatus: 'ok',
@@ -314,6 +327,7 @@ describe('runIngest (integration)', () => {
         }
       }),
       listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -342,12 +356,14 @@ describe('runIngest (integration)', () => {
       ]),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      listDisabled: jest.fn().mockResolvedValue([]),
     };
     const fetcher = jest.fn().mockRejectedValue(new Error('boom'));
     const store = {
       listForPublisher: jest.fn(),
       applyDiff: jest.fn(),
       listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
     };
     const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
 
@@ -361,5 +377,139 @@ describe('runIngest (integration)', () => {
 
     expect(sidecar.publish).toHaveBeenCalledTimes(1);
     expect(registry.recordFetchOutcome).toHaveBeenCalledWith('a', expect.objectContaining({ status: 'network_error' }));
+  });
+
+  it('retracts events for disabled publishers and republishes the sidecar', async () => {
+    const registry = {
+      listEnabled: jest.fn().mockResolvedValue([]),
+      listDisabled: jest.fn().mockResolvedValue([
+        { id: 'gone', name: 'Gone', contactEmail: 'g@b', sourceUrl: 'https://x',
+          sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't' },
+      ]),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn();
+    const store = {
+      listForPublisher: jest.fn(),
+      applyDiff: jest.fn(),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(2),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(store.deleteAllForPublisher).toHaveBeenCalledWith('gone');
+    expect(sidecar.publish).toHaveBeenCalledTimes(1);
+    expect(sidecar.publish).toHaveBeenCalledWith([]);
+  });
+
+  it('continues to next disabled publisher when one retraction throws', async () => {
+    const registry = {
+      listEnabled: jest.fn().mockResolvedValue([]),
+      listDisabled: jest.fn().mockResolvedValue([
+        { id: 'broken-disable', name: 'BD', contactEmail: 'a@b', sourceUrl: 'https://x',
+          sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't' },
+        { id: 'good-disable', name: 'GD', contactEmail: 'a@b', sourceUrl: 'https://y',
+          sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't' },
+      ]),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn();
+    const store = {
+      listForPublisher: jest.fn(),
+      applyDiff: jest.fn(),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn()
+        .mockRejectedValueOnce(new Error('DynamoDB transient'))
+        .mockResolvedValueOnce(3),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    expect(store.deleteAllForPublisher).toHaveBeenCalledTimes(2);
+    expect(store.deleteAllForPublisher).toHaveBeenNthCalledWith(1, 'broken-disable');
+    expect(store.deleteAllForPublisher).toHaveBeenNthCalledWith(2, 'good-disable');
+    expect(sidecar.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs enabled-publisher ingest before disable retraction so sidecar reflects both', async () => {
+    const callOrder: string[] = [];
+    const registry = {
+      listEnabled: jest.fn().mockImplementation(async () => {
+        callOrder.push('listEnabled');
+        return [{
+          id: 'live', name: 'Live', contactEmail: 'a@b', sourceUrl: 'https://x',
+          sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
+        }];
+      }),
+      listDisabled: jest.fn().mockImplementation(async () => {
+        callOrder.push('listDisabled');
+        return [{
+          id: 'gone', name: 'Gone', contactEmail: 'g@b', sourceUrl: 'https://y',
+          sourceType: 'json', trustLevel: 'auto', enabled: false, createdAt: 't',
+        }];
+      }),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok',
+      report: { ok: true, errors: [], warnings: [] },
+      feed: {
+        formatVersion: '1.0',
+        publisher: { id: 'live', name: 'Live', contactEmail: 'a@b' },
+        events: [],
+      },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockResolvedValue(undefined),
+      listAllPublished: jest.fn().mockImplementation(async () => {
+        callOrder.push('listAllPublished');
+        return [];
+      }),
+      deleteAllForPublisher: jest.fn().mockImplementation(async () => {
+        callOrder.push('deleteAllForPublisher');
+        return 0;
+      }),
+    };
+    const sidecar = {
+      publish: jest.fn().mockImplementation(async () => {
+        callOrder.push('publish');
+      }),
+    };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    expect(callOrder).toEqual([
+      'listEnabled',
+      'listDisabled',
+      'deleteAllForPublisher',
+      'listAllPublished',
+      'publish',
+    ]);
   });
 });

@@ -63,6 +63,20 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
       }
     }
   }
+  // Retract events for disabled publishers. Disabling a publisher (enabled=false)
+  // is the moderation lever — their previously-published events must disappear
+  // from the sidecar on the next ingest run, not linger until manual cleanup.
+  // We hard-delete instead of going through the reconciler because the reconciler
+  // would skip past events and trip the threshold halt on a 100% removal.
+  const disabled = await deps.registry.listDisabled();
+  for (const p of disabled) {
+    try {
+      await deps.store.deleteAllForPublisher(p.id);
+    } catch (err) {
+      console.error(`[publisher-ingest] failed to retract events for disabled publisher ${p.id}:`, err);
+    }
+  }
+
   const all = await deps.store.listAllPublished();
   await deps.sidecar.publish(all);
 }

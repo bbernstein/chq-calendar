@@ -29,6 +29,22 @@ export class PublisherRegistryService {
     return out;
   }
 
+  async listDisabled(): Promise<PublisherRecord[]> {
+    const out: PublisherRecord[] = [];
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new ScanCommand({
+        TableName: this.tableName,
+        FilterExpression: 'enabled = :f',
+        ExpressionAttributeValues: { ':f': false },
+        ExclusiveStartKey: last,
+      }));
+      out.push(...((r.Items ?? []) as PublisherRecord[]));
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return out;
+  }
+
   async listAll(): Promise<PublisherRecord[]> {
     const out: PublisherRecord[] = [];
     let last: Record<string, unknown> | undefined;
