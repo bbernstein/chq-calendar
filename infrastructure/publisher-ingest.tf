@@ -1,5 +1,5 @@
 resource "aws_dynamodb_table" "publishers" {
-  name         = "chq-publishers"
+  name         = "${var.app_name}-publishers"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -15,10 +15,16 @@ resource "aws_dynamodb_table" "publishers" {
   server_side_encryption {
     enabled = true
   }
+
+  tags = {
+    Name        = "${var.app_name}-publishers"
+    Environment = var.environment
+    Application = var.app_name
+  }
 }
 
 resource "aws_dynamodb_table" "publisher_events" {
-  name         = "chq-publisher-events"
+  name         = "${var.app_name}-publisher-events"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "publisherId"
   range_key    = "eventId"
@@ -52,10 +58,16 @@ resource "aws_dynamodb_table" "publisher_events" {
   server_side_encryption {
     enabled = true
   }
+
+  tags = {
+    Name        = "${var.app_name}-publisher-events"
+    Environment = var.environment
+    Application = var.app_name
+  }
 }
 
 resource "aws_iam_role" "publisher_ingest_role" {
-  name = "chq-publisher-ingest-role"
+  name = "${var.app_name}-publisher-ingest-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
@@ -72,7 +84,7 @@ resource "aws_iam_role_policy_attachment" "publisher_ingest_basic" {
 }
 
 resource "aws_iam_role_policy" "publisher_ingest_scoped" {
-  name = "chq-publisher-ingest-scoped"
+  name = "${var.app_name}-publisher-ingest-scoped"
   role = aws_iam_role.publisher_ingest_role.id
   policy = jsonencode({
     Version = "2012-10-17",
@@ -114,13 +126,13 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
 }
 
 resource "aws_cloudwatch_log_group" "publisher_ingest" {
-  name              = "/aws/lambda/chq-publisher-ingest"
+  name              = "/aws/lambda/${var.app_name}-publisher-ingest"
   retention_in_days = 14
 }
 
 resource "aws_lambda_function" "publisher_ingest" {
   filename      = "../backend/lambda-function.zip"
-  function_name = "chq-publisher-ingest"
+  function_name = "${var.app_name}-publisher-ingest"
   role          = aws_iam_role.publisher_ingest_role.arn
   handler       = "dist/publisherIngestHandler.scheduledHandler"
   runtime       = "nodejs22.x"
@@ -146,7 +158,7 @@ resource "aws_lambda_function" "publisher_ingest" {
 }
 
 resource "aws_cloudwatch_event_rule" "publisher_ingest_schedule" {
-  name                = "chq-publisher-ingest-hourly"
+  name                = "${var.app_name}-publisher-ingest-hourly"
   description         = "Hourly trigger for publisher ingest pipeline"
   schedule_expression = "rate(1 hour)"
 }
@@ -169,7 +181,7 @@ resource "aws_lambda_permission" "publisher_ingest_allow_events" {
 # read/write access to the publisher tables for the admin endpoints in
 # adminHandler.ts (Plan 3). Kept here so all publisher-related IAM stays grouped.
 resource "aws_iam_role_policy" "admin_publisher_access" {
-  name = "chq-admin-publisher-access"
+  name = "${var.app_name}-admin-publisher-access"
   role = aws_iam_role.lambda_role.name
   policy = jsonencode({
     Version = "2012-10-17",

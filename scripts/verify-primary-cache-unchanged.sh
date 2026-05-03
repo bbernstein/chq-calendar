@@ -6,6 +6,11 @@ KEY_PREFIX="cache/calendar-cache"
 YEAR="${2:-2026}"
 KEY="$KEY_PREFIX/all-events-$YEAR.json"
 
+# Override via env var when targeting a non-prod environment, e.g.:
+#   PUBLISHER_INGEST_FUNCTION=chautauqua-calendar-staging-publisher-ingest \
+#     scripts/verify-primary-cache-unchanged.sh <bucket>
+PUBLISHER_INGEST_FUNCTION="${PUBLISHER_INGEST_FUNCTION:-chautauqua-calendar-publisher-ingest}"
+
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
@@ -23,7 +28,7 @@ PRIMARY_LAST_MODIFIED_BEFORE=$(aws s3api head-object --bucket "$BUCKET" --key "$
 echo "Primary cache last modified before: $PRIMARY_LAST_MODIFIED_BEFORE"
 
 echo "Triggering publisher ingest (the thing we're testing)..."
-aws lambda invoke --function-name chq-publisher-ingest "$WORK/publisher.out" >/dev/null
+aws lambda invoke --function-name "$PUBLISHER_INGEST_FUNCTION" "$WORK/publisher.out" >/dev/null
 
 # Give S3 a moment to be eventually-consistent.
 sleep 10
