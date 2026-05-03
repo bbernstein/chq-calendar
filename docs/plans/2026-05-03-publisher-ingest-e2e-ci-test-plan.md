@@ -1,6 +1,6 @@
 # Plan — Automated end-to-end test for publisher disable→retract in CI
 
-**Status:** implemented on branch `feat/publisher-ingest-e2e-ci-test` (PR pending). Open follow-ups in the "Open questions" section below remain unresolved.
+**Status:** ✅ shipped 2026-05-03 via PR #81 (merge commit `76e7d16`). Terraform applied to prod. First post-merge deploy run [`25288151509`](https://github.com/bbernstein/chq-calendar/actions/runs/25288151509) ran the new `Publisher disable→retract end-to-end test` step end-to-end and it passed against real DynamoDB + real S3 sidecar. Open items in the "Open questions" section below are intentionally deferred — none block.
 **Suggested branch:** `feat/publisher-ingest-e2e-ci-test`.
 **Origin:** the disable→retract fix shipped in PR #78 had no automated post-deploy validation. The current `deploy-production.yml` post-deploy step only checks `/health`, calendar event count > 0, and frontend load — none of which would catch a regression in the publisher disable retraction flow.
 
