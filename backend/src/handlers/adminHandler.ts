@@ -4,15 +4,17 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
-import { PublisherAdminService } from '../services/publisherAdminService';
+import { ApplicationStateError, PublisherAdminService } from '../services/publisherAdminService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
+import { SesMailService } from '../services/mailService';
 import {
   handlePublisherTest,
   handlePublisherApplyRequest,
   handlePublisherApplyVerify,
   handlePublisherAuthRequest,
   handlePublisherAuthVerify,
+  handlePublisherStatus,
 } from './publisherPortalHandler';
 
 // DynamoDB client
@@ -29,15 +31,26 @@ const dynamoClient = new DynamoDBClient({
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Lazy singleton for PublisherAdminService — one instance per Lambda warm container.
+// Phase C: pass MailService + siteBaseUrl so approve/reject can notify publishers.
 let _publisherAdmin: PublisherAdminService | null = null;
 function publisherAdmin(): PublisherAdminService {
   if (!_publisherAdmin) {
     _publisherAdmin = new PublisherAdminService(
       new PublisherRegistryService(docClient, process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers'),
       new PublisherEventStore(docClient, process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chautauqua-calendar-publisher-events'),
+      {
+        mail: new SesMailService(),
+        siteBaseUrl: process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
+      },
     );
   }
   return _publisherAdmin;
+}
+
+// Test-only: reset the cached singleton between test cases that need to inject
+// stubs (mocks aws-sdk-client-mock-style). Production code never calls this.
+export function _resetPublisherAdminForTests(): void {
+  _publisherAdmin = null;
 }
 
 // Environment variables
@@ -361,6 +374,13 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       return await handlePublisherAuthVerify(event, requestBody);
     }
 
+    // Phase C: publisher-facing status endpoint. JWT-protected with the
+    // publisher JWT (NOT the admin JWT) — auth check lives inside the
+    // handler, so it sits BEFORE the admin auth gate below.
+    if (path === '/publisher-status' && httpMethod === 'GET') {
+      return await handlePublisherStatus(event, requestBody);
+    }
+
     // All remaining endpoints require authentication, except in local development
     let user = authenticateRequest(event);
     console.log('Authentication result:', user ? `authenticated as "${user.name}"` : 'unauthenticated');
@@ -400,6 +420,61 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           return createResponse(409, { error: message });
         }
         return createResponse(500, { error: 'Failed to create publisher' });
+      }
+    }
+
+    // Phase C: pending application review (admin-only).
+    if (path === '/publisher-applications/pending' && httpMethod === 'GET') {
+      try {
+        const applications = await publisherAdmin().listPendingApplications();
+        return createResponse(200, { applications });
+      } catch (error) {
+        console.error('Error listing pending applications:', error);
+        return createResponse(500, { error: 'Failed to list pending applications' });
+      }
+    }
+
+    const matchAppApprove = path.match(/^\/publisher-applications\/([^/]+)\/approve$/);
+    if (matchAppApprove && httpMethod === 'POST') {
+      try {
+        const publisher = await publisherAdmin().approveApplication(
+          decodeURIComponent(matchAppApprove[1]),
+          user.email,
+        );
+        return createResponse(200, { publisher });
+      } catch (error) {
+        if (error instanceof ApplicationStateError) {
+          return createResponse(409, { error: error.message, currentStatus: error.currentStatus });
+        }
+        const message = error instanceof Error ? error.message : '';
+        if (message.startsWith('unknown publisher')) {
+          return createResponse(404, { error: message });
+        }
+        console.error('Error approving application:', error);
+        return createResponse(500, { error: 'Failed to approve application' });
+      }
+    }
+
+    const matchAppReject = path.match(/^\/publisher-applications\/([^/]+)\/reject$/);
+    if (matchAppReject && httpMethod === 'POST') {
+      try {
+        const reason = typeof requestBody?.reason === 'string' ? requestBody.reason : undefined;
+        const publisher = await publisherAdmin().rejectApplication(
+          decodeURIComponent(matchAppReject[1]),
+          user.email,
+          reason,
+        );
+        return createResponse(200, { publisher });
+      } catch (error) {
+        if (error instanceof ApplicationStateError) {
+          return createResponse(409, { error: error.message, currentStatus: error.currentStatus });
+        }
+        const message = error instanceof Error ? error.message : '';
+        if (message.startsWith('unknown publisher')) {
+          return createResponse(404, { error: message });
+        }
+        console.error('Error rejecting application:', error);
+        return createResponse(500, { error: 'Failed to reject application' });
       }
     }
 

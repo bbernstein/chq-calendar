@@ -24,7 +24,8 @@ import { MagicTokenService } from '../services/magicTokenService';
 import { SesMailService } from '../services/mailService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherApplicationService } from '../services/publisherApplicationService';
-import type { ApplyFormPayload } from '../types/publisher';
+import { verifyPublisherJwt } from '../services/publisherAuthService';
+import type { ApplyFormPayload, PublisherRecord } from '../types/publisher';
 
 // ─── Rate limiter ────────────────────────────────────────────────────────
 // In-memory per-IP sliding window. Per-instance only — each Lambda warm
@@ -358,6 +359,91 @@ export async function handlePublisherAuthVerify(
     console.error('Error in /publisher-auth/verify:', err);
     return json(500, { error: 'Internal server error' });
   }
+}
+
+// ─── Publisher status singleton (registry only — no email/token deps) ────
+//
+// Reused across cold starts. Distinct from `appService` so the status
+// endpoint avoids paying the SES/Secrets-Manager init cost (the
+// PublisherApplicationService eagerly constructs both).
+
+let _statusRegistry: PublisherRegistryService | null = null;
+
+function statusRegistry(): PublisherRegistryService {
+  if (!_statusRegistry) {
+    const dynamoClient = new DynamoDBClient({
+      region: process.env.AWS_REGION || 'us-east-1',
+      ...(process.env.DYNAMODB_ENDPOINT && {
+        endpoint: process.env.DYNAMODB_ENDPOINT,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
+        },
+      }),
+    });
+    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    _statusRegistry = new PublisherRegistryService(
+      docClient,
+      process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
+    );
+  }
+  return _statusRegistry;
+}
+
+export function _setStatusRegistryForTests(r: PublisherRegistryService | null): void {
+  _statusRegistry = r;
+}
+
+// ─── /publisher-status (publisher JWT only) ──────────────────────────────
+//
+// Returns the caller's own publisher record, sanitized:
+//   - omits `pendingThresholdHalt` (ops-internal signal)
+//   - omits `reviewerEmail` (admin PII not relevant to the publisher)
+//
+// Auth: `Authorization: Bearer <publisher-jwt>`. Invalid or missing → 401.
+// Publisher row deleted while JWT is still valid → 404 (clears stale local
+// session on the frontend).
+export async function handlePublisherStatus(
+  event: APIGatewayProxyEvent,
+  _requestBody: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  const auth = readAuthHeader(event);
+  if (!auth) {
+    return json(401, { error: 'Authentication required' });
+  }
+  const claims = await verifyPublisherJwt(auth);
+  if (!claims) {
+    return json(401, { error: 'Authentication required' });
+  }
+  try {
+    const rec = await statusRegistry().get(claims.sub);
+    if (!rec) {
+      return json(404, { error: 'Publisher not found' });
+    }
+    return json(200, { publisher: sanitizePublisher(rec) });
+  } catch (err) {
+    console.error('Error in /publisher-status:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// Header lookup is case-insensitive; APIGatewayProxyEvent normalizes to the
+// caller's casing, so we check both common forms.
+function readAuthHeader(event: APIGatewayProxyEvent): string | null {
+  const headers = event.headers ?? {};
+  const raw = headers.Authorization ?? headers.authorization;
+  if (typeof raw !== 'string') return null;
+  const m = raw.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : null;
+}
+
+function sanitizePublisher(rec: PublisherRecord) {
+  const {
+    pendingThresholdHalt: _omitHalt,
+    reviewerEmail: _omitReviewer,
+    ...rest
+  } = rec;
+  return rest;
 }
 
 function explainTokenFailure(
