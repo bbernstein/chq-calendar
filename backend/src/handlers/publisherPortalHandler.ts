@@ -98,7 +98,11 @@ const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  // Authorization is included for Phase C authenticated publisher endpoints
+  // (status page, feed management). The Phase A/B routes here don't read it,
+  // but the header is shared and CORS preflight is per-resource — better to
+  // include it now than be surprised by a preflight rejection later.
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 const json = (statusCode: number, body: unknown): APIGatewayProxyResult => ({
@@ -124,12 +128,10 @@ export async function handlePublisherTest(
   event: APIGatewayProxyEvent,
   requestBody: Record<string, unknown>,
 ): Promise<APIGatewayProxyResult> {
-  const sourceIp =
-    event.requestContext?.identity?.sourceIp ||
-    event.headers?.['x-forwarded-for'] ||
-    event.headers?.['X-Forwarded-For'] ||
-    'unknown';
-  const ip = typeof sourceIp === 'string' ? sourceIp : 'unknown';
+  // Trust ONLY API Gateway's authoritative sourceIp. The X-Forwarded-For
+  // header is client-controllable; falling back to it lets a caller spoof
+  // an arbitrary IP and bypass per-IP rate limits entirely.
+  const ip = event.requestContext?.identity?.sourceIp ?? 'unknown';
   const rl = checkPublisherTestRateLimit(ip);
   if (rl.ok === false) {
     return {
@@ -232,12 +234,10 @@ export function _setAppServiceForTests(svc: PublisherApplicationService | null):
 // ─── Auth-rate-limit + IP extraction shared helper ───────────────────────
 
 function applyAuthRateLimit(event: APIGatewayProxyEvent): APIGatewayProxyResult | null {
-  const sourceIp =
-    event.requestContext?.identity?.sourceIp ||
-    event.headers?.['x-forwarded-for'] ||
-    event.headers?.['X-Forwarded-For'] ||
-    'unknown';
-  const ip = typeof sourceIp === 'string' ? sourceIp : 'unknown';
+  // Trust ONLY API Gateway's authoritative sourceIp. The X-Forwarded-For
+  // header is client-controllable; falling back to it lets a caller spoof
+  // an arbitrary IP and bypass per-IP rate limits entirely.
+  const ip = event.requestContext?.identity?.sourceIp ?? 'unknown';
   const rl = checkPublisherAuthRateLimit(ip);
   if (rl.ok === false) {
     return {

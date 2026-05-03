@@ -412,7 +412,11 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
 
     forwarded_values {
       query_string = true
-      headers      = ["Content-Type"]
+      # Authorization is forwarded in anticipation of Phase C authenticated
+      # publisher endpoints (status page, feed management). The Phase A/B
+      # routes are public — no auth header is sent today — but adding it now
+      # avoids a broken-by-default Phase C deploy.
+      headers      = ["Authorization", "Content-Type"]
       cookies {
         forward = "none"
       }
