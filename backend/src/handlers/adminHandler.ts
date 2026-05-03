@@ -67,6 +67,33 @@ interface FeedbackRecord {
   archivedAt?: string;
 }
 
+// Header names whose values must never appear in logs.
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'x-auth-token',
+  'cookie',
+  'set-cookie',
+]);
+
+// Returns a shallow copy of `event` with sensitive header values replaced by
+// '[REDACTED]'. Used before logging the event to CloudWatch so JWTs in
+// `Authorization` / `X-Auth-Token` / cookies are not persisted in logs.
+export const redactEventForLogging = (event: APIGatewayProxyEvent): APIGatewayProxyEvent => {
+  const redactHeaders = <T extends Record<string, unknown> | null | undefined>(headers: T): T => {
+    if (!headers) return headers;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      out[key] = SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? '[REDACTED]' : value;
+    }
+    return out as T;
+  };
+  return {
+    ...event,
+    headers: redactHeaders(event.headers),
+    multiValueHeaders: redactHeaders(event.multiValueHeaders),
+  };
+};
+
 // Helper function to create response
 const createResponse = (statusCode: number, body: any): APIGatewayProxyResult => {
   return {
@@ -127,7 +154,7 @@ const authenticateRequest = (event: APIGatewayProxyEvent): { email: string; name
 };
 
 export const handler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
-  console.log('Admin Lambda Event:', JSON.stringify(event, null, 2));
+  console.log('Admin Lambda Event:', JSON.stringify(redactEventForLogging(event), null, 2));
   console.log('Environment check - NODE_ENV:', process.env.NODE_ENV, 'ENVIRONMENT:', process.env.ENVIRONMENT);
   console.log('isProduction:', isProduction);
   console.log('ADMIN_EMAIL_WHITELIST:', ADMIN_EMAIL_WHITELIST);
