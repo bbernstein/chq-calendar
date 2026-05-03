@@ -236,7 +236,7 @@ describe('PublisherSidecarPublisher', () => {
       expect(p.categories).toBeUndefined();
     });
 
-    it('passes through events with no venueId unchanged', async () => {
+    it('omits location and venue when venueId is absent', async () => {
       mockListReturns();
       const venuesById = new Map([
         ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy' }],

@@ -92,11 +92,10 @@ export class PublisherSidecarPublisher {
     // in EventCard, and search-tag set all read `event.categories`.
     // Without this, publisher events were absent from category filters
     // and rendered without category badges in the expanded card.
-    const existingCategories = (enriched as { categories?: unknown }).categories;
     if (
       typeof payload.category === 'string' &&
       payload.category.length > 0 &&
-      (!Array.isArray(existingCategories) || existingCategories.length === 0)
+      (!Array.isArray(enriched.categories) || enriched.categories.length === 0)
     ) {
       enriched.categories = [{ name: payload.category }];
     }
