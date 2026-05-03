@@ -251,6 +251,53 @@ jobs:
           # Clean up
           rm -rf package_temp lambda-sync.zip
 
+      - name: Deploy publisher-ingest Lambda
+        working-directory: ./backend
+        run: |
+          # Publisher-ingest handler externalizes only AWS SDK modules (everything
+          # else is bundled by esbuild). It also needs dist/refs/ at runtime for
+          # loadReferences() (venue enrichment in the sidecar publisher).
+          mkdir -p package_temp/node_modules
+
+          echo "Installing publisher-ingest handler dependencies..."
+          cd package_temp
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-publisher-ingest",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/client-s3": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev
+          cd ..
+
+          mkdir -p package_temp/dist
+          cp dist/publisherIngestHandler.js package_temp/dist/
+          # Refs (venues, categories, locations) are loaded via loadReferences()
+          # at handler init from dist/refs/. Without them, venue enrichment is
+          # silently disabled — handler still runs.
+          cp -r dist/refs package_temp/dist/refs
+
+          cd package_temp
+          zip -r ../lambda-publisher-ingest.zip . \
+            -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          echo "Deploying publisher-ingest Lambda..."
+          aws lambda update-function-code \
+            --function-name chautauqua-calendar-publisher-ingest \
+            --zip-file fileb://lambda-publisher-ingest.zip
+
+          echo "Waiting for publisher-ingest Lambda to finish updating..."
+          aws lambda wait function-updated \
+            --function-name chautauqua-calendar-publisher-ingest
+
+          rm -rf package_temp lambda-publisher-ingest.zip
+
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
