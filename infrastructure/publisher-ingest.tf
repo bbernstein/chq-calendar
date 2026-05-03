@@ -19,7 +19,6 @@ resource "aws_dynamodb_table" "publishers" {
   tags = {
     Name        = "${var.app_name}-publishers"
     Environment = var.environment
-    Application = var.app_name
   }
 }
 
@@ -62,7 +61,6 @@ resource "aws_dynamodb_table" "publisher_events" {
   tags = {
     Name        = "${var.app_name}-publisher-events"
     Environment = var.environment
-    Application = var.app_name
   }
 }
 
