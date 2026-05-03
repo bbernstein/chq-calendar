@@ -780,6 +780,12 @@ resource "aws_lambda_function" "admin_handler" {
       ADMIN_API_URL               = "https://admin-api.${var.domain_name}"
       PUBLISHERS_TABLE_NAME       = aws_dynamodb_table.publishers.name
       PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
+      # Phase B publisher portal: magic-link apply + login flow.
+      # Resources defined in publisher-portal.tf.
+      PUBLISHER_JWT_SECRET_ARN          = aws_secretsmanager_secret.publisher_jwt_secret.arn
+      PUBLISHER_MAGIC_TOKEN_TABLE_NAME  = aws_dynamodb_table.publisher_magic_tokens.name
+      SES_FROM_ADDRESS                  = "no-reply@${var.domain_name}"
+      SITE_BASE_URL                     = "https://www.${var.domain_name}"
     }
   }
 }
