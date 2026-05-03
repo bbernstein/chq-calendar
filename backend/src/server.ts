@@ -237,6 +237,31 @@ app.post('/api/publisher-test', async (req, res) => {
   }
 });
 
+// Phase B publisher-portal endpoints (apply + magic-link auth). Same
+// pattern: forward to adminHandler with the raw path the handler expects.
+const phaseBRoutes: Array<{ express: string; lambda: string }> = [
+  { express: '/api/publisher-apply/request', lambda: '/publisher-apply/request' },
+  { express: '/api/publisher-apply/verify',  lambda: '/publisher-apply/verify'  },
+  { express: '/api/publisher-auth/request',  lambda: '/publisher-auth/request'  },
+  { express: '/api/publisher-auth/verify',   lambda: '/publisher-auth/verify'   },
+];
+for (const { express, lambda } of phaseBRoutes) {
+  app.post(express, async (req, res) => {
+    try {
+      const event = expressToLambdaEvent(req);
+      event.path = lambda;
+      const result = await adminHandler(event, mockContext);
+      if (result.headers?.['Retry-After']) {
+        res.set('Retry-After', String(result.headers['Retry-After']));
+      }
+      res.status(result.statusCode).json(result.body ? JSON.parse(result.body) : null);
+    } catch (error) {
+      console.error(`${express} error:`, error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+}
+
 // Catch-all for everything else under /admin/api/* (e.g. publisher CRUD,
 // publisher-events queue, publisher-halts management). Mirrors the {proxy+}
 // resource added on the production admin API Gateway. The explicit /feedback

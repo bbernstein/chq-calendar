@@ -6,7 +6,13 @@ import { google } from 'googleapis';
 import { PublisherAdminService } from '../services/publisherAdminService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
-import { handlePublisherTest } from './publisherPortalHandler';
+import {
+  handlePublisherTest,
+  handlePublisherApplyRequest,
+  handlePublisherApplyVerify,
+  handlePublisherAuthRequest,
+  handlePublisherAuthVerify,
+} from './publisherPortalHandler';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({ 
@@ -332,6 +338,21 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     // limiter inside publisherPortalHandler.ts.
     if (path === '/publisher-test' && httpMethod === 'POST') {
       return await handlePublisherTest(event, requestBody);
+    }
+
+    // Phase B: publisher portal apply + magic-link auth flow. All open
+    // (no admin auth). Each handler enforces its own per-IP rate limit.
+    if (path === '/publisher-apply/request' && httpMethod === 'POST') {
+      return await handlePublisherApplyRequest(event, requestBody);
+    }
+    if (path === '/publisher-apply/verify' && httpMethod === 'POST') {
+      return await handlePublisherApplyVerify(event, requestBody);
+    }
+    if (path === '/publisher-auth/request' && httpMethod === 'POST') {
+      return await handlePublisherAuthRequest(event, requestBody);
+    }
+    if (path === '/publisher-auth/verify' && httpMethod === 'POST') {
+      return await handlePublisherAuthVerify(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development
