@@ -67,9 +67,20 @@ describe('MagicTokenService', () => {
   });
 
   describe('consumeToken', () => {
-    it('returns not_found for an unknown token', async () => {
-      mockSend.mockResolvedValue({});
+    it('returns not_found when ConditionalCheckFailed (token did not exist)', async () => {
+      const err = new Error('not found');
+      (err as any).name = 'ConditionalCheckFailedException';
+      mockSend.mockRejectedValueOnce(err);
       const r = await svc.consumeToken('nonexistent', 'apply');
+      expect(r).toEqual({ ok: false, reason: 'not_found' });
+      // Single atomic DeleteCommand — no separate GetCommand.
+      expect(mockSend).toHaveBeenCalledTimes(1);
+      expect(mockSend.mock.calls[0][0].constructor.name).toBe('DeleteCommand');
+    });
+
+    it('returns not_found when DeleteCommand resolves with no Attributes', async () => {
+      mockSend.mockResolvedValueOnce({}); // unusual but defensive
+      const r = await svc.consumeToken('something', 'apply');
       expect(r).toEqual({ ok: false, reason: 'not_found' });
     });
 
@@ -79,55 +90,54 @@ describe('MagicTokenService', () => {
       expect(mockSend).not.toHaveBeenCalled();
     });
 
-    it('returns expired and best-effort deletes the row', async () => {
+    it('returns expired (row already deleted by the atomic command)', async () => {
       const past = Math.floor(FIXED_NOW_MS / 1000) - 1;
-      mockSend
-        .mockResolvedValueOnce({
-          Item: { tokenHash: 'h', purpose: 'apply', email: 'a@b', expiresAt: past, createdAt: 'x' },
-        })
-        .mockResolvedValueOnce({}); // delete
-
+      mockSend.mockResolvedValueOnce({
+        Attributes: { tokenHash: 'h', purpose: 'apply', email: 'a@b', expiresAt: past, createdAt: 'x' },
+      });
       const r = await svc.consumeToken('rawtoken', 'apply');
       expect(r).toEqual({ ok: false, reason: 'expired' });
-
-      // Allow the fire-and-forget delete to flush.
-      await new Promise(setImmediate);
-      const second = mockSend.mock.calls[1]?.[0];
-      expect(second?.constructor.name).toBe('DeleteCommand');
+      expect(mockSend).toHaveBeenCalledTimes(1);
     });
 
-    it('returns wrong_purpose without deleting the row', async () => {
+    it('returns wrong_purpose (row already deleted)', async () => {
       const future = Math.floor(FIXED_NOW_MS / 1000) + 60;
       mockSend.mockResolvedValueOnce({
-        Item: { tokenHash: 'h', purpose: 'login', email: 'a@b', expiresAt: future, createdAt: 'x' },
+        Attributes: { tokenHash: 'h', purpose: 'login', email: 'a@b', expiresAt: future, createdAt: 'x' },
       });
       const r = await svc.consumeToken('rawtoken', 'apply');
       expect(r).toEqual({ ok: false, reason: 'wrong_purpose' });
-      expect(mockSend).toHaveBeenCalledTimes(1); // no delete
+      // Atomic delete: one call.
+      expect(mockSend).toHaveBeenCalledTimes(1);
     });
 
-    it('returns ok and deletes the row on a valid consume', async () => {
+    it('returns ok and the row when the atomic delete succeeds within TTL', async () => {
       const future = Math.floor(FIXED_NOW_MS / 1000) + 60;
-      mockSend
-        .mockResolvedValueOnce({
-          Item: {
-            tokenHash: 'h',
-            purpose: 'apply',
-            email: 'a@b',
-            expiresAt: future,
-            createdAt: 'x',
-            applyPayload: { name: 'X', email: 'a@b', sourceUrl: 'u', sourceType: 'json' },
-          },
-        })
-        .mockResolvedValueOnce({}); // delete
+      mockSend.mockResolvedValueOnce({
+        Attributes: {
+          tokenHash: 'h',
+          purpose: 'apply',
+          email: 'a@b',
+          expiresAt: future,
+          createdAt: 'x',
+          applyPayload: { name: 'X', email: 'a@b', sourceUrl: 'u', sourceType: 'json' },
+        },
+      });
       const r = await svc.consumeToken('rawtoken', 'apply');
       expect(r.ok).toBe(true);
       if (r.ok) {
         expect(r.row.email).toBe('a@b');
         expect(r.row.applyPayload?.name).toBe('X');
       }
-      const second = mockSend.mock.calls[1][0];
-      expect(second.constructor.name).toBe('DeleteCommand');
+      expect(mockSend).toHaveBeenCalledTimes(1);
+      expect(mockSend.mock.calls[0][0].constructor.name).toBe('DeleteCommand');
+    });
+
+    it('rethrows non-ConditionalCheckFailed errors', async () => {
+      const err = new Error('throttled');
+      (err as any).name = 'ProvisionedThroughputExceededException';
+      mockSend.mockRejectedValueOnce(err);
+      await expect(svc.consumeToken('rawtoken', 'apply')).rejects.toThrow(/throttled/);
     });
   });
 

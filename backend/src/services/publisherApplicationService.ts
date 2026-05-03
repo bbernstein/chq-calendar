@@ -85,6 +85,8 @@ export class PublisherApplicationService {
     }
 
     const publisherId = `pub-${uuidv4()}`;
+    // One reading of the clock keeps createdAt and appliedAt aligned.
+    const nowIso = this.now().toISOString();
     const rec: PublisherRecord = {
       id: publisherId,
       name: apply.name,
@@ -95,9 +97,9 @@ export class PublisherApplicationService {
       // Disabled until admin approves — prevents the ingest pipeline from
       // pulling unreviewed feeds.
       enabled: false,
-      createdAt: this.now().toISOString(),
+      createdAt: nowIso,
       applicationStatus: 'pending',
-      appliedAt: this.now().toISOString(),
+      appliedAt: nowIso,
       organization: apply.organization,
       applicantNotes: apply.notes,
     };
@@ -194,6 +196,9 @@ function validateApplyPayload(p: ApplyFormPayload): ValidationResult {
   }
   if (p.organization !== undefined && typeof p.organization !== 'string') {
     return { ok: false, reason: 'invalid_input', field: 'organization', message: 'organization must be a string' };
+  }
+  if (p.organization !== undefined && p.organization.length > 200) {
+    return { ok: false, reason: 'invalid_input', field: 'organization', message: 'organization is too long (max 200 chars)' };
   }
   if (p.notes !== undefined && (typeof p.notes !== 'string' || p.notes.length > 2000)) {
     return { ok: false, reason: 'invalid_input', field: 'notes', message: 'notes must be a string under 2000 chars' };

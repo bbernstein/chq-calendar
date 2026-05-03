@@ -21,7 +21,7 @@
 //   after expiresAt) so consumeToken double-checks the timestamp in code.
 
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { createHash, randomBytes } from 'crypto';
 import type { ApplyFormPayload } from '../types/publisher';
 
@@ -92,39 +92,57 @@ export class MagicTokenService {
     return { rawToken, expiresAt };
   }
 
-  // Looks up the token row by hash, validates purpose + expiry, deletes the
-  // row (single-use), and returns the row data on success.
+  // Atomically consumes the token: a single conditional DeleteCommand both
+  // validates existence AND removes the row, returning the deleted Attributes
+  // for purpose/expiry checks.
   //
-  // Why delete-after-success rather than delete-on-lookup: we want a
-  // not-found token to remain not-found after the first failed consume,
-  // not "found and consumed" — so we only delete when the consume actually
-  // succeeds. The DynamoDB TTL still cleans up the unconsumed row later.
+  // Why atomic delete (not Get-then-Delete): two concurrent requests with the
+  // same raw token could both pass a non-atomic GetCommand check and both
+  // proceed to issue a JWT before either DeleteCommand lands — a TOCTOU race
+  // that allows double-use of a single-use token. With a conditional
+  // DeleteCommand only one writer can succeed; the loser sees
+  // ConditionalCheckFailedException and is treated as `not_found`.
+  //
+  // Trade-off: a token rejected for `wrong_purpose` is now also deleted (we
+  // can't unilaterally NOT delete because the delete already happened). This
+  // is acceptable — apply and login token paths are disjoint by URL, and a
+  // user who reaches the wrong endpoint with the wrong token has likely
+  // misclicked or been redirected; making them request a fresh token is fine.
+  // An expired token is also deleted, same logic — TTL would have removed it
+  // soon anyway.
   async consumeToken(rawToken: string, expectedPurpose: TokenPurpose): Promise<ConsumeResult> {
     if (typeof rawToken !== 'string' || rawToken.length === 0) {
       return { ok: false, reason: 'not_found' };
     }
     const tokenHash = MagicTokenService.hashToken(rawToken);
-    const r = await this.db.send(new GetCommand({
-      TableName: this.tableName,
-      Key: { tokenHash },
-    }));
-    const row = r.Item as MagicTokenRow | undefined;
+
+    let row: MagicTokenRow | undefined;
+    try {
+      const r = await this.db.send(new DeleteCommand({
+        TableName: this.tableName,
+        Key: { tokenHash },
+        ConditionExpression: 'attribute_exists(tokenHash)',
+        ReturnValues: 'ALL_OLD',
+      }));
+      row = r.Attributes as MagicTokenRow | undefined;
+    } catch (err) {
+      // ConditionalCheckFailedException: row didn't exist (already consumed,
+      // never issued, or hash mismatch). Treat as not_found, not as a 5xx.
+      const name = (err as { name?: string } | null)?.name;
+      if (name === 'ConditionalCheckFailedException') {
+        return { ok: false, reason: 'not_found' };
+      }
+      throw err;
+    }
     if (!row) return { ok: false, reason: 'not_found' };
 
     const nowSec = Math.floor(this.now().getTime() / 1000);
     if (row.expiresAt <= nowSec) {
-      // Best-effort delete (don't await — the TTL will catch it anyway).
-      this.db.send(new DeleteCommand({ TableName: this.tableName, Key: { tokenHash } }))
-        .catch(() => {/* swallow */});
       return { ok: false, reason: 'expired' };
     }
     if (row.purpose !== expectedPurpose) {
-      // Don't delete: the token may legitimately be consumable for its
-      // correct purpose by another endpoint.
       return { ok: false, reason: 'wrong_purpose' };
     }
-
-    await this.db.send(new DeleteCommand({ TableName: this.tableName, Key: { tokenHash } }));
     return { ok: true, row };
   }
 }

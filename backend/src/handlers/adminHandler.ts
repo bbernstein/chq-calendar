@@ -1,4 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
+import { randomBytes } from 'crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import jwt from 'jsonwebtoken';
@@ -51,7 +52,9 @@ if (!rawJwtSecret && isProduction) {
 }
 
 const JWT_SECRET = rawJwtSecret || 'your-secret-key';
-const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST;
+// Default to empty so missing-env doesn't crash isAuthorizedEmail with a
+// TypeError. Empty whitelist correctly admits no one.
+const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST ?? '';
 const FRONTEND_URL = isProduction ? 'https://www.chqcal.org' : 'http://localhost:3000';
 
 // Google OAuth2 Client Setup
@@ -154,6 +157,7 @@ const verifyJWT = (token: string): { email: string; name: string } | null => {
 
 // Helper function to check if email is authorized
 const isAuthorizedEmail = (email: string): boolean => {
+  if (!ADMIN_EMAIL_WHITELIST) return false;
   const whitelist = ADMIN_EMAIL_WHITELIST.split(',').map(e => e.trim());
   return whitelist.includes(email);
 };
@@ -223,7 +227,9 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: scopes,
-        state: Math.random().toString(36).substring(7) // Simple CSRF protection
+        // 128-bit cryptographically random CSRF state. Math.random() yields
+        // ~20 bits of non-cryptographic entropy — trivially guessable.
+        state: randomBytes(16).toString('hex'),
       });
 
       return {

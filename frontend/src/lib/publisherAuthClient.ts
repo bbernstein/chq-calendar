@@ -43,6 +43,36 @@ export function getPublisherSession(): PublisherSession | null {
   return { jwt, publisherId, email };
 }
 
+// Returns true only if a JWT is present AND its `exp` claim is in the future.
+// Client-side check ONLY — the server still verifies the signature on each
+// API call; we just want to avoid showing the user a "signed in" UI when
+// their token is obviously stale.
+//
+// We do NOT verify the signature here (no key) — a tampered JWT would still
+// fail server-side. The expiry parse is best-effort: a malformed JWT is
+// treated as expired and cleared.
 export function isPublisherAuthenticated(): boolean {
-  return getPublisherJwt() !== null;
+  const jwt = getPublisherJwt();
+  if (!jwt) return false;
+  const exp = readJwtExp(jwt);
+  if (exp === null) {
+    clearPublisherSession();
+    return false;
+  }
+  if (Date.now() / 1000 >= exp) {
+    clearPublisherSession();
+    return false;
+  }
+  return true;
+}
+
+function readJwtExp(jwt: string): number | null {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
 }

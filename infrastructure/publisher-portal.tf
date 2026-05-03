@@ -98,11 +98,13 @@ resource "aws_iam_role_policy" "publisher_portal_access" {
         Resource = aws_dynamodb_table.publisher_magic_tokens.arn
       },
       {
-        # Scope SES SendEmail to the verified domain identity. SES API actions
-        # use the identity ARN as the resource; both v1 SendEmail and v2
-        # SendEmail honor this scoping.
+        # Scope SES SendEmail to the verified domain identity. SESv2 SendEmail
+        # (used by mailService.ts via @aws-sdk/client-sesv2) maps to the
+        # `ses:SendEmail` IAM action, so granting that single action is
+        # sufficient. `ses:SendRawEmail` is a v1-only action the code does
+        # not call — least-privilege, omit it.
         Effect   = "Allow",
-        Action   = ["ses:SendEmail", "ses:SendRawEmail"],
+        Action   = ["ses:SendEmail"],
         Resource = "arn:aws:ses:${var.aws_region}:*:identity/${var.domain_name}"
       }
     ]
