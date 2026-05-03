@@ -389,6 +389,49 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   default_root_object = "index.html"
   aliases             = [var.domain_name, "www.${var.domain_name}"]
 
+  # Publisher-portal endpoints — routed to the ADMIN API origin (where the
+  # admin Lambda lives) rather than the main API. The main API only defines
+  # /calendar, /feedback, /sync; the admin API has a {proxy+} catch-all that
+  # forwards anything to admin_handler, which dispatches `/publisher-test`,
+  # `/publisher-apply/*`, and `/publisher-auth/*` BEFORE its admin auth
+  # check. The api_rewrite function strips `/api` so the admin API sees
+  # `/publisher-test` etc.
+  #
+  # MUST come before the `/api/*` block so CloudFront picks this more-
+  # specific pattern first.
+  #
+  # No caching: every request is dynamic (rate-limit state, magic-token
+  # consumption, etc.).
+  ordered_cache_behavior {
+    path_pattern           = "/api/publisher-*"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    target_origin_id       = "ADMIN-API-${aws_api_gateway_rest_api.admin.id}"
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
+
+    forwarded_values {
+      query_string = true
+      # Authorization is forwarded in anticipation of Phase C authenticated
+      # publisher endpoints (status page, feed management). The Phase A/B
+      # routes are public — no auth header is sent today — but adding it now
+      # avoids a broken-by-default Phase C deploy.
+      headers      = ["Authorization", "Content-Type"]
+      cookies {
+        forward = "none"
+      }
+    }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.api_rewrite.arn
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
   # API behavior for /api/* paths with caching (Layer 2: CloudFront CDN)
   ordered_cache_behavior {
     path_pattern           = "/api/*"
@@ -780,6 +823,12 @@ resource "aws_lambda_function" "admin_handler" {
       ADMIN_API_URL               = "https://admin-api.${var.domain_name}"
       PUBLISHERS_TABLE_NAME       = aws_dynamodb_table.publishers.name
       PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
+      # Phase B publisher portal: magic-link apply + login flow.
+      # Resources defined in publisher-portal.tf.
+      PUBLISHER_JWT_SECRET_ARN          = aws_secretsmanager_secret.publisher_jwt_secret.arn
+      PUBLISHER_MAGIC_TOKEN_TABLE_NAME  = aws_dynamodb_table.publisher_magic_tokens.name
+      SES_FROM_ADDRESS                  = "no-reply@${var.domain_name}"
+      SITE_BASE_URL                     = "https://www.${var.domain_name}"
     }
   }
 }

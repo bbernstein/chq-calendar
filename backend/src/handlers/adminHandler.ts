@@ -1,4 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
+import { randomBytes } from 'crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import jwt from 'jsonwebtoken';
@@ -6,6 +7,13 @@ import { google } from 'googleapis';
 import { PublisherAdminService } from '../services/publisherAdminService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
+import {
+  handlePublisherTest,
+  handlePublisherApplyRequest,
+  handlePublisherApplyVerify,
+  handlePublisherAuthRequest,
+  handlePublisherAuthVerify,
+} from './publisherPortalHandler';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({ 
@@ -44,7 +52,9 @@ if (!rawJwtSecret && isProduction) {
 }
 
 const JWT_SECRET = rawJwtSecret || 'your-secret-key';
-const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST;
+// Default to empty so missing-env doesn't crash isAuthorizedEmail with a
+// TypeError. Empty whitelist correctly admits no one.
+const ADMIN_EMAIL_WHITELIST = process.env.ADMIN_EMAIL_WHITELIST ?? '';
 const FRONTEND_URL = isProduction ? 'https://www.chqcal.org' : 'http://localhost:3000';
 
 // Google OAuth2 Client Setup
@@ -147,6 +157,7 @@ const verifyJWT = (token: string): { email: string; name: string } | null => {
 
 // Helper function to check if email is authorized
 const isAuthorizedEmail = (email: string): boolean => {
+  if (!ADMIN_EMAIL_WHITELIST) return false;
   const whitelist = ADMIN_EMAIL_WHITELIST.split(',').map(e => e.trim());
   return whitelist.includes(email);
 };
@@ -216,7 +227,9 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: scopes,
-        state: Math.random().toString(36).substring(7) // Simple CSRF protection
+        // 128-bit cryptographically random CSRF state. Math.random() yields
+        // ~20 bits of non-cryptographic entropy — trivially guessable.
+        state: randomBytes(16).toString('hex'),
       });
 
       return {
@@ -312,6 +325,40 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           body: '',
         };
       }
+    }
+
+    // ─── Public (un-authenticated) publisher portal endpoints ─────────────
+    //
+    // Routing decision (Phase A, Option X from the design plan): we host
+    // `/publisher-test` inside adminHandler.ts rather than spinning up a
+    // separate Lambda + Terraform plumbing for it. The actual handler logic
+    // lives in `publisherPortalHandler.ts`; we delegate to it here.
+    //
+    // The single trade-off — adminHandler is no longer 100% admin-only — is
+    // acceptable for Phase A. Phase D can wire publisherPortalHandler.ts up
+    // as its own Lambda Function URL with no further refactoring.
+    //
+    // Auth: this endpoint is intentionally OPEN. Prospective publishers need
+    // to iterate on their feed before they're registered. Abuse mitigation
+    // is the URL guard (services/urlGuard.ts) and the in-memory rate
+    // limiter inside publisherPortalHandler.ts.
+    if (path === '/publisher-test' && httpMethod === 'POST') {
+      return await handlePublisherTest(event, requestBody);
+    }
+
+    // Phase B: publisher portal apply + magic-link auth flow. All open
+    // (no admin auth). Each handler enforces its own per-IP rate limit.
+    if (path === '/publisher-apply/request' && httpMethod === 'POST') {
+      return await handlePublisherApplyRequest(event, requestBody);
+    }
+    if (path === '/publisher-apply/verify' && httpMethod === 'POST') {
+      return await handlePublisherApplyVerify(event, requestBody);
+    }
+    if (path === '/publisher-auth/request' && httpMethod === 'POST') {
+      return await handlePublisherAuthRequest(event, requestBody);
+    }
+    if (path === '/publisher-auth/verify' && httpMethod === 'POST') {
+      return await handlePublisherAuthVerify(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development

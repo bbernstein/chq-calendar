@@ -47,5 +47,5 @@ export function isAuthenticated(): boolean {
 
 export function logout(): void {
   removeAuthToken();
-  window.location.href = '/admin/login';
+  window.location.href = '/admin/login/';
 }
