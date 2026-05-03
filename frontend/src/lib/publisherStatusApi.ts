@@ -2,13 +2,7 @@
 // On 401 we clear the local session and bounce to /publish/login/ — the
 // caller doesn't need to handle that case.
 
-import {
-  clearPublisherSession,
-  getPublisherJwt,
-  PUBLISHER_JWT_KEY as _UNUSED_JWT_KEY, // re-exported for completeness
-} from '@/lib/publisherAuthClient';
-
-void _UNUSED_JWT_KEY;
+import { clearPublisherSession, getPublisherJwt } from '@/lib/publisherAuthClient';
 
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
 

@@ -53,6 +53,12 @@ export function _resetPublisherAdminForTests(): void {
   _publisherAdmin = null;
 }
 
+// Test-only: inject a fake PublisherAdminService so handler tests can drive
+// the route layer without standing up DynamoDB/SES. Pass null to revert.
+export function _setPublisherAdminForTests(svc: PublisherAdminService | null): void {
+  _publisherAdmin = svc;
+}
+
 // Environment variables
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;

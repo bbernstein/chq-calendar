@@ -11,7 +11,6 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { ApplyFormPayload, PublisherRecord } from '../types/publisher';
-import { isApproved } from '../types/publisher';
 import type { PublisherRegistryService } from './publisherRegistryService';
 import type { MagicTokenService } from './magicTokenService';
 import type { MailService } from './mailService';
@@ -112,8 +111,15 @@ export class PublisherApplicationService {
   // ─── Login flow ────────────────────────────────────────────────────────
 
   // Always returns { ok: true } — never reveals whether the email matches a
-  // publisher. If the email DOES match an approved publisher, an email is
-  // sent. Otherwise, no email is sent and the caller cannot tell.
+  // publisher. If the email DOES match ANY publisher row (pending, approved,
+  // or rejected), a login link is sent. Pending and rejected applicants need
+  // to be able to sign in to /publish/status/ to see their review state — if
+  // we filtered to approved only, the status page would be unreachable for
+  // them once their post-apply JWT expires (7 days).
+  //
+  // Phase B selected the first APPROVED row defensively; Phase C broadens
+  // this to "first row of any status" since the status page now handles
+  // pending and rejected explicitly.
   async requestLogin(email: string): Promise<RequestLoginResult> {
     const normalized = (email ?? '').trim().toLowerCase();
     if (!isValidEmail(normalized)) {
@@ -122,7 +128,12 @@ export class PublisherApplicationService {
       return { ok: true };
     }
     const matches = await this.deps.registry.getByEmail(normalized);
-    const target = matches.find(p => isApproved(p));
+    // Prefer an approved row if one exists (a publisher with both an old
+    // approved row and a new pending re-application should still sign in to
+    // their approved account). Otherwise fall back to whichever row matched.
+    const target = matches.find(p => p.applicationStatus !== 'rejected'
+      && (p.applicationStatus === undefined || p.applicationStatus === 'approved'))
+      ?? matches[0];
     if (!target) return { ok: true };
 
     const issued = await this.deps.tokens.issueToken({

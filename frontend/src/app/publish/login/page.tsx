@@ -8,7 +8,12 @@
  * Anyone already authenticated lands on /publish/status/ instead.
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'preact/hooks';
+// Project uses jsx: "react-jsx" with @types/react aliased to preact/compat at
+// runtime. Form-event prop typing flows through React's typings, so we
+// import the type (only) from 'react' and let preact/compat handle the
+// actual event at runtime.
+import type { FormEvent } from 'react';
 import { isPublisherAuthenticated } from '@/lib/publisherAuthClient';
 
 type Status =
@@ -49,7 +54,7 @@ export default function PublishLoginPage() {
     : 0;
   const inCooldown = cooldownRemainingSec > 0;
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (status.kind === 'submitting' || inCooldown) return;
     const trimmed = email.trim();

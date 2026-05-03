@@ -1,4 +1,5 @@
 import type { ApplicationStatus, PublisherRecord, StoredPublisherEvent } from '../types/publisher';
+import { ConcurrentApplicationUpdateError } from './publisherRegistryService';
 import type { PublisherRegistryService } from './publisherRegistryService';
 import type { PublisherEventStore } from './publisherEventStore';
 import type { MailService } from './mailService';
@@ -125,7 +126,11 @@ export class PublisherAdminService {
   }
 
   // approveApplication transitions a pending row to approved + enabled.
-  // Refuses if the row is not pending (status mismatch → ApplicationStateError).
+  // Refuses if the row is not pending — throws ApplicationStateError, which
+  // the handler translates to HTTP 409. The status check + write happen
+  // atomically via a DynamoDB ConditionExpression so two admins acting on
+  // the same row at the same time cannot both "succeed".
+  //
   // Sends an approval email best-effort; SES errors are logged and swallowed
   // so the state change persists.
   async approveApplication(id: string, reviewerEmail: string): Promise<PublisherRecord> {
@@ -139,24 +144,47 @@ export class PublisherAdminService {
         existing.applicationStatus,
       );
     }
+    try {
+      await this.registry.setApplicationStatus(id, 'approved', {
+        reviewerEmail,
+        // Explicit undefined clears any prior rejection reason on re-review.
+        rejectionReason: undefined,
+        enabled: true,
+        expectedFromStatus: 'pending',
+      });
+    } catch (err) {
+      if (err instanceof ConcurrentApplicationUpdateError) {
+        // Another admin won the race; surface as the same 409 the up-front
+        // check would have produced. We don't know what they decided, so
+        // the message is intentionally generic.
+        throw new ApplicationStateError(
+          'cannot approve: another admin reviewed this application first',
+          undefined,
+        );
+      }
+      throw err;
+    }
+    // Build the response shape from the known mutation rather than re-reading
+    // (eventual consistency could otherwise return stale fields).
     const updated: PublisherRecord = {
       ...existing,
       applicationStatus: 'approved',
       enabled: true,
       reviewedAt: new Date().toISOString(),
       reviewerEmail,
-      // Clear any prior rejection reason if this is a re-review.
       rejectionReason: undefined,
     };
-    await this.registry.upsert(updated);
     await this.sendApprovalNotification(updated).catch(err => {
       console.error('[publisherAdminService] approval email failed (state change persists):', err);
     });
     return updated;
   }
 
-  // rejectApplication transitions pending → rejected. Defensive: also clears
-  // enabled. Persists optional reviewer reason (truncated to 500 chars).
+  // rejectApplication transitions pending → rejected and clears `enabled`
+  // defensively. Reviewer reason is trimmed and capped to 500 chars; an
+  // empty / whitespace-only reason is normalized to undefined so we don't
+  // persist a meaningless empty string. Atomic via ConditionExpression
+  // (see approveApplication for the rationale).
   async rejectApplication(
     id: string,
     reviewerEmail: string,
@@ -172,18 +200,34 @@ export class PublisherAdminService {
         existing.applicationStatus,
       );
     }
-    const truncated = typeof reason === 'string'
-      ? reason.slice(0, MAX_REJECTION_REASON_LEN)
+    const trimmed = typeof reason === 'string' ? reason.trim() : '';
+    const cleanReason = trimmed.length > 0
+      ? trimmed.slice(0, MAX_REJECTION_REASON_LEN)
       : undefined;
+    try {
+      await this.registry.setApplicationStatus(id, 'rejected', {
+        reviewerEmail,
+        rejectionReason: cleanReason,
+        enabled: false,
+        expectedFromStatus: 'pending',
+      });
+    } catch (err) {
+      if (err instanceof ConcurrentApplicationUpdateError) {
+        throw new ApplicationStateError(
+          'cannot reject: another admin reviewed this application first',
+          undefined,
+        );
+      }
+      throw err;
+    }
     const updated: PublisherRecord = {
       ...existing,
       applicationStatus: 'rejected',
       enabled: false,
       reviewedAt: new Date().toISOString(),
       reviewerEmail,
-      rejectionReason: truncated,
+      rejectionReason: cleanReason,
     };
-    await this.registry.upsert(updated);
     await this.sendRejectionNotification(updated).catch(err => {
       console.error('[publisherAdminService] rejection email failed (state change persists):', err);
     });

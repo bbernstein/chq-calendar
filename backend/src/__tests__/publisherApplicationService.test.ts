@@ -193,7 +193,7 @@ describe('PublisherApplicationService — login flow', () => {
     expect(deps.mail.sendLoginMagicLink).toHaveBeenCalled();
   });
 
-  it('requestLogin returns ok but sends no email when only pending row matches', async () => {
+  it('requestLogin sends a magic link to a pending applicant (Phase C — pending applicants need to view their status)', async () => {
     const deps = mkDeps();
     deps.registry.getByEmail.mockResolvedValue([{
       id: 'pending',
@@ -206,11 +206,66 @@ describe('PublisherApplicationService — login flow', () => {
       createdAt: 't',
       applicationStatus: 'pending',
     }]);
+    deps.tokens.issueToken.mockResolvedValue({ rawToken: 'tok', expiresAt: 9 });
     const svc = new PublisherApplicationService(deps);
     const r = await svc.requestLogin('a@b.com');
     expect(r).toEqual({ ok: true });
-    expect(deps.mail.sendLoginMagicLink).not.toHaveBeenCalled();
-    expect(deps.tokens.issueToken).not.toHaveBeenCalled();
+    expect(deps.mail.sendLoginMagicLink).toHaveBeenCalledTimes(1);
+    expect(deps.tokens.issueToken).toHaveBeenCalledWith(expect.objectContaining({
+      purpose: 'login',
+      publisherId: 'pending',
+    }));
+  });
+
+  it('requestLogin sends a magic link to a rejected applicant so they can see the rejection reason', async () => {
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([{
+      id: 'rejected',
+      name: 'Rejected',
+      contactEmail: 'a@b.com',
+      sourceUrl: 'u',
+      sourceType: 'json',
+      trustLevel: 'review',
+      enabled: false,
+      createdAt: 't',
+      applicationStatus: 'rejected',
+      rejectionReason: 'spam-looking',
+    }]);
+    deps.tokens.issueToken.mockResolvedValue({ rawToken: 'tok', expiresAt: 9 });
+    const svc = new PublisherApplicationService(deps);
+    await svc.requestLogin('a@b.com');
+    expect(deps.mail.sendLoginMagicLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('requestLogin prefers an approved row when both approved and pending share an email', async () => {
+    // Real-world scenario: a publisher reapplies (new pending row) while
+    // their approved account is still active. Login should route them to
+    // the approved account.
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([
+      {
+        id: 'pending-new',
+        name: 'New App',
+        contactEmail: 'a@b.com',
+        sourceUrl: 'u', sourceType: 'json', trustLevel: 'review',
+        enabled: false, createdAt: 't',
+        applicationStatus: 'pending',
+      },
+      {
+        id: 'approved-old',
+        name: 'Old Account',
+        contactEmail: 'a@b.com',
+        sourceUrl: 'u', sourceType: 'json', trustLevel: 'auto',
+        enabled: true, createdAt: 't',
+        applicationStatus: 'approved',
+      },
+    ]);
+    deps.tokens.issueToken.mockResolvedValue({ rawToken: 'tok', expiresAt: 9 });
+    const svc = new PublisherApplicationService(deps);
+    await svc.requestLogin('a@b.com');
+    expect(deps.tokens.issueToken).toHaveBeenCalledWith(expect.objectContaining({
+      publisherId: 'approved-old',
+    }));
   });
 
   it('requestLogin returns ok but sends no email for unknown email (anti-enumeration)', async () => {

@@ -1,4 +1,5 @@
 import { ApplicationStateError, PublisherAdminService } from '../services/publisherAdminService';
+import { ConcurrentApplicationUpdateError } from '../services/publisherRegistryService';
 import type { PublisherRecord, StoredPublisherEvent } from '../types/publisher';
 
 function makeRecord(overrides: Partial<PublisherRecord> = {}): PublisherRecord {
@@ -62,6 +63,7 @@ describe('PublisherAdminService', () => {
       upsert: jest.fn(),
       setThresholdHalt: jest.fn(),
       listPending: jest.fn(),
+      setApplicationStatus: jest.fn(),
     } as any;
     store = {
       listPending: jest.fn(),
@@ -283,14 +285,14 @@ describe('PublisherAdminService', () => {
   });
 
   describe('approveApplication', () => {
-    it('flips status to approved + enabled=true and persists reviewer + reviewedAt', async () => {
+    it('flips status to approved + enabled=true atomically and returns the merged record', async () => {
       const pending = makeRecord({
         id: 'pub-pending',
         applicationStatus: 'pending',
         enabled: false,
       });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
 
       const result = await svc.approveApplication('pub-pending', 'admin@chqcal.org');
 
@@ -300,7 +302,17 @@ describe('PublisherAdminService', () => {
       expect(typeof result.reviewedAt).toBe('string');
       expect(new Date(result.reviewedAt!).toISOString()).toBe(result.reviewedAt);
       expect(result.rejectionReason).toBeUndefined();
-      expect(registry.upsert).toHaveBeenCalledWith(result);
+      // The atomic write must include the conditional guard.
+      expect((registry as any).setApplicationStatus).toHaveBeenCalledWith(
+        'pub-pending',
+        'approved',
+        expect.objectContaining({
+          reviewerEmail: 'admin@chqcal.org',
+          enabled: true,
+          rejectionReason: undefined,
+          expectedFromStatus: 'pending',
+        }),
+      );
     });
 
     it('clears any prior rejectionReason on re-review', async () => {
@@ -311,7 +323,7 @@ describe('PublisherAdminService', () => {
         rejectionReason: 'old reason that should be cleared',
       });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
 
       const result = await svc.approveApplication('pub-pending', 'admin@chqcal.org');
 
@@ -321,14 +333,14 @@ describe('PublisherAdminService', () => {
     it('throws unknown publisher when row is missing', async () => {
       registry.get.mockResolvedValue(null);
       await expect(svc.approveApplication('missing', 'a@chqcal.org')).rejects.toThrow('unknown publisher missing');
-      expect(registry.upsert).not.toHaveBeenCalled();
+      expect((registry as any).setApplicationStatus).not.toHaveBeenCalled();
     });
 
     it('throws ApplicationStateError when row is already approved', async () => {
       const approved = makeRecord({ id: 'pub-1', applicationStatus: 'approved' });
       registry.get.mockResolvedValue(approved);
       await expect(svc.approveApplication('pub-1', 'a@chqcal.org')).rejects.toBeInstanceOf(ApplicationStateError);
-      expect(registry.upsert).not.toHaveBeenCalled();
+      expect((registry as any).setApplicationStatus).not.toHaveBeenCalled();
     });
 
     it('throws ApplicationStateError when row has no applicationStatus (admin-created)', async () => {
@@ -337,10 +349,20 @@ describe('PublisherAdminService', () => {
       await expect(svc.approveApplication('pub-1', 'a@chqcal.org')).rejects.toBeInstanceOf(ApplicationStateError);
     });
 
+    it('translates ConcurrentApplicationUpdateError from the registry into ApplicationStateError (race-loser)', async () => {
+      const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending' });
+      registry.get.mockResolvedValue(pending);
+      (registry as any).setApplicationStatus.mockRejectedValue(
+        new ConcurrentApplicationUpdateError('pending'),
+      );
+      await expect(svc.approveApplication('pub-pending', 'a@chqcal.org'))
+        .rejects.toBeInstanceOf(ApplicationStateError);
+    });
+
     it('still persists state change when approval email throws', async () => {
       const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending' });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
       const mail = { sendApprovalEmail: jest.fn().mockRejectedValue(new Error('SES down')) } as any;
       const svcWithMail = new PublisherAdminService(registry as any, store as any, { mail });
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -348,7 +370,7 @@ describe('PublisherAdminService', () => {
       const result = await svcWithMail.approveApplication('pub-pending', 'a@chqcal.org');
 
       expect(result.applicationStatus).toBe('approved');
-      expect(registry.upsert).toHaveBeenCalledTimes(1);
+      expect((registry as any).setApplicationStatus).toHaveBeenCalledTimes(1);
       expect(mail.sendApprovalEmail).toHaveBeenCalledTimes(1);
       expect(errorSpy).toHaveBeenCalled();
       errorSpy.mockRestore();
@@ -362,7 +384,7 @@ describe('PublisherAdminService', () => {
         applicationStatus: 'pending',
       });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
       const mail = { sendApprovalEmail: jest.fn().mockResolvedValue({ messageId: 'm' }) } as any;
       const svcWithMail = new PublisherAdminService(registry as any, store as any, {
         mail,
@@ -381,10 +403,10 @@ describe('PublisherAdminService', () => {
   });
 
   describe('rejectApplication', () => {
-    it('flips to rejected + enabled=false and persists reason/reviewer', async () => {
+    it('flips to rejected + enabled=false and persists reason/reviewer atomically', async () => {
       const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending', enabled: false });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
 
       const result = await svc.rejectApplication('pub-pending', 'admin@chqcal.org', 'Spam-looking events.');
 
@@ -393,12 +415,22 @@ describe('PublisherAdminService', () => {
       expect(result.reviewerEmail).toBe('admin@chqcal.org');
       expect(result.rejectionReason).toBe('Spam-looking events.');
       expect(typeof result.reviewedAt).toBe('string');
+      expect((registry as any).setApplicationStatus).toHaveBeenCalledWith(
+        'pub-pending',
+        'rejected',
+        expect.objectContaining({
+          reviewerEmail: 'admin@chqcal.org',
+          rejectionReason: 'Spam-looking events.',
+          enabled: false,
+          expectedFromStatus: 'pending',
+        }),
+      );
     });
 
     it('truncates reasons longer than 500 chars', async () => {
       const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending' });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
 
       const longReason = 'x'.repeat(700);
       const result = await svc.rejectApplication('pub-pending', 'a@chqcal.org', longReason);
@@ -409,12 +441,29 @@ describe('PublisherAdminService', () => {
     it('allows omitting the reason', async () => {
       const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending' });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
 
       const result = await svc.rejectApplication('pub-pending', 'a@chqcal.org');
 
       expect(result.applicationStatus).toBe('rejected');
       expect(result.rejectionReason).toBeUndefined();
+    });
+
+    it('normalizes whitespace-only or empty-string reason to undefined', async () => {
+      const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending' });
+      registry.get.mockResolvedValue(pending);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
+
+      const r1 = await svc.rejectApplication('pub-pending', 'a@chqcal.org', '');
+      expect(r1.rejectionReason).toBeUndefined();
+
+      // Reset mocks for the second call.
+      jest.clearAllMocks();
+      registry.get.mockResolvedValue(pending);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
+
+      const r2 = await svc.rejectApplication('pub-pending', 'a@chqcal.org', '   \n\t  ');
+      expect(r2.rejectionReason).toBeUndefined();
     });
 
     it('throws unknown publisher when row is missing', async () => {
@@ -426,13 +475,23 @@ describe('PublisherAdminService', () => {
       const rejected = makeRecord({ id: 'pub-1', applicationStatus: 'rejected' });
       registry.get.mockResolvedValue(rejected);
       await expect(svc.rejectApplication('pub-1', 'a@chqcal.org')).rejects.toBeInstanceOf(ApplicationStateError);
-      expect(registry.upsert).not.toHaveBeenCalled();
+      expect((registry as any).setApplicationStatus).not.toHaveBeenCalled();
+    });
+
+    it('translates ConcurrentApplicationUpdateError into ApplicationStateError (race-loser)', async () => {
+      const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending' });
+      registry.get.mockResolvedValue(pending);
+      (registry as any).setApplicationStatus.mockRejectedValue(
+        new ConcurrentApplicationUpdateError('pending'),
+      );
+      await expect(svc.rejectApplication('pub-pending', 'a@chqcal.org', 'r'))
+        .rejects.toBeInstanceOf(ApplicationStateError);
     });
 
     it('still persists state change when rejection email throws', async () => {
       const pending = makeRecord({ id: 'pub-pending', applicationStatus: 'pending' });
       registry.get.mockResolvedValue(pending);
-      registry.upsert.mockResolvedValue(undefined);
+      (registry as any).setApplicationStatus.mockResolvedValue(undefined);
       const mail = { sendRejectionEmail: jest.fn().mockRejectedValue(new Error('SES down')) } as any;
       const svcWithMail = new PublisherAdminService(registry as any, store as any, { mail });
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -440,7 +499,7 @@ describe('PublisherAdminService', () => {
       const result = await svcWithMail.rejectApplication('pub-pending', 'a@chqcal.org', 'reason');
 
       expect(result.applicationStatus).toBe('rejected');
-      expect(registry.upsert).toHaveBeenCalledTimes(1);
+      expect((registry as any).setApplicationStatus).toHaveBeenCalledTimes(1);
       expect(mail.sendRejectionEmail).toHaveBeenCalledTimes(1);
       errorSpy.mockRestore();
     });

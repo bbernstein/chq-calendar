@@ -11,7 +11,11 @@
  * so this component doesn't need to handle that case explicitly.
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'preact/hooks';
+// `react-jsx` runtime + the project's @types/react alias mean the children
+// slot expects React.ReactNode. Importing the type only keeps the runtime
+// alignment with preact (the `preact/compat` alias handles the actual JSX).
+import type { ReactNode } from 'react';
 import {
   clearPublisherSession,
   getPublisherSession,
@@ -315,7 +319,7 @@ function Detail({
   span,
 }: {
   label: string;
-  value: React.ReactNode;
+  value: ReactNode;
   span?: 2;
 }) {
   return (
