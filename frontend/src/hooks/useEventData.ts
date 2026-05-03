@@ -72,8 +72,9 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
       const sidecarUrl = sidecarEnabled ? `${cacheBase}/publisher-events-${year}.json` : null;
 
       // Cap sidecar latency so a slow/hung publisher endpoint can't delay the
-      // primary calendar render. AbortSignal.timeout returns ok:false-equivalent
-      // (rejected promise) which we already swallow with .catch(() => null).
+      // primary calendar render. AbortSignal.timeout causes fetch to throw an
+      // AbortError on expiry (a rejected promise), which we already swallow
+      // with .catch(() => null).
       //
       // Why Promise.all (coupled render) and not "render primary, append sidecar
       // later": evaluated 2026-05-03 and deliberately kept coupled. Decoupling
