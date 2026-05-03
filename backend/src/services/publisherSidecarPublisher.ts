@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
+import type { VenueReference } from '@chq-calendar/publisher-format';
 import type { StoredPublisherEvent } from '../types/publisher';
 
 const SIDECAR_KEY_PATTERN = /\/publisher-events-(\d{4})\.json$/;
@@ -13,6 +14,14 @@ export class PublisherSidecarPublisher {
     private readonly s3: S3Client,
     private readonly bucket: string,
     private readonly keyPrefix: string,
+    /**
+     * Optional venue lookup. When provided, payloads with a `venueId` get a
+     * resolved `location` (and `venue.name`/`venue.address`) added so the
+     * frontend's location filter and EventCard rendering work without
+     * publisher-aware code paths. Publisher-supplied `location` and `venue`
+     * fields are merged with the lookup, never overwritten.
+     */
+    private readonly venuesById: Map<string, VenueReference> = new Map(),
   ) {}
 
   async publish(events: StoredPublisherEvent[]): Promise<void> {
@@ -28,7 +37,7 @@ export class PublisherSidecarPublisher {
     const existingYears = await this.listExistingSidecarYears();
 
     for (const [year, group] of byYear) {
-      const body = JSON.stringify({ data: group.map(g => g.payload) });
+      const body = JSON.stringify({ data: group.map(g => this.enrichPayload(g.payload)) });
       await this.s3.send(new PutObjectCommand({
         Bucket: this.bucket,
         Key: this.keyForYear(year),
@@ -50,6 +59,48 @@ export class PublisherSidecarPublisher {
 
   private keyForYear(year: number): string {
     return `${this.keyPrefix}/publisher-events-${year}.json`;
+  }
+
+  private enrichPayload(
+    payload: StoredPublisherEvent['payload'],
+  ): StoredPublisherEvent['payload'] & { location?: string; categories?: Array<{ name: string }> } {
+    const enriched: StoredPublisherEvent['payload'] & {
+      location?: string;
+      categories?: Array<{ name: string }>;
+    } = { ...payload };
+
+    // Resolve venueId → location + venue when a lookup entry exists.
+    const venueId = payload.venueId;
+    if (venueId) {
+      const venue = this.venuesById.get(venueId);
+      if (venue) {
+        if (typeof enriched.location !== 'string' || enriched.location.length === 0) {
+          enriched.location = venue.name;
+        }
+        // Merge venue rather than replace — preserves publisher-supplied url
+        // and any future fields on VenueRef.
+        enriched.venue = {
+          ...(enriched.venue ?? {}),
+          name: enriched.venue?.name ?? venue.name,
+          ...(venue.address && !enriched.venue?.address ? { address: venue.address } : {}),
+        };
+      }
+    }
+
+    // Promote singular `category` (string) to a `categories` array. The
+    // frontend's tag-filter pre-computation, clickable category badges
+    // in EventCard, and search-tag set all read `event.categories`.
+    // Without this, publisher events were absent from category filters
+    // and rendered without category badges in the expanded card.
+    if (
+      typeof payload.category === 'string' &&
+      payload.category.length > 0 &&
+      (!Array.isArray(enriched.categories) || enriched.categories.length === 0)
+    ) {
+      enriched.categories = [{ name: payload.category }];
+    }
+
+    return enriched;
   }
 
   private async listExistingSidecarYears(): Promise<Set<number>> {

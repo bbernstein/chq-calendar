@@ -113,4 +113,139 @@ describe('PublisherSidecarPublisher', () => {
     const deletes = mockSend.mock.calls.filter(c => c[0] instanceof DeleteObjectCommand);
     expect(deletes).toHaveLength(3);
   });
+
+  describe('venue resolution', () => {
+    const venueEvent = (overrides: Record<string, unknown> = {}): StoredPublisherEvent => ({
+      ...ev('venue-evt', 2026, 'published'),
+      payload: {
+        id: 'venue-evt',
+        title: 'Venue Evt',
+        startDate: '2026-07-04T18:00:00-04:00',
+        endDate: '2026-07-04T19:00:00-04:00',
+        category: 'Lecture',
+        lastModified: 't',
+        sourcePublisherId: 'p',
+        sourcePublisherName: 'P',
+        venueId: 'hall-of-philosophy',
+        ...overrides,
+      } as any,
+    });
+
+    function getPayload(): any {
+      const putCall = mockSend.mock.calls.find(c => c[0] instanceof PutObjectCommand);
+      const body = JSON.parse((putCall![0] as any).input.Body as string);
+      return body.data[0];
+    }
+
+    it('resolves venueId to location and venue when a lookup is provided', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy', address: '34 South Ave' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([venueEvent()]);
+      const p = getPayload();
+      expect(p.location).toBe('Hall of Philosophy');
+      expect(p.venue).toEqual({ name: 'Hall of Philosophy', address: '34 South Ave' });
+    });
+
+    it('leaves payload unchanged when venueId is unknown', async () => {
+      mockListReturns();
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', new Map());
+      await pub.publish([venueEvent({ venueId: 'unknown-venue' })]);
+      const p = getPayload();
+      expect(p.location).toBeUndefined();
+      expect(p.venue).toBeUndefined();
+    });
+
+    it('does not overwrite an explicit publisher-supplied location', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([venueEvent({ location: 'Custom Location Override' })]);
+      const p = getPayload();
+      expect(p.location).toBe('Custom Location Override');
+      // venue object still gets attached
+      expect(p.venue).toEqual({ name: 'Hall of Philosophy' });
+    });
+
+    it('omits venue.address when the lookup has no address', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([venueEvent()]);
+      const p = getPayload();
+      expect(p.venue).toEqual({ name: 'Hall of Philosophy' });
+    });
+
+    it('preserves publisher-supplied venue fields (e.g. url) when merging the lookup', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy', address: '34 South Ave' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([
+        venueEvent({
+          venue: { name: 'Custom Hall', url: 'https://example.com/hall' },
+        }),
+      ]);
+      const p = getPayload();
+      // Publisher's venue.name + url survive; address is supplied by the lookup.
+      expect(p.venue).toEqual({
+        name: 'Custom Hall',
+        url: 'https://example.com/hall',
+        address: '34 South Ave',
+      });
+    });
+
+    it('promotes singular category string to categories array for the frontend', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([venueEvent({ category: 'Special Lectures' })]);
+      const p = getPayload();
+      expect(p.categories).toEqual([{ name: 'Special Lectures' }]);
+      // Original singular category is preserved too.
+      expect(p.category).toBe('Special Lectures');
+    });
+
+    it('does not overwrite an explicit publisher-supplied categories array', async () => {
+      mockListReturns();
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', new Map());
+      await pub.publish([
+        venueEvent({
+          category: 'Lecture',
+          categories: [{ name: 'Custom A' }, { name: 'Custom B' }],
+        } as any),
+      ]);
+      const p = getPayload();
+      expect(p.categories).toEqual([{ name: 'Custom A' }, { name: 'Custom B' }]);
+    });
+
+    it('skips categories promotion when category is empty', async () => {
+      mockListReturns();
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', new Map());
+      await pub.publish([venueEvent({ category: '' })]);
+      const p = getPayload();
+      expect(p.categories).toBeUndefined();
+    });
+
+    it('omits location and venue when venueId is absent', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([venueEvent({ venueId: undefined })]);
+      const p = getPayload();
+      expect(p.location).toBeUndefined();
+      expect(p.venue).toBeUndefined();
+    });
+  });
 });
