@@ -56,7 +56,7 @@ The publisher row should be provisioned via Terraform (so the test is self-conta
 
 Inline step in `.github/workflows/deploy-production.yml`, immediately after the existing `Run post-deployment tests` step. Justification: the existing post-deploy step is already production-side and uses AWS CLI; adding the publisher test here keeps the entire post-deploy validation in one place.
 
-If we ever add a staging environment, the same step works there too — just point at a different account via the existing `AWS_ROLE_ARN` secret.
+If we ever add a staging environment, the same step works there too — just point at a different account via separate IAM credentials. The workflow currently authenticates with `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`; a staging env would need its own secret pair (or, preferred long-term, a role-chaining step using `aws-actions/configure-aws-credentials@v4` with an `AWS_ROLE_ARN` we'd have to add).
 
 ### Test sequence (bash)
 
@@ -65,8 +65,13 @@ Pseudo-code for the workflow step:
 ```bash
 PUBLISHER_ID="ci-e2e-test"
 PUBLISHERS_TABLE="chautauqua-calendar-publishers"
-SIDECAR_URL="https://www.chqcal.org/cache/calendar-cache/publisher-events-2026.json"
 LAMBDA="chautauqua-calendar-publisher-ingest"
+# Sidecar key is publisher-events-${year}.json where ${year} comes from each
+# event's startDate (see publisherSidecarPublisher.ts). Derive from the test
+# feed's event year — do NOT hardcode the year, or the polling URL will drift
+# off the actual sidecar object as the season rolls over.
+SIDECAR_YEAR=$(jq -r '.events[0].startDate[0:4]' "$CI_E2E_FEED_PATH")
+SIDECAR_URL="https://www.chqcal.org/cache/calendar-cache/publisher-events-${SIDECAR_YEAR}.json"
 
 set -euo pipefail
 
