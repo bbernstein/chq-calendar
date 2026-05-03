@@ -68,6 +68,9 @@ interface FeedbackRecord {
 }
 
 // Header names whose values must never appear in logs.
+// `set-cookie` is a response header and won't appear on inbound
+// APIGatewayProxyEvents, but we include it defensively so the same set
+// is safe to reuse if this helper ever runs on response objects.
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
   'x-auth-token',
@@ -75,22 +78,42 @@ const SENSITIVE_HEADER_NAMES = new Set([
   'set-cookie',
 ]);
 
+const REDACTED = '[REDACTED]';
+
 // Returns a shallow copy of `event` with sensitive header values replaced by
 // '[REDACTED]'. Used before logging the event to CloudWatch so JWTs in
 // `Authorization` / `X-Auth-Token` / cookies are not persisted in logs.
+//
+// `headers` values stay as strings; `multiValueHeaders` values stay as
+// `string[]` (single-element `['[REDACTED]']`) so the returned event
+// keeps the shape declared by APIGatewayProxyEvent.
 export const redactEventForLogging = (event: APIGatewayProxyEvent): APIGatewayProxyEvent => {
-  const redactHeaders = <T extends Record<string, unknown> | null | undefined>(headers: T): T => {
-    if (!headers) return headers;
-    const out: Record<string, unknown> = {};
+  const redactString = (
+    headers: APIGatewayProxyEvent['headers'] | null | undefined,
+  ): APIGatewayProxyEvent['headers'] => {
+    if (!headers) return headers as APIGatewayProxyEvent['headers'];
+    const out: Record<string, string | undefined> = {};
     for (const [key, value] of Object.entries(headers)) {
-      out[key] = SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? '[REDACTED]' : value;
+      out[key] = SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? REDACTED : value;
     }
-    return out as T;
+    return out;
   };
+
+  const redactMulti = (
+    headers: APIGatewayProxyEvent['multiValueHeaders'] | null | undefined,
+  ): APIGatewayProxyEvent['multiValueHeaders'] => {
+    if (!headers) return headers as APIGatewayProxyEvent['multiValueHeaders'];
+    const out: Record<string, string[] | undefined> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      out[key] = SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? [REDACTED] : value;
+    }
+    return out;
+  };
+
   return {
     ...event,
-    headers: redactHeaders(event.headers),
-    multiValueHeaders: redactHeaders(event.multiValueHeaders),
+    headers: redactString(event.headers),
+    multiValueHeaders: redactMulti(event.multiValueHeaders),
   };
 };
 
@@ -293,7 +316,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
     // All remaining endpoints require authentication, except in local development
     let user = authenticateRequest(event);
-    console.log('Authentication result - user:', user);
+    console.log('Authentication result:', user ? `authenticated as "${user.name}"` : 'unauthenticated');
     console.log('Request path:', path);
     
     // In local development, bypass authentication and use dummy user.

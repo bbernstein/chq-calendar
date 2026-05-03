@@ -26,7 +26,14 @@ export function removeAuthToken(): void {
 export function getAuthUser(): AuthUser | null {
   if (typeof window === 'undefined') return null;
   const userStr = localStorage.getItem(AUTH_USER_KEY);
-  return userStr ? JSON.parse(userStr) : null;
+  if (!userStr) return null;
+  try {
+    return JSON.parse(userStr) as AuthUser;
+  } catch {
+    // Malformed (truncated, hand-edited, schema mismatch) — clear and treat as unauthenticated.
+    removeAuthToken();
+    return null;
+  }
 }
 
 export function setAuthUser(user: AuthUser): void {

@@ -10,6 +10,7 @@ import {
   type PublisherRecord,
 } from '@/lib/adminPublisherApi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { logout } from '@/lib/auth';
 import { PendingEventCard } from './PendingEventCard';
 
 export default function PublisherEventsPage() {
@@ -196,11 +197,7 @@ export default function PublisherEventsPage() {
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-gray-600 dark:text-gray-300">{user.email}</span>
                   <button
-                    onClick={() => {
-                      localStorage.removeItem('chq_auth_token');
-                      localStorage.removeItem('chq_auth_user');
-                      window.location.href = '/admin/login/';
-                    }}
+                    onClick={logout}
                     className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
                   >
                     Logout

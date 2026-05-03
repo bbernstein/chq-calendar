@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   AUTH_TOKEN_KEY,
-  AUTH_USER_KEY,
+  getAuthToken,
+  getAuthUser,
+  setAuthUser,
   type AuthUser,
 } from '@/lib/auth';
 
@@ -27,22 +29,23 @@ export function useAdminAuth(): AuthUser | null {
 
   useEffect(() => {
     if (isLocalhost()) {
-      setUser(LOCAL_DUMMY_USER);
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(LOCAL_DUMMY_USER));
+      setAuthUser(LOCAL_DUMMY_USER);
       localStorage.setItem(AUTH_TOKEN_KEY, 'dummy-local-token');
+      setUser(LOCAL_DUMMY_USER);
       return;
     }
 
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    const userStr = localStorage.getItem(AUTH_USER_KEY);
+    const token = getAuthToken();
+    const savedUser = getAuthUser();
 
-    if (!token || !userStr) {
+    if (!token || !savedUser) {
       window.location.href = '/admin/login/';
       return;
     }
 
-    setUser(JSON.parse(userStr) as AuthUser);
+    setUser(savedUser);
   }, []);
 
   return user;
 }
+

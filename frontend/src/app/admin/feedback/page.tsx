@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { API_BASE_URL } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { getAuthToken, logout } from '@/lib/auth';
 
 interface FeedbackRecord {
   id: string;
@@ -42,7 +43,7 @@ export default function FeedbackManagementPage() {
     const isLocalhost = typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-    const token = localStorage.getItem('chq_auth_token');
+    const token = getAuthToken();
 
     if (!token && !isLocalhost) {
       throw new Error('No authentication token found');
@@ -58,9 +59,7 @@ export default function FeedbackManagementPage() {
     });
 
     if ((response.status === 401 || response.status === 403) && !isLocalhost) {
-      localStorage.removeItem('chq_auth_token');
-      localStorage.removeItem('chq_auth_user');
-      window.location.href = '/admin/login/';
+      logout();
       throw new Error('Authentication failed');
     }
 
@@ -244,11 +243,7 @@ export default function FeedbackManagementPage() {
                     {user?.email}
                   </span>
                   <button
-                    onClick={() => {
-                      localStorage.removeItem('chq_auth_token');
-                      localStorage.removeItem('chq_auth_user');
-                      window.location.href = '/admin/login/';
-                    }}
+                    onClick={logout}
                     className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
                   >
                     Logout
