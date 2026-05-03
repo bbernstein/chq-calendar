@@ -112,6 +112,23 @@ export class PublisherEventStore {
     }
   }
 
+  async deleteAllForPublisher(publisherId: string): Promise<number> {
+    const events = await this.listForPublisher(publisherId);
+    if (events.length === 0) return 0;
+    const items = events.map(e => ({
+      Delete: {
+        TableName: this.tableName,
+        Key: { publisherId: e.publisherId, eventId: e.eventId },
+      },
+    }));
+    for (let i = 0; i < items.length; i += TRANSACT_BATCH_SIZE) {
+      await this.db.send(new TransactWriteCommand({
+        TransactItems: items.slice(i, i + TRANSACT_BATCH_SIZE),
+      }));
+    }
+    return events.length;
+  }
+
   async applyDiff(diff: ReconcileDiff): Promise<void> {
     const items = [
       ...diff.inserts.map(it => ({ Put: { TableName: this.tableName, Item: it } })),
