@@ -128,12 +128,13 @@ export class PublisherApplicationService {
       return { ok: true };
     }
     const matches = await this.deps.registry.getByEmail(normalized);
-    // Prefer an approved row if one exists (a publisher with both an old
-    // approved row and a new pending re-application should still sign in to
-    // their approved account). Otherwise fall back to whichever row matched.
-    const target = matches.find(p => p.applicationStatus !== 'rejected'
-      && (p.applicationStatus === undefined || p.applicationStatus === 'approved'))
-      ?? matches[0];
+    // Prefer an approved (or legacy admin-created, no applicationStatus) row
+    // if one exists — a publisher with both an old approved row and a new
+    // pending re-application should still sign in to their approved account.
+    // Otherwise fall back to whichever row matched (pending or rejected).
+    const target = matches.find(
+      p => p.applicationStatus === undefined || p.applicationStatus === 'approved',
+    ) ?? matches[0];
     if (!target) return { ok: true };
 
     const issued = await this.deps.tokens.issueToken({
