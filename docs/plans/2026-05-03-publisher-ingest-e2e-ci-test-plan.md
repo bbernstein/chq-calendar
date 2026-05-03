@@ -71,11 +71,15 @@ LAMBDA="chautauqua-calendar-publisher-ingest"
 set -euo pipefail
 
 cleanup() {
+  # Cleanup must never propagate a failure: if a real test step already
+  # failed, surfacing a cleanup error on top of it loses the original
+  # signal. Disable -e for the body and || true each AWS call.
+  set +e
   echo "[ci-e2e] cleanup: disabling $PUBLISHER_ID and purging events"
   aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
     --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
     --update-expression 'SET enabled = :f' \
-    --expression-attribute-values '{":f":{"BOOL":false}}'
+    --expression-attribute-values '{":f":{"BOOL":false}}' || true
   # Final ingest to retract anything left
   aws lambda invoke --function-name "$LAMBDA" --invocation-type RequestResponse \
     --cli-binary-format raw-in-base64-out --payload '{}' /tmp/cleanup.json || true
@@ -107,9 +111,10 @@ aws lambda invoke --function-name "$LAMBDA" --invocation-type RequestResponse \
 cat /tmp/ingest1.json
 
 # 3. Poll sidecar for the test events to appear (CloudFront cache busting via query string)
+COUNT=0  # initialize so the post-loop check doesn't error if the loop body fails on iteration 1
 for i in $(seq 1 30); do
   COUNT=$(curl -s "$SIDECAR_URL?cb=$(date +%s%N)" \
-    | jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length")
+    | jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length" || echo 0)
   if [ "$COUNT" -ge 1 ]; then
     echo "[ci-e2e] events present after ${i}s"
     break
@@ -130,9 +135,10 @@ aws lambda invoke --function-name "$LAMBDA" --invocation-type RequestResponse \
 cat /tmp/ingest2.json
 
 # 6. Poll sidecar for the test events to disappear
+COUNT=1  # initialize so the post-loop check fails-closed if the loop body errors on iteration 1
 for i in $(seq 1 30); do
   COUNT=$(curl -s "$SIDECAR_URL?cb=$(date +%s%N)" \
-    | jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length")
+    | jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length" || echo 1)
   if [ "$COUNT" -eq 0 ]; then
     echo "[ci-e2e] events retracted after ${i}s"
     break
