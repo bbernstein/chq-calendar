@@ -17,8 +17,8 @@ function LoginContent() {
       };
       localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
       localStorage.setItem('chq_auth_token', 'dummy-local-token');
-      console.log('Localhost detected - bypassing auth, redirecting to /admin/feedback');
-      window.location.href = '/admin/feedback/';
+      console.log('Localhost detected - bypassing auth, redirecting to /admin/');
+      window.location.href = '/admin/';
       return;
     }
 
@@ -37,14 +37,14 @@ function LoginContent() {
         console.log('Parsing auth data from hash...')
         localStorage.setItem('chq_auth_token', token)
         localStorage.setItem('chq_auth_user', JSON.stringify({ email, name }))
-        console.log('Token stored, redirecting to /admin/feedback')
+        console.log('Token stored, redirecting to /admin/')
 
         // Clear the hash from URL
         window.history.replaceState(null, '', window.location.pathname);
 
         // Small delay to ensure localStorage is properly set before redirect
         setTimeout(() => {
-          window.location.href = '/admin/feedback/'
+          window.location.href = '/admin/'
         }, 100)
         return
       } catch (err) {
@@ -63,10 +63,10 @@ function LoginContent() {
         const user = JSON.parse(decodeURIComponent(userParam))
         localStorage.setItem('chq_auth_token', token)
         localStorage.setItem('chq_auth_user', JSON.stringify(user))
-        console.log('Token stored, redirecting to /admin/feedback')
+        console.log('Token stored, redirecting to /admin/')
 
         setTimeout(() => {
-          window.location.href = '/admin/feedback/'
+          window.location.href = '/admin/'
         }, 100)
         return
       } catch (err) {
@@ -100,7 +100,7 @@ function LoginContent() {
     // Check if already authenticated
     const existingToken = localStorage.getItem('chq_auth_token')
     if (existingToken && !token) {
-      window.location.href = '/admin/feedback/'
+      window.location.href = '/admin/'
     }
   }, [])
 
