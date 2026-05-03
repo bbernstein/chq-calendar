@@ -389,6 +389,45 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
   default_root_object = "index.html"
   aliases             = [var.domain_name, "www.${var.domain_name}"]
 
+  # Publisher-portal endpoints — routed to the ADMIN API origin (where the
+  # admin Lambda lives) rather than the main API. The main API only defines
+  # /calendar, /feedback, /sync; the admin API has a {proxy+} catch-all that
+  # forwards anything to admin_handler, which dispatches `/publisher-test`,
+  # `/publisher-apply/*`, and `/publisher-auth/*` BEFORE its admin auth
+  # check. The api_rewrite function strips `/api` so the admin API sees
+  # `/publisher-test` etc.
+  #
+  # MUST come before the `/api/*` block so CloudFront picks this more-
+  # specific pattern first.
+  #
+  # No caching: every request is dynamic (rate-limit state, magic-token
+  # consumption, etc.).
+  ordered_cache_behavior {
+    path_pattern           = "/api/publisher-*"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+    target_origin_id       = "ADMIN-API-${aws_api_gateway_rest_api.admin.id}"
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Content-Type"]
+      cookies {
+        forward = "none"
+      }
+    }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.api_rewrite.arn
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
   # API behavior for /api/* paths with caching (Layer 2: CloudFront CDN)
   ordered_cache_behavior {
     path_pattern           = "/api/*"
