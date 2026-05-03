@@ -61,23 +61,46 @@ export class PublisherSidecarPublisher {
     return `${this.keyPrefix}/publisher-events-${year}.json`;
   }
 
-  private enrichPayload(payload: StoredPublisherEvent['payload']): StoredPublisherEvent['payload'] {
+  private enrichPayload(
+    payload: StoredPublisherEvent['payload'],
+  ): StoredPublisherEvent['payload'] & { location?: string; categories?: Array<{ name: string }> } {
+    const enriched: StoredPublisherEvent['payload'] & {
+      location?: string;
+      categories?: Array<{ name: string }>;
+    } = { ...payload };
+
+    // Resolve venueId → location + venue when a lookup entry exists.
     const venueId = payload.venueId;
-    if (!venueId) return payload;
-    const venue = this.venuesById.get(venueId);
-    if (!venue) return payload;
-    const enriched: StoredPublisherEvent['payload'] & { location?: string } = { ...payload };
-    // Don't overwrite a location the publisher explicitly supplied.
-    if (typeof enriched.location !== 'string' || enriched.location.length === 0) {
-      enriched.location = venue.name;
+    if (venueId) {
+      const venue = this.venuesById.get(venueId);
+      if (venue) {
+        if (typeof enriched.location !== 'string' || enriched.location.length === 0) {
+          enriched.location = venue.name;
+        }
+        // Merge venue rather than replace — preserves publisher-supplied url
+        // and any future fields on VenueRef.
+        enriched.venue = {
+          ...(enriched.venue ?? {}),
+          name: enriched.venue?.name ?? venue.name,
+          ...(venue.address && !enriched.venue?.address ? { address: venue.address } : {}),
+        };
+      }
     }
-    // Merge venue rather than replace — preserves publisher-supplied url
-    // and any future fields on VenueRef.
-    enriched.venue = {
-      ...(enriched.venue ?? {}),
-      name: enriched.venue?.name ?? venue.name,
-      ...(venue.address && !enriched.venue?.address ? { address: venue.address } : {}),
-    };
+
+    // Promote singular `category` (string) to a `categories` array. The
+    // frontend's tag-filter pre-computation, clickable category badges
+    // in EventCard, and search-tag set all read `event.categories`.
+    // Without this, publisher events were absent from category filters
+    // and rendered without category badges in the expanded card.
+    const existingCategories = (enriched as { categories?: unknown }).categories;
+    if (
+      typeof payload.category === 'string' &&
+      payload.category.length > 0 &&
+      (!Array.isArray(existingCategories) || existingCategories.length === 0)
+    ) {
+      enriched.categories = [{ name: payload.category }];
+    }
+
     return enriched;
   }
 

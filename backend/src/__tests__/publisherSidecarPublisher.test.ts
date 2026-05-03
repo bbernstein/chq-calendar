@@ -202,6 +202,40 @@ describe('PublisherSidecarPublisher', () => {
       });
     });
 
+    it('promotes singular category string to categories array for the frontend', async () => {
+      mockListReturns();
+      const venuesById = new Map([
+        ['hall-of-philosophy', { id: 'hall-of-philosophy', name: 'Hall of Philosophy' }],
+      ]);
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', venuesById);
+      await pub.publish([venueEvent({ category: 'Special Lectures' })]);
+      const p = getPayload();
+      expect(p.categories).toEqual([{ name: 'Special Lectures' }]);
+      // Original singular category is preserved too.
+      expect(p.category).toBe('Special Lectures');
+    });
+
+    it('does not overwrite an explicit publisher-supplied categories array', async () => {
+      mockListReturns();
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', new Map());
+      await pub.publish([
+        venueEvent({
+          category: 'Lecture',
+          categories: [{ name: 'Custom A' }, { name: 'Custom B' }],
+        } as any),
+      ]);
+      const p = getPayload();
+      expect(p.categories).toEqual([{ name: 'Custom A' }, { name: 'Custom B' }]);
+    });
+
+    it('skips categories promotion when category is empty', async () => {
+      mockListReturns();
+      const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache', new Map());
+      await pub.publish([venueEvent({ category: '' })]);
+      const p = getPayload();
+      expect(p.categories).toBeUndefined();
+    });
+
     it('passes through events with no venueId unchanged', async () => {
       mockListReturns();
       const venuesById = new Map([
