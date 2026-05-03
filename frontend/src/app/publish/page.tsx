@@ -114,7 +114,17 @@ export default function PublishLandingPage() {
           </section>
 
           {/* Help / contact */}
-          <section className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
+          <section className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400 space-y-2">
+            <p>
+              Already a publisher?{' '}
+              <a
+                href="/publish/login/"
+                className="text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Sign in
+              </a>{' '}
+              to view your status and recent fetch history.
+            </p>
             <p>
               Questions? Reach out via the{' '}
               <a

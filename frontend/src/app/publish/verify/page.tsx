@@ -106,6 +106,12 @@ function Pending() {
 }
 
 function Success({ email, isApply }: { email: string; isApply: boolean }) {
+  // Apply path: send the user back to /publish/ — the form told them to wait
+  // for review, and the home page is the natural landing.
+  // Login path: take them to /publish/status/ where they can see their own
+  // record and any post-approval state.
+  const ctaHref = isApply ? '/publish/' : '/publish/status/';
+  const ctaLabel = isApply ? 'Go to publisher home' : 'Go to your account';
   return (
     <div>
       <div className="mx-auto w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
@@ -131,10 +137,10 @@ function Success({ email, isApply }: { email: string; isApply: boolean }) {
         Signed in as <span className="font-mono">{email}</span>
       </p>
       <a
-        href="/publish/"
+        href={ctaHref}
         className="inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors"
       >
-        Go to publisher home
+        {ctaLabel}
       </a>
     </div>
   );
