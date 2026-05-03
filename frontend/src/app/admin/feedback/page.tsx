@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { API_BASE_URL } from '@/lib/api';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { getAuthToken, logout } from '@/lib/auth';
 
 interface FeedbackRecord {
   id: string;
@@ -34,43 +36,14 @@ export default function FeedbackManagementPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filter, setFilter] = useState<'all' | 'active' | 'archived'>('active');
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackRecord | null>(null);
-  const [user, setUser] = useState<{ email: string; name: string } | null>(null);
-
-  useEffect(() => {
-    // Check if running on localhost - bypass authentication for local development
-    const isLocalhost = typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    if (isLocalhost) {
-      // Set dummy user for local development
-      const dummyUser = {
-        email: 'dev@localhost.local',
-        name: 'Local Dev User'
-      };
-      setUser(dummyUser);
-      localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
-      localStorage.setItem('chq_auth_token', 'dummy-local-token');
-      return;
-    }
-
-    // Production authentication check
-    const token = localStorage.getItem('chq_auth_token');
-    const userStr = localStorage.getItem('chq_auth_user');
-
-    if (!token || !userStr) {
-      window.location.href = '/admin/login/';
-      return;
-    }
-
-    setUser(JSON.parse(userStr));
-  }, []);
+  const user = useAdminAuth();
 
   // Helper function for authenticated API calls
   const authenticatedFetch = useCallback(async (url: string, options: RequestInit = {}) => {
     const isLocalhost = typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-    const token = localStorage.getItem('chq_auth_token');
+    const token = getAuthToken();
 
     if (!token && !isLocalhost) {
       throw new Error('No authentication token found');
@@ -86,9 +59,7 @@ export default function FeedbackManagementPage() {
     });
 
     if ((response.status === 401 || response.status === 403) && !isLocalhost) {
-      localStorage.removeItem('chq_auth_token');
-      localStorage.removeItem('chq_auth_user');
-      window.location.href = '/admin/login/';
+      logout();
       throw new Error('Authentication failed');
     }
 
@@ -272,11 +243,7 @@ export default function FeedbackManagementPage() {
                     {user?.email}
                   </span>
                   <button
-                    onClick={() => {
-                      localStorage.removeItem('chq_auth_token');
-                      localStorage.removeItem('chq_auth_user');
-                      window.location.href = '/admin/login/';
-                    }}
+                    onClick={logout}
                     className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
                   >
                     Logout

@@ -67,6 +67,56 @@ interface FeedbackRecord {
   archivedAt?: string;
 }
 
+// Header names whose values must never appear in logs.
+// `set-cookie` is a response header and won't appear on inbound
+// APIGatewayProxyEvents, but we include it defensively so the same set
+// is safe to reuse if this helper ever runs on response objects.
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'x-auth-token',
+  'cookie',
+  'set-cookie',
+]);
+
+const REDACTED = '[REDACTED]';
+
+// Returns a shallow copy of `event` with sensitive header values replaced by
+// '[REDACTED]'. Used before logging the event to CloudWatch so JWTs in
+// `Authorization` / `X-Auth-Token` / cookies are not persisted in logs.
+//
+// `headers` values stay as strings; `multiValueHeaders` values stay as
+// `string[]` (single-element `['[REDACTED]']`) so the returned event
+// keeps the shape declared by APIGatewayProxyEvent.
+export const redactEventForLogging = (event: APIGatewayProxyEvent): APIGatewayProxyEvent => {
+  const redactString = (
+    headers: APIGatewayProxyEvent['headers'] | null | undefined,
+  ): APIGatewayProxyEvent['headers'] => {
+    if (!headers) return headers as APIGatewayProxyEvent['headers'];
+    const out: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      out[key] = SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? REDACTED : value;
+    }
+    return out;
+  };
+
+  const redactMulti = (
+    headers: APIGatewayProxyEvent['multiValueHeaders'] | null | undefined,
+  ): APIGatewayProxyEvent['multiValueHeaders'] => {
+    if (!headers) return headers as APIGatewayProxyEvent['multiValueHeaders'];
+    const out: Record<string, string[] | undefined> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      out[key] = SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? [REDACTED] : value;
+    }
+    return out;
+  };
+
+  return {
+    ...event,
+    headers: redactString(event.headers),
+    multiValueHeaders: redactMulti(event.multiValueHeaders),
+  };
+};
+
 // Helper function to create response
 const createResponse = (statusCode: number, body: any): APIGatewayProxyResult => {
   return {
@@ -127,7 +177,7 @@ const authenticateRequest = (event: APIGatewayProxyEvent): { email: string; name
 };
 
 export const handler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
-  console.log('Admin Lambda Event:', JSON.stringify(event, null, 2));
+  console.log('Admin Lambda Event:', JSON.stringify(redactEventForLogging(event), null, 2));
   console.log('Environment check - NODE_ENV:', process.env.NODE_ENV, 'ENVIRONMENT:', process.env.ENVIRONMENT);
   console.log('isProduction:', isProduction);
   console.log('ADMIN_EMAIL_WHITELIST:', ADMIN_EMAIL_WHITELIST);
@@ -266,7 +316,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
     // All remaining endpoints require authentication, except in local development
     let user = authenticateRequest(event);
-    console.log('Authentication result - user:', user);
+    console.log('Authentication result:', user ? `authenticated as "${user.name}"` : 'unauthenticated');
     console.log('Request path:', path);
     
     // In local development, bypass authentication and use dummy user.

@@ -6,6 +6,8 @@ import {
   type PublisherRecord,
   type CreatePublisherInput,
 } from '@/lib/adminPublisherApi';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
+import { logout } from '@/lib/auth';
 import { PublisherForm } from './PublisherForm';
 
 // Discriminated union for form open/closed state.
@@ -17,40 +19,13 @@ type FormMode =
 const CLOSED: FormMode = { kind: 'closed' };
 
 export default function PublishersPage() {
-  const [user, setUser] = useState<{ email: string; name: string } | null>(null);
+  const user = useAdminAuth();
   const [publishers, setPublishers] = useState<PublisherRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<FormMode>(CLOSED);
   // Track IDs currently being toggled (enable/disable in-flight).
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
-
-  // -------------------------------------------------------------------------
-  // Auth bootstrap (mirrors admin/feedback/page.tsx lines 39-66 exactly)
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    const isLocalhost =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    if (isLocalhost) {
-      const dummyUser = { email: 'dev@localhost.local', name: 'Local Dev User' };
-      setUser(dummyUser);
-      localStorage.setItem('chq_auth_user', JSON.stringify(dummyUser));
-      localStorage.setItem('chq_auth_token', 'dummy-local-token');
-      return;
-    }
-
-    const token = localStorage.getItem('chq_auth_token');
-    const userStr = localStorage.getItem('chq_auth_user');
-
-    if (!token || !userStr) {
-      window.location.href = '/admin/login/';
-      return;
-    }
-
-    setUser(JSON.parse(userStr));
-  }, []);
 
   // -------------------------------------------------------------------------
   // Data fetch
@@ -180,11 +155,7 @@ export default function PublishersPage() {
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-gray-600 dark:text-gray-300">{user.email}</span>
                   <button
-                    onClick={() => {
-                      localStorage.removeItem('chq_auth_token');
-                      localStorage.removeItem('chq_auth_user');
-                      window.location.href = '/admin/login/';
-                    }}
+                    onClick={logout}
                     className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
                   >
                     Logout
