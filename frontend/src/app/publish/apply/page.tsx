@@ -54,6 +54,11 @@ const RECAPTCHA_SITE_KEY = (import.meta as any).env?.VITE_RECAPTCHA_SITE_KEY as 
 // a useful error rather than a permanently disabled button.
 const RECAPTCHA_LOAD_TIMEOUT_MS = 10_000;
 
+// Surfaced when the user submits before reCAPTCHA finishes loading. We
+// clear it explicitly if the load later fails so the yellow banner isn't
+// shown alongside conflicting "wait a moment" guidance.
+const CAPTCHA_LOADING_ERROR = 'Verifying you’re human… try again in a moment.';
+
 export default function PublishApplyPage() {
   const [form, setForm] = useState<FormState>(INITIAL);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -72,7 +77,12 @@ export default function PublishApplyPage() {
     script.async = true;
     script.defer = true;
     script.onload = () => {
-      window.grecaptcha?.ready(() => setCaptchaReady(true));
+      window.grecaptcha?.ready(() => {
+        setCaptchaReady(true);
+        // If the timeout already fired and we'd shown the failure
+        // banner, clear it now that the script has actually loaded.
+        setCaptchaFailed(false);
+      });
     };
     script.onerror = () => {
       setCaptchaFailed(true);
@@ -92,6 +102,20 @@ export default function PublishApplyPage() {
     };
   }, []);
 
+  // When the captcha-failed banner appears, the transient "verifying
+  // you're human, try again" status becomes outdated — the banner now
+  // tells the user what's actually going on. Clear that specific error
+  // so the UI doesn't present conflicting guidance.
+  useEffect(() => {
+    if (captchaFailed) {
+      setStatus(prev =>
+        prev.kind === 'error' && prev.message === CAPTCHA_LOADING_ERROR
+          ? { kind: 'idle' }
+          : prev,
+      );
+    }
+  }, [captchaFailed]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -100,7 +124,7 @@ export default function PublishApplyPage() {
     // which case the user has been told to retry/disable a blocker and
     // we let them submit with no token (backend rejects in prod).
     if (RECAPTCHA_SITE_KEY && !captchaReady && !captchaFailed) {
-      setStatus({ kind: 'error', message: 'Verifying you’re human… try again in a moment.' });
+      setStatus({ kind: 'error', message: CAPTCHA_LOADING_ERROR });
       return;
     }
 

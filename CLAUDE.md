@@ -141,6 +141,7 @@ CloudFront CDN → all-events.json → Browser Cache (1hr)
 ### Imports
 - Use `@/` path alias for imports (maps to `./src/`)
 - Example: `import { Event } from '@/lib/types'`
+- **Hooks and React-shaped types may be imported from `'react'`.** `@preact/preset-vite` aliases `'react'` and `'react-dom'` to `'preact/compat'` at build time (and `vitest.config.ts` does the same for tests). Importing `useState`, `createContext`, `useContext`, `React.FormEvent`, `React.ReactNode`, etc. from `'react'` is the accepted convention — `preact/compat` is what installs the `onChange` → `onInput` event normalization that React-style form components rely on, and removing `'react'` imports across the tree silently breaks form handlers in tests and production. New files may import hooks from `'preact/hooks'` if they don't render JSX (e.g. pure `.ts` hook files), but anything that wires DOM event handlers should keep the `'react'` import.
 
 ## Active Optimization Plan
 
