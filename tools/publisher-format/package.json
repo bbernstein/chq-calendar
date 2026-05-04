@@ -11,7 +11,7 @@
     "dist",
     "README.md"
   ],
-  "engines": { "node": ">=22.0.0" },
+  "engines": { "node": ">=24.0.0" },
   "scripts": {
     "copy-schema": "cp src/feed.schema.json ../../docs/publisher/feed.schema.json",
     "copy-refs": "mkdir -p dist/refs && cp ../../docs/publisher/categories.json ../../docs/publisher/venues.json dist/refs/",

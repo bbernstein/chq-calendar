@@ -4,7 +4,7 @@
   "description": "Dynamic calendar for Chautauqua Institution 2026",
   "private": true,
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.0.0"
   },
   "workspaces": [
     "frontend",

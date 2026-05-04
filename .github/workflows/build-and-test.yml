@@ -9,8 +9,9 @@ jobs:
   test-backend:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node-version: ["20.19.0", "22"]
+        node-version: ["24", "25"]
 
     steps:
       - uses: actions/checkout@v4
@@ -41,8 +42,9 @@ jobs:
   test-frontend:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node-version: ["20.19.0", "22"]
+        node-version: ["24", "25"]
 
     steps:
       - uses: actions/checkout@v4

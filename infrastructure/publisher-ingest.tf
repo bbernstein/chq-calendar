@@ -133,7 +133,7 @@ resource "aws_lambda_function" "publisher_ingest" {
   function_name = "${var.app_name}-publisher-ingest"
   role          = aws_iam_role.publisher_ingest_role.arn
   handler       = "dist/publisherIngestHandler.scheduledHandler"
-  runtime       = "nodejs22.x"
+  runtime       = "nodejs24.x"
   timeout       = 600
   memory_size   = 512
 
