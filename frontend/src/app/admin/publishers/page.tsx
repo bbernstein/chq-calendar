@@ -261,9 +261,11 @@ export default function PublishersPage() {
       const triggeredAtMs = Date.parse(triggeredAt);
       setIngestState({ kind: 'running', triggeredAt, pollCount: 0 });
 
+      // Two-stage generation bump: stopIngestPoll() bumps once to invalidate
+      // any prior-run tick that's currently mid-await; the ++ below bumps
+      // again to claim a unique generation for this run. Looks like a
+      // double-increment but each bump serves a different purpose.
       stopIngestPoll();
-      // Capture this run's generation so a late-resolving listPublishers call
-      // from a prior run can detect that it's stale and bail out.
       const myGen = ++ingestPollGenRef.current;
       let attempts = 0;
 
@@ -459,7 +461,11 @@ export default function PublishersPage() {
         {/* Toolbar */}
         <div className="flex items-center justify-between mb-6 gap-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Publishers</h2>
-          <div className="flex items-center gap-3">
+          {/* aria-live="polite" announces ingest status transitions
+              (running → success/timeout/error) to screen readers without
+              interrupting whatever they're currently reading. aria-atomic
+              ensures the whole region is re-read when any child changes. */}
+          <div className="flex items-center gap-3" aria-live="polite" aria-atomic="true">
             {/* Ingest status indicator */}
             {ingestState.kind === 'running' && (
               <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
@@ -728,6 +734,10 @@ export default function PublishersPage() {
               <button
                 onClick={() => setDeleteTarget(null)}
                 disabled={deletingIds.has(deleteTarget.id)}
+                // autoFocus moves keyboard focus to the safe action when the
+                // modal opens — Enter / Space then cancels rather than
+                // confirming the destructive operation.
+                autoFocus
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md disabled:opacity-50"
               >
                 Cancel
