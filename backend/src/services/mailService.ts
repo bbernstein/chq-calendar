@@ -26,6 +26,14 @@ export interface MailService {
 export interface ApprovalEmailOpts {
   to: string;
   publisherName: string;
+  // The publisher's unique ID. Auto-generated as `pub-<uuid4>` at
+  // apply-verify time (publisherApplicationService.ts), not assigned by
+  // the admin during review — the admin's only review actions are
+  // approve / reject. The publisher must include this exact value as
+  // `publisher.id` in their feed (or in the `chq-publisher` HTML
+  // comment) for the ingest pipeline to recognise their events.
+  // Without it the feed validates but no events go live.
+  publisherId: string;
   statusUrl: string;
   loginUrl: string;
 }
@@ -169,12 +177,28 @@ function loginHtml(url: string): string {
   ].join('');
 }
 
+// Empty-id fallback — defensive only. publisherId is set from rec.id at
+// record creation time and is never empty in practice; using a placeholder
+// instead of rendering blank avoids a confusing email if the invariant
+// ever drifts.
+const PUBLISHER_ID_PLACEHOLDER = '(missing — contact us)';
+
 function approvalText(o: ApprovalEmailOpts): string {
+  const id = o.publisherId || PUBLISHER_ID_PLACEHOLDER;
   return [
     `Hi ${o.publisherName || 'there'},`,
     '',
     'Good news — your Chautauqua Calendar publisher application has been approved.',
-    'Your feed is now in the ingest schedule and your events will start appearing on chqcal.org after the next sync.',
+    '',
+    'Your assigned publisher ID is:',
+    '',
+    `    ${id}`,
+    '',
+    'You MUST include this exact value as `publisher.id` in your feed (or in the',
+    '`chq-publisher` HTML comment) for your events to appear on chqcal.org. Without',
+    'it the feed validates but no events go live.',
+    '',
+    'Once your feed lists this ID, the next ingest run will pick up your events.',
     '',
     'Sign in to view your status and recent fetch history:',
     o.loginUrl,
@@ -188,13 +212,22 @@ function approvalText(o: ApprovalEmailOpts): string {
 
 function approvalHtml(o: ApprovalEmailOpts): string {
   const safeName = escapeHtml(o.publisherName || 'there');
+  const safeId = escapeHtml(o.publisherId || PUBLISHER_ID_PLACEHOLDER);
   const safeLogin = encodeURI(o.loginUrl);
   const safeStatus = encodeURI(o.statusUrl);
+  // Wrap the publisher ID in <pre> rather than a styled <p> + <code>: Outlook
+  // 2010–2016 strips font-family from <p>, so an inline-styled <p><code> would
+  // render in the body font (defeating the "stand-out monospace" intent).
+  // <pre> defaults to monospace in every email client we care about, with no
+  // CSS dependency.
   return [
     '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
     `<p>Hi ${safeName},</p>`,
     '<p>Good news — your Chautauqua Calendar publisher application has been <strong>approved</strong>.</p>',
-    '<p>Your feed is now in the ingest schedule and your events will start appearing on chqcal.org after the next sync.</p>',
+    '<p>Your assigned publisher ID is:</p>',
+    `<pre style="margin:0.5em 0 0.5em 1em;font-size:1.05em">${safeId}</pre>`,
+    '<p>You <strong>must</strong> include this exact value as <code>publisher.id</code> in your feed (or in the <code>chq-publisher</code> HTML comment) for your events to appear on chqcal.org. Without it the feed validates but no events go live.</p>',
+    '<p>Once your feed lists this ID, the next ingest run will pick up your events.</p>',
     `<p>Sign in to view your status and recent fetch history: <a href="${safeLogin}">${safeLogin}</a></p>`,
     `<p>You can check your status anytime here: <a href="${safeStatus}">${safeStatus}</a></p>`,
     '<p>— Chautauqua Calendar</p>',

@@ -242,6 +242,7 @@ export class PublisherAdminService {
     await this.reviewDeps.mail.sendApprovalEmail({
       to: rec.contactEmail,
       publisherName: rec.name,
+      publisherId: rec.id,
       statusUrl,
       loginUrl,
     });
