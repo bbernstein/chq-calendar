@@ -198,4 +198,27 @@ describe('resolveAndValidateUrl (Phase D — DNS-rebinding mitigation)', () => {
     expect(r.ok).toBe(false);
     if (r.ok === false) expect(r.reason).toMatch(/DNS lookup failed/);
   });
+
+  // Regression for the numeric IPv4 bypass. Node's URL parser actually
+  // normalises the decimal-form `http://2130706433/` to hostname
+  // `127.0.0.1`, so the string-only guard catches it first — but we still
+  // want a test that exercises the rejection so a future change to the
+  // URL parser (or to validateUrlIsPublic) doesn't silently re-open the
+  // gap. Either layer rejecting is fine; what we forbid is `ok: true`.
+  it('rejects non-dotted numeric hostnames that decode to a private IP (2130706433 = 127.0.0.1)', async () => {
+    const lookup = mkLookup([{ address: '8.8.8.8', family: 4 }]); // would allow if reached
+    const r = await resolveAndValidateUrl('http://2130706433/x', lookup);
+    expect(r.ok).toBe(false);
+  });
+
+  it('does not produce ok:true while skipping DNS for hostnames with too many dotted segments (1.2.3.4.5)', async () => {
+    const lookup = mkLookup([{ address: '8.8.8.8', family: 4 }]);
+    const r = await resolveAndValidateUrl('http://1.2.3.4.5/x', lookup);
+    // Acceptable end states: either a string-layer rejection (no lookup),
+    // or a DNS-layer outcome that consulted the resolver. Forbidden:
+    // skipped lookup AND ok:true (the pre-fix bug).
+    if (r.ok) {
+      expect(lookup).toHaveBeenCalled();
+    }
+  });
 });

@@ -138,14 +138,14 @@ resource "aws_iam_role_policy" "publisher_portal_access" {
         Resource = aws_dynamodb_table.publisher_magic_tokens.arn
       },
       {
-        # Phase D rate-limit table — same CRUD subset, scoped to the new
-        # table only.
+        # Phase D rate-limit table — least-privilege: the limiter only
+        # reads then puts the bucket row. DDB TTL handles eviction without
+        # consuming an IAM action, so DeleteItem and UpdateItem are not
+        # needed.
         Effect = "Allow",
         Action = [
           "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:DeleteItem",
-          "dynamodb:UpdateItem"
+          "dynamodb:PutItem"
         ],
         Resource = aws_dynamodb_table.publisher_rate_limit.arn
       },

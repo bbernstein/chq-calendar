@@ -231,8 +231,13 @@ export async function resolveAndValidateUrl(
 }
 
 function looksLikeIpLiteral(host: string): boolean {
-  // IPv4 literal: four dotted octets.
-  if (/^[0-9.]+$/.test(host)) return true;
+  // Tight match: exactly four dotted decimal octets. Any looser pattern
+  // would let numeric forms like "2130706433" (decimal encoding of
+  // 127.0.0.1) skip the DNS-aware guard while ALSO not matching
+  // isBlockedIPv4 (which requires four octets) — the URL would fetch
+  // localhost via Node's URL parser. Mirroring isBlockedIPv4's structure
+  // closes that gap.
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) return true;
   // IPv6 literal: contains a colon (URL.hostname strips the [...]).
   if (host.includes(':')) return true;
   return false;

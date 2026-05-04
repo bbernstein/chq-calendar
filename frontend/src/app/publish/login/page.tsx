@@ -70,7 +70,13 @@ export default function PublishLoginPage() {
       const body = await r.json().catch(() => ({}));
       if (r.ok) {
         setStatus({ kind: 'sent' });
-        setCooldownEndsAt(Date.now() + RESEND_COOLDOWN_MS);
+        // Refresh `now` from the same clock reading we use to set the
+        // cooldown end. Without this the first render uses `now` captured
+        // at mount time, so the countdown briefly shows >RESEND_COOLDOWN_MS
+        // (off by however long the user spent between mount and submit).
+        const sendTime = Date.now();
+        setNow(sendTime);
+        setCooldownEndsAt(sendTime + RESEND_COOLDOWN_MS);
         return;
       }
       if (r.status === 429) {

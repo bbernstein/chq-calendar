@@ -29,13 +29,28 @@ const REASON_MAX = 500;
 
 export function PendingApplications({ applications, onChange }: Props) {
   const [rowStates, setRowStates] = useState<Record<string, RowState>>({});
+  // IDs that the admin successfully approved or rejected in this session.
+  // We hide them locally regardless of whether the parent refetch
+  // succeeded — otherwise a refetch failure would put a freshly-actioned
+  // row back on screen in idle state and the admin would (rightly) think
+  // the action was lost.
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
-  if (applications.length === 0) return null;
+  const visibleApplications = applications.filter(a => !removedIds.has(a.id));
+  if (visibleApplications.length === 0) return null;
 
   const stateFor = (id: string): RowState => rowStates[id] ?? { kind: 'idle' };
 
   const setState = (id: string, s: RowState) => {
     setRowStates(prev => ({ ...prev, [id]: s }));
+  };
+
+  const markRemoved = (id: string) => {
+    setRemovedIds(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
   };
 
   // Action and refetch are deliberately separate try/catch blocks. If the
@@ -54,6 +69,7 @@ export function PendingApplications({ applications, onChange }: Props) {
       });
       return;
     }
+    markRemoved(id);
     setRowStates(prev => {
       const next = { ...prev };
       delete next[id];
@@ -77,6 +93,7 @@ export function PendingApplications({ applications, onChange }: Props) {
       });
       return;
     }
+    markRemoved(id);
     setRowStates(prev => {
       const next = { ...prev };
       delete next[id];
@@ -95,7 +112,7 @@ export function PendingApplications({ applications, onChange }: Props) {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
           Pending applications{' '}
           <span className="ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-300">
-            {applications.length}
+            {visibleApplications.length}
           </span>
         </h2>
         <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -105,7 +122,7 @@ export function PendingApplications({ applications, onChange }: Props) {
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
         <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-          {applications.map(app => {
+          {visibleApplications.map(app => {
             const state = stateFor(app.id);
             const busy = state.kind === 'busy';
             return (

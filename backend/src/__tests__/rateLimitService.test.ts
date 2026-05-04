@@ -33,7 +33,7 @@ async function runSlidingWindowSuite(
   }
   const denied = await limiter.checkAndConsume({ key: 'k', windowMs: 1000, max: 3 });
   expect(denied.ok).toBe(false);
-  expect(denied.retryAfterSeconds).toBeGreaterThan(0);
+  if (denied.ok === false) expect(denied.retryAfterSeconds).toBeGreaterThan(0);
 
   // Advance past the window — old entries evict, new request allowed.
   clock.advance(1100);
@@ -130,7 +130,9 @@ describe('DynamoRateLimiter', () => {
     clock.advance(3000);
     const r = await limiter.checkAndConsume({ key: 'x', windowMs: 10_000, max: 1 });
     expect(r.ok).toBe(false);
-    expect(r.retryAfterSeconds).toBeGreaterThanOrEqual(7);
-    expect(r.retryAfterSeconds).toBeLessThanOrEqual(8);
+    if (r.ok === false) {
+      expect(r.retryAfterSeconds).toBeGreaterThanOrEqual(7);
+      expect(r.retryAfterSeconds).toBeLessThanOrEqual(8);
+    }
   });
 });

@@ -78,14 +78,11 @@ export function _setRateLimiterForTests(limiter: RateLimiter | null): void {
 export async function checkPublisherTestRateLimit(
   ip: string,
 ): Promise<{ ok: true } | { ok: false; retryAfterSeconds: number }> {
-  const r = await rateLimiter().checkAndConsume({
+  return rateLimiter().checkAndConsume({
     key: `pt:${ip}`,
     windowMs: PUBLISHER_TEST_RATE_LIMIT_WINDOW_MS,
     max: PUBLISHER_TEST_RATE_LIMIT_MAX,
   });
-  return r.ok
-    ? { ok: true }
-    : { ok: false, retryAfterSeconds: r.retryAfterSeconds ?? 1 };
 }
 
 // Reset both buckets — keeps the existing test-API surface so older tests
@@ -103,14 +100,11 @@ export function _resetPublisherTestRateLimitForTests(): void {
 export async function checkPublisherAuthRateLimit(
   ip: string,
 ): Promise<{ ok: true } | { ok: false; retryAfterSeconds: number }> {
-  const r = await rateLimiter().checkAndConsume({
+  return rateLimiter().checkAndConsume({
     key: `pa:${ip}`,
     windowMs: PUBLISHER_AUTH_RATE_LIMIT_WINDOW_MS,
     max: PUBLISHER_AUTH_RATE_LIMIT_MAX,
   });
-  return r.ok
-    ? { ok: true }
-    : { ok: false, retryAfterSeconds: r.retryAfterSeconds ?? 1 };
 }
 
 export function _resetPublisherAuthRateLimitForTests(): void {
@@ -159,6 +153,11 @@ export async function handlePublisherTest(
   const ip = event.requestContext?.identity?.sourceIp ?? 'unknown';
   const rl = await checkPublisherTestRateLimit(ip);
   if (rl.ok === false) {
+    // /publisher-test is the main abuse surface (DNS rebinding probes,
+    // feed scanning). A warn-level log per denial gives ops a CloudWatch
+    // signal for detecting campaigns. IP is fine to log; the path itself
+    // contains no PII.
+    console.warn(`[publisher-test] rate-limit denied: ip=${ip} retry_after=${rl.retryAfterSeconds}s`);
     return {
       statusCode: 429,
       headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfterSeconds) },
@@ -265,6 +264,10 @@ async function applyAuthRateLimit(event: APIGatewayProxyEvent): Promise<APIGatew
   const ip = event.requestContext?.identity?.sourceIp ?? 'unknown';
   const rl = await checkPublisherAuthRateLimit(ip);
   if (rl.ok === false) {
+    // Apply/login denials are interesting for spotting account-enumeration
+    // and SES-quota-exhaustion attempts. Same warn-level signal as the
+    // test endpoint above.
+    console.warn(`[publisher-auth] rate-limit denied: ip=${ip} retry_after=${rl.retryAfterSeconds}s`);
     return {
       statusCode: 429,
       headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfterSeconds) },

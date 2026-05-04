@@ -15,10 +15,11 @@ notes carried over from Phases B and C.
 ## In scope (this PR)
 
 1. **DNS-rebinding mitigation in `urlGuard`** — resolve the hostname
-   before the fetch, validate every resolved IP against the existing
-   private/loopback/CGNAT block-list, then fetch the literal IP with a
-   `Host:` header set to the original hostname. Closes the gap noted in
-   the Phase A `urlGuard.ts` top-of-file comment.
+   before the fetch and validate every resolved IP against the existing
+   private/loopback/CGNAT block-list. Closes the most plausible
+   exploitation path of the gap noted in the Phase A `urlGuard.ts`
+   top-of-file comment. (See the D1 task for the rationale on why we did
+   NOT also re-fetch by literal IP with a `Host:` header.)
 2. **DynamoDB-backed sliding-window rate limiter.** New table
    `chautauqua-calendar-publisher-rate-limit` (TTL on `expiresAt`).
    Replaces the in-memory `_state` Maps in `publisherPortalHandler.ts`

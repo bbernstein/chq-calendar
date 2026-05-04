@@ -23,11 +23,11 @@
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 
-export interface RateLimitDecision {
-  ok: boolean;
-  // When ok=false, the recommended Retry-After header value in seconds.
-  retryAfterSeconds?: number;
-}
+// Discriminated union — the false branch always carries retryAfterSeconds,
+// so callers can drop the `?? 1` safety fallback.
+export type RateLimitDecision =
+  | { ok: true }
+  | { ok: false; retryAfterSeconds: number };
 
 export interface RateLimitOptions {
   key: string;
@@ -65,8 +65,20 @@ export class DynamoRateLimiter implements RateLimiter {
     }));
     const row = (existing.Item as RateLimitRow | undefined);
     const recent = (row?.timestamps ?? []).filter(t => t > windowStart);
+    // TTL eviction window is the rate window plus a small buffer so the
+    // row sticks around long enough that a request right at the boundary
+    // still sees its own history. 60s is comfortably over any reasonable
+    // jitter.
+    const expiresAt = Math.ceil((now + opts.windowMs) / 1000) + 60;
     if (recent.length >= opts.max) {
       const oldest = recent[0];
+      // Write back the pruned-but-not-extended list so a key that is
+      // hammered at the limit doesn't accumulate stale timestamps in DDB.
+      // Costs one extra Put per denied request — negligible at portal RPS.
+      await this.db.send(new PutCommand({
+        TableName: this.tableName,
+        Item: { id: opts.key, timestamps: recent, expiresAt } satisfies RateLimitRow,
+      }));
       return {
         ok: false,
         retryAfterSeconds: Math.max(
@@ -78,15 +90,7 @@ export class DynamoRateLimiter implements RateLimiter {
     recent.push(now);
     await this.db.send(new PutCommand({
       TableName: this.tableName,
-      Item: {
-        id: opts.key,
-        timestamps: recent,
-        // TTL eviction window is the rate window plus a small buffer so
-        // the row sticks around long enough that a request right at the
-        // boundary still sees its own history. 60s is comfortably over
-        // any reasonable jitter.
-        expiresAt: Math.ceil((now + opts.windowMs) / 1000) + 60,
-      } satisfies RateLimitRow,
+      Item: { id: opts.key, timestamps: recent, expiresAt } satisfies RateLimitRow,
     }));
     return { ok: true };
   }
