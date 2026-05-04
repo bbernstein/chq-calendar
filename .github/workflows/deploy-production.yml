@@ -203,6 +203,13 @@ jobs:
           # Create package for admin handler (package.json already copied above)
           mkdir -p package_temp/dist
           cp dist/adminHandler.js package_temp/dist/
+          # Refs (categories, venues) are loaded by @chq-calendar/publisher-format's
+          # loadReferences() at /publisher-test invocation time. The library reads
+          # from `dist/refs/` relative to its own __dirname; without these files
+          # it falls through to a repo path that does not exist inside the Lambda
+          # filesystem, and /publisher-test (delegated from adminHandler) returns
+          # 500 with ENOENT. publisher-ingest already includes this copy.
+          cp -r dist/refs package_temp/dist/refs
 
           cd package_temp
           zip -r ../lambda-admin.zip . -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
