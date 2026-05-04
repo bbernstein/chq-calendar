@@ -8,9 +8,21 @@
  * Validation is done server-side; client-side we only enforce required-ness
  * and basic HTML5 patterns. The server's response carries field-specific
  * errors that we surface inline.
+ *
+ * The form is gated by reCAPTCHA v3 (action: `publisher_apply`). The site
+ * key is loaded via VITE_RECAPTCHA_SITE_KEY at build time. When the site
+ * key is unset (local dev with no .env.local) the captcha layer is skipped
+ * and the request is sent without a token — the backend allows this in
+ * non-production environments and fails closed in prod.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+
+// `Window.grecaptcha` is declared (non-optional) in
+// frontend/src/app/feedback/page.tsx. We share that global declaration
+// rather than redeclaring (TS errors on conflicting modifiers). Call sites
+// guard with `window.grecaptcha &&` because the script may not have loaded
+// on this page yet.
 
 type SourceType = 'json' | 'html';
 
@@ -39,14 +51,57 @@ type Status =
   | { kind: 'error'; message: string; field?: string };
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
+const RECAPTCHA_SITE_KEY = (import.meta as any).env?.VITE_RECAPTCHA_SITE_KEY as string | undefined;
 
 export default function PublishApplyPage() {
   const [form, setForm] = useState<FormState>(INITIAL);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [captchaReady, setCaptchaReady] = useState(false);
+
+  // Lazy-load the reCAPTCHA script when a site key is configured. When it
+  // isn't (e.g. local dev with no .env.local), captchaReady stays false and
+  // we send the request without a token — the backend's captchaService
+  // allows that in non-production environments.
+  useEffect(() => {
+    if (!RECAPTCHA_SITE_KEY) return;
+
+    const script = document.createElement('script');
+    script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      window.grecaptcha?.ready(() => setCaptchaReady(true));
+    };
+    document.head.appendChild(script);
+
+    return () => {
+      if (document.head.contains(script)) document.head.removeChild(script);
+    };
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Block the submit briefly if a site key is configured but the script
+    // hasn't finished loading yet — better than sending an empty token.
+    if (RECAPTCHA_SITE_KEY && !captchaReady) {
+      setStatus({ kind: 'error', message: 'Verifying you’re human… try again in a moment.' });
+      return;
+    }
+
     setStatus({ kind: 'submitting' });
+
+    let captchaToken = '';
+    if (RECAPTCHA_SITE_KEY && captchaReady && window.grecaptcha) {
+      try {
+        captchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {
+          action: 'publisher_apply',
+        });
+      } catch (err) {
+        console.warn('reCAPTCHA execute failed:', err);
+        // fall through — backend will reject if token is missing in prod
+      }
+    }
 
     const payload = {
       name: form.name.trim(),
@@ -55,6 +110,7 @@ export default function PublishApplyPage() {
       sourceUrl: form.sourceUrl.trim(),
       sourceType: form.sourceType,
       notes: form.notes.trim() || undefined,
+      captchaToken: captchaToken || undefined,
     };
 
     try {
@@ -124,6 +180,16 @@ export default function PublishApplyPage() {
                 send a verification link to your email — click it within 15
                 minutes to complete your application. An admin will review and
                 approve before your events appear on chqcal.org.
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                Not sure what your feed should look like? Read the{' '}
+                <a
+                  href="/publish/docs/"
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  publisher format docs
+                </a>{' '}
+                first.
               </p>
 
               <form onSubmit={onSubmit} className="space-y-4">
@@ -233,13 +299,27 @@ export default function PublishApplyPage() {
                   </a>
                   <button
                     type="submit"
-                    disabled={status.kind === 'submitting'}
+                    disabled={status.kind === 'submitting' || (!!RECAPTCHA_SITE_KEY && !captchaReady)}
                     className="inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                   >
                     {status.kind === 'submitting' ? 'Sending…' : 'Send verification email'}
                   </button>
                 </div>
               </form>
+
+              {RECAPTCHA_SITE_KEY && (
+                <p className="mt-6 text-xs text-gray-500 dark:text-gray-400">
+                  This form is protected by reCAPTCHA and the Google{' '}
+                  <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-700 dark:hover:text-gray-300">
+                    Privacy Policy
+                  </a>{' '}
+                  and{' '}
+                  <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-700 dark:hover:text-gray-300">
+                    Terms of Service
+                  </a>{' '}
+                  apply.
+                </p>
+              )}
             </>
           )}
         </div>

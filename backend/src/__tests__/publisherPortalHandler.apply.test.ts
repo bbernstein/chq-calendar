@@ -1,6 +1,10 @@
 // Handler-level tests for the four Phase B routes. The application service
 // is stubbed via _setAppServiceForTests so we don't hit DynamoDB / SES /
-// Secrets Manager.
+// Secrets Manager. CAPTCHA verification is mocked so we don't hit Google.
+
+jest.mock('../services/captchaService', () => ({
+  verifyCaptcha: jest.fn(),
+}));
 
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import {
@@ -11,6 +15,9 @@ import {
   _setAppServiceForTests,
   _resetPublisherAuthRateLimitForTests,
 } from '../handlers/publisherPortalHandler';
+import { verifyCaptcha } from '../services/captchaService';
+
+const mockVerifyCaptcha = verifyCaptcha as jest.MockedFunction<typeof verifyCaptcha>;
 
 const evt = (overrides: Partial<APIGatewayProxyEvent> = {}): APIGatewayProxyEvent => ({
   body: '',
@@ -36,8 +43,20 @@ const mkApp = () => ({
 });
 
 describe('handlePublisherApplyRequest', () => {
+  // A valid-shape body used by every test that isn't asserting validation errors.
+  // The captchaToken value is arbitrary — verifyCaptcha is mocked.
+  const validBody = {
+    name: 'A',
+    email: 'a@b.com',
+    sourceUrl: 'https://x.test/feed',
+    sourceType: 'json',
+    captchaToken: 'test-captcha-token',
+  };
+
   beforeEach(() => {
     _resetPublisherAuthRateLimitForTests();
+    mockVerifyCaptcha.mockReset();
+    mockVerifyCaptcha.mockResolvedValue(true);
   });
   afterEach(() => {
     _setAppServiceForTests(null);
@@ -47,18 +66,44 @@ describe('handlePublisherApplyRequest', () => {
     const stub = mkApp();
     stub.requestApply.mockResolvedValue({ ok: true });
     _setAppServiceForTests(stub as any);
-    const r = await handlePublisherApplyRequest(evt(), {
-      name: 'A', email: 'a@b.com', sourceUrl: 'https://x.test/feed', sourceType: 'json',
-    });
+    const r = await handlePublisherApplyRequest(evt(), validBody);
     expect(r.statusCode).toBe(200);
     expect(JSON.parse(r.body)).toEqual({ ok: true });
     expect(stub.requestApply).toHaveBeenCalled();
+    expect(mockVerifyCaptcha).toHaveBeenCalledWith('test-captcha-token', 'publisher_apply');
   });
 
-  it('returns 400 on missing fields', async () => {
+  it('returns 400 with captcha field when captchaToken is missing', async () => {
     const stub = mkApp();
     _setAppServiceForTests(stub as any);
-    const r = await handlePublisherApplyRequest(evt(), { name: 'A' });
+    const { captchaToken: _drop, ...withoutToken } = validBody;
+    const r = await handlePublisherApplyRequest(evt(), withoutToken);
+    expect(r.statusCode).toBe(400);
+    const body = JSON.parse(r.body);
+    expect(body.field).toBe('captcha');
+    expect(stub.requestApply).not.toHaveBeenCalled();
+    expect(mockVerifyCaptcha).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 with captcha field when verifyCaptcha returns false', async () => {
+    const stub = mkApp();
+    _setAppServiceForTests(stub as any);
+    mockVerifyCaptcha.mockResolvedValue(false);
+    const r = await handlePublisherApplyRequest(evt(), validBody);
+    expect(r.statusCode).toBe(400);
+    const body = JSON.parse(r.body);
+    expect(body.field).toBe('captcha');
+    expect(body.error).toMatch(/CAPTCHA/);
+    expect(stub.requestApply).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 on missing fields (after captcha passes)', async () => {
+    const stub = mkApp();
+    _setAppServiceForTests(stub as any);
+    const r = await handlePublisherApplyRequest(evt(), {
+      name: 'A',
+      captchaToken: 'test-captcha-token',
+    });
     expect(r.statusCode).toBe(400);
     expect(stub.requestApply).not.toHaveBeenCalled();
   });
@@ -70,7 +115,8 @@ describe('handlePublisherApplyRequest', () => {
     });
     _setAppServiceForTests(stub as any);
     const r = await handlePublisherApplyRequest(evt(), {
-      name: 'A', email: 'a@b.com', sourceUrl: 'http://localhost', sourceType: 'json',
+      ...validBody,
+      sourceUrl: 'http://localhost',
     });
     expect(r.statusCode).toBe(400);
     const body = JSON.parse(r.body);
@@ -82,12 +128,11 @@ describe('handlePublisherApplyRequest', () => {
     const stub = mkApp();
     stub.requestApply.mockResolvedValue({ ok: true });
     _setAppServiceForTests(stub as any);
-    const body = { name: 'A', email: 'a@b.com', sourceUrl: 'https://x.test/feed', sourceType: 'json' };
     for (let i = 0; i < 10; i++) {
-      const r = await handlePublisherApplyRequest(evt(), body);
+      const r = await handlePublisherApplyRequest(evt(), validBody);
       expect(r.statusCode).toBe(200);
     }
-    const limited = await handlePublisherApplyRequest(evt(), body);
+    const limited = await handlePublisherApplyRequest(evt(), validBody);
     expect(limited.statusCode).toBe(429);
     expect(limited.headers?.['Retry-After']).toBeTruthy();
   });

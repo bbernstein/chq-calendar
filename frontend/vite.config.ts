@@ -97,6 +97,7 @@ export default defineConfig({
         publish: resolve(__dirname, 'publish/index.html'),
         'publish-test': resolve(__dirname, 'publish/test/index.html'),
         'publish-apply': resolve(__dirname, 'publish/apply/index.html'),
+        'publish-docs': resolve(__dirname, 'publish/docs/index.html'),
         'publish-verify': resolve(__dirname, 'publish/verify/index.html'),
         'publish-login': resolve(__dirname, 'publish/login/index.html'),
         'publish-status': resolve(__dirname, 'publish/status/index.html'),

@@ -25,6 +25,7 @@ import { SesMailService } from '../services/mailService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherApplicationService } from '../services/publisherApplicationService';
 import { verifyPublisherJwt } from '../services/publisherAuthService';
+import { verifyCaptcha } from '../services/captchaService';
 import {
   DynamoRateLimiter,
   InMemoryRateLimiter,
@@ -295,6 +296,11 @@ export async function handlePublisherApplyRequest(
   const limited = await applyAuthRateLimit(event);
   if (limited) return limited;
 
+  const captchaToken = typeof requestBody?.captchaToken === 'string' ? requestBody.captchaToken : '';
+  if (!captchaToken) {
+    return json(400, { error: 'CAPTCHA token is required.', field: 'captcha' });
+  }
+
   const payload = requestBody as Partial<ApplyFormPayload>;
   if (
     typeof payload?.name !== 'string' ||
@@ -303,6 +309,15 @@ export async function handlePublisherApplyRequest(
     typeof payload?.sourceType !== 'string'
   ) {
     return json(400, { error: 'Missing or invalid fields. Required: name, email, sourceUrl, sourceType.' });
+  }
+
+  // CAPTCHA gates the apply form to deter scripted abuse. Verified after the
+  // rate-limit check (so attackers can't burn quota with bogus tokens) and
+  // after the basic shape check (so legitimate users see field errors first
+  // when their submission is malformed).
+  const captchaOk = await verifyCaptcha(captchaToken, 'publisher_apply');
+  if (!captchaOk) {
+    return json(400, { error: 'CAPTCHA verification failed. Please refresh and try again.', field: 'captcha' });
   }
 
   try {

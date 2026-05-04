@@ -86,6 +86,19 @@ export default function PublishLandingPage() {
           {/* CTAs */}
           <section className="grid sm:grid-cols-2 gap-4">
             <a
+              href="/publish/docs/"
+              className="block p-5 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+            >
+              <h4 className="text-lg font-semibold text-blue-900 dark:text-blue-200 mb-1">
+                Read the format docs
+              </h4>
+              <p className="text-sm text-blue-800 dark:text-blue-300">
+                Field reference, JSON and HTML examples, and how to validate
+                your feed locally before submitting.
+              </p>
+            </a>
+
+            <a
               href="/publish/test/"
               className="block p-5 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
             >
@@ -100,7 +113,7 @@ export default function PublishLandingPage() {
 
             <a
               href="/publish/apply/"
-              className="block p-5 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+              className="block p-5 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors sm:col-span-2"
             >
               <h4 className="text-lg font-semibold text-blue-900 dark:text-blue-200 mb-1">
                 Apply to be a publisher
