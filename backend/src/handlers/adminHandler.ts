@@ -522,10 +522,13 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       }
     }
 
-    const matchPubPatch = path.match(/^\/publishers\/([^/]+)$/);
-    if (matchPubPatch && httpMethod === 'PATCH') {
+    // Matches both PATCH and DELETE routes for a single publisher by id.
+    // The regex is intentionally narrow — sub-paths like /publishers/run-ingest
+    // are handled above this block, so they can't fall through here.
+    const matchPubId = path.match(/^\/publishers\/([^/]+)$/);
+    if (matchPubId && httpMethod === 'PATCH') {
       try {
-        const publisher = await publisherAdmin().updatePublisher(decodeURIComponent(matchPubPatch[1]), requestBody);
+        const publisher = await publisherAdmin().updatePublisher(decodeURIComponent(matchPubId[1]), requestBody);
         return createResponse(200, { publisher });
       } catch (error) {
         console.error('Error updating publisher:', error);
@@ -537,9 +540,9 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       }
     }
 
-    if (matchPubPatch && httpMethod === 'DELETE') {
+    if (matchPubId && httpMethod === 'DELETE') {
       try {
-        const result = await publisherAdmin().deletePublisher(decodeURIComponent(matchPubPatch[1]));
+        const result = await publisherAdmin().deletePublisher(decodeURIComponent(matchPubId[1]));
         return createResponse(200, result);
       } catch (error) {
         console.error('Error deleting publisher:', error);

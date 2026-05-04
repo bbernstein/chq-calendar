@@ -3,12 +3,14 @@ import {
   listPublishers,
   createPublisher,
   updatePublisher,
+  deletePublisher,
   listPending,
   approveEvent,
   rejectEvent,
   listHalts,
   approveHalt,
   cancelHalt,
+  runPublisherIngest,
 } from '@/lib/adminPublisherApi';
 
 // ---------------------------------------------------------------------------
@@ -113,6 +115,53 @@ describe('updatePublisher', () => {
     await updatePublisher('pub/with space', { enabled: true });
     const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain(encodeURIComponent('pub/with space'));
+  });
+
+  it('passes the paused flag through to the PATCH body', async () => {
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ publisher: { id: 'pub-1', paused: true } }));
+    await updatePublisher('pub-1', { paused: true });
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(options.body as string)).toEqual({ paused: true });
+  });
+});
+
+describe('deletePublisher', () => {
+  it('DELETEs /admin/api/publishers/<id> and returns the deletedEvents count', async () => {
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ deletedEvents: 3 }));
+    const result = await deletePublisher('pub-1');
+    expect(result).toEqual({ deletedEvents: 3 });
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/admin\/api\/publishers\/pub-1$/);
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('URL-encodes publisher ids that contain special characters', async () => {
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ deletedEvents: 0 }));
+    await deletePublisher('pub/with space');
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(encodeURIComponent('pub/with space'));
+  });
+
+  it('surfaces non-2xx responses as a thrown error', async () => {
+    fetchMock.mockResolvedValueOnce(makeErrorResponse(500, 'boom'));
+    await expect(deletePublisher('pub-1')).rejects.toThrow(/500/);
+  });
+});
+
+describe('runPublisherIngest', () => {
+  it('POSTs to /admin/api/publishers/run-ingest and returns the triggeredAt timestamp', async () => {
+    const triggeredAt = '2026-05-04T22:00:00.000Z';
+    fetchMock.mockResolvedValueOnce(makeOkResponse({ triggeredAt }, 202));
+    const result = await runPublisherIngest();
+    expect(result).toEqual({ triggeredAt });
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/admin\/api\/publishers\/run-ingest$/);
+    expect(options.method).toBe('POST');
+  });
+
+  it('surfaces non-2xx responses as a thrown error', async () => {
+    fetchMock.mockResolvedValueOnce(makeErrorResponse(500, 'invoke failed'));
+    await expect(runPublisherIngest()).rejects.toThrow(/500/);
   });
 });
 

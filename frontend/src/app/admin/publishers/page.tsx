@@ -22,6 +22,18 @@ type FormMode =
 
 const CLOSED: FormMode = { kind: 'closed' };
 
+// Polling cadence + ceiling for the "Run ingest now" button. Module-scope so
+// the values aren't reallocated on every render. 3s × 40 attempts ≈ 2 min.
+const INGEST_POLL_INTERVAL_MS = 3000;
+const INGEST_POLL_MAX_ATTEMPTS = 40;
+
+// Sentinel used as the optimistic triggeredAt when handleRunIngest sets the
+// "running" state before the network call resolves. Replaced by the server's
+// canonical value once the POST returns. Picking the epoch keeps the
+// "is-newer-than-trigger" comparison defensively correct in the unlikely
+// event polling fires before the replacement state lands.
+const PROVISIONAL_TRIGGER_TIMESTAMP = '1970-01-01T00:00:00.000Z';
+
 // ---------------------------------------------------------------------------
 // Inline icon components (Heroicons-style 24x24 outline). Inlined rather
 // than pulled from a library to avoid a new dep for ~5 glyphs. Each accepts
@@ -214,9 +226,6 @@ export default function PublishersPage() {
   // -------------------------------------------------------------------------
   // Run ingest now
   // -------------------------------------------------------------------------
-  const INGEST_POLL_INTERVAL_MS = 3000;
-  const INGEST_POLL_MAX_ATTEMPTS = 40; // ~2 min ceiling
-
   const stopIngestPoll = useCallback(() => {
     if (ingestPollRef.current !== null) {
       clearInterval(ingestPollRef.current);
@@ -228,7 +237,15 @@ export default function PublishersPage() {
   useEffect(() => stopIngestPoll, [stopIngestPoll]);
 
   const handleRunIngest = useCallback(async () => {
-    setIngestState({ kind: 'idle' });
+    // Set running state immediately so the button disables before the network
+    // call begins — this prevents a fast double-click from firing two
+    // POST /publishers/run-ingest requests. We use a provisional triggeredAt
+    // and replace it with the server's canonical value once the POST returns.
+    setIngestState({
+      kind: 'running',
+      triggeredAt: PROVISIONAL_TRIGGER_TIMESTAMP,
+      pollCount: 0,
+    });
     try {
       const { triggeredAt } = await runPublisherIngest();
       const triggeredAtMs = Date.parse(triggeredAt);
@@ -242,15 +259,20 @@ export default function PublishersPage() {
           const fresh = await listPublishers();
           setPublishers(fresh);
 
-          // The publisher-ingest run is "done" when every enabled publisher
-          // has a lastFetchedAt strictly newer than the trigger time. Some
-          // publishers may be skipped if the registry only updates outcome
-          // for those it actually ran — we still treat newer-than-trigger
-          // as the success signal for that row.
-          const enabled = fresh.filter(p => p.enabled && p.applicationStatus !== 'pending');
+          // The publisher-ingest run is "done" when every publisher the
+          // backend will actually fetch has a lastFetchedAt newer than the
+          // trigger time. The backend skips paused rows entirely and never
+          // calls recordFetchOutcome for them, so we exclude them from the
+          // completion check — otherwise a single paused publisher would
+          // pin allRefreshed to false until the timeout fired.
+          const eligible = fresh.filter(
+            p => p.enabled && !p.paused && p.applicationStatus !== 'pending',
+          );
+          // Empty eligible list (everything paused / no publishers at all):
+          // there is nothing left to wait for, so treat as immediate success.
           const allRefreshed =
-            enabled.length > 0 &&
-            enabled.every(p => {
+            eligible.length === 0 ||
+            eligible.every(p => {
               if (!p.lastFetchedAt) return false;
               const t = Date.parse(p.lastFetchedAt);
               return Number.isFinite(t) && t >= triggeredAtMs;
