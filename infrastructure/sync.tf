@@ -4,7 +4,7 @@ resource "aws_lambda_function" "data_sync" {
   function_name = "chq-calendar-data-sync"
   role          = aws_iam_role.lambda_role.arn
   handler       = "dist/syncHandler.scheduledSyncHandler"
-  runtime       = "nodejs22.x"
+  runtime       = "nodejs24.x"
   timeout       = 900 # 15 minutes
   memory_size   = 1024
 
@@ -37,7 +37,7 @@ resource "aws_lambda_function" "manual_sync" {
   function_name = "chq-calendar-manual-sync"
   role          = aws_iam_role.lambda_role.arn
   handler       = "dist/syncHandler.manualSyncHandler"
-  runtime       = "nodejs22.x"
+  runtime       = "nodejs24.x"
   timeout       = 900 # 15 minutes
   memory_size   = 1024
 
@@ -66,7 +66,7 @@ resource "aws_lambda_function" "sync_health" {
   function_name = "chq-calendar-sync-health"
   role          = aws_iam_role.lambda_role.arn
   handler       = "dist/syncHandler.healthCheckHandler"
-  runtime       = "nodejs22.x"
+  runtime       = "nodejs24.x"
   timeout       = 30
   memory_size   = 256
 
@@ -95,7 +95,7 @@ resource "aws_lambda_function" "sync_status" {
   function_name = "chq-calendar-sync-status"
   role          = aws_iam_role.lambda_role.arn
   handler       = "dist/syncHandler.syncStatusHandler"
-  runtime       = "nodejs22.x"
+  runtime       = "nodejs24.x"
   timeout       = 30
   memory_size   = 256
 
@@ -124,7 +124,7 @@ resource "aws_lambda_function" "sync_list" {
   function_name = "chq-calendar-sync-list"
   role          = aws_iam_role.lambda_role.arn
   handler       = "dist/syncHandler.syncListHandler"
-  runtime       = "nodejs22.x"
+  runtime       = "nodejs24.x"
   timeout       = 30
   memory_size   = 256
 
