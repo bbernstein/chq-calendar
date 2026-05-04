@@ -102,5 +102,16 @@ describe('verifyCaptcha', () => {
       const ok = await verifyCaptcha('tok', 'publisher_apply');
       expect(ok).toBe(false);
     });
+
+    it('returns false when siteverify times out (AbortError path)', async () => {
+      // The 8s AbortController timeout protects the Lambda from a slow or
+      // unreachable Google endpoint. When the controller aborts, fetch
+      // throws an AbortError; this test asserts the catch branch handles
+      // it cleanly and returns false rather than propagating.
+      const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
+      mockFetch.mockRejectedValueOnce(abortErr);
+      const ok = await verifyCaptcha('tok', 'publisher_apply');
+      expect(ok).toBe(false);
+    });
   });
 });
