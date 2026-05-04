@@ -170,4 +170,13 @@ describe('PublisherRegistryService', () => {
       reviewerEmail: 'admin@chqcal.org',
     })).rejects.not.toBeInstanceOf(ConcurrentApplicationUpdateError);
   });
+
+  it('delete sends DeleteCommand keyed by id', async () => {
+    mockSend.mockResolvedValue({});
+    await svc.delete('p-to-delete');
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.TableName).toBe('chq-publishers');
+    expect(cmd.input.Key).toEqual({ id: 'p-to-delete' });
+  });
 });

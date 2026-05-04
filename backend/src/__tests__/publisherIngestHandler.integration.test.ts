@@ -500,4 +500,79 @@ describe('runIngest (integration)', () => {
       'publish',
     ]);
   });
+
+  it('skips paused publishers (no fetch, no event retraction) — events stay in the sidecar', async () => {
+    const pausedRow = {
+      id: 'paused-pub', name: 'P', contactEmail: 'a@b', sourceUrl: 'https://x',
+      sourceType: 'json', trustLevel: 'auto', enabled: true, paused: true, createdAt: 't',
+    };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([pausedRow]),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn();
+    const store = {
+      listForPublisher: jest.fn(),
+      applyDiff: jest.fn(),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    // Paused publishers are intentionally invisible to the active and
+    // disabled loops — no fetch, no reconcile, no retraction. The contract
+    // is "ingest is paused but events stay visible".
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(store.listForPublisher).not.toHaveBeenCalled();
+    expect(store.applyDiff).not.toHaveBeenCalled();
+    expect(store.deleteAllForPublisher).not.toHaveBeenCalled();
+    expect(registry.recordFetchOutcome).not.toHaveBeenCalled();
+    // Sidecar still republishes the global view (which contains whatever the
+    // paused publisher had previously written).
+    expect(sidecar.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('disabled-and-paused publisher is treated as disabled (events retracted, not preserved)', async () => {
+    // Defensive: paused only matters when enabled. If a row is both
+    // enabled=false and paused=true, the disabled retraction loop must still
+    // win — otherwise an admin who disables a paused publisher would
+    // silently leave events in the sidecar.
+    const row = {
+      id: 'disabled-paused', name: 'D', contactEmail: 'a@b', sourceUrl: 'https://x',
+      sourceType: 'json', trustLevel: 'auto', enabled: false, paused: true, createdAt: 't',
+    };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([row]),
+      recordFetchOutcome: jest.fn(),
+      setThresholdHalt: jest.fn(),
+    };
+    const fetcher = jest.fn();
+    const store = {
+      listForPublisher: jest.fn(),
+      applyDiff: jest.fn(),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(3),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(store.deleteAllForPublisher).toHaveBeenCalledWith('disabled-paused');
+  });
 });

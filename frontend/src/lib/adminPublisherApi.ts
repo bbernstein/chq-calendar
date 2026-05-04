@@ -15,6 +15,9 @@ export interface PublisherRecord {
   sourceType: 'json' | 'html';
   trustLevel: 'auto' | 'review' | 'flagged';
   enabled: boolean;
+  // Optional. true = ingest skipped but existing events remain. Distinct from
+  // enabled=false (which retracts events). See backend types/publisher.ts.
+  paused?: boolean;
   createdAt: string;
   lastFetchedAt?: string;
   lastFetchStatus?: 'ok' | 'parse_error' | 'validation_error' | 'network_error' | 'threshold_halt';
@@ -135,6 +138,26 @@ export const updatePublisher = async (
     { method: 'PATCH', body: JSON.stringify(patch) },
   );
   return r.publisher;
+};
+
+// Hard-deletes the publisher row + all its stored events. Returns the count
+// of events that were removed so callers can surface it in confirmations.
+export const deletePublisher = async (id: string): Promise<{ deletedEvents: number }> => {
+  return req<{ deletedEvents: number }>(`/publishers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Manual ingest trigger
+// ---------------------------------------------------------------------------
+
+// Async-invokes the publisher-ingest Lambda. Returns the ISO timestamp the
+// admin Lambda recorded when it fired the invocation — callers use it to
+// detect when subsequent listPublishers() responses include lastFetchedAt
+// values newer than the trigger.
+export const runPublisherIngest = async (): Promise<{ triggeredAt: string }> => {
+  return req<{ triggeredAt: string }>('/publishers/run-ingest', { method: 'POST' });
 };
 
 // ---------------------------------------------------------------------------

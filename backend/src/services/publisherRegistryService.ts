@@ -1,5 +1,5 @@
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { ApplicationStatus, FetchStatus, PublisherRecord } from '../types/publisher';
 
 // Thrown by setApplicationStatus when the optional `expectedFromStatus` does
@@ -55,6 +55,10 @@ export class PublisherRegistryService {
 
   async upsert(rec: PublisherRecord): Promise<void> {
     await this.db.send(new PutCommand({ TableName: this.tableName, Item: rec }));
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.send(new DeleteCommand({ TableName: this.tableName, Key: { id } }));
   }
 
   async recordFetchOutcome(id: string, outcome: { status: FetchStatus; message?: string }): Promise<void> {

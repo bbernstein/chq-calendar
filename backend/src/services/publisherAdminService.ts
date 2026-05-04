@@ -83,6 +83,25 @@ export class PublisherAdminService {
     await this.updatePublisher(id, { enabled });
   }
 
+  async setPaused(id: string, paused: boolean): Promise<void> {
+    await this.updatePublisher(id, { paused });
+  }
+
+  // Hard-deletes the publisher row and all its stored events. Used by the
+  // admin UI's "Delete" action. The next sidecar publish (triggered by the
+  // ingest loop on its hourly cadence, or manually via "Run ingest now")
+  // will reflect the removal. We do NOT publish here — the admin handler
+  // owns that decision so callers can batch deletes if desired.
+  async deletePublisher(id: string): Promise<{ deletedEvents: number }> {
+    const existing = await this.registry.get(id);
+    if (existing == null) {
+      throw new Error(`unknown publisher ${id}`);
+    }
+    const deletedEvents = await this.store.deleteAllForPublisher(id);
+    await this.registry.delete(id);
+    return { deletedEvents };
+  }
+
   listPendingEvents(): Promise<StoredPublisherEvent[]> {
     return this.store.listPending();
   }

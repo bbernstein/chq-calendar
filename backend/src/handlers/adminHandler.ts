@@ -2,6 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda
 import { randomBytes } from 'crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
 import { ApplicationStateError, PublisherAdminService } from '../services/publisherAdminService';
@@ -29,6 +30,28 @@ const dynamoClient = new DynamoDBClient({
   }),
 });
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
+
+// Lambda client used to invoke the publisher-ingest function on demand from
+// the admin "Run ingest now" button. Async (Event) invocation only — admin
+// API Gateway has a 29s timeout and ingest runs can exceed that.
+let _lambdaClient: LambdaClient | null = null;
+function lambdaClient(): LambdaClient {
+  if (!_lambdaClient) {
+    _lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
+  }
+  return _lambdaClient;
+}
+
+// Test-only: inject a fake LambdaClient (or a stub with a `send` method).
+export function _setLambdaClientForTests(client: LambdaClient | null): void {
+  _lambdaClient = client;
+}
+
+// Read per-call rather than caching at module load so tests can override the
+// env var without re-importing the module.
+function publisherIngestFunctionName(): string {
+  return process.env.PUBLISHER_INGEST_FUNCTION_NAME ?? 'chautauqua-calendar-publisher-ingest';
+}
 
 // Lazy singleton for PublisherAdminService — one instance per Lambda warm container.
 // Phase C: pass MailService + siteBaseUrl so approve/reject can notify publishers.
@@ -399,6 +422,26 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       return createResponse(401, { error: 'Authentication required' });
     }
 
+    // Trigger an immediate publisher-ingest run. Async invocation: API
+    // Gateway times out at 29s and the ingest may take minutes for many
+    // publishers, so we fire-and-forget and let the UI poll the publishers
+    // list to observe updated lastFetchedAt timestamps.
+    if (path === '/publishers/run-ingest' && httpMethod === 'POST') {
+      try {
+        const triggeredAt = new Date().toISOString();
+        await lambdaClient().send(new InvokeCommand({
+          FunctionName: publisherIngestFunctionName(),
+          InvocationType: 'Event',
+          Payload: Buffer.from(JSON.stringify({ source: 'admin-ui', triggeredBy: user.email, triggeredAt })),
+        }));
+        return createResponse(202, { triggeredAt });
+      } catch (error) {
+        console.error('Error triggering publisher ingest:', error);
+        const message = error instanceof Error ? error.message : 'unknown error';
+        return createResponse(500, { error: `Failed to trigger publisher ingest: ${message}` });
+      }
+    }
+
     // Publisher CRUD endpoints
     if (path === '/publishers' && httpMethod === 'GET') {
       try {
@@ -491,6 +534,20 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           return createResponse(404, { error: message });
         }
         return createResponse(500, { error: 'Failed to update publisher' });
+      }
+    }
+
+    if (matchPubPatch && httpMethod === 'DELETE') {
+      try {
+        const result = await publisherAdmin().deletePublisher(decodeURIComponent(matchPubPatch[1]));
+        return createResponse(200, result);
+      } catch (error) {
+        console.error('Error deleting publisher:', error);
+        const message = error instanceof Error ? error.message : '';
+        if (message.startsWith('unknown publisher')) {
+          return createResponse(404, { error: message });
+        }
+        return createResponse(500, { error: 'Failed to delete publisher' });
       }
     }
 

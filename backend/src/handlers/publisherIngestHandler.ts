@@ -23,7 +23,11 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
   // missing (treated as falsy → disabled), which a `enabled = :f` filter
   // would silently skip.
   const allPublishers = await deps.registry.listAll();
-  const publishers = allPublishers.filter(p => p.enabled);
+  // Three buckets:
+  //   - active   (enabled && !paused): re-fetch and reconcile
+  //   - paused   (enabled &&  paused): skip entirely; existing events stay
+  //   - disabled (!enabled):           retract all events on this run
+  const publishers = allPublishers.filter(p => p.enabled && !p.paused);
   const disabled = allPublishers.filter(p => !p.enabled);
 
   for (const p of publishers) {

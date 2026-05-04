@@ -809,6 +809,26 @@ resource "aws_iam_role_policy" "lambda_s3_cache" {
   })
 }
 
+# IAM policy allowing the shared Lambda role to invoke the publisher-ingest
+# Lambda. Used by the admin "Run ingest now" button on /admin/publishers/.
+# Async (Event) invocation only — see POST /publishers/run-ingest in
+# adminHandler.ts.
+resource "aws_iam_role_policy" "lambda_invoke_publisher_ingest" {
+  name = "${var.app_name}-lambda-invoke-publisher-ingest-policy"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.publisher_ingest.arn
+      }
+    ]
+  })
+}
+
 # Lambda Function for Calendar/Public endpoints
 resource "aws_lambda_function" "calendar_generator" {
   filename      = "../backend/lambda-function.zip"
@@ -857,6 +877,9 @@ resource "aws_lambda_function" "admin_handler" {
       ADMIN_API_URL               = "https://admin-api.${var.domain_name}"
       PUBLISHERS_TABLE_NAME       = aws_dynamodb_table.publishers.name
       PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
+      # Admin "Run ingest now" button on /admin/publishers/ async-invokes
+      # this function via lambda:InvokeFunction.
+      PUBLISHER_INGEST_FUNCTION_NAME = aws_lambda_function.publisher_ingest.function_name
       # Phase B publisher portal: magic-link apply + login flow.
       # Resources defined in publisher-portal.tf.
       PUBLISHER_JWT_SECRET_ARN         = aws_secretsmanager_secret.publisher_jwt_secret.arn
