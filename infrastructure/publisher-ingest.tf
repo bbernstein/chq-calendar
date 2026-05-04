@@ -45,9 +45,15 @@ resource "aws_dynamodb_table" "publisher_events" {
 
   global_secondary_index {
     name            = "by-state"
-    hash_key        = "state"
-    range_key       = "publisherId"
     projection_type = "ALL"
+    key_schema {
+      attribute_name = "state"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "publisherId"
+      key_type       = "RANGE"
+    }
   }
 
   point_in_time_recovery {
