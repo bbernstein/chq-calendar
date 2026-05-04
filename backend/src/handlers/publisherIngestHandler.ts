@@ -68,18 +68,14 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
     } catch (err) {
       console.error(`[publisher-ingest] publisher ${p.id} failed:`, err);
       try {
-        // Node's fetch wraps the underlying network error (DNS, refused, TLS,
-        // etc.) inside `err.cause`. Surface it so admins see "ENOTFOUND host"
-        // instead of an opaque "fetch failed".
-        const e = err as Error & { cause?: { message?: string; code?: string } };
-        const causeBits = e.cause
-          ? [e.cause.code, e.cause.message].filter(Boolean).join(' ')
-          : '';
-        const baseMsg = e.message ?? String(err);
-        const fullMsg = causeBits ? `${baseMsg} (${causeBits})` : baseMsg;
+        // This catch fires for unhandled throws from the loop body — DDB
+        // errors, reconcile assertion failures, etc. fetchAndParseFeed
+        // already returns network_error with cause-unwrapped messages on
+        // its own, so don't replicate that logic here; just surface the
+        // raw error message.
         await deps.registry.recordFetchOutcome(p.id, {
           status: 'network_error',
-          message: `unhandled error: ${fullMsg}`.slice(0, 500),
+          message: `unhandled error: ${(err as Error).message ?? String(err)}`.slice(0, 500),
         });
       } catch (recordErr) {
         console.error(`[publisher-ingest] failed to record outcome for ${p.id}:`, recordErr);
