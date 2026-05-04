@@ -25,73 +25,91 @@ import { SesMailService } from '../services/mailService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherApplicationService } from '../services/publisherApplicationService';
 import { verifyPublisherJwt } from '../services/publisherAuthService';
+import {
+  DynamoRateLimiter,
+  InMemoryRateLimiter,
+  type RateLimiter,
+} from '../services/rateLimitService';
 import type { ApplyFormPayload, PublisherRecord } from '../types/publisher';
 
 // ─── Rate limiter ────────────────────────────────────────────────────────
-// In-memory per-IP sliding window. Per-instance only — each Lambda warm
-// container has its own state. TODO (Phase D): swap for a DynamoDB-backed
-// counter so the limit holds across containers.
+//
+// Phase D: backed by DynamoDB so the limit holds across concurrent Lambda
+// containers. Falls back to an in-memory implementation when the
+// PUBLISHER_RATE_LIMIT_TABLE_NAME env var is unset (tests, local dev with
+// no DDB available) — both implementations share the same `RateLimiter`
+// interface.
+
 const PUBLISHER_TEST_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const PUBLISHER_TEST_RATE_LIMIT_MAX = 10;
-const _state = new Map<string, number[]>();
 
-export function checkPublisherTestRateLimit(
-  ip: string,
-): { ok: true } | { ok: false; retryAfterSeconds: number } {
-  const now = Date.now();
-  const windowStart = now - PUBLISHER_TEST_RATE_LIMIT_WINDOW_MS;
-  const existing = _state.get(ip) ?? [];
-  const recent = existing.filter(t => t > windowStart);
-  if (recent.length >= PUBLISHER_TEST_RATE_LIMIT_MAX) {
-    const oldest = recent[0];
-    const retryAfterSeconds = Math.max(
-      1,
-      Math.ceil((oldest + PUBLISHER_TEST_RATE_LIMIT_WINDOW_MS - now) / 1000),
-    );
-    _state.set(ip, recent);
-    return { ok: false, retryAfterSeconds };
-  }
-  recent.push(now);
-  _state.set(ip, recent);
-  return { ok: true };
-}
-
-// Test-only: clear the rate-limit state between test cases.
-export function _resetPublisherTestRateLimitForTests(): void {
-  _state.clear();
-}
-
-// ─── Apply / login flow rate limiter ─────────────────────────────────────
-// Same in-memory pattern as the test endpoint, but a tighter window: 10
-// requests per HOUR per IP. Apply/login emails are far more expensive (SES
-// quota) than the test fetch, so we throttle harder. Phase D: move to DDB.
 const PUBLISHER_AUTH_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const PUBLISHER_AUTH_RATE_LIMIT_MAX = 10;
-const _authRateState = new Map<string, number[]>();
 
-export function checkPublisherAuthRateLimit(
-  ip: string,
-): { ok: true } | { ok: false; retryAfterSeconds: number } {
-  const now = Date.now();
-  const windowStart = now - PUBLISHER_AUTH_RATE_LIMIT_WINDOW_MS;
-  const existing = _authRateState.get(ip) ?? [];
-  const recent = existing.filter(t => t > windowStart);
-  if (recent.length >= PUBLISHER_AUTH_RATE_LIMIT_MAX) {
-    const oldest = recent[0];
-    const retryAfterSeconds = Math.max(
-      1,
-      Math.ceil((oldest + PUBLISHER_AUTH_RATE_LIMIT_WINDOW_MS - now) / 1000),
-    );
-    _authRateState.set(ip, recent);
-    return { ok: false, retryAfterSeconds };
+let _rateLimiter: RateLimiter | null = null;
+
+function rateLimiter(): RateLimiter {
+  if (_rateLimiter) return _rateLimiter;
+  const tableName = process.env.PUBLISHER_RATE_LIMIT_TABLE_NAME;
+  if (tableName) {
+    const dynamoClient = new DynamoDBClient({
+      region: process.env.AWS_REGION || 'us-east-1',
+      ...(process.env.DYNAMODB_ENDPOINT && {
+        endpoint: process.env.DYNAMODB_ENDPOINT,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
+        },
+      }),
+    });
+    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    _rateLimiter = new DynamoRateLimiter(docClient, tableName);
+  } else {
+    _rateLimiter = new InMemoryRateLimiter();
   }
-  recent.push(now);
-  _authRateState.set(ip, recent);
-  return { ok: true };
+  return _rateLimiter;
+}
+
+// Test-only override (used by handler tests to inject a deterministic limiter).
+export function _setRateLimiterForTests(limiter: RateLimiter | null): void {
+  _rateLimiter = limiter;
+}
+
+export async function checkPublisherTestRateLimit(
+  ip: string,
+): Promise<{ ok: true } | { ok: false; retryAfterSeconds: number }> {
+  return rateLimiter().checkAndConsume({
+    key: `pt:${ip}`,
+    windowMs: PUBLISHER_TEST_RATE_LIMIT_WINDOW_MS,
+    max: PUBLISHER_TEST_RATE_LIMIT_MAX,
+  });
+}
+
+// Reset both buckets — keeps the existing test-API surface so older tests
+// keep working unchanged.
+export function _resetPublisherTestRateLimitForTests(): void {
+  if (_rateLimiter && 'reset' in _rateLimiter && typeof _rateLimiter.reset === 'function') {
+    void _rateLimiter.reset();
+  } else {
+    // Fall back to a fresh in-memory limiter (mirrors the old behaviour
+    // of clearing the Map).
+    _rateLimiter = new InMemoryRateLimiter();
+  }
+}
+
+export async function checkPublisherAuthRateLimit(
+  ip: string,
+): Promise<{ ok: true } | { ok: false; retryAfterSeconds: number }> {
+  return rateLimiter().checkAndConsume({
+    key: `pa:${ip}`,
+    windowMs: PUBLISHER_AUTH_RATE_LIMIT_WINDOW_MS,
+    max: PUBLISHER_AUTH_RATE_LIMIT_MAX,
+  });
 }
 
 export function _resetPublisherAuthRateLimitForTests(): void {
-  _authRateState.clear();
+  // Same backing limiter, so a single reset clears both buckets.
+  _resetPublisherTestRateLimitForTests();
 }
 
 // ─── Response helpers ────────────────────────────────────────────────────
@@ -133,8 +151,13 @@ export async function handlePublisherTest(
   // header is client-controllable; falling back to it lets a caller spoof
   // an arbitrary IP and bypass per-IP rate limits entirely.
   const ip = event.requestContext?.identity?.sourceIp ?? 'unknown';
-  const rl = checkPublisherTestRateLimit(ip);
+  const rl = await checkPublisherTestRateLimit(ip);
   if (rl.ok === false) {
+    // /publisher-test is the main abuse surface (DNS rebinding probes,
+    // feed scanning). A warn-level log per denial gives ops a CloudWatch
+    // signal for detecting campaigns. IP is fine to log; the path itself
+    // contains no PII.
+    console.warn(`[publisher-test] rate-limit denied: ip=${ip} retry_after=${rl.retryAfterSeconds}s`);
     return {
       statusCode: 429,
       headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfterSeconds) },
@@ -234,13 +257,17 @@ export function _setAppServiceForTests(svc: PublisherApplicationService | null):
 
 // ─── Auth-rate-limit + IP extraction shared helper ───────────────────────
 
-function applyAuthRateLimit(event: APIGatewayProxyEvent): APIGatewayProxyResult | null {
+async function applyAuthRateLimit(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult | null> {
   // Trust ONLY API Gateway's authoritative sourceIp. The X-Forwarded-For
   // header is client-controllable; falling back to it lets a caller spoof
   // an arbitrary IP and bypass per-IP rate limits entirely.
   const ip = event.requestContext?.identity?.sourceIp ?? 'unknown';
-  const rl = checkPublisherAuthRateLimit(ip);
+  const rl = await checkPublisherAuthRateLimit(ip);
   if (rl.ok === false) {
+    // Apply/login denials are interesting for spotting account-enumeration
+    // and SES-quota-exhaustion attempts. Same warn-level signal as the
+    // test endpoint above.
+    console.warn(`[publisher-auth] rate-limit denied: ip=${ip} retry_after=${rl.retryAfterSeconds}s`);
     return {
       statusCode: 429,
       headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfterSeconds) },
@@ -265,7 +292,7 @@ export async function handlePublisherApplyRequest(
   event: APIGatewayProxyEvent,
   requestBody: Record<string, unknown>,
 ): Promise<APIGatewayProxyResult> {
-  const limited = applyAuthRateLimit(event);
+  const limited = await applyAuthRateLimit(event);
   if (limited) return limited;
 
   const payload = requestBody as Partial<ApplyFormPayload>;
@@ -324,7 +351,7 @@ export async function handlePublisherAuthRequest(
   event: APIGatewayProxyEvent,
   requestBody: Record<string, unknown>,
 ): Promise<APIGatewayProxyResult> {
-  const limited = applyAuthRateLimit(event);
+  const limited = await applyAuthRateLimit(event);
   if (limited) return limited;
 
   const email = typeof requestBody?.email === 'string' ? requestBody.email : '';

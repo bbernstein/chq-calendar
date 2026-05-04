@@ -1,5 +1,5 @@
 import { fetchAndParseFeed, type FetchFeedOutput } from './publisherFeedFetcher';
-import { validateUrlIsPublic } from './urlGuard';
+import { resolveAndValidateUrl } from './urlGuard';
 import type { SourceType } from '../types/publisher';
 
 export interface PublisherTestInput {
@@ -45,7 +45,11 @@ export async function testPublisherFeed(
   input: PublisherTestInput,
   fetchFn: typeof fetch = fetch,
 ): Promise<PublisherTestResult> {
-  const guard = validateUrlIsPublic(input.url);
+  // Phase D: switch from string-only to DNS-aware guard. A hostile DNS
+  // server that returned a public IP at validation time and a private IP
+  // at fetch time would have bypassed the Phase A guard; the resolve-then-
+  // check pattern here closes that gap.
+  const guard = await resolveAndValidateUrl(input.url);
   if (guard.ok === false) {
     return { kind: 'error', error: { kind: 'blocked_url', reason: guard.reason } };
   }

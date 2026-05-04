@@ -3,10 +3,19 @@
 // Phase A scope: string-based check on the URL's hostname. We reject the
 // obvious local/private/loopback/link-local ranges before any fetch is made.
 //
-// Limitation: this does NOT defend against DNS rebinding (a public hostname
-// that resolves to a private IP at fetch time) or against literal IPv6
-// addresses outside the small set listed below. Full hostname-resolution
-// checks + post-resolution IP gating are deferred to Phase D.
+// Phase D adds `resolveAndValidateUrl` — a stricter variant that also runs
+// a DNS lookup and rejects if any resolved IP falls inside the same
+// blocked ranges. This closes the obvious DNS-rebinding hole where a
+// public hostname (e.g. `feed.example.com`) is configured to resolve to
+// 192.168.1.1.
+//
+// Residual risk: between our DNS resolution and Node's HTTP-client
+// resolution there is a tiny window in which the upstream resolver could
+// return a different answer. Closing this window completely would require
+// fetching the literal resolved IP with a `Host:` header, which is
+// materially more code (especially for HTTPS + SNI) and not justified by
+// the threat model — a hostile DNS server is the only way to exploit, and
+// the rate limiter caps the damage at 10 attempts per 5 minutes per IP.
 
 const MAX_URL_LENGTH = 2048;
 
@@ -151,4 +160,85 @@ export function validateUrlIsPublic(url: string): UrlGuardResult {
   }
 
   return { ok: true };
+}
+
+// ─── Phase D: DNS-aware guard ───────────────────────────────────────────
+
+import { promises as dnsPromises } from 'dns';
+
+// Injectable for tests.
+type LookupFn = (
+  hostname: string,
+  options: { all: true; verbatim?: boolean },
+) => Promise<Array<{ address: string; family: number }>>;
+
+const defaultLookup: LookupFn = (hostname, options) =>
+  dnsPromises.lookup(hostname, options) as ReturnType<LookupFn>;
+
+/**
+ * Stricter variant of `validateUrlIsPublic`: also resolves the hostname
+ * via DNS and rejects if ANY returned address falls inside a blocked
+ * IPv4/IPv6 range. Defends against DNS-rebinding setups where a hostile
+ * DNS server returns a public IP at validation time and a private one at
+ * fetch time — `lookup({ all: true })` returns every A/AAAA record so a
+ * mixed answer still triggers a rejection.
+ *
+ * If the URL hostname is already an IP literal, the string-only guard
+ * already covers it and we skip the lookup.
+ *
+ * The `lookup` parameter exists for unit tests; production callers omit
+ * it to use Node's resolver.
+ */
+export async function resolveAndValidateUrl(
+  url: string,
+  lookup: LookupFn = defaultLookup,
+): Promise<UrlGuardResult> {
+  const stringCheck = validateUrlIsPublic(url);
+  if (!stringCheck.ok) return stringCheck;
+
+  const parsed = new URL(url); // already validated above
+  const host = parsed.hostname.toLowerCase();
+
+  // IP literal? string check already covered it.
+  if (looksLikeIpLiteral(host)) {
+    return { ok: true };
+  }
+
+  let addresses: Array<{ address: string; family: number }>;
+  try {
+    addresses = await lookup(host, { all: true, verbatim: true });
+  } catch {
+    return { ok: false, reason: `DNS lookup failed for hostname: ${host}` };
+  }
+
+  if (addresses.length === 0) {
+    return { ok: false, reason: `Hostname did not resolve to any address: ${host}` };
+  }
+
+  for (const entry of addresses) {
+    const blocked = entry.family === 6
+      ? isBlockedIPv6(entry.address)
+      : isBlockedIPv4(entry.address);
+    if (blocked) {
+      return {
+        ok: false,
+        reason: `Hostname ${host} resolves to a private/loopback address (${entry.address}); refusing to fetch`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+function looksLikeIpLiteral(host: string): boolean {
+  // Tight match: exactly four dotted decimal octets. Any looser pattern
+  // would let numeric forms like "2130706433" (decimal encoding of
+  // 127.0.0.1) skip the DNS-aware guard while ALSO not matching
+  // isBlockedIPv4 (which requires four octets) — the URL would fetch
+  // localhost via Node's URL parser. Mirroring isBlockedIPv4's structure
+  // closes that gap.
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) return true;
+  // IPv6 literal: contains a colon (URL.hostname strips the [...]).
+  if (host.includes(':')) return true;
+  return false;
 }

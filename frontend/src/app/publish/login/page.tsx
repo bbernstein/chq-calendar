@@ -70,7 +70,13 @@ export default function PublishLoginPage() {
       const body = await r.json().catch(() => ({}));
       if (r.ok) {
         setStatus({ kind: 'sent' });
-        setCooldownEndsAt(Date.now() + RESEND_COOLDOWN_MS);
+        // Refresh `now` from the same clock reading we use to set the
+        // cooldown end. Without this the first render uses `now` captured
+        // at mount time, so the countdown briefly shows >RESEND_COOLDOWN_MS
+        // (off by however long the user spent between mount and submit).
+        const sendTime = Date.now();
+        setNow(sendTime);
+        setCooldownEndsAt(sendTime + RESEND_COOLDOWN_MS);
         return;
       }
       if (r.status === 429) {
@@ -157,6 +163,12 @@ export default function PublishLoginPage() {
               </p>
               <p className="text-xs text-green-700 dark:text-green-300 mt-1">
                 Links expire after 15 minutes. Each link is single-use.
+              </p>
+              <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                Didn&apos;t receive it?{' '}
+                {inCooldown
+                  ? `You can request another in ${cooldownRemainingSec}s.`
+                  : 'Click "Send sign-in link" above to send another.'}
               </p>
             </div>
           )}
