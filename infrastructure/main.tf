@@ -809,13 +809,75 @@ resource "aws_iam_role_policy" "lambda_s3_cache" {
   })
 }
 
-# IAM policy allowing the shared Lambda role to invoke the publisher-ingest
-# Lambda. Used by the admin "Run ingest now" button on /admin/publishers/.
-# Async (Event) invocation only — see POST /publishers/run-ingest in
-# adminHandler.ts.
+# Dedicated IAM role for the admin Lambda. Split out from the shared
+# `lambda_role` so admin-only privileges (publisher-portal access, the
+# publisher-ingest invoke permission added for /admin/publishers/'s "Run
+# ingest now" button, and admin-publisher table access) don't leak to the
+# public calendar Lambda or the sync handlers — they only need to invoke
+# from the admin function. The trust policy is identical to lambda_role.
+resource "aws_iam_role" "admin_lambda_role" {
+  name = "${var.app_name}-admin-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "admin_lambda_basic" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  role       = aws_iam_role.admin_lambda_role.name
+}
+
+# Admin handler reads/writes the feedback table for the admin feedback
+# dashboard. It does NOT use the events / data_sources / sync_status tables
+# (those are only touched by the public calendar handler and the sync
+# handlers), so we don't replicate the broader lambda_dynamodb policy.
+resource "aws_iam_role_policy" "admin_lambda_feedback" {
+  name = "${var.app_name}-admin-lambda-feedback-policy"
+  role = aws_iam_role.admin_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:BatchGetItem",
+          "dynamodb:BatchWriteItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.feedback.arn,
+          "${aws_dynamodb_table.feedback.arn}/index/*"
+        ]
+      }
+    ]
+  })
+}
+
+# IAM policy allowing the admin Lambda (and only the admin Lambda) to invoke
+# the publisher-ingest Lambda. Used by the admin "Run ingest now" button on
+# /admin/publishers/. Async (Event) invocation only — see
+# POST /publishers/run-ingest in adminHandler.ts. Attached to admin_lambda_role
+# rather than the shared lambda_role so the public calendar handler and the
+# sync handlers (which share lambda_role) don't inherit invoke rights.
 resource "aws_iam_role_policy" "lambda_invoke_publisher_ingest" {
   name = "${var.app_name}-lambda-invoke-publisher-ingest-policy"
-  role = aws_iam_role.lambda_role.id
+  role = aws_iam_role.admin_lambda_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -860,7 +922,7 @@ resource "aws_lambda_function" "calendar_generator" {
 resource "aws_lambda_function" "admin_handler" {
   filename      = "../backend/lambda-function.zip"
   function_name = "${var.app_name}-admin"
-  role          = aws_iam_role.lambda_role.arn
+  role          = aws_iam_role.admin_lambda_role.arn
   handler       = "dist/adminHandler.handler"
   runtime       = "nodejs24.x"
   timeout       = 30

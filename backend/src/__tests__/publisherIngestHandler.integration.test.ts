@@ -2,11 +2,13 @@ import { runIngest } from '../handlers/publisherIngestHandler';
 
 describe('runIngest (integration)', () => {
   it('processes one auto publisher end to end', async () => {
+    const testPub = {
+      id: 'test-pub', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
+      sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+    };
     const registry = {
-      listAll: jest.fn().mockResolvedValue([{
-        id: 'test-pub', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
-        sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
-      }]),
+      listAll: jest.fn().mockResolvedValue([testPub]),
+      get: jest.fn().mockResolvedValue(testPub),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
     };
@@ -97,12 +99,14 @@ describe('runIngest (integration)', () => {
   });
 
   it('clears pendingThresholdHalt when a previously halted publisher succeeds', async () => {
+    const p1 = {
+      id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
+      sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+      pendingThresholdHalt: { detectedAt: 'earlier', incomingFeed: { eventCount: 0, publisherId: 'p1' } },
+    };
     const registry = {
-      listAll: jest.fn().mockResolvedValue([{
-        id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
-        sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
-        pendingThresholdHalt: { detectedAt: 'earlier', incomingFeed: { eventCount: 0, publisherId: 'p1' } },
-      }]),
+      listAll: jest.fn().mockResolvedValue([p1]),
+      get: jest.fn().mockResolvedValue(p1),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
     };
@@ -286,13 +290,14 @@ describe('runIngest (integration)', () => {
   });
 
   it('continues to next publisher when one publisher throws, and still publishes sidecar', async () => {
+    const broken = { id: 'broken', name: 'Broken', contactEmail: 'a@b', sourceUrl: 'https://x',
+      sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const good = { id: 'good', name: 'Good', contactEmail: 'a@b', sourceUrl: 'https://y',
+      sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const byId: Record<string, typeof broken> = { broken, good };
     const registry = {
-      listAll: jest.fn().mockResolvedValue([
-        { id: 'broken', name: 'Broken', contactEmail: 'a@b', sourceUrl: 'https://x',
-          sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't' },
-        { id: 'good', name: 'Good', contactEmail: 'a@b', sourceUrl: 'https://y',
-          sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't' },
-      ]),
+      listAll: jest.fn().mockResolvedValue([broken, good]),
+      get: jest.fn().mockImplementation((id: string) => Promise.resolve(byId[id] ?? null)),
       recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
       setThresholdHalt: jest.fn().mockResolvedValue(undefined),
     };
@@ -538,6 +543,64 @@ describe('runIngest (integration)', () => {
     expect(registry.recordFetchOutcome).not.toHaveBeenCalled();
     // Sidecar still republishes the global view (which contains whatever the
     // paused publisher had previously written).
+    expect(sidecar.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips applyDiff and outcome recording when the publisher was deleted during ingest', async () => {
+    // Race scenario: the listAll snapshot at the top of runIngest captures
+    // the publisher, but an admin deletes it before fetch+reconcile completes.
+    // The mid-loop registry.get() check catches this and skips writes that
+    // would otherwise resurrect the row or re-insert events.
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([{
+        id: 'racey-pub', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
+        sourceType: 'json', trustLevel: 'auto', enabled: true, createdAt: 't',
+      }]),
+      get: jest.fn().mockResolvedValue(null), // deleted between snapshot and applyDiff
+      recordFetchOutcome: jest.fn(),
+      setThresholdHalt: jest.fn(),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok',
+      report: { ok: true, errors: [], warnings: [] },
+      feed: {
+        formatVersion: '1.0',
+        publisher: { id: 'racey-pub', name: 'X', contactEmail: 'a@b' },
+        events: [{
+          id: 'e1', title: 'E',
+          startDate: '2026-07-04T18:00:00-04:00',
+          endDate: '2026-07-04T19:00:00-04:00',
+          category: 'Lecture',
+          lastModified: '2026-05-01T00:00:00-04:00',
+        }],
+      },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockResolvedValue(undefined),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+    });
+
+    // The fetch went out (it's already in flight before we know about the
+    // delete), but applyDiff and outcome recording were skipped — so no
+    // events get re-inserted and no publisher row gets resurrected.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(registry.get).toHaveBeenCalledWith('racey-pub');
+    expect(store.applyDiff).not.toHaveBeenCalled();
+    expect(registry.recordFetchOutcome).not.toHaveBeenCalled();
+    expect(registry.setThresholdHalt).not.toHaveBeenCalled();
+    // Sidecar still republishes whatever was already published (which doesn't
+    // include this deleted publisher).
     expect(sidecar.publish).toHaveBeenCalledTimes(1);
   });
 

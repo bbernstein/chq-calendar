@@ -64,6 +64,19 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
         });
         continue;
       }
+      // Defend against a delete-during-ingest race. allPublishers was
+      // snapshotted at the top of runIngest, so an admin who deletes a
+      // publisher mid-run could otherwise have applyDiff re-insert the
+      // publisher's events against a row that no longer exists. We re-check
+      // existence here — the window narrows from "duration of fetch+
+      // reconcile" (seconds) to "duration of one DDB get" (milliseconds),
+      // and the registry-side recordFetchOutcome / setThresholdHalt updates
+      // also use attribute_exists conditions as a second line of defense.
+      const stillExists = await deps.registry.get(p.id);
+      if (stillExists == null) {
+        console.log(`[publisher-ingest] publisher ${p.id} was deleted during ingest; skipping applyDiff`);
+        continue;
+      }
       await deps.store.applyDiff(result.diff);
       if (p.pendingThresholdHalt) {
         await deps.registry.setThresholdHalt(p.id, undefined);

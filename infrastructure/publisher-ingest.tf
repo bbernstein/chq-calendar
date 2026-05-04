@@ -181,12 +181,14 @@ resource "aws_lambda_permission" "publisher_ingest_allow_events" {
   source_arn    = aws_cloudwatch_event_rule.publisher_ingest_schedule.arn
 }
 
-# The existing admin Lambda role (created in main.tf as `lambda_role`) needs
-# read/write access to the publisher tables for the admin endpoints in
-# adminHandler.ts (Plan 3). Kept here so all publisher-related IAM stays grouped.
+# The dedicated admin Lambda role (created in main.tf as `admin_lambda_role`)
+# needs read/write access to the publisher tables for the admin endpoints in
+# adminHandler.ts (Plan 3). Kept here so all publisher-related IAM stays
+# grouped. The public calendar Lambda and sync handlers (still on the shared
+# `lambda_role`) intentionally do not get these permissions.
 resource "aws_iam_role_policy" "admin_publisher_access" {
   name = "${var.app_name}-admin-publisher-access"
-  role = aws_iam_role.lambda_role.name
+  role = aws_iam_role.admin_lambda_role.name
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{

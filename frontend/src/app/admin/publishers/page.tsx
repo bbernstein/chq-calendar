@@ -103,8 +103,15 @@ export default function PublishersPage() {
     | { kind: 'timeout'; triggeredAt: string }
     | { kind: 'error'; message: string };
   const [ingestState, setIngestState] = useState<IngestState>({ kind: 'idle' });
-  // Hold the polling interval id so we can clear it from any branch.
-  const ingestPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Hold the active polling timer id so we can clear it from any branch.
+  // We use setTimeout (not setInterval) so each tick only fires after the
+  // previous tick's async work resolves — avoids overlapping listPublishers
+  // calls when the network is slow.
+  const ingestPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Generation counter — bumped each time a new run starts; lets a still-
+  // pending tick from a prior run notice it's stale and exit without
+  // touching state.
+  const ingestPollGenRef = useRef(0);
 
   // -------------------------------------------------------------------------
   // Data fetch
@@ -227,8 +234,11 @@ export default function PublishersPage() {
   // Run ingest now
   // -------------------------------------------------------------------------
   const stopIngestPoll = useCallback(() => {
+    // Bump the generation so any tick currently mid-await notices it's stale
+    // and bails out without writing state. Then cancel any scheduled tick.
+    ingestPollGenRef.current += 1;
     if (ingestPollRef.current !== null) {
-      clearInterval(ingestPollRef.current);
+      clearTimeout(ingestPollRef.current);
       ingestPollRef.current = null;
     }
   }, []);
@@ -252,11 +262,22 @@ export default function PublishersPage() {
       setIngestState({ kind: 'running', triggeredAt, pollCount: 0 });
 
       stopIngestPoll();
+      // Capture this run's generation so a late-resolving listPublishers call
+      // from a prior run can detect that it's stale and bail out.
+      const myGen = ++ingestPollGenRef.current;
       let attempts = 0;
-      ingestPollRef.current = setInterval(async () => {
+
+      const scheduleNextTick = () => {
+        ingestPollRef.current = setTimeout(runTick, INGEST_POLL_INTERVAL_MS);
+      };
+
+      const runTick = async () => {
         attempts += 1;
         try {
           const fresh = await listPublishers();
+          // Stale tick guard: if stopIngestPoll fired, or another run started,
+          // myGen no longer matches — abandon this tick without touching state.
+          if (myGen !== ingestPollGenRef.current) return;
           setPublishers(fresh);
 
           // The publisher-ingest run is "done" when every publisher the
@@ -295,12 +316,22 @@ export default function PublishersPage() {
           }
 
           setIngestState({ kind: 'running', triggeredAt, pollCount: attempts });
+          scheduleNextTick();
         } catch (err) {
           // Transient list errors during polling shouldn't kill the run —
-          // surface a hint after the first failure but keep retrying.
+          // log and reschedule so a single hiccup doesn't abort.
+          if (myGen !== ingestPollGenRef.current) return;
           console.warn('Polling listPublishers failed:', err);
+          if (attempts >= INGEST_POLL_MAX_ATTEMPTS) {
+            stopIngestPoll();
+            setIngestState({ kind: 'timeout', triggeredAt });
+            return;
+          }
+          scheduleNextTick();
         }
-      }, INGEST_POLL_INTERVAL_MS);
+      };
+
+      scheduleNextTick();
     } catch (err) {
       stopIngestPoll();
       setIngestState({

@@ -51,13 +51,29 @@ describe('PublisherRegistryService', () => {
     expect(cmd.input.FilterExpression).toBeUndefined();
   });
 
-  it('recordFetchOutcome updates lastFetchedAt and status', async () => {
+  it('recordFetchOutcome updates lastFetchedAt and status with attribute_exists guard', async () => {
     mockSend.mockResolvedValue({});
     await svc.recordFetchOutcome('a', { status: 'ok' });
     expect(mockSend).toHaveBeenCalledTimes(1);
     const cmd: any = mockSend.mock.calls[0][0];
     expect(cmd.input.Key).toEqual({ id: 'a' });
     expect(cmd.input.ExpressionAttributeValues[':status']).toBe('ok');
+    // Guards against an in-flight ingest resurrecting a deleted publisher row.
+    expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+  });
+
+  it('recordFetchOutcome silently swallows ConditionalCheckFailedException (publisher deleted mid-run)', async () => {
+    const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+    mockSend.mockRejectedValue(condErr);
+    // Returns void without throwing — the publisher is gone, so there's no
+    // outcome to record, but it's not a caller-visible error.
+    await expect(svc.recordFetchOutcome('deleted', { status: 'ok' })).resolves.toBeUndefined();
+  });
+
+  it('recordFetchOutcome surfaces non-condition DDB errors unchanged', async () => {
+    const err = Object.assign(new Error('throttled'), { name: 'ProvisionedThroughputExceededException' });
+    mockSend.mockRejectedValue(err);
+    await expect(svc.recordFetchOutcome('a', { status: 'ok' })).rejects.toBe(err);
   });
 
   it('get returns null when no item', async () => {
@@ -66,11 +82,18 @@ describe('PublisherRegistryService', () => {
     expect(r).toBeNull();
   });
 
-  it('setThresholdHalt clears halt when null passed', async () => {
+  it('setThresholdHalt clears halt when null passed and emits the attribute_exists guard', async () => {
     mockSend.mockResolvedValue({});
     await svc.setThresholdHalt('a', undefined);
     const cmd: any = mockSend.mock.calls[0][0];
     expect(cmd.input.ExpressionAttributeValues[':h']).toBeNull();
+    expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+  });
+
+  it('setThresholdHalt silently swallows ConditionalCheckFailedException', async () => {
+    const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+    mockSend.mockRejectedValue(condErr);
+    await expect(svc.setThresholdHalt('deleted', undefined)).resolves.toBeUndefined();
   });
 
   // ─── Phase B (publisher portal apply flow) ─────────────────────────────
