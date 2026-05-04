@@ -26,6 +26,11 @@ export interface MailService {
 export interface ApprovalEmailOpts {
   to: string;
   publisherName: string;
+  // The slug the admin assigned to this publisher. The publisher must
+  // include this exact value as `publisher.id` in their feed (or in the
+  // `chq-publisher` HTML comment) for the ingest pipeline to recognise
+  // their events. Without it the feed validates but no events go live.
+  publisherId: string;
   statusUrl: string;
   loginUrl: string;
 }
@@ -174,7 +179,16 @@ function approvalText(o: ApprovalEmailOpts): string {
     `Hi ${o.publisherName || 'there'},`,
     '',
     'Good news — your Chautauqua Calendar publisher application has been approved.',
-    'Your feed is now in the ingest schedule and your events will start appearing on chqcal.org after the next sync.',
+    '',
+    'Your assigned publisher ID is:',
+    '',
+    `    ${o.publisherId}`,
+    '',
+    'You MUST include this exact value as `publisher.id` in your feed (or in the',
+    '`chq-publisher` HTML comment) for your events to appear on chqcal.org. Without',
+    'it the feed validates but no events go live.',
+    '',
+    'Once your feed lists this ID, the next ingest run will pick up your events.',
     '',
     'Sign in to view your status and recent fetch history:',
     o.loginUrl,
@@ -188,13 +202,17 @@ function approvalText(o: ApprovalEmailOpts): string {
 
 function approvalHtml(o: ApprovalEmailOpts): string {
   const safeName = escapeHtml(o.publisherName || 'there');
+  const safeId = escapeHtml(o.publisherId);
   const safeLogin = encodeURI(o.loginUrl);
   const safeStatus = encodeURI(o.statusUrl);
   return [
     '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
     `<p>Hi ${safeName},</p>`,
     '<p>Good news — your Chautauqua Calendar publisher application has been <strong>approved</strong>.</p>',
-    '<p>Your feed is now in the ingest schedule and your events will start appearing on chqcal.org after the next sync.</p>',
+    '<p>Your assigned publisher ID is:</p>',
+    `<p style="margin:0.5em 0 0.5em 1em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.1em"><code>${safeId}</code></p>`,
+    '<p>You <strong>must</strong> include this exact value as <code>publisher.id</code> in your feed (or in the <code>chq-publisher</code> HTML comment) for your events to appear on chqcal.org. Without it the feed validates but no events go live.</p>',
+    '<p>Once your feed lists this ID, the next ingest run will pick up your events.</p>',
     `<p>Sign in to view your status and recent fetch history: <a href="${safeLogin}">${safeLogin}</a></p>`,
     `<p>You can check your status anytime here: <a href="${safeStatus}">${safeStatus}</a></p>`,
     '<p>— Chautauqua Calendar</p>',

@@ -396,6 +396,9 @@ describe('PublisherAdminService', () => {
       expect(mail.sendApprovalEmail).toHaveBeenCalledWith({
         to: 'pub@example.com',
         publisherName: 'Acme',
+        // The publisher's assigned slug — must be in the email so they
+        // know which value to put in their feed's `publisher.id`.
+        publisherId: 'pub-pending',
         statusUrl: 'https://x.test/publish/status/',
         loginUrl: 'https://x.test/publish/login/',
       });

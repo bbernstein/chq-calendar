@@ -65,12 +65,13 @@ describe('SesMailService', () => {
 
   // ─── Phase C: approval / rejection emails ─────────────────────────────
 
-  it('sendApprovalEmail uses approval subject and embeds login + status URLs', async () => {
+  it('sendApprovalEmail uses approval subject and embeds publisherId + login + status URLs', async () => {
     mockSend.mockResolvedValue({ MessageId: 'mid-app-1' });
     const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
     const out = await svc.sendApprovalEmail({
       to: 'pub@example.com',
       publisherName: 'Acme Concerts',
+      publisherId: 'acme-concerts',
       statusUrl: 'https://x.test/publish/status/',
       loginUrl: 'https://x.test/publish/login/',
     });
@@ -80,19 +81,27 @@ describe('SesMailService', () => {
     expect(cmd.input.Content.Simple.Subject.Data).toMatch(/approved/i);
     const text = cmd.input.Content.Simple.Body.Text.Data;
     expect(text).toContain('Acme Concerts');
+    // The publisher slug is required to make the feed go live; surface it
+    // prominently with surrounding context so a recipient can act on it.
+    expect(text).toContain('acme-concerts');
+    expect(text).toMatch(/publisher\.id/);
     expect(text).toContain('https://x.test/publish/login/');
     expect(text).toContain('https://x.test/publish/status/');
     const html = cmd.input.Content.Simple.Body.Html.Data;
     expect(html).toContain('Acme Concerts');
+    expect(html).toContain('acme-concerts');
     expect(html).toContain('https://x.test/publish/login/');
   });
 
-  it('sendApprovalEmail HTML-escapes the publisher name', async () => {
+  it('sendApprovalEmail HTML-escapes the publisher name and publisher id', async () => {
     mockSend.mockResolvedValue({ MessageId: 'mid-app-2' });
     const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
     await svc.sendApprovalEmail({
       to: 'p@x.com',
       publisherName: '<script>alert(1)</script>',
+      // publisherId is admin-controlled (a slug), but we escape it
+      // defensively so an unusual value can't break the email rendering.
+      publisherId: 'pub-<bad>',
       statusUrl: 'https://x.test/s',
       loginUrl: 'https://x.test/l',
     });
@@ -100,6 +109,8 @@ describe('SesMailService', () => {
     const html: string = cmd.input.Content.Simple.Body.Html.Data;
     expect(html).not.toContain('<script>alert');
     expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('pub-<bad>');
+    expect(html).toContain('pub-&lt;bad&gt;');
   });
 
   it('sendRejectionEmail includes reviewer reason when supplied', async () => {
@@ -153,7 +164,7 @@ describe('SesMailService', () => {
   it('approval/rejection emails throw if SES_FROM_ADDRESS is empty', async () => {
     const svc = new SesMailService(mockClient, '');
     await expect(
-      svc.sendApprovalEmail({ to: 'a@b.com', publisherName: 'X', statusUrl: 'https://x', loginUrl: 'https://x' }),
+      svc.sendApprovalEmail({ to: 'a@b.com', publisherName: 'X', publisherId: 'x', statusUrl: 'https://x', loginUrl: 'https://x' }),
     ).rejects.toThrow(/SES_FROM_ADDRESS/);
     await expect(
       svc.sendRejectionEmail({ to: 'a@b.com', publisherName: 'X', applyAgainUrl: 'https://x' }),
