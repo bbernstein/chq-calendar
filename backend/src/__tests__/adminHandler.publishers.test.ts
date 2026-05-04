@@ -164,6 +164,19 @@ describe('PATCH /publishers/:id with paused', () => {
 });
 
 describe('POST /publishers/run-ingest', () => {
+  // Simulate the AWS Lambda runtime so publisherIngestFunctionName() doesn't
+  // refuse to fall back to the canonical production name. Local-dev safety
+  // (refusing the fallback when AWS_LAMBDA_FUNCTION_NAME is unset) is
+  // exercised by its own dedicated test below.
+  const PRIOR_AWS_LAMBDA_FN = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  beforeAll(() => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'chautauqua-calendar-admin';
+  });
+  afterAll(() => {
+    if (PRIOR_AWS_LAMBDA_FN === undefined) delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    else process.env.AWS_LAMBDA_FUNCTION_NAME = PRIOR_AWS_LAMBDA_FN;
+  });
+
   it('async-invokes the ingest Lambda and returns 202 with triggeredAt', async () => {
     const send = jest.fn().mockResolvedValue({ StatusCode: 202 });
     _setLambdaClientForTests({ send } as any);
@@ -202,6 +215,35 @@ describe('POST /publishers/run-ingest', () => {
     } finally {
       if (PRIOR === undefined) delete process.env.PUBLISHER_INGEST_FUNCTION_NAME;
       else process.env.PUBLISHER_INGEST_FUNCTION_NAME = PRIOR;
+    }
+  });
+
+  it('refuses to invoke when running outside AWS Lambda with no env override (local-dev safety)', async () => {
+    // Temporarily unset both AWS_LAMBDA_FUNCTION_NAME and the explicit env
+    // override so the function-name resolver throws. This is the local-dev
+    // path: prevents `npm run dev` from accidentally invoking the real
+    // production publisher-ingest Lambda.
+    const PRIOR_OVERRIDE = process.env.PUBLISHER_INGEST_FUNCTION_NAME;
+    delete process.env.PUBLISHER_INGEST_FUNCTION_NAME;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const send = jest.fn();
+      _setLambdaClientForTests({ send } as any);
+
+      const r = await handler(
+        evt({ path: '/publishers/run-ingest', httpMethod: 'POST' }),
+        ctx,
+      );
+      expect(r.statusCode).toBe(500);
+      expect(JSON.parse(r.body).error).toMatch(/PUBLISHER_INGEST_FUNCTION_NAME is not set/);
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      if (PRIOR_OVERRIDE !== undefined) process.env.PUBLISHER_INGEST_FUNCTION_NAME = PRIOR_OVERRIDE;
+      // Restore the AWS_LAMBDA_FUNCTION_NAME the surrounding describe set
+      // up so the rest of the suite continues to work.
+      process.env.AWS_LAMBDA_FUNCTION_NAME = 'chautauqua-calendar-admin';
+      errSpy.mockRestore();
     }
   });
 

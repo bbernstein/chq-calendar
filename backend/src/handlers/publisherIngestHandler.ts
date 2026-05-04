@@ -3,7 +3,7 @@ import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
 import { loadReferences, type VenueReference } from '@chq-calendar/publisher-format';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
-import { PublisherEventStore } from '../services/publisherEventStore';
+import { PublisherEventStore, PublisherDeletedDuringApplyError } from '../services/publisherEventStore';
 import { PublisherSidecarPublisher } from '../services/publisherSidecarPublisher';
 import { fetchAndParseFeed } from '../services/publisherFeedFetcher';
 import { reconcile } from '../services/publisherReconciler';
@@ -14,6 +14,10 @@ export interface IngestDeps {
   sidecar: PublisherSidecarPublisher;
   fetcher: typeof fetchAndParseFeed;
   now: Date;
+  // Name of the publishers DynamoDB table. Used by applyDiff's transactional
+  // ConditionCheck to atomically refuse the diff if the publisher row was
+  // deleted between snapshot and commit.
+  publishersTableName: string;
 }
 
 export async function runIngest(deps: IngestDeps): Promise<void> {
@@ -67,17 +71,31 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
       // Defend against a delete-during-ingest race. allPublishers was
       // snapshotted at the top of runIngest, so an admin who deletes a
       // publisher mid-run could otherwise have applyDiff re-insert the
-      // publisher's events against a row that no longer exists. We re-check
-      // existence here — the window narrows from "duration of fetch+
-      // reconcile" (seconds) to "duration of one DDB get" (milliseconds),
-      // and the registry-side recordFetchOutcome / setThresholdHalt updates
-      // also use attribute_exists conditions as a second line of defense.
+      // publisher's events. The pre-check below catches the obvious case
+      // (publisher already gone). The transactional ConditionCheck wired
+      // into applyDiff's `requirePublisher` option is the authoritative
+      // close — it makes the publisher-row existence check and the events-
+      // table writes atomic, so a delete that lands between the get() and
+      // the transaction is reliably rejected with TransactionCanceled-
+      // Exception (re-thrown as PublisherDeletedDuringApplyError).
       const stillExists = await deps.registry.get(p.id);
       if (stillExists == null) {
         console.log(`[publisher-ingest] publisher ${p.id} was deleted during ingest; skipping applyDiff`);
         continue;
       }
-      await deps.store.applyDiff(result.diff);
+      try {
+        await deps.store.applyDiff(result.diff, {
+          requirePublisher: { tableName: deps.publishersTableName, id: p.id },
+        });
+      } catch (err) {
+        if (err instanceof PublisherDeletedDuringApplyError) {
+          console.log(
+            `[publisher-ingest] publisher ${p.id} was deleted between get() and applyDiff; transaction aborted, no events written`,
+          );
+          continue;
+        }
+        throw err;
+      }
       if (p.pendingThresholdHalt) {
         await deps.registry.setThresholdHalt(p.id, undefined);
       }
@@ -142,5 +160,6 @@ export async function scheduledHandler(): Promise<void> {
     ),
     fetcher: fetchAndParseFeed,
     now: new Date(),
+    publishersTableName: process.env.PUBLISHERS_TABLE_NAME!,
   });
 }

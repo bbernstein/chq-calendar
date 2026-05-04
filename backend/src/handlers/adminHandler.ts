@@ -49,8 +49,35 @@ export function _setLambdaClientForTests(client: LambdaClient | null): void {
 
 // Read per-call rather than caching at module load so tests can override the
 // env var without re-importing the module.
+//
+// In production the env var is wired by Terraform (see infrastructure/main.tf
+// admin_handler.environment.PUBLISHER_INGEST_FUNCTION_NAME) and we fall back
+// to the canonical name only as a defensive default. In local dev (Docker /
+// `npm run dev`) the env var is unset and falling back to the prod name would
+// cause the dev "Run ingest now" button to invoke the real production Lambda
+// — surprising and potentially expensive. So:
+//   - If the env var is set, use it (any environment).
+//   - If unset and we look like we're running in real Lambda
+//     (AWS_LAMBDA_FUNCTION_NAME is set), fall back to the canonical name.
+//   - Otherwise (local dev), throw so the route returns 500 instead of
+//     reaching across to production.
+class IngestFunctionNotConfiguredError extends Error {
+  constructor() {
+    super(
+      'PUBLISHER_INGEST_FUNCTION_NAME is not set. Refusing to default to ' +
+        'the production function name from outside an AWS Lambda runtime.',
+    );
+    this.name = 'IngestFunctionNotConfiguredError';
+  }
+}
+
 function publisherIngestFunctionName(): string {
-  return process.env.PUBLISHER_INGEST_FUNCTION_NAME ?? 'chautauqua-calendar-publisher-ingest';
+  const fromEnv = process.env.PUBLISHER_INGEST_FUNCTION_NAME;
+  if (fromEnv) return fromEnv;
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return 'chautauqua-calendar-publisher-ingest';
+  }
+  throw new IngestFunctionNotConfiguredError();
 }
 
 // Lazy singleton for PublisherAdminService — one instance per Lambda warm container.

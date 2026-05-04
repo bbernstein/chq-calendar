@@ -91,6 +91,11 @@ export default function PublishersPage() {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   // Delete confirmation modal — null when closed.
   const [deleteTarget, setDeleteTarget] = useState<PublisherRecord | null>(null);
+  // Refs used to implement the modal's focus trap (Tab cycles within the
+  // dialog, Escape closes) and to restore focus to the originating button
+  // when the dialog closes.
+  const deleteModalRef = useRef<HTMLDivElement | null>(null);
+  const lastFocusBeforeModalRef = useRef<HTMLElement | null>(null);
 
   // Manual "Run ingest now" state. The admin endpoint async-invokes the
   // ingest Lambda and returns 202 immediately, so the UI then polls
@@ -171,7 +176,15 @@ export default function PublishersPage() {
     async (p: PublisherRecord) => {
       setTogglingIds(prev => new Set(prev).add(p.id));
       try {
-        await updatePublisher(p.id, { enabled: !p.enabled });
+        // When disabling, also clear paused — pause is meaningless on a
+        // disabled row, and leaving it set would silently re-pause the
+        // publisher when a future admin re-enables them. Re-enabling
+        // (`!p.enabled === true`) doesn't touch paused: the only way to
+        // reach `enabled=true && paused=true` is to pause an enabled row.
+        const patch: Partial<PublisherRecord> = p.enabled
+          ? { enabled: false, paused: false }
+          : { enabled: true };
+        await updatePublisher(p.id, patch);
         await fetchPublishers();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to update publisher.');
@@ -231,6 +244,69 @@ export default function PublishersPage() {
   }, [deleteTarget, fetchPublishers]);
 
   // -------------------------------------------------------------------------
+  // Focus-trap + Escape handling for the delete confirmation modal.
+  //
+  // Without this, Tab leaks focus to the page behind the modal — breaking the
+  // aria-modal contract and making the destructive confirmation unreliable
+  // for keyboard / screen-reader users. The trap is intentionally minimal:
+  //
+  //   - When the modal opens, snapshot the previously-focused element so we
+  //     can restore focus on close.
+  //   - On Tab / Shift+Tab, cycle focus within the modal. The Cancel button
+  //     already has autoFocus so first paint lands on the safe action.
+  //   - Escape closes the modal (mirrors backdrop-click) but only if a
+  //     delete isn't already in flight.
+  //   - On close, restore focus to the originating row's Delete button so
+  //     the user's keyboard position is preserved.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!deleteTarget) return;
+    lastFocusBeforeModalRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (!deletingIds.has(deleteTarget.id)) {
+          e.preventDefault();
+          setDeleteTarget(null);
+        }
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const root = deleteModalRef.current;
+      if (!root) return;
+      const focusable = root.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      // Cycle: Shift+Tab from first → last; Tab from last → first.
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      // Restore focus when the modal unmounts. Wrapped in a try/catch
+      // because the originating element may have been removed from the DOM
+      // (e.g. publisher row no longer rendered after a successful delete).
+      try {
+        lastFocusBeforeModalRef.current?.focus();
+      } catch {
+        // ignore — element gone, browser will pick a sensible default.
+      }
+    };
+  }, [deleteTarget, deletingIds]);
+
+  // -------------------------------------------------------------------------
   // Run ingest now
   // -------------------------------------------------------------------------
   const stopIngestPoll = useCallback(() => {
@@ -259,6 +335,19 @@ export default function PublishersPage() {
     try {
       const { triggeredAt } = await runPublisherIngest();
       const triggeredAtMs = Date.parse(triggeredAt);
+      // Snapshot the set of publisher ids that were eligible at trigger
+      // time. The ingest Lambda took its own snapshot at the same moment,
+      // so polling must check exactly this set — otherwise a row created
+      // (or re-enabled, or unpaused) during the run would never be in the
+      // ingest's working set, never get a fresh lastFetchedAt, and force
+      // the poll to time out. Captured from the latest known list rather
+      // than re-fetching to keep the timeline anchored to "what we just
+      // told the backend to process".
+      const triggerSnapshot = new Set(
+        publishers
+          .filter(p => p.enabled && !p.paused && p.applicationStatus !== 'pending')
+          .map(p => p.id),
+      );
       setIngestState({ kind: 'running', triggeredAt, pollCount: 0 });
 
       // Two-stage generation bump: stopIngestPoll() bumps once to invalidate
@@ -283,16 +372,24 @@ export default function PublishersPage() {
           setPublishers(fresh);
 
           // The publisher-ingest run is "done" when every publisher the
-          // backend will actually fetch has a lastFetchedAt newer than the
-          // trigger time. The backend skips paused rows entirely and never
-          // calls recordFetchOutcome for them, so we exclude them from the
-          // completion check — otherwise a single paused publisher would
-          // pin allRefreshed to false until the timeout fired.
+          // backend snapshotted at trigger time has a lastFetchedAt newer
+          // than the trigger. We restrict the completion check to
+          // triggerSnapshot (captured before the run started) so rows
+          // created / re-enabled / unpaused during the run aren't counted
+          // — the ingest Lambda never saw them. Rows that vanished mid-run
+          // (deleted, disabled, paused) drop out naturally because they
+          // either no longer appear in `fresh` or no longer match the
+          // triggerSnapshot membership check.
           const eligible = fresh.filter(
-            p => p.enabled && !p.paused && p.applicationStatus !== 'pending',
+            p =>
+              triggerSnapshot.has(p.id) &&
+              p.enabled &&
+              !p.paused &&
+              p.applicationStatus !== 'pending',
           );
-          // Empty eligible list (everything paused / no publishers at all):
-          // there is nothing left to wait for, so treat as immediate success.
+          // Empty eligible list (snapshot was empty, or every snapshotted
+          // publisher has since been removed/disabled/paused): there is
+          // nothing left to wait for, so treat as immediate success.
           const allRefreshed =
             eligible.length === 0 ||
             eligible.every(p => {
@@ -715,6 +812,7 @@ export default function PublishersPage() {
           }}
         >
           <div
+            ref={deleteModalRef}
             className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6"
             onClick={(e) => e.stopPropagation()}
           >

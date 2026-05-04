@@ -56,6 +56,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(store.applyDiff).toHaveBeenCalledTimes(1);
@@ -91,6 +92,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(store.listForPublisher).not.toHaveBeenCalled();
@@ -139,6 +141,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(registry.setThresholdHalt).toHaveBeenCalledWith('p1', undefined);
@@ -177,6 +180,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(registry.setThresholdHalt).not.toHaveBeenCalled();
@@ -229,6 +233,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(store.applyDiff).not.toHaveBeenCalled();
@@ -281,6 +286,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(registry.setThresholdHalt).toHaveBeenCalledTimes(1);
@@ -335,6 +341,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(store.applyDiff).toHaveBeenCalledTimes(2);
@@ -370,6 +377,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(sidecar.publish).toHaveBeenCalledTimes(1);
@@ -400,6 +408,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(fetcher).not.toHaveBeenCalled();
@@ -436,6 +445,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(store.deleteAllForPublisher).toHaveBeenCalledTimes(2);
@@ -496,6 +506,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(callOrder).toEqual([
@@ -531,6 +542,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     // Paused publishers are intentionally invisible to the active and
@@ -589,6 +601,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     // The fetch went out (it's already in flight before we know about the
@@ -601,6 +614,63 @@ describe('runIngest (integration)', () => {
     expect(registry.setThresholdHalt).not.toHaveBeenCalled();
     // Sidecar still republishes whatever was already published (which doesn't
     // include this deleted publisher).
+    expect(sidecar.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts cleanly when the publisher is deleted between get() and applyDiff (TransactionCanceled path)', async () => {
+    // Tighter race than the prior test: the publisher exists at get() time
+    // but is deleted before the applyDiff transaction commits. The store
+    // surfaces this via PublisherDeletedDuringApplyError; the ingest loop
+    // must catch it, log, and continue without recording a fetch outcome.
+    const { PublisherDeletedDuringApplyError } = await import('../services/publisherEventStore');
+    const racePub = {
+      id: 'race-pub', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x',
+      sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+    };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([racePub]),
+      get: jest.fn().mockResolvedValue(racePub),
+      recordFetchOutcome: jest.fn(),
+      setThresholdHalt: jest.fn(),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok',
+      report: { ok: true, errors: [], warnings: [] },
+      feed: {
+        formatVersion: '1.0',
+        publisher: { id: 'race-pub', name: 'X', contactEmail: 'a@b' },
+        events: [{
+          id: 'e1', title: 'E',
+          startDate: '2026-07-04T18:00:00-04:00',
+          endDate: '2026-07-04T19:00:00-04:00',
+          category: 'Lecture',
+          lastModified: '2026-05-01T00:00:00-04:00',
+        }],
+      },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockRejectedValue(new PublisherDeletedDuringApplyError('race-pub')),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+    await runIngest({
+      registry: registry as any,
+      store: store as any,
+      sidecar: sidecar as any,
+      fetcher: fetcher as any,
+      now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
+    });
+
+    // The transaction was attempted but rolled back atomically — no events
+    // were written. recordFetchOutcome must NOT fire (would resurrect a
+    // partial publisher row).
+    expect(store.applyDiff).toHaveBeenCalledTimes(1);
+    expect(registry.recordFetchOutcome).not.toHaveBeenCalled();
+    expect(registry.setThresholdHalt).not.toHaveBeenCalled();
     expect(sidecar.publish).toHaveBeenCalledTimes(1);
   });
 
@@ -633,6 +703,7 @@ describe('runIngest (integration)', () => {
       sidecar: sidecar as any,
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
     });
 
     expect(fetcher).not.toHaveBeenCalled();
