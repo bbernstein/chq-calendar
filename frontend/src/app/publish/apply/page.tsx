@@ -8,9 +8,16 @@
  * Validation is done server-side; client-side we only enforce required-ness
  * and basic HTML5 patterns. The server's response carries field-specific
  * errors that we surface inline.
+ *
+ * The form is gated by reCAPTCHA v3 (action: `publisher_apply`). The site
+ * key is loaded via VITE_RECAPTCHA_SITE_KEY at build time. When the site
+ * key is unset (local dev with no .env.local) the captcha layer is skipped
+ * and the request is sent without a token — the backend allows this in
+ * non-production environments and fails closed in prod.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+// Window.grecaptcha is declared globally by src/types/grecaptcha.d.ts.
 
 type SourceType = 'json' | 'html';
 
@@ -39,14 +46,77 @@ type Status =
   | { kind: 'error'; message: string; field?: string };
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
+const RECAPTCHA_SITE_KEY = (import.meta as any).env?.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+
+// If the reCAPTCHA script doesn't report ready within this many ms (ad
+// blocker, network problem, Google blip), give up waiting and let the user
+// submit anyway — the backend will reject in production but the user sees
+// a useful error rather than a permanently disabled button.
+const RECAPTCHA_LOAD_TIMEOUT_MS = 10_000;
 
 export default function PublishApplyPage() {
   const [form, setForm] = useState<FormState>(INITIAL);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [captchaReady, setCaptchaReady] = useState(false);
+  const [captchaFailed, setCaptchaFailed] = useState(false);
+
+  // Lazy-load the reCAPTCHA script when a site key is configured. When it
+  // isn't (e.g. local dev with no .env.local), captchaReady stays false and
+  // we send the request without a token — the backend's captchaService
+  // allows that in non-production environments.
+  useEffect(() => {
+    if (!RECAPTCHA_SITE_KEY) return;
+
+    const script = document.createElement('script');
+    script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      window.grecaptcha?.ready(() => setCaptchaReady(true));
+    };
+    script.onerror = () => {
+      setCaptchaFailed(true);
+    };
+    document.head.appendChild(script);
+
+    // Belt-and-suspenders: if neither onload's ready callback nor onerror
+    // fires (e.g. blocker silently swallows the load), surface the failure
+    // after a timeout so the form stays usable.
+    const timeout = window.setTimeout(() => {
+      setCaptchaFailed(prev => prev || !window.grecaptcha);
+    }, RECAPTCHA_LOAD_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeout);
+      if (document.head.contains(script)) document.head.removeChild(script);
+    };
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Block the submit briefly if a site key is configured but the script
+    // hasn't finished loading yet — unless the load has clearly failed, in
+    // which case the user has been told to retry/disable a blocker and
+    // we let them submit with no token (backend rejects in prod).
+    if (RECAPTCHA_SITE_KEY && !captchaReady && !captchaFailed) {
+      setStatus({ kind: 'error', message: 'Verifying you’re human… try again in a moment.' });
+      return;
+    }
+
     setStatus({ kind: 'submitting' });
+
+    let captchaToken = '';
+    if (RECAPTCHA_SITE_KEY && captchaReady && window.grecaptcha) {
+      try {
+        captchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {
+          action: 'publisher_apply',
+        });
+      } catch (err) {
+        console.warn('reCAPTCHA execute failed:', err);
+        // fall through — backend will reject if token is missing in prod
+      }
+    }
 
     const payload = {
       name: form.name.trim(),
@@ -55,6 +125,7 @@ export default function PublishApplyPage() {
       sourceUrl: form.sourceUrl.trim(),
       sourceType: form.sourceType,
       notes: form.notes.trim() || undefined,
+      captchaToken: captchaToken || undefined,
     };
 
     try {
@@ -124,6 +195,16 @@ export default function PublishApplyPage() {
                 send a verification link to your email — click it within 15
                 minutes to complete your application. An admin will review and
                 approve before your events appear on chqcal.org.
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                Not sure what your feed should look like? Read the{' '}
+                <a
+                  href="/publish/docs/"
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  publisher format docs
+                </a>{' '}
+                first.
               </p>
 
               <form onSubmit={onSubmit} className="space-y-4">
@@ -224,6 +305,16 @@ export default function PublishApplyPage() {
                   </div>
                 )}
 
+                {captchaFailed && (
+                  <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                      Couldn&rsquo;t load reCAPTCHA — likely a tracker/ad
+                      blocker or network issue. You can still try submitting,
+                      but we may not be able to verify the request.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between pt-2">
                   <a
                     href="/publish/"
@@ -233,6 +324,11 @@ export default function PublishApplyPage() {
                   </a>
                   <button
                     type="submit"
+                    // Don't disable on `!captchaReady` alone — if the
+                    // script never loads (blocker, network blip), the
+                    // button would be permanently dead. Instead the
+                    // captchaFailed banner above tells the user what
+                    // happened and onSubmit handles the not-ready case.
                     disabled={status.kind === 'submitting'}
                     className="inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                   >
@@ -240,6 +336,20 @@ export default function PublishApplyPage() {
                   </button>
                 </div>
               </form>
+
+              {RECAPTCHA_SITE_KEY && (
+                <p className="mt-6 text-xs text-gray-500 dark:text-gray-400">
+                  This form is protected by reCAPTCHA and the Google{' '}
+                  <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-700 dark:hover:text-gray-300">
+                    Privacy Policy
+                  </a>{' '}
+                  and{' '}
+                  <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-700 dark:hover:text-gray-300">
+                    Terms of Service
+                  </a>{' '}
+                  apply.
+                </p>
+              )}
             </>
           )}
         </div>

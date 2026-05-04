@@ -1,5 +1,11 @@
 # Publishing Events to chqcal.org
 
+> **Keep in sync:** the public version of this guide lives at
+> `frontend/src/app/publish/docs/page.tsx` and is rendered at
+> https://www.chqcal.org/publish/docs/. If you edit field names, examples,
+> or structural sections here, mirror the same change in that page (and
+> vice-versa).
+
 If you run an organization, group, or page in the Chautauqua orbit, you can publish your events to chqcal.org by serving a small JSON file (or by embedding a few HTML comments on a page you already have). We fetch your feed on a schedule and merge new and updated events into the calendar. You stay the author; we stay the aggregator.
 
 This guide covers the minimum-viable setup, the field reference, and how to validate your feed locally before submitting.

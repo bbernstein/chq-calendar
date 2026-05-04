@@ -833,6 +833,11 @@ resource "aws_lambda_function" "admin_handler" {
       # publisher-test + apply/login endpoints. When unset (e.g. local
       # tests with no DDB), the handler falls back to an in-memory limiter.
       PUBLISHER_RATE_LIMIT_TABLE_NAME   = aws_dynamodb_table.publisher_rate_limit.name
+      # reCAPTCHA v3 secret for the publisher-apply form (and any future
+      # captcha-gated endpoints on this Lambda). Same secret used by the
+      # calendar Lambda for the public feedback form. When unset, the shared
+      # captchaService fails closed in prod and is permissive in dev/test.
+      RECAPTCHA_SECRET_KEY              = var.recaptcha_secret_key
     }
   }
 }

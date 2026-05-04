@@ -25,6 +25,7 @@ import { SesMailService } from '../services/mailService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherApplicationService } from '../services/publisherApplicationService';
 import { verifyPublisherJwt } from '../services/publisherAuthService';
+import { verifyCaptcha } from '../services/captchaService';
 import {
   DynamoRateLimiter,
   InMemoryRateLimiter,
@@ -303,6 +304,27 @@ export async function handlePublisherApplyRequest(
     typeof payload?.sourceType !== 'string'
   ) {
     return json(400, { error: 'Missing or invalid fields. Required: name, email, sourceUrl, sourceType.' });
+  }
+
+  // CAPTCHA gates the apply form to deter scripted abuse. Order matters:
+  //   1. Rate-limit check (above) — first, so attackers can't burn quota
+  //      with bogus tokens before any verification work.
+  //   2. Basic shape check (above) — next, so legitimate users with a
+  //      malformed submission see field errors instead of a generic
+  //      captcha failure.
+  //   3. Captcha verification (here) — last, so the round-trip to Google
+  //      only happens for well-formed submissions.
+  //
+  // The token is passed through unconditionally; verifyCaptcha decides
+  // what to do based on environment + secret config. In dev with no
+  // VITE_RECAPTCHA_SITE_KEY the frontend sends no token, captchaService
+  // returns true because no RECAPTCHA_SECRET_KEY is configured, and the
+  // request proceeds. In production the secret is set and an empty or
+  // bad token is rejected.
+  const captchaToken = typeof requestBody?.captchaToken === 'string' ? requestBody.captchaToken : '';
+  const captchaOk = await verifyCaptcha(captchaToken, 'publisher_apply');
+  if (!captchaOk) {
+    return json(400, { error: 'CAPTCHA verification failed. Please refresh and try again.', field: 'captcha' });
   }
 
   try {

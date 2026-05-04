@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO } from 'date-fns';
 import fetch from 'node-fetch';
 import { MultiLayerCacheService, CacheConfig } from '../services/multiLayerCacheService';
+import { verifyCaptcha } from '../services/captchaService';
 
 // DynamoDB client
 const dynamoClient = new DynamoDBClient({
@@ -24,7 +25,6 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
 const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chautauqua-calendar-data-sources';
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
-const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
 // Cache configuration
 const CACHE_S3_BUCKET = process.env.CACHE_S3_BUCKET || 'chautauqua-calendar-cache';
@@ -121,63 +121,6 @@ const createResponse = (statusCode: number, body: any, headers: Record<string, s
     },
     body: typeof body === 'string' ? body : JSON.stringify(body)
   };
-};
-
-// Helper function to verify reCAPTCHA token
-const verifyCaptcha = async (token: string): Promise<boolean> => {
-  if (!RECAPTCHA_SECRET_KEY) {
-    const isProduction = process.env.ENVIRONMENT === 'prod';
-    if (isProduction) {
-      console.error('RECAPTCHA_SECRET_KEY not configured in production - rejecting request');
-      return false; // Fail closed in production
-    } else {
-      console.warn('RECAPTCHA_SECRET_KEY not configured, skipping CAPTCHA verification in non-production');
-      return true; // Allow in development/testing only
-    }
-  }
-
-  try {
-    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        secret: RECAPTCHA_SECRET_KEY,
-        response: token,
-      }),
-    });
-
-    const result = await response.json() as {
-      success: boolean;
-      score?: number;
-      action?: string;
-      'error-codes'?: string[];
-      challenge_ts?: string;
-      hostname?: string;
-    };
-
-    console.log(`reCAPTCHA verification result:`, {
-      success: result.success,
-      score: result.score,
-      action: result.action || 'submit_feedback',
-      errorCodes: result['error-codes'],
-      challengeTimestamp: result.challenge_ts,
-      hostname: result.hostname
-    });
-
-    // For reCAPTCHA v3, we should check the score as well
-    if (result.score !== undefined) {
-      const isValid = result.success && result.score > 0.5; // Threshold for human vs bot
-      console.log(`reCAPTCHA score validation: ${result.score} > 0.5 = ${isValid}`);
-      return isValid;
-    }
-
-    return result.success;
-  } catch (error) {
-    console.error('Error verifying CAPTCHA:', error);
-    return false;
-  }
 };
 
 // Helper function to transform database events to the expected Event format
@@ -433,7 +376,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
       // Verify CAPTCHA if token is provided
       if (captchaToken) {
-        const isCaptchaValid = await verifyCaptcha(captchaToken);
+        const isCaptchaValid = await verifyCaptcha(captchaToken, 'submit_feedback');
         if (!isCaptchaValid) {
           return createResponse(400, { error: 'CAPTCHA verification failed' });
         }
@@ -684,7 +627,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
       // Verify CAPTCHA if token is provided
       if (captchaToken) {
-        const isCaptchaValid = await verifyCaptcha(captchaToken);
+        const isCaptchaValid = await verifyCaptcha(captchaToken, 'submit_feedback');
         if (!isCaptchaValid) {
           return createResponse(400, { error: 'CAPTCHA verification failed' });
         }

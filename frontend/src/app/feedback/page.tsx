@@ -1,15 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '@/lib/api';
-
-// Declare the global grecaptcha object
-declare global {
-  interface Window {
-    grecaptcha: {
-      ready: (callback: () => void) => void;
-      execute: (siteKey: string, options: { action: string }) => Promise<string>;
-    };
-  }
-}
+// Window.grecaptcha is declared globally by src/types/grecaptcha.d.ts.
 
 export default function FeedbackPage() {
   const [feedback, setFeedback] = useState('');
