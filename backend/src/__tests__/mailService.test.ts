@@ -90,7 +90,14 @@ describe('SesMailService', () => {
     const html = cmd.input.Content.Simple.Body.Html.Data;
     expect(html).toContain('Acme Concerts');
     expect(html).toContain('acme-concerts');
+    // Symmetric with the text body assertion above — the same instruction
+    // text must appear in HTML so a recipient reading either format
+    // understands what to do with the slug.
+    expect(html).toMatch(/publisher\.id/);
     expect(html).toContain('https://x.test/publish/login/');
+    // <pre> gives reliable monospace rendering across email clients
+    // (notably Outlook 2010–2016 which strips font-family from <p>).
+    expect(html).toContain('<pre');
   });
 
   it('sendApprovalEmail HTML-escapes the publisher name and publisher id', async () => {
