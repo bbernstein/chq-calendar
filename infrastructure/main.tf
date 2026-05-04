@@ -829,6 +829,10 @@ resource "aws_lambda_function" "admin_handler" {
       PUBLISHER_MAGIC_TOKEN_TABLE_NAME  = aws_dynamodb_table.publisher_magic_tokens.name
       SES_FROM_ADDRESS                  = "no-reply@${var.domain_name}"
       SITE_BASE_URL                     = "https://www.${var.domain_name}"
+      # Phase D: DynamoDB-backed sliding-window rate limiter for the
+      # publisher-test + apply/login endpoints. When unset (e.g. local
+      # tests with no DDB), the handler falls back to an in-memory limiter.
+      PUBLISHER_RATE_LIMIT_TABLE_NAME   = aws_dynamodb_table.publisher_rate_limit.name
     }
   }
 }

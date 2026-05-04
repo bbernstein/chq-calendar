@@ -47,14 +47,9 @@ function publisherAdmin(): PublisherAdminService {
   return _publisherAdmin;
 }
 
-// Test-only: reset the cached singleton between test cases that need to inject
-// stubs (mocks aws-sdk-client-mock-style). Production code never calls this.
-export function _resetPublisherAdminForTests(): void {
-  _publisherAdmin = null;
-}
-
 // Test-only: inject a fake PublisherAdminService so handler tests can drive
-// the route layer without standing up DynamoDB/SES. Pass null to revert.
+// the route layer without standing up DynamoDB/SES. Pass null to revert
+// to the lazily-constructed real instance.
 export function _setPublisherAdminForTests(svc: PublisherAdminService | null): void {
   _publisherAdmin = svc;
 }

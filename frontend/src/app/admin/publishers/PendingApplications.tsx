@@ -38,22 +38,31 @@ export function PendingApplications({ applications, onChange }: Props) {
     setRowStates(prev => ({ ...prev, [id]: s }));
   };
 
+  // Action and refetch are deliberately separate try/catch blocks. If the
+  // approve/reject API call succeeds but the refetch throws, we shouldn't
+  // surface that as "approve failed" — the action did succeed; only the
+  // list is stale. Drop the row from local state regardless so the admin
+  // sees the optimistic outcome.
   const handleApprove = async (id: string) => {
     setState(id, { kind: 'busy' });
     try {
       await approveApplication(id);
-      // Drop our row state; parent's refetch will remove the row.
-      setRowStates(prev => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      await onChange();
     } catch (err) {
       setState(id, {
         kind: 'error',
         message: err instanceof Error ? err.message : 'Failed to approve.',
       });
+      return;
+    }
+    setRowStates(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      await onChange();
+    } catch (err) {
+      console.warn('[PendingApplications] approve succeeded but refetch failed:', err);
     }
   };
 
@@ -61,17 +70,22 @@ export function PendingApplications({ applications, onChange }: Props) {
     setState(id, { kind: 'busy' });
     try {
       await rejectApplication(id, reason.trim() || undefined);
-      setRowStates(prev => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      await onChange();
     } catch (err) {
       setState(id, {
         kind: 'error',
         message: err instanceof Error ? err.message : 'Failed to reject.',
       });
+      return;
+    }
+    setRowStates(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      await onChange();
+    } catch (err) {
+      console.warn('[PendingApplications] reject succeeded but refetch failed:', err);
     }
   };
 

@@ -71,6 +71,46 @@ resource "aws_dynamodb_table" "publisher_magic_tokens" {
   }
 }
 
+# DynamoDB: publisher rate-limit buckets (Phase D)
+#
+# Backs the sliding-window per-IP rate limiter in
+# backend/src/services/rateLimitService.ts. Replaces the in-memory Maps
+# from Phases A/B so the limit holds across concurrent Lambda containers.
+#
+# Each item is one bucket: PK is `<scope>:<ip>` (e.g. "pt:203.0.113.1"
+# for the publisher-test endpoint), value is a list of recent epoch-ms
+# request timestamps, plus a TTL field that DynamoDB uses to evict the
+# row a minute after the active window closes.
+resource "aws_dynamodb_table" "publisher_rate_limit" {
+  name         = "${var.app_name}-publisher-rate-limit"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+
+  # Buckets are ephemeral and self-rebuilding; PITR adds no value.
+  point_in_time_recovery {
+    enabled = false
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = {
+    Name        = "${var.app_name}-publisher-rate-limit"
+    Environment = var.environment
+  }
+}
+
 # IAM: extend the admin Lambda role with publisher-portal permissions.
 #
 # Phase A's /publisher-test endpoint already runs on aws_lambda_function.admin_handler
@@ -98,6 +138,18 @@ resource "aws_iam_role_policy" "publisher_portal_access" {
         Resource = aws_dynamodb_table.publisher_magic_tokens.arn
       },
       {
+        # Phase D rate-limit table — same CRUD subset, scoped to the new
+        # table only.
+        Effect = "Allow",
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:UpdateItem"
+        ],
+        Resource = aws_dynamodb_table.publisher_rate_limit.arn
+      },
+      {
         # Scope SES SendEmail to the verified domain identity. SESv2 SendEmail
         # (used by mailService.ts via @aws-sdk/client-sesv2) maps to the
         # `ses:SendEmail` IAM action, so granting that single action is
@@ -120,4 +172,9 @@ output "publisher_jwt_secret_arn" {
 output "publisher_magic_tokens_table_name" {
   value       = aws_dynamodb_table.publisher_magic_tokens.name
   description = "DynamoDB table holding hashed publisher magic-link tokens"
+}
+
+output "publisher_rate_limit_table_name" {
+  value       = aws_dynamodb_table.publisher_rate_limit.name
+  description = "DynamoDB table backing the publisher portal sliding-window rate limiter"
 }

@@ -158,6 +158,12 @@ export default function PublishLoginPage() {
               <p className="text-xs text-green-700 dark:text-green-300 mt-1">
                 Links expire after 15 minutes. Each link is single-use.
               </p>
+              <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                Didn&apos;t receive it?{' '}
+                {inCooldown
+                  ? `You can request another in ${cooldownRemainingSec}s.`
+                  : 'Click "Send sign-in link" above to send another.'}
+              </p>
             </div>
           )}
 
