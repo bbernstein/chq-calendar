@@ -8,6 +8,11 @@ import { API_BASE_URL } from '@/lib/api';
 // submit button. Mirrors /publish/apply behaviour.
 const RECAPTCHA_LOAD_TIMEOUT_MS = 10_000;
 
+// Surfaced when the user submits before reCAPTCHA finishes loading. We
+// clear it explicitly if the load later fails so the yellow banner isn't
+// shown alongside conflicting "wait a moment" guidance.
+const CAPTCHA_LOADING_ERROR = 'Verifying you’re human… try again in a moment.';
+
 export default function FeedbackPage() {
   const [feedback, setFeedback] = useState('');
   const [contactInfo, setContactInfo] = useState('');
@@ -39,6 +44,9 @@ export default function FeedbackPage() {
       if (window.grecaptcha) {
         window.grecaptcha.ready(() => {
           setCaptchaReady(true);
+          // If the timeout already fired and we'd shown the failure
+          // banner, clear it now that the script has actually loaded.
+          setCaptchaFailed(false);
         });
       }
     };
@@ -63,6 +71,16 @@ export default function FeedbackPage() {
     };
   }, [RECAPTCHA_SITE_KEY]);
 
+  // When the captcha-failed banner appears, the transient "verifying
+  // you're human, try again" error becomes outdated — the banner now
+  // tells the user what's actually going on. Clear that specific error
+  // so the UI doesn't present conflicting guidance.
+  useEffect(() => {
+    if (captchaFailed) {
+      setError(prev => (prev === CAPTCHA_LOADING_ERROR ? '' : prev));
+    }
+  }, [captchaFailed]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -76,7 +94,7 @@ export default function FeedbackPage() {
     // the user has been told to retry/disable a blocker via the banner and
     // we let them submit with no token (backend rejects in prod).
     if (!!RECAPTCHA_SITE_KEY && !captchaReady && !captchaFailed) {
-      setError('Verifying you’re human… try again in a moment.');
+      setError(CAPTCHA_LOADING_ERROR);
       return;
     }
 
