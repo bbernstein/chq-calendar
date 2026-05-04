@@ -2,7 +2,7 @@
 
 **Status:** executed (GSI-only scope) — see Execution notes below
 **Filed:** 2026-05-04
-**Trigger:** AWS provider v6 (introduced in PR #92) emits deprecation warnings on every `aws_dynamodb_table` resource. Old syntax keeps working through the v6 line; expected to be removed in v7. Migrating now is purely cleanup — no functional change.
+**Trigger:** AWS provider v6 (introduced in PR #92) deprecates the inline `hash_key`/`range_key` arguments inside `global_secondary_index` blocks, so any table that defines a GSI emits warnings on `terraform plan`. Tables without GSIs are unaffected. Old syntax keeps working through the v6 line; expected to be removed in v7. Migrating now is purely cleanup — no functional change.
 
 > ## Execution notes (added 2026-05-04, post-investigation)
 >
@@ -12,7 +12,7 @@
 >
 > Result: actual migration scope is just the 6 GSIs (3 on `events`, 1 each on `sync_status`, `feedback`, `publisher_events`). The `data_sources`, `publishers`, `publisher_magic_tokens`, and `publisher_rate_limit` tables have no GSIs and need no edits. No table-level key_schema rewrite, so the entire "destroy/recreate hazard" section below does **not** apply — converting GSI inline args to a nested block is a pure schema-layout change with no on-AWS effect.
 >
-> The rest of this document is preserved for context but should be read with that scope correction in mind. Any future v7 bump that retires top-level `hash_key`/`range_key` will need a fresh plan.
+> The remainder of this document has been rewritten to describe what actually shipped in PR #94 (GSI-only) rather than the original (and incorrect) table-level migration draft. Any future v7 bump that retires top-level `hash_key`/`range_key` will need a fresh plan.
 
 ## What actually shipped (executed scope)
 
