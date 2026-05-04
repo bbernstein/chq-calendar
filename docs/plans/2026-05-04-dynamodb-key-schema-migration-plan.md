@@ -137,8 +137,13 @@ Source: https://github.com/hashicorp/terraform-provider-aws/blob/main/website/do
    aws dynamodb describe-table --table-name chautauqua-calendar-data-sources --query 'Table.[TableArn,KeySchema]'
    aws dynamodb scan --table-name chautauqua-calendar-data-sources --max-items 5
    ```
-5. **Migrate one table with a GSI to validate the GSI syntax.** `sync_status` is the simplest GSI case (single composite GSI, low traffic). Edit, plan-gate, `apply -target=aws_dynamodb_table.sync_status`, verify with `aws dynamodb describe-table` showing both the table KeySchema and the GSI KeySchema intact.
-6. **Migrate the rest** in roughly increasing-risk order: `publisher_magic_tokens`, `publisher_rate_limit`, `feedback`, `publishers`, `publisher_events`, `events`. Last two are highest-stakes — `publisher_events` because it has the only composite key, `events` because it has 3 GSIs and the most production data. Each one: plan-gate first, apply with `-target=`, verify with `describe-table` + a small `scan`.
+5. **Migrate one table with a GSI to validate the GSI syntax.** `sync_status` is the simplest GSI case (single composite GSI, low traffic). Edit, plan-gate, `apply -target=aws_dynamodb_table.sync_status`, then verify both the table KeySchema and the GSI KeySchema are intact:
+   ```bash
+   aws dynamodb describe-table --table-name chautauqua-calendar-sync-status \
+     --query 'Table.[TableArn,KeySchema,GlobalSecondaryIndexes[].KeySchema]'
+   aws dynamodb scan --table-name chautauqua-calendar-sync-status --max-items 5
+   ```
+6. **Migrate the rest** in roughly increasing-risk order: `publisher_magic_tokens`, `publisher_rate_limit`, `feedback`, `publishers`, `publisher_events`, `events`. Last two are highest-stakes — `publisher_events` because it has the only composite key, `events` because it has 3 GSIs and the most production data. Each one: plan-gate first, apply with `-target=`, verify with `describe-table` + a small `scan`. **When editing `publisher-portal.tf` and `publisher-ingest.tf`, only touch the `hash_key`/`range_key` lines — do NOT modify the `server_side_encryption` or `point_in_time_recovery` blocks** (those are tracked separately in the Out-of-scope section).
 7. **Plan one final time** with no `-target` to confirm no warnings remain and no drift. Apply if anything moved.
 8. **Smoke test the app** end-to-end: load https://www.chqcal.org, hit the publisher portal at `/publish/`, submit a feedback form, log into admin and check the feedback list. All read/write paths through DynamoDB should still work.
 9. **Commit.** Suggested message: `chore(infra): migrate DynamoDB tables to key_schema syntax (AWS provider v6)`.
