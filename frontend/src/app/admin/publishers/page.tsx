@@ -22,6 +22,15 @@ type FormMode =
 
 const CLOSED: FormMode = { kind: 'closed' };
 
+// State machine for the "Run ingest now" button. Module-scope so it can be
+// referenced from the component without re-allocating on every render.
+type IngestState =
+  | { kind: 'idle' }
+  | { kind: 'running'; triggeredAt: string; pollCount: number }
+  | { kind: 'success'; triggeredAt: string; finishedAt: string }
+  | { kind: 'timeout'; triggeredAt: string }
+  | { kind: 'error'; message: string };
+
 // Polling cadence + ceiling for the "Run ingest now" button. Module-scope so
 // the values aren't reallocated on every render. 3s × 40 attempts ≈ 2 min.
 const INGEST_POLL_INTERVAL_MS = 3000;
@@ -101,12 +110,7 @@ export default function PublishersPage() {
   // ingest Lambda and returns 202 immediately, so the UI then polls
   // listPublishers until every enabled publisher has a lastFetchedAt
   // newer than `triggeredAt` (or until the timeout below elapses).
-  type IngestState =
-    | { kind: 'idle' }
-    | { kind: 'running'; triggeredAt: string; pollCount: number }
-    | { kind: 'success'; triggeredAt: string; finishedAt: string }
-    | { kind: 'timeout'; triggeredAt: string }
-    | { kind: 'error'; message: string };
+  // The IngestState union is defined at module scope above.
   const [ingestState, setIngestState] = useState<IngestState>({ kind: 'idle' });
   // Hold the active polling timer id so we can clear it from any branch.
   // We use setTimeout (not setInterval) so each tick only fires after the
@@ -438,7 +442,13 @@ export default function PublishersPage() {
         message: err instanceof Error ? err.message : 'Failed to trigger ingest.',
       });
     }
-  }, [stopIngestPoll]);
+    // `publishers` MUST be in the deps: handleRunIngest captures it (via
+    // `triggerSnapshot`) at trigger time. Without it, `useCallback` would
+    // freeze the callback to the mount-time `publishers` (an empty array),
+    // making `triggerSnapshot` always empty and causing the polling
+    // completion check to immediately report success regardless of whether
+    // the ingest Lambda has done any work.
+  }, [stopIngestPoll, publishers]);
 
   // -------------------------------------------------------------------------
   // Render helpers
