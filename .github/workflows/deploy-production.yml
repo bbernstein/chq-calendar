@@ -154,7 +154,22 @@ jobs:
           echo "Installing admin handler dependencies with all transitive dependencies..."
           cd package_temp
 
-          # Create a minimal package.json with only admin externalized dependencies (using same versions as main package.json)
+          # Create a minimal package.json listing only what esbuild leaves as runtime requires.
+          #
+          # Versions for AWS SDK / googleapis / jsonwebtoken / node-fetch / uuid come from
+          # backend/package.json. cheerio is pulled in transitively via
+          # @chq-calendar/publisher-format (used by the publisher-portal handler that
+          # adminHandler delegates to); the version pin matches both backend/package.json
+          # and tools/publisher-format/package.json.
+          #
+          # Why cheerio specifically: esbuild's adminHandler build marks cheerio as
+          # `--external`, so the bundle contains a real `require("cheerio")` that must
+          # resolve at runtime. The publisher-format library also uses ajv/ajv-formats,
+          # but those are fully bundled inline by esbuild — the `require("ajv/dist/...")`
+          # strings visible in the bundle are codegen template literals (set as
+          # `equal.code`, used only for ajv's standalone-mode source generation), not
+          # runtime require() calls. Verified by loading the bundle with only the
+          # dependencies listed below and confirming module evaluation succeeds.
           cat > package.json << 'EOF'
           {
             "name": "lambda-admin",
@@ -164,6 +179,7 @@ jobs:
               "@aws-sdk/lib-dynamodb": "^3.0.0",
               "@aws-sdk/client-secrets-manager": "^3.0.0",
               "@aws-sdk/client-sesv2": "^3.0.0",
+              "cheerio": "^1.0.0-rc.12",
               "googleapis": "^153.0.0",
               "jsonwebtoken": "^9.0.2",
               "node-fetch": "^2.7.0",
@@ -179,6 +195,10 @@ jobs:
 
           # Copy the original package.json back
           cp package.json package_temp/package.json
+
+          # List what we installed for debugging — matches the calendar deploy step
+          echo "Installed admin dependencies:"
+          ls package_temp/node_modules/ | head -30
 
           # Create package for admin handler (package.json already copied above)
           mkdir -p package_temp/dist
