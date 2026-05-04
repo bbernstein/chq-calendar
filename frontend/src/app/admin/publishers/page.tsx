@@ -130,6 +130,15 @@ export default function PublishersPage() {
     }
   };
 
+  // Render the ISO timestamp using the user's locale. Falls back to the raw
+  // string if Date parsing fails so we never blank out a valid value.
+  const formatFetchedAt = (iso: string | undefined): string | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  };
+
   // -------------------------------------------------------------------------
   // Loading / unauthenticated guard
   // -------------------------------------------------------------------------
@@ -293,14 +302,28 @@ export default function PublishersPage() {
                           {p.trustLevel}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4 align-top max-w-md">
                         {p.lastFetchStatus ? (
-                          <span
-                            className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusBadgeClass(p.lastFetchStatus)}`}
-                            title={p.lastFetchMessage}
-                          >
-                            {p.lastFetchStatus}
-                          </span>
+                          <div className="space-y-1">
+                            <span
+                              className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusBadgeClass(p.lastFetchStatus)}`}
+                            >
+                              {p.lastFetchStatus}
+                            </span>
+                            {p.lastFetchedAt && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {formatFetchedAt(p.lastFetchedAt)}
+                              </div>
+                            )}
+                            {p.lastFetchStatus !== 'ok' && p.lastFetchMessage && (
+                              <div
+                                className="text-xs text-red-700 dark:text-red-400 whitespace-pre-wrap break-words font-mono leading-snug"
+                                title={p.lastFetchMessage}
+                              >
+                                {p.lastFetchMessage}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
                         )}

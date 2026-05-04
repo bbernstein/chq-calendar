@@ -34,7 +34,13 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
         registeredPublisherId: p.id,
       });
       if (f.fetchStatus !== 'ok' || !f.feed) {
-        const message = f.report.errors.map(e => e.message).join('; ').slice(0, 500);
+        // Prefix each error with its path when it's more specific than the
+        // root ("/") so admins can see which field failed validation. For
+        // network/JSON errors with path === "/", the path is noise — drop it.
+        const message = f.report.errors
+          .map(e => (e.path && e.path !== '/' ? `${e.path}: ${e.message}` : e.message))
+          .join('; ')
+          .slice(0, 500);
         await deps.registry.recordFetchOutcome(p.id, { status: f.fetchStatus, message });
         continue;
       }
@@ -62,6 +68,11 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
     } catch (err) {
       console.error(`[publisher-ingest] publisher ${p.id} failed:`, err);
       try {
+        // This catch fires for unhandled throws from the loop body — DDB
+        // errors, reconcile assertion failures, etc. fetchAndParseFeed
+        // already returns network_error with cause-unwrapped messages on
+        // its own, so don't replicate that logic here; just surface the
+        // raw error message.
         await deps.registry.recordFetchOutcome(p.id, {
           status: 'network_error',
           message: `unhandled error: ${(err as Error).message ?? String(err)}`.slice(0, 500),

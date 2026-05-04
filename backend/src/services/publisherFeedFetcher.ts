@@ -41,12 +41,35 @@ export async function fetchAndParseFeed(
       signal: controller.signal,
     });
   } catch (e) {
+    const err = e as Error & { cause?: { code?: string; message?: string } };
+    // Timeout has its own deterministic message — the AbortError wrapping is
+    // an implementation detail. Return early so we don't append the
+    // DOMException cause that some Node versions attach to the abort.
+    if (err.name === 'AbortError') {
+      return {
+        fetchStatus: 'network_error',
+        feed: null,
+        report: {
+          ok: false,
+          errors: [{ path: '/', message: `timed out after ${FETCH_TIMEOUT_MS}ms` }],
+          warnings: [],
+        },
+      };
+    }
+    // Node's fetch surfaces real network failures (ENOTFOUND, ECONNREFUSED,
+    // certificate errors) only on err.cause — the top-level message is just
+    // "fetch failed". Prefer cause.message (it usually already includes the
+    // code, e.g. "getaddrinfo ENOTFOUND host"), and fall back to the bare
+    // code only if message is absent — joining both duplicates the code.
+    const causeStr = err.cause ? (err.cause.message || err.cause.code || '') : '';
+    const baseMsg = err.message ?? String(e);
+    const message = causeStr ? `${baseMsg} (${causeStr})` : baseMsg;
     return {
       fetchStatus: 'network_error',
       feed: null,
       report: {
         ok: false,
-        errors: [{ path: '/', message: (e as Error).message }],
+        errors: [{ path: '/', message }],
         warnings: [],
       },
     };
@@ -81,7 +104,10 @@ export async function fetchAndParseFeed(
         feed: null,
         report: {
           ok: false,
-          errors: [{ path: '/publisher/id', message: 'mismatch' }],
+          errors: [{
+            path: '/publisher/id',
+            message: `feed publisher.id "${ex.feed.publisher.id}" does not match registered publisher "${input.registeredPublisherId}"`,
+          }],
           warnings: [],
         },
       };
@@ -118,7 +144,10 @@ export async function fetchAndParseFeed(
       feed: null,
       report: {
         ok: false,
-        errors: [{ path: '/publisher/id', message: 'mismatch' }],
+        errors: [{
+          path: '/publisher/id',
+          message: `feed publisher.id "${report.feed.publisher.id}" does not match registered publisher "${input.registeredPublisherId}"`,
+        }],
         warnings: [],
       },
     };
