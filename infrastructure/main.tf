@@ -279,6 +279,16 @@ resource "aws_acm_certificate_validation" "cert_validation" {
 # S3 Bucket for Frontend
 resource "aws_s3_bucket" "frontend_bucket" {
   bucket = "${var.app_name}-frontend-${var.environment}"
+
+  # AWS provider v6 regression: the bucket read calls GetBucketTagging,
+  # and a `NoSuchTagSet` response makes the provider treat the bucket as
+  # deleted — causing `terraform plan` to propose recreating it. Declaring
+  # at least one tag keeps the live tag set non-empty so the read succeeds.
+  # See PR #94 for the diagnostic trail.
+  tags = {
+    Name        = "${var.app_name}-frontend-${var.environment}"
+    Environment = var.environment
+  }
 }
 
 
