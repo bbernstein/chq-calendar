@@ -26,10 +26,13 @@ export interface MailService {
 export interface ApprovalEmailOpts {
   to: string;
   publisherName: string;
-  // The slug the admin assigned to this publisher. The publisher must
-  // include this exact value as `publisher.id` in their feed (or in the
-  // `chq-publisher` HTML comment) for the ingest pipeline to recognise
-  // their events. Without it the feed validates but no events go live.
+  // The publisher's unique ID. Auto-generated as `pub-<uuid4>` at
+  // apply-verify time (publisherApplicationService.ts), not assigned by
+  // the admin during review — the admin's only review actions are
+  // approve / reject. The publisher must include this exact value as
+  // `publisher.id` in their feed (or in the `chq-publisher` HTML
+  // comment) for the ingest pipeline to recognise their events.
+  // Without it the feed validates but no events go live.
   publisherId: string;
   statusUrl: string;
   loginUrl: string;
