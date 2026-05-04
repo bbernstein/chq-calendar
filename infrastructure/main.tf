@@ -110,22 +110,37 @@ resource "aws_dynamodb_table" "events" {
 
   global_secondary_index {
     name            = "WeekIndex"
-    hash_key        = "week"
-    range_key       = "startDate"
     projection_type = "ALL"
+    key_schema {
+      attribute_name = "week"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "startDate"
+      key_type       = "RANGE"
+    }
   }
 
   global_secondary_index {
     name            = "DateIndex"
-    hash_key        = "startDate"
     projection_type = "ALL"
+    key_schema {
+      attribute_name = "startDate"
+      key_type       = "HASH"
+    }
   }
 
   global_secondary_index {
     name            = "CategoryIndex"
-    hash_key        = "category"
-    range_key       = "startDate"
     projection_type = "ALL"
+    key_schema {
+      attribute_name = "category"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "startDate"
+      key_type       = "RANGE"
+    }
   }
 
   tags = {
@@ -173,9 +188,15 @@ resource "aws_dynamodb_table" "sync_status" {
 
   global_secondary_index {
     name            = "TypeIndex"
-    hash_key        = "type"
-    range_key       = "timestamp"
     projection_type = "ALL"
+    key_schema {
+      attribute_name = "type"
+      key_type       = "HASH"
+    }
+    key_schema {
+      attribute_name = "timestamp"
+      key_type       = "RANGE"
+    }
   }
 
   tags = {
@@ -202,8 +223,11 @@ resource "aws_dynamodb_table" "feedback" {
 
   global_secondary_index {
     name            = "TimestampIndex"
-    hash_key        = "timestamp"
     projection_type = "ALL"
+    key_schema {
+      attribute_name = "timestamp"
+      key_type       = "HASH"
+    }
   }
 
   tags = {
@@ -416,7 +440,7 @@ resource "aws_cloudfront_distribution" "frontend_distribution" {
       # publisher endpoints (status page, feed management). The Phase A/B
       # routes are public — no auth header is sent today — but adding it now
       # avoids a broken-by-default Phase C deploy.
-      headers      = ["Authorization", "Content-Type"]
+      headers = ["Authorization", "Content-Type"]
       cookies {
         forward = "none"
       }
@@ -825,19 +849,19 @@ resource "aws_lambda_function" "admin_handler" {
       PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
       # Phase B publisher portal: magic-link apply + login flow.
       # Resources defined in publisher-portal.tf.
-      PUBLISHER_JWT_SECRET_ARN          = aws_secretsmanager_secret.publisher_jwt_secret.arn
-      PUBLISHER_MAGIC_TOKEN_TABLE_NAME  = aws_dynamodb_table.publisher_magic_tokens.name
-      SES_FROM_ADDRESS                  = "no-reply@${var.domain_name}"
-      SITE_BASE_URL                     = "https://www.${var.domain_name}"
+      PUBLISHER_JWT_SECRET_ARN         = aws_secretsmanager_secret.publisher_jwt_secret.arn
+      PUBLISHER_MAGIC_TOKEN_TABLE_NAME = aws_dynamodb_table.publisher_magic_tokens.name
+      SES_FROM_ADDRESS                 = "no-reply@${var.domain_name}"
+      SITE_BASE_URL                    = "https://www.${var.domain_name}"
       # Phase D: DynamoDB-backed sliding-window rate limiter for the
       # publisher-test + apply/login endpoints. When unset (e.g. local
       # tests with no DDB), the handler falls back to an in-memory limiter.
-      PUBLISHER_RATE_LIMIT_TABLE_NAME   = aws_dynamodb_table.publisher_rate_limit.name
+      PUBLISHER_RATE_LIMIT_TABLE_NAME = aws_dynamodb_table.publisher_rate_limit.name
       # reCAPTCHA v3 secret for the publisher-apply form (and any future
       # captcha-gated endpoints on this Lambda). Same secret used by the
       # calendar Lambda for the public feedback form. When unset, the shared
       # captchaService fails closed in prod and is permissive in dev/test.
-      RECAPTCHA_SECRET_KEY              = var.recaptcha_secret_key
+      RECAPTCHA_SECRET_KEY = var.recaptcha_secret_key
     }
   }
 }

@@ -1,8 +1,18 @@
 # Plan — Migrate DynamoDB tables from `hash_key`/`range_key` to `key_schema`
 
-**Status:** not started
+**Status:** executed (GSI-only scope) — see Execution notes below
 **Filed:** 2026-05-04
 **Trigger:** AWS provider v6 (introduced in PR #92) emits deprecation warnings on every `aws_dynamodb_table` resource. Old syntax keeps working through the v6 line; expected to be removed in v7. Migrating now is purely cleanup — no functional change.
+
+> ## Execution notes (added 2026-05-04, post-investigation)
+>
+> When this plan was filed it assumed `hash_key`/`range_key` was deprecated at **both** the table level and the GSI level, and that the v6 provider exposed a top-level `key_schema` block on `aws_dynamodb_table`. Verifying against the actual installed provider (**v6.43.0**) showed that's **wrong**: the v6 schema only adds a `key_schema` block inside `global_secondary_index`. Top-level `hash_key`/`range_key` are still the only way to declare the table's primary key, and they are **not** marked deprecated in `internal/service/dynamodb/table.go`.
+>
+> The `range_key is deprecated. Use key_schema instead.` warning that prompted this plan is fired solely from the **GSI-level** `hash_key`/`range_key` arguments. Terraform reports the warning's location as the resource block, which made it look like a table-level deprecation.
+>
+> Result: actual migration scope is just the 6 GSIs (3 on `events`, 1 each on `sync_status`, `feedback`, `publisher_events`). The `data_sources`, `publishers`, `publisher_magic_tokens`, and `publisher_rate_limit` tables have no GSIs and need no edits. No table-level key_schema rewrite, so the entire "destroy/recreate hazard" section below does **not** apply — converting GSI inline args to a nested block is a pure schema-layout change with no on-AWS effect.
+>
+> The rest of this document is preserved for context but should be read with that scope correction in mind. Any future v7 bump that retires top-level `hash_key`/`range_key` will need a fresh plan.
 
 ## Background
 
