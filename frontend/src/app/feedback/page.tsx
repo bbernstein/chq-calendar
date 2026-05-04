@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '@/lib/api';
 // Window.grecaptcha is declared globally by src/types/grecaptcha.d.ts.
 
+// If the reCAPTCHA script doesn't report ready within this many ms (ad
+// blocker, network problem, Google blip), surface a banner so the form
+// stays usable rather than leaving the user staring at a non-responsive
+// submit button. Mirrors /publish/apply behaviour.
+const RECAPTCHA_LOAD_TIMEOUT_MS = 10_000;
+
 export default function FeedbackPage() {
   const [feedback, setFeedback] = useState('');
   const [contactInfo, setContactInfo] = useState('');
@@ -9,6 +15,7 @@ export default function FeedbackPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [captchaReady, setCaptchaReady] = useState(false);
+  const [captchaFailed, setCaptchaFailed] = useState(false);
 
   // reCAPTCHA site key - must be set via environment variable
   const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
@@ -27,7 +34,6 @@ export default function FeedbackPage() {
     script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
     script.async = true;
     script.defer = true;
-    document.head.appendChild(script);
 
     script.onload = () => {
       if (window.grecaptcha) {
@@ -36,8 +42,20 @@ export default function FeedbackPage() {
         });
       }
     };
+    script.onerror = () => {
+      setCaptchaFailed(true);
+    };
+    document.head.appendChild(script);
+
+    // Belt-and-suspenders: if neither onload's ready callback nor onerror
+    // fires (e.g. blocker silently swallows the load), surface the failure
+    // after a timeout so the form stays usable.
+    const timeout = window.setTimeout(() => {
+      setCaptchaFailed(prev => prev || !window.grecaptcha);
+    }, RECAPTCHA_LOAD_TIMEOUT_MS);
 
     return () => {
+      window.clearTimeout(timeout);
       // Cleanup script on unmount - check if script exists first
       if (script && document.head.contains(script)) {
         document.head.removeChild(script);
@@ -53,8 +71,12 @@ export default function FeedbackPage() {
       return;
     }
 
-    if (!!RECAPTCHA_SITE_KEY && !captchaReady) {
-      setError('reCAPTCHA is not ready. Please wait and try again.');
+    // Block briefly if a site key is configured but the script hasn't
+    // finished loading — unless the load has clearly failed, in which case
+    // the user has been told to retry/disable a blocker via the banner and
+    // we let them submit with no token (backend rejects in prod).
+    if (!!RECAPTCHA_SITE_KEY && !captchaReady && !captchaFailed) {
+      setError('Verifying you’re human… try again in a moment.');
       return;
     }
 
@@ -204,10 +226,25 @@ export default function FeedbackPage() {
               </div>
             )}
 
+            {captchaFailed && (
+              <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                  Couldn&rsquo;t load reCAPTCHA — likely a tracker/ad
+                  blocker or network issue. You can still try submitting,
+                  but we may not be able to verify the request.
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row gap-4">
               <button
                 type="submit"
-                disabled={isSubmitting || (!!RECAPTCHA_SITE_KEY && !captchaReady)}
+                // Don't disable on `!captchaReady` alone — if the script
+                // never loads (blocker, network blip), the button would be
+                // permanently dead. The captchaFailed banner above tells
+                // the user what happened and handleSubmit handles the
+                // not-ready case.
+                disabled={isSubmitting}
                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
