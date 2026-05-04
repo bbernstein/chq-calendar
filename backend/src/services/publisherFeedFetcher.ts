@@ -41,12 +41,24 @@ export async function fetchAndParseFeed(
       signal: controller.signal,
     });
   } catch (e) {
+    // Node's fetch reports most real network failures (ENOTFOUND, ECONNREFUSED,
+    // certificate errors, AbortError on timeout) only on err.cause — the top
+    // level message is just "fetch failed". Pull the cause out so admins can
+    // actually diagnose what went wrong on the upstream host.
+    const err = e as Error & { cause?: { code?: string; message?: string } };
+    const causeBits = err.cause
+      ? [err.cause.code, err.cause.message].filter(Boolean).join(' ')
+      : '';
+    const baseMsg = err.name === 'AbortError'
+      ? `timed out after ${FETCH_TIMEOUT_MS}ms`
+      : (err.message ?? String(e));
+    const message = causeBits ? `${baseMsg} (${causeBits})` : baseMsg;
     return {
       fetchStatus: 'network_error',
       feed: null,
       report: {
         ok: false,
-        errors: [{ path: '/', message: (e as Error).message }],
+        errors: [{ path: '/', message }],
         warnings: [],
       },
     };
@@ -81,7 +93,10 @@ export async function fetchAndParseFeed(
         feed: null,
         report: {
           ok: false,
-          errors: [{ path: '/publisher/id', message: 'mismatch' }],
+          errors: [{
+            path: '/publisher/id',
+            message: `feed publisher.id "${ex.feed.publisher.id}" does not match registered publisher "${input.registeredPublisherId}"`,
+          }],
           warnings: [],
         },
       };
@@ -118,7 +133,10 @@ export async function fetchAndParseFeed(
       feed: null,
       report: {
         ok: false,
-        errors: [{ path: '/publisher/id', message: 'mismatch' }],
+        errors: [{
+          path: '/publisher/id',
+          message: `feed publisher.id "${report.feed.publisher.id}" does not match registered publisher "${input.registeredPublisherId}"`,
+        }],
         warnings: [],
       },
     };
