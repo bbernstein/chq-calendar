@@ -155,6 +155,10 @@ jobs:
           cd package_temp
 
           # Create a minimal package.json with only admin externalized dependencies (using same versions as main package.json)
+          # cheerio, ajv, ajv-formats are pulled in transitively by @chq-calendar/publisher-format
+          # via the publisher-portal handler that adminHandler delegates to. esbuild leaves
+          # cheerio external (regular import) and ajv/ajv-formats use dynamic runtime requires
+          # that esbuild cannot bundle, so all three must be installed in the Lambda package.
           cat > package.json << 'EOF'
           {
             "name": "lambda-admin",
@@ -164,6 +168,9 @@ jobs:
               "@aws-sdk/lib-dynamodb": "^3.0.0",
               "@aws-sdk/client-secrets-manager": "^3.0.0",
               "@aws-sdk/client-sesv2": "^3.0.0",
+              "ajv": "^8.17.1",
+              "ajv-formats": "^3.0.1",
+              "cheerio": "^1.0.0-rc.12",
               "googleapis": "^153.0.0",
               "jsonwebtoken": "^9.0.2",
               "node-fetch": "^2.7.0",
