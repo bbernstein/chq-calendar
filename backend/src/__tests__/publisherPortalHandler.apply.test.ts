@@ -73,16 +73,19 @@ describe('handlePublisherApplyRequest', () => {
     expect(mockVerifyCaptcha).toHaveBeenCalledWith('test-captcha-token', 'publisher_apply');
   });
 
-  it('returns 400 with captcha field when captchaToken is missing', async () => {
+  it('passes empty token through to verifyCaptcha when captchaToken is missing', async () => {
+    // The handler no longer rejects up-front on missing token — it lets
+    // captchaService decide based on environment / secret config. In dev
+    // with no secret it returns true; in prod it short-circuits empty
+    // tokens to false. This test asserts the delegation; the
+    // verifyCaptcha-returns-false case is covered by the next test.
     const stub = mkApp();
+    stub.requestApply.mockResolvedValue({ ok: true });
     _setAppServiceForTests(stub as any);
     const { captchaToken: _drop, ...withoutToken } = validBody;
     const r = await handlePublisherApplyRequest(evt(), withoutToken);
-    expect(r.statusCode).toBe(400);
-    const body = JSON.parse(r.body);
-    expect(body.field).toBe('captcha');
-    expect(stub.requestApply).not.toHaveBeenCalled();
-    expect(mockVerifyCaptcha).not.toHaveBeenCalled();
+    expect(r.statusCode).toBe(200);
+    expect(mockVerifyCaptcha).toHaveBeenCalledWith('', 'publisher_apply');
   });
 
   it('returns 400 with captcha field when verifyCaptcha returns false', async () => {
@@ -97,7 +100,7 @@ describe('handlePublisherApplyRequest', () => {
     expect(stub.requestApply).not.toHaveBeenCalled();
   });
 
-  it('returns 400 on missing fields (after captcha passes)', async () => {
+  it('returns 400 on missing fields without calling verifyCaptcha', async () => {
     const stub = mkApp();
     _setAppServiceForTests(stub as any);
     const r = await handlePublisherApplyRequest(evt(), {
@@ -106,6 +109,10 @@ describe('handlePublisherApplyRequest', () => {
     });
     expect(r.statusCode).toBe(400);
     expect(stub.requestApply).not.toHaveBeenCalled();
+    // Field-shape errors must be surfaced before the Google round-trip so
+    // legitimate users see actionable feedback and we don't burn calls to
+    // siteverify on malformed submissions.
+    expect(mockVerifyCaptcha).not.toHaveBeenCalled();
   });
 
   it('returns 400 with field name on app-service validation failure', async () => {

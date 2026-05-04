@@ -297,14 +297,12 @@ export default function PublishDocsPage() {
           text-decoration-color: rgba(37, 99, 235, 0.4);
         }
         .link:hover { text-decoration-color: currentColor; }
-        .dark .link { color: rgb(96 165 250); }
         .subhead {
           font-weight: 600;
           margin-top: 1.25rem;
           margin-bottom: 0.5rem;
           color: rgb(17 24 39);
         }
-        .dark .subhead { color: rgb(243 244 246); }
         .prose-styles code {
           font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
           font-size: 0.875em;
@@ -312,12 +310,20 @@ export default function PublishDocsPage() {
           padding: 0.05em 0.35em;
           border-radius: 3px;
         }
-        .dark .prose-styles code {
-          background: rgba(255, 255, 255, 0.08);
-        }
         .prose-styles pre code {
           background: none;
           padding: 0;
+        }
+        /*
+         * Dark mode is driven by prefers-color-scheme on this site (no
+         * \`.dark\` class is added to the DOM), so the dark-mode overrides
+         * for these hand-authored rules must live in a media query rather
+         * than a \`.dark X\` selector.
+         */
+        @media (prefers-color-scheme: dark) {
+          .link { color: rgb(96 165 250); }
+          .subhead { color: rgb(243 244 246); }
+          .prose-styles code { background: rgba(255, 255, 255, 0.08); }
         }
       `}</style>
     </div>
