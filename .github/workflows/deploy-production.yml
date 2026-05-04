@@ -187,6 +187,10 @@ jobs:
           # Copy the original package.json back
           cp package.json package_temp/package.json
 
+          # List what we installed for debugging — matches the calendar deploy step
+          echo "Installed admin dependencies:"
+          ls package_temp/node_modules/ | head -30
+
           # Create package for admin handler (package.json already copied above)
           mkdir -p package_temp/dist
           cp dist/adminHandler.js package_temp/dist/
