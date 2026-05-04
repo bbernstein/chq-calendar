@@ -73,6 +73,7 @@ describe('fetchAndParseFeed', () => {
     expect(r.fetchStatus).toBe('validation_error');
     expect(r.feed).toBeNull();
     expect(r.report.errors[0].message).toContain('different-id');
+    expect(r.report.errors[0].message).toContain('test-pub');
   });
 
   it('returns network_error when fetch throws', async () => {
