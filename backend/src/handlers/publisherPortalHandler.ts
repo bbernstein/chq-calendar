@@ -23,7 +23,7 @@ import { testPublisherFeed } from '../services/publisherTestService';
 import { MagicTokenService } from '../services/magicTokenService';
 import { SesMailService } from '../services/mailService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
-import { PublisherApplicationService } from '../services/publisherApplicationService';
+import { PublisherApplicationService, EmailAlreadyInUseError } from '../services/publisherApplicationService';
 import { requirePublisherSession } from '../services/publisherSession';
 import { verifyCaptcha } from '../services/captchaService';
 import {
@@ -339,6 +339,14 @@ export async function handlePublisherApplyRequest(
     }
     return json(200, { ok: true });
   } catch (err) {
+    // Phase 3 — uniqueness gate. The body is intentionally generic: it must
+    // not reveal whether the address is approved, pending, or rejected.
+    // Phase 4 extends the same gate to pending email-change rows.
+    if (err instanceof EmailAlreadyInUseError) {
+      return json(400, {
+        error: "We can't accept this email address. If you already have a publisher account, sign in at /publish/login/.",
+      });
+    }
     console.error('Error in /publisher-apply/request:', err);
     return json(500, { error: 'Internal server error' });
   }

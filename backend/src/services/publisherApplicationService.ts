@@ -33,6 +33,22 @@ export type RequestApplyResult =
   | { ok: true }
   | { ok: false; reason: 'invalid_input'; field: string; message: string };
 
+/**
+ * Thrown by `requestApply` when the submitted email address already maps to
+ * a publisher row in the registry — regardless of `applicationStatus`
+ * (approved, pending, or rejected). The handler converts this to a generic
+ * 400 to avoid leaking which specific status the address holds.
+ *
+ * Phase 4 will extend the same gate to cover pending email-change rows once
+ * that data shape exists.
+ */
+export class EmailAlreadyInUseError extends Error {
+  constructor(message = 'Email already in use') {
+    super(message);
+    this.name = 'EmailAlreadyInUseError';
+  }
+}
+
 export type VerifyApplyResult =
   | { ok: true; jwt: string; publisherId: string; email: string }
   | { ok: false; reason: 'not_found' | 'expired' | 'wrong_purpose' | 'malformed_payload' };
@@ -60,6 +76,16 @@ export class PublisherApplicationService {
     // doing it once at the boundary keeps downstream consumers simple.
     const normalizedEmail = input.payload.email.trim().toLowerCase();
     const payload: ApplyFormPayload = { ...input.payload, email: normalizedEmail };
+
+    // Phase 3 — uniqueness gate. If the email is already attached to ANY
+    // publisher row (approved, pending, or rejected), refuse the apply
+    // before any side effect: no token issued, no email sent, no row
+    // written. The handler converts this to a generic 400; we don't want
+    // the response to disclose which status the address holds.
+    const existing = await this.deps.registry.getByEmail(normalizedEmail);
+    if (existing.length > 0) {
+      throw new EmailAlreadyInUseError();
+    }
 
     const issued = await this.deps.tokens.issueToken({
       purpose: 'apply',
