@@ -17,6 +17,10 @@ import {
   handlePublisherAuthVerify,
   handlePublisherStatus,
   handlePublisherProfilePatch,
+  handlePublisherEmailChangeRequest,
+  handlePublisherEmailChangeCancelSelf,
+  handlePublisherEmailChangeVerify,
+  handlePublisherEmailChangeCancelByOld,
 } from './publisherPortalHandler';
 
 // DynamoDB client
@@ -439,6 +443,25 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     // also sits BEFORE the admin auth gate.
     if (path === '/publisher-profile' && httpMethod === 'PATCH') {
       return await handlePublisherProfilePatch(event, requestBody);
+    }
+
+    // Phase 4 (publisher self-service email change): two authenticated
+    // routes (POST initiate / DELETE cancel-by-self) and two public,
+    // token-clickable routes (GET verify / GET cancel). All four sit
+    // BEFORE the admin auth gate — the public ones because they're
+    // intentionally unauthenticated, the authenticated ones because they
+    // use the publisher JWT, not the admin JWT.
+    if (path === '/publisher-email-change' && httpMethod === 'POST') {
+      return await handlePublisherEmailChangeRequest(event, requestBody);
+    }
+    if (path === '/publisher-email-change' && httpMethod === 'DELETE') {
+      return await handlePublisherEmailChangeCancelSelf(event, requestBody);
+    }
+    if (path === '/publisher-email-change/verify' && httpMethod === 'GET') {
+      return await handlePublisherEmailChangeVerify(event, requestBody);
+    }
+    if (path === '/publisher-email-change/cancel' && httpMethod === 'GET') {
+      return await handlePublisherEmailChangeCancelByOld(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development

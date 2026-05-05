@@ -32,6 +32,10 @@ import {
   type FeedTestResult,
 } from '../services/publisherProfileService';
 import {
+  PublisherEmailChangeService,
+  EmailChangeError,
+} from '../services/publisherEmailChangeService';
+import {
   DynamoRateLimiter,
   InMemoryRateLimiter,
   type RateLimiter,
@@ -473,7 +477,19 @@ export async function handlePublisherStatus(
     const sess = await requirePublisherSession(event, statusRegistry());
     if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
     if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
-    return json(200, { publisher: sanitizePublisher(sess.publisher) });
+    // Surface any pending email change so the frontend can render the
+    // banner. Read failures here shouldn't block the status response — the
+    // email-change UI is a layered enhancement on top of the core record.
+    let pendingEmailChange: { newEmail: string; expiresAt: string } | null = null;
+    try {
+      pendingEmailChange = await emailChangeService().getPendingForPublisher(sess.publisher.id);
+    } catch (err) {
+      console.error('Error reading pending email change for status:', err);
+    }
+    const publisher = sanitizePublisher(sess.publisher);
+    return json(200, {
+      publisher: pendingEmailChange ? { ...publisher, pendingEmailChange } : publisher,
+    });
   } catch (err) {
     console.error('Error in /publisher-status:', err);
     return json(500, { error: 'Internal server error' });
@@ -573,6 +589,194 @@ function sanitizePublisher(rec: PublisherRecord) {
     ...rest
   } = rec;
   return rest;
+}
+
+// ─── Email-change service singleton (Phase 4) ────────────────────────────
+//
+// Distinct from `appService` because the email-change service composes the
+// same registry + magic-token + mail collaborators but with different
+// orchestration. Sharing wouldn't reduce cold-start work meaningfully and
+// would couple the two flows together unnecessarily.
+
+let _emailChangeService: PublisherEmailChangeService | null = null;
+
+function emailChangeService(): PublisherEmailChangeService {
+  if (!_emailChangeService) {
+    const dynamoClient = new DynamoDBClient({
+      region: process.env.AWS_REGION || 'us-east-1',
+      ...(process.env.DYNAMODB_ENDPOINT && {
+        endpoint: process.env.DYNAMODB_ENDPOINT,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
+        },
+      }),
+    });
+    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const registry = new PublisherRegistryService(
+      docClient,
+      process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
+    );
+    const tokens = new MagicTokenService(
+      docClient,
+      process.env.PUBLISHER_MAGIC_TOKEN_TABLE_NAME ?? 'chautauqua-calendar-publisher-magic-tokens',
+    );
+    const mail = new SesMailService();
+    _emailChangeService = new PublisherEmailChangeService({
+      registry,
+      tokens,
+      mail,
+      siteBaseUrl: process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
+    });
+  }
+  return _emailChangeService;
+}
+
+export function _setEmailChangeServiceForTests(svc: PublisherEmailChangeService | null): void {
+  _emailChangeService = svc;
+}
+
+// ─── POST /publisher-email-change (publisher JWT) ───────────────────────
+//
+// Body: { newEmail: string }
+// Auth: same publisher-JWT as /publisher-status. Approved-only.
+// Returns:
+//   200 { ok: true }       — verify + warning emails dispatched
+//   400                    — validation_error (missing/malformed newEmail)
+//   401                    — no/invalid JWT
+//   403                    — pending/rejected applicant
+//   409                    — email_in_use
+//   423                    — emailChangeLockedUntil not yet passed
+export async function handlePublisherEmailChangeRequest(
+  event: APIGatewayProxyEvent,
+  body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const sess = await requirePublisherSession(event, statusRegistry());
+    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
+    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
+    if (sess.publisher.applicationStatus !== undefined &&
+        sess.publisher.applicationStatus !== 'approved') {
+      return json(403, { error: 'Email change is only available to approved publishers.' });
+    }
+
+    const newEmail = typeof body?.newEmail === 'string' ? body.newEmail : '';
+    if (newEmail.length === 0) {
+      return json(400, { error: 'Missing or invalid `newEmail` (string required).' });
+    }
+
+    try {
+      await emailChangeService().initiate({
+        publisherId: sess.publisher.id,
+        oldEmail: sess.publisher.contactEmail,
+        newEmail,
+      });
+      return json(200, { ok: true });
+    } catch (err) {
+      if (err instanceof EmailChangeError) {
+        const status =
+          err.code === 'locked' ? 423 :
+          err.code === 'email_in_use' ? 409 :
+          400;
+        return json(status, {
+          error: err.message,
+          code: err.code,
+          details: err.details ?? null,
+        });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('Error in POST /publisher-email-change:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// ─── DELETE /publisher-email-change (publisher JWT) ─────────────────────
+//
+// Cancels a pending email change from the publisher's own session. Always
+// succeeds (idempotent). No lock written — they cancelled their own request.
+export async function handlePublisherEmailChangeCancelSelf(
+  event: APIGatewayProxyEvent,
+  _body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const sess = await requirePublisherSession(event, statusRegistry());
+    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
+    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
+    await emailChangeService().cancelBySelf({ publisherId: sess.publisher.id });
+    return json(200, { ok: true });
+  } catch (err) {
+    console.error('Error in DELETE /publisher-email-change:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// ─── GET /publisher-email-change/verify?token=… (public) ────────────────
+//
+// One-shot verify token from the new-address email. No auth — the token IS
+// the auth. Returns JSON for the frontend to render; the frontend handles
+// the redirect to /publish/login/?reason=email-changed itself.
+//
+// Response shapes:
+//   200 { kind: 'ok', newEmail }
+//   200 { kind: 'already_used' }
+//   200 { kind: 'expired' }
+//   200 { kind: 'email_taken' }
+//
+// Always 200 — non-2xx would force the frontend to differentiate transport
+// errors from outcome errors. The `kind` field carries the outcome.
+export async function handlePublisherEmailChangeVerify(
+  event: APIGatewayProxyEvent,
+  _body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const token = readQueryParam(event, 'token');
+    if (!token) {
+      return json(200, { kind: 'already_used' });
+    }
+    const r = await emailChangeService().verifyByNewAddress(token);
+    if (r.kind === 'ok') {
+      return json(200, { kind: 'ok', newEmail: r.newEmail });
+    }
+    return json(200, { kind: r.kind });
+  } catch (err) {
+    console.error('Error in GET /publisher-email-change/verify:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// ─── GET /publisher-email-change/cancel?token=… (public) ────────────────
+//
+// One-shot cancel token from the old-address email. No auth.
+//
+// Response shapes:
+//   200 { kind: 'ok', lockedUntil }
+//   200 { kind: 'already_used' }
+//   200 { kind: 'expired' }
+export async function handlePublisherEmailChangeCancelByOld(
+  event: APIGatewayProxyEvent,
+  _body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const token = readQueryParam(event, 'token');
+    if (!token) {
+      return json(200, { kind: 'already_used' });
+    }
+    const r = await emailChangeService().cancelByOldAddress(token);
+    if (r.kind === 'ok') {
+      return json(200, { kind: 'ok', lockedUntil: r.lockedUntil });
+    }
+    return json(200, { kind: r.kind });
+  } catch (err) {
+    console.error('Error in GET /publisher-email-change/cancel:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+function readQueryParam(event: APIGatewayProxyEvent, name: string): string | null {
+  const v = event.queryStringParameters?.[name];
+  return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
 function explainTokenFailure(
