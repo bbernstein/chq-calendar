@@ -346,6 +346,69 @@ export async function resumePublisher(): Promise<PublisherStatusRecord> {
   return postPauseToggle('publisher-resume');
 }
 
+// ─── Phase 6 (self-disable) ───────────────────────────────────────────────
+//
+// POST /api/publisher-disable. The body's confirmSlug must match the
+// publisher's slug (publisher.id) exactly — that gate lives on the server
+// and the UI also enforces it client-side as a defence-in-depth check.
+//
+// On a successful 200 the publisher's tokenVersion has been bumped, which
+// invalidates the JWT used to make this very call. The next status fetch
+// would 401, so callers should redirect to /publish/ rather than re-render
+// the status page.
+
+export class PublisherSelfDisableError extends PublisherStatusError {
+  constructor(
+    message: string,
+    status: number,
+    public readonly code: string | null,
+  ) {
+    super(message, status);
+    this.name = 'PublisherSelfDisableError';
+  }
+}
+
+export interface SelfDisableResponse {
+  ok: true;
+  emailedTo: string;
+}
+
+export async function selfDisablePublisher(confirmSlug: string): Promise<SelfDisableResponse> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/publisher-disable`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify({ confirmSlug }),
+  });
+  // 401 here means the session was already invalid coming in (the token
+  // bump happens server-side AFTER auth verification, so a 401 on this
+  // route indicates a stale local token rather than a successful disable).
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new PublisherSelfDisableError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+      typeof body?.code === 'string' ? body.code : null,
+    );
+  }
+  return {
+    ok: true,
+    emailedTo: typeof body?.emailedTo === 'string' ? body.emailedTo : '',
+  };
+}
+
 // DELETE /api/publisher-email-change — cancel-by-self. Always succeeds
 // (idempotent server-side). 401 still triggers the redirect-to-login path.
 export async function cancelEmailChangeBySelf(): Promise<void> {

@@ -31,6 +31,7 @@ import { EditableField } from './EditableField';
 import { SourceEditPanel } from './SourceEditPanel';
 import { EmailChangePanel } from './EmailChangePanel';
 import { IngestControls } from './IngestControls';
+import { DangerZone } from './DangerZone';
 
 type Status =
   | { kind: 'loading' }
@@ -236,6 +237,8 @@ function StatusView({
       {applicationStatus === 'approved' && (
         <IngestControls publisher={rec} onChanged={handleEmailChanged} />
       )}
+
+      {applicationStatus === 'approved' && <DangerZone publisher={rec} />}
     </div>
   );
 }

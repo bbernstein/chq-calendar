@@ -1609,27 +1609,17 @@ The admin button keeps invoking with `{ source: 'admin-ui', triggeredBy, trigger
 
 ## Phase 6 — Self-disable
 
-### Task 6.1 — `POST /publisher/me/disable`
+### Task 6.1 — `POST /publisher-disable` ✅
 
-- [ ] Tests: requires `confirmSlug` matching publisher's slug; mismatch → 400; success → registry row gets `enabled=false`, `selfDisabledAt`, `tokenVersion+1`; deletes any pending email change for this publisher; sends confirmation email to current address.
-- [ ] Implementation in `publisherSelfActionService.selfDisable`:
+- [x] Tests: 6 service tests (`publisherSelfActionService.test.ts`), 11 handler tests (`publisherPortalHandler.disable.test.ts`), 3 mail-template tests added to `mailService.test.ts`.
+- [x] Implementation in `publisherSelfActionService.selfDisable`. Departure from the plan sketch: this codebase has no separate `slug` field on `PublisherRecord` — the publisher's `id` IS the slug (e.g. `pub-<uuid4>`), and `/publish/docs/` already documents `id` as "a stable lowercase slug". The implementation compares `input.confirmSlug` to `publisher.id` exactly. Mail send is best-effort (logged on failure); the disable still succeeds in DDB. Used the existing `MagicTokenService.deleteEmailChangePairByPublisher` (Phase 4 helper) — the plan's `deletePendingEmailChange` name doesn't exist in the codebase.
+- [x] Route wired in `adminHandler.ts` BEFORE the admin auth gate. Per-publisher rate limit `disable#<publisherId>` at 5/hour (conservative, since this is destructive). 400 with `code: 'missing_confirm'` short-circuits BEFORE checkAndConsume so a typo doesn't burn a slot.
 
-```ts
-export async function selfDisable(deps: { /* ... */ }, input: { publisherId: string; confirmSlug: string }) {
-  const pub = await deps.registry.get(input.publisherId);
-  if (!pub) throw new SelfDisableError('not_found');
-  if (input.confirmSlug !== pub.slug) throw new SelfDisableError('confirm_mismatch');
-  await deps.registry.setSelfDisabled(input.publisherId);            // Phase 1 helper
-  await deps.magicTokens.deletePendingEmailChange(input.publisherId);
-  await deps.mail.sendSelfDisabledConfirmation({ to: pub.contactEmail, slug: pub.slug });
-}
-```
+### Task 6.2 — Frontend `DangerZone` ✅
 
-- [ ] Wire route + commit.
-
-### Task 6.2 — Frontend `DangerZone`
-
-- [ ] Confirmation modal: input must equal the slug exactly; Confirm button disabled until match. On success, redirect to `/publish/` (the post-disable session is now invalid).
+- [x] `DangerZone.tsx` rendered at the bottom of the approved-publisher view in `status/page.tsx`. Red-bordered card; modal with case-sensitive exact-match guard on the Confirm button. Server enforces the same rule (defence in depth). On 200, calls `clearPublisherSession()` and `window.location.replace('/publish/')` — the `tokenVersion` bump invalidates the JWT used to make the call, so the status page would 401 anyway.
+- [x] API client: `selfDisablePublisher` + `PublisherSelfDisableError` in `publisherStatusApi.ts`.
+- [x] 7 vitest tests in `DangerZone.test.tsx` covering happy path, error rendering, mismatch hint, cancel, and the typed-confirmation gate.
 
 ### Task 6.3 — Phase-6 PR
 
