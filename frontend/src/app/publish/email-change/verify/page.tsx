@@ -18,6 +18,11 @@ const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
 type Status =
   | { kind: 'pending' }
   | { kind: 'redirecting'; newEmail: string }
+  // Backend returned ok but didn't include the new email. We still consider
+  // the change verified, but we can't prefill /publish/login/ — render a
+  // generic success page instead of redirecting with a blank ?email= that
+  // would produce a misleading "you just changed to <empty>" banner.
+  | { kind: 'ok_no_email' }
   | { kind: 'error'; message: string };
 
 export default function PublishEmailChangeVerifyPage() {
@@ -34,6 +39,10 @@ export default function PublishEmailChangeVerifyPage() {
         // Strip token from current URL before navigating away.
         window.history.replaceState({}, '', window.location.pathname);
         window.location.replace(`/publish/login/?${params.toString()}`);
+      } else if (s.kind === 'ok_no_email') {
+        // Strip token from URL even though we're not redirecting — the
+        // change is verified, so the token is consumed either way.
+        window.history.replaceState({}, '', window.location.pathname);
       }
     });
   }, []);
@@ -60,6 +69,7 @@ export default function PublishEmailChangeVerifyPage() {
       <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 text-center">
           {(status.kind === 'pending' || status.kind === 'redirecting') && <Pending />}
+          {status.kind === 'ok_no_email' && <VerifiedNoEmail />}
           {status.kind === 'error' && <Failed message={status.message} />}
         </div>
       </main>
@@ -92,7 +102,14 @@ async function verify(): Promise<Status> {
       return { kind: 'error', message: 'Verification failed.' };
     }
     if (body.kind === 'ok') {
-      return { kind: 'redirecting', newEmail: typeof body.newEmail === 'string' ? body.newEmail : '' };
+      // Defensive: only auto-redirect with a prefilled email when the
+      // backend actually returned one. A blank `?email=` on /publish/login/
+      // would render "Your new email is " — strictly worse than just
+      // telling the user the change succeeded and asking them to sign in.
+      if (typeof body.newEmail === 'string' && body.newEmail.length > 0) {
+        return { kind: 'redirecting', newEmail: body.newEmail };
+      }
+      return { kind: 'ok_no_email' };
     }
     return { kind: 'error', message: explainKind(body.kind) };
   } catch (err) {
@@ -130,6 +147,42 @@ function Pending() {
     <div className="py-8">
       <div className="mx-auto w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
       <p className="text-gray-700 dark:text-gray-300">Confirming your new email…</p>
+    </div>
+  );
+}
+
+function VerifiedNoEmail() {
+  // Backend returned `kind: 'ok'` (so the change DID land) but the response
+  // omitted `newEmail`. We can't prefill the sign-in form, so render a
+  // generic success message and let the user enter their new address
+  // themselves — strictly better than redirecting with `?email=` and
+  // displaying a blank email-changed banner.
+  return (
+    <div>
+      <div className="mx-auto w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+        <svg
+          className="w-6 h-6 text-green-600 dark:text-green-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+        Email change verified
+      </h2>
+      <p className="text-gray-700 dark:text-gray-300 mb-6">
+        Sign in at the link below using your <em>new</em> email address. Your
+        old session is no longer valid.
+      </p>
+      <a
+        href="/publish/login/"
+        className="inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors"
+      >
+        Go to sign-in
+      </a>
     </div>
   );
 }
