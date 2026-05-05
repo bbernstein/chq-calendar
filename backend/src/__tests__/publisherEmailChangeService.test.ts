@@ -313,6 +313,40 @@ describe('PublisherEmailChangeService.verifyByNewAddress', () => {
     // peers cleaned even on the lost-race path
     expect(deps.tokens.deleteEmailChangePairByPublisher).toHaveBeenCalledWith('pub-1');
   });
+
+  it('returns ok even if peer-row cleanup throws after commit', async () => {
+    // Post-commit cleanup is best-effort: a Scan failure on the magic-token
+    // table must not turn an authoritative commit into a user-facing 500.
+    const deps = mkDeps();
+    deps.tokens.consumeEmailChangeToken.mockResolvedValue(mkConsumeOk());
+    deps.registry.getByEmail.mockResolvedValue([]); // race-clear
+    deps.tokens.deleteEmailChangePairByPublisher = jest.fn(async () => {
+      throw new Error('simulated DDB scan failure');
+    });
+    const svc = new PublisherEmailChangeService(deps);
+
+    const r = await svc.verifyByNewAddress('V_RAW');
+    expect(r).toEqual({ kind: 'ok', publisherId: 'pub-1', newEmail: 'new@e.com' });
+    expect(deps.registry.commitEmailChange).toHaveBeenCalledWith('pub-1', 'new@e.com');
+    // Notifications should still have been attempted despite cleanup failure.
+    expect(deps.mail.sendEmailChangeCommitted).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns ok even if confirmation emails throw', async () => {
+    // Post-commit notification is best-effort: an SES outage must not turn
+    // an authoritative commit into a user-facing 500.
+    const deps = mkDeps();
+    deps.tokens.consumeEmailChangeToken.mockResolvedValue(mkConsumeOk());
+    deps.registry.getByEmail.mockResolvedValue([]); // race-clear
+    deps.mail.sendEmailChangeCommitted = jest.fn(async () => {
+      throw new Error('SES outage');
+    });
+    const svc = new PublisherEmailChangeService(deps);
+
+    const r = await svc.verifyByNewAddress('V_RAW');
+    expect(r.kind).toBe('ok');
+    expect(deps.registry.commitEmailChange).toHaveBeenCalledWith('pub-1', 'new@e.com');
+  });
 });
 
 describe('PublisherEmailChangeService.cancelByOldAddress', () => {

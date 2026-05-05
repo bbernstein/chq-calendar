@@ -200,19 +200,37 @@ export class PublisherEmailChangeService {
     // Commit registry: change contactEmail and bump tokenVersion in one write.
     await this.deps.registry.commitEmailChange(publisherId, newEmail);
 
-    // Delete the peer cancel row + any orphans for this publisher.
-    await this.deps.tokens.deleteEmailChangePairByPublisher(publisherId);
+    // Post-commit best-effort cleanup. The commit above is the authoritative
+    // event — if any of these throw (e.g. underlying DDB Scan failure on
+    // cleanup, or SES outage on notify), we still want the publisher to see
+    // a successful verify page rather than a 500. Otherwise their email DID
+    // change but we told them it failed, leaving them confused when their
+    // old address no longer logs in. Log loudly so the failure is visible.
+    try {
+      // Delete the peer cancel row + any orphans for this publisher.
+      // Surviving rows will TTL out within 24h regardless.
+      await this.deps.tokens.deleteEmailChangePairByPublisher(publisherId);
+    } catch (err) {
+      console.error(
+        '[email-change] verify: peer-row cleanup failed; row(s) will TTL within 24h',
+        err,
+      );
+    }
 
     // Notify BOTH addresses. Failures are logged but not rethrown — the
     // change has already committed; mail issues shouldn't unwind it.
-    await Promise.all([
-      this.deps.mail
-        .sendEmailChangeCommitted({ to: oldEmail, oldEmail, newEmail })
-        .catch(err => console.error('[email-change] notify old failed:', err)),
-      this.deps.mail
-        .sendEmailChangeCommitted({ to: newEmail, oldEmail, newEmail })
-        .catch(err => console.error('[email-change] notify new failed:', err)),
-    ]);
+    try {
+      await Promise.all([
+        this.deps.mail
+          .sendEmailChangeCommitted({ to: oldEmail, oldEmail, newEmail })
+          .catch(err => console.error('[email-change] verify: notify-old-address failed', err)),
+        this.deps.mail
+          .sendEmailChangeCommitted({ to: newEmail, oldEmail, newEmail })
+          .catch(err => console.error('[email-change] verify: notify-new-address failed', err)),
+      ]);
+    } catch (err) {
+      console.error('[email-change] verify: notification block failed', err);
+    }
 
     return { kind: 'ok', publisherId, newEmail };
   }
