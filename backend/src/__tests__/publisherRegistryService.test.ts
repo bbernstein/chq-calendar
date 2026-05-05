@@ -202,4 +202,107 @@ describe('PublisherRegistryService', () => {
     expect(cmd.input.TableName).toBe('chq-publishers');
     expect(cmd.input.Key).toEqual({ id: 'p-to-delete' });
   });
+
+  // ─── Phase C (publisher portal self-service helpers) ─────────────────
+
+  describe('setPausedFlag', () => {
+    it('with paused=true and selfInitiated=true sets paused + selfPausedAt', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.setPausedFlag('pub-1', true, { selfInitiated: true });
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.Key).toEqual({ id: 'pub-1' });
+      expect(cmd.input.UpdateExpression).toMatch(/SET paused = :p, selfPausedAt = :now/);
+      expect(cmd.input.UpdateExpression).not.toMatch(/REMOVE/);
+      expect(cmd.input.ExpressionAttributeValues[':p']).toBe(true);
+      expect(typeof cmd.input.ExpressionAttributeValues[':now']).toBe('string');
+    });
+
+    it('with paused=true and selfInitiated=false sets paused only (admin-paused)', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.setPausedFlag('pub-1', true, {});
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.UpdateExpression).toBe('SET paused = :p');
+      expect(cmd.input.ExpressionAttributeValues[':p']).toBe(true);
+      expect(cmd.input.ExpressionAttributeValues[':now']).toBeUndefined();
+    });
+
+    it('with paused=false clears paused and removes selfPausedAt', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.setPausedFlag('pub-1', false, {});
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.UpdateExpression).toMatch(/SET paused = :p/);
+      expect(cmd.input.UpdateExpression).toMatch(/REMOVE selfPausedAt/);
+      expect(cmd.input.ExpressionAttributeValues[':p']).toBe(false);
+    });
+  });
+
+  describe('setSelfDisabled', () => {
+    it('clears enabled, sets selfDisabledAt, and bumps tokenVersion atomically', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.setSelfDisabled('pub-1');
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.Key).toEqual({ id: 'pub-1' });
+      expect(cmd.input.UpdateExpression).toMatch(/SET enabled = :f, selfDisabledAt = :now/);
+      expect(cmd.input.UpdateExpression).toMatch(/ADD tokenVersion :one/);
+      expect(cmd.input.ExpressionAttributeValues[':f']).toBe(false);
+      expect(cmd.input.ExpressionAttributeValues[':one']).toBe(1);
+      expect(typeof cmd.input.ExpressionAttributeValues[':now']).toBe('string');
+    });
+  });
+
+  describe('bumpTokenVersion', () => {
+    it('uses ADD to increment tokenVersion by 1', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.bumpTokenVersion('pub-1');
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.Key).toEqual({ id: 'pub-1' });
+      expect(cmd.input.UpdateExpression).toBe('ADD tokenVersion :one');
+      expect(cmd.input.ExpressionAttributeValues[':one']).toBe(1);
+    });
+  });
+
+  describe('updateProfile', () => {
+    it('only writes the supplied fields', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.updateProfile('pub-1', { name: 'New Name', organization: 'Org' });
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.Key).toEqual({ id: 'pub-1' });
+      const expr: string = cmd.input.UpdateExpression;
+      expect(expr).toMatch(/^SET /);
+      // Both supplied fields must appear in the SET clause.
+      const namePh = Object.entries(cmd.input.ExpressionAttributeNames as Record<string, string>)
+        .find(([, v]) => v === 'name')?.[0];
+      const orgPh = Object.entries(cmd.input.ExpressionAttributeNames as Record<string, string>)
+        .find(([, v]) => v === 'organization')?.[0];
+      expect(namePh).toBeDefined();
+      expect(orgPh).toBeDefined();
+      expect(expr).toContain(`${namePh} = `);
+      expect(expr).toContain(`${orgPh} = `);
+      // sourceUrl was not supplied → must not appear.
+      expect(JSON.stringify(cmd.input.ExpressionAttributeNames)).not.toContain('sourceUrl');
+      // Values match what we passed.
+      const vals = cmd.input.ExpressionAttributeValues as Record<string, unknown>;
+      expect(Object.values(vals)).toEqual(expect.arrayContaining(['New Name', 'Org']));
+    });
+
+    it('REMOVEs fields when value is undefined or empty string', async () => {
+      mockSend.mockResolvedValue({});
+      // organization explicitly cleared via empty string
+      await svc.updateProfile('pub-1', { organization: '' });
+      const cmd: any = mockSend.mock.calls[0][0];
+      const expr: string = cmd.input.UpdateExpression;
+      expect(expr).toMatch(/^REMOVE /);
+      // No SET clause and no values.
+      expect(expr).not.toMatch(/SET /);
+      expect(cmd.input.ExpressionAttributeValues).toBeUndefined();
+      const removedNames = Object.values(cmd.input.ExpressionAttributeNames as Record<string, string>);
+      expect(removedNames).toContain('organization');
+    });
+
+    it('is a no-op when patch is empty', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.updateProfile('pub-1', {});
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+  });
 });

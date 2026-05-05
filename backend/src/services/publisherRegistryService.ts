@@ -201,4 +201,111 @@ export class PublisherRegistryService {
       throw err;
     }
   }
+
+  // ─── Phase C (publisher portal self-service helpers) ──────────────────
+  //
+  // These helpers each express a single self-service mutation that the
+  // publisher portal handler will issue from authenticated routes. Keeping
+  // them here (vs inline UpdateCommands in the handler) makes the table
+  // schema/keying private to the registry service and keeps the
+  // expression-construction unit-testable in isolation.
+
+  // Toggles the `paused` flag. When the publisher pauses themselves, the
+  // selfPausedAt timestamp is also stamped so the admin dashboard can
+  // distinguish "publisher paused themselves" from "admin paused them".
+  // When unpausing (paused=false), selfPausedAt is REMOVEd whether or not
+  // it was set — a no-op when absent, but defensive against admin-paused
+  // rows being unpaused by a publisher and leaving stale state.
+  async setPausedFlag(
+    id: string,
+    paused: boolean,
+    opts: { selfInitiated?: boolean } = {},
+  ): Promise<void> {
+    const setParts = ['paused = :p'];
+    const removeParts: string[] = [];
+    const values: Record<string, unknown> = { ':p': paused };
+    if (paused && opts.selfInitiated) {
+      setParts.push('selfPausedAt = :now');
+      values[':now'] = new Date().toISOString();
+    } else if (!paused) {
+      removeParts.push('selfPausedAt');
+    }
+    const expr =
+      `SET ${setParts.join(', ')}` +
+      (removeParts.length ? ` REMOVE ${removeParts.join(', ')}` : '');
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression: expr,
+      ExpressionAttributeValues: values,
+    }));
+  }
+
+  // Self-disable: clears the ingest gate, stamps the timestamp, and bumps
+  // tokenVersion in a single write so any already-issued JWT for this
+  // publisher is invalidated immediately (see services/publisherSession.ts).
+  // Reversible only by an admin (via setApplicationStatus or a separate
+  // re-enable path).
+  async setSelfDisabled(id: string): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression: 'SET enabled = :f, selfDisabledAt = :now ADD tokenVersion :one',
+      ExpressionAttributeValues: {
+        ':f': false,
+        ':now': new Date().toISOString(),
+        ':one': 1,
+      },
+    }));
+  }
+
+  // Increments tokenVersion by 1 — used by email-change verify to invalidate
+  // the old session's JWT once the new email is confirmed.
+  async bumpTokenVersion(id: string): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression: 'ADD tokenVersion :one',
+      ExpressionAttributeValues: { ':one': 1 },
+    }));
+  }
+
+  // Sparse profile update — writes only the keys present in `patch`. An
+  // explicit `undefined` or empty string clears (REMOVEs) the field; a
+  // populated value SETs it. Empty patch is a no-op (no DDB call). Note:
+  // contactEmail changes here are NOT a substitute for the full email-change
+  // flow (which must go through magic-link verify and bumpTokenVersion).
+  async updateProfile(
+    id: string,
+    patch: Partial<Pick<PublisherRecord, 'name' | 'organization' | 'sourceUrl' | 'sourceType' | 'contactEmail'>>,
+  ): Promise<void> {
+    const setParts: string[] = [];
+    const removeParts: string[] = [];
+    const values: Record<string, unknown> = {};
+    const names: Record<string, string> = {};
+    let i = 0;
+    for (const [k, v] of Object.entries(patch)) {
+      const placeholder = `:v${i}`;
+      const namePlaceholder = `#k${i}`;
+      names[namePlaceholder] = k;
+      if (v === undefined || v === '') {
+        removeParts.push(namePlaceholder);
+      } else {
+        setParts.push(`${namePlaceholder} = ${placeholder}`);
+        values[placeholder] = v;
+      }
+      i += 1;
+    }
+    if (setParts.length === 0 && removeParts.length === 0) return;
+    const expr =
+      (setParts.length ? `SET ${setParts.join(', ')}` : '') +
+      (removeParts.length ? ` REMOVE ${removeParts.join(', ')}` : '');
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression: expr.trim(),
+      ExpressionAttributeNames: names,
+      ...(Object.keys(values).length ? { ExpressionAttributeValues: values } : {}),
+    }));
+  }
 }
