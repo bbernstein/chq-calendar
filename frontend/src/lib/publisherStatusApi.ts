@@ -80,3 +80,105 @@ function redirectToLogin(): void {
   if (typeof window === 'undefined') return;
   window.location.replace('/publish/login/');
 }
+
+// ─── Phase 2 (self-service profile editing) ───────────────────────────────
+//
+// PATCH /api/publisher-profile — sparse profile update for the authenticated
+// publisher. Returns the updated record on success; throws on validation
+// failure with the backend's error message (and code, when available, in
+// the .code property of the thrown PublisherStatusError-shaped object).
+
+export interface PublisherProfilePatch {
+  name?: string;
+  organization?: string;
+  sourceUrl?: string;
+  sourceType?: 'json' | 'html';
+}
+
+export class PublisherProfileError extends PublisherStatusError {
+  constructor(
+    message: string,
+    status: number,
+    public readonly code: string | null,
+    public readonly details: unknown,
+  ) {
+    super(message, status);
+    this.name = 'PublisherProfileError';
+  }
+}
+
+export async function patchPublisherProfile(
+  patch: PublisherProfilePatch,
+): Promise<PublisherStatusRecord> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/publisher-profile`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify(patch),
+  });
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new PublisherProfileError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+      typeof body?.code === 'string' ? body.code : null,
+      body?.details ?? null,
+    );
+  }
+  if (!body || typeof body.publisher !== 'object' || body.publisher === null) {
+    throw new PublisherStatusError('Malformed response.', 500);
+  }
+  return body.publisher as PublisherStatusRecord;
+}
+
+// Pre-flight check used by SourceEditPanel: re-uses the public
+// /api/publisher-test endpoint (same SSRF guard + parse + validate) so the
+// publisher gets identical feedback to what the backend will use to gate the
+// PATCH. Translates the public endpoint's verbose response into the simple
+// { ok, summary } / { ok, errors } shape SourceEditPanel expects.
+export async function previewPublisherFeed(
+  url: string,
+  sourceType: 'json' | 'html',
+): Promise<{ ok: true; summary: string } | { ok: false; errors: string[] }> {
+  const r = await fetch(`${API_BASE}/api/publisher-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, sourceType }),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 200 && body?.fetchStatus === 'ok' && body?.report?.ok === true) {
+    const eventCount = Array.isArray(body?.feed?.events) ? body.feed.events.length : 0;
+    return {
+      ok: true,
+      summary: `Validated ${eventCount} event${eventCount === 1 ? '' : 's'}.`,
+    };
+  }
+  // Either non-200 (caller-side error: blocked URL, rate limit, etc.) or
+  // 200 with a non-ok fetchStatus/report. In both cases produce a flat
+  // string list — preferring the validation report messages when present,
+  // since those are the most actionable for a publisher iterating on a feed.
+  const reportErrors: string[] = Array.isArray(body?.report?.errors)
+    ? body.report.errors
+        .map((e: { message?: string; path?: string }) =>
+          e?.path ? `${e.path}: ${e.message ?? ''}` : (e?.message ?? ''))
+        .filter((s: string) => s.length > 0)
+    : [];
+  if (reportErrors.length > 0) return { ok: false, errors: reportErrors };
+  if (typeof body?.error === 'string') return { ok: false, errors: [body.error] };
+  return {
+    ok: false,
+    errors: [`Preview failed (HTTP ${r.status})`],
+  };
+}
