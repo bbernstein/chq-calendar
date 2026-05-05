@@ -396,12 +396,15 @@ export class PublisherRegistryService {
   // ONLY for fields in CLEARABLE_PROFILE_FIELDS — every other field is
   // required-non-empty in the PublisherRecord type, so the helper throws
   // rather than silently producing a type-violating row. Empty patch is a
-  // no-op (no DDB call). Note: contactEmail changes here are NOT a
-  // substitute for the full email-change flow (which must go through
-  // magic-link verify and bumpTokenVersion).
+  // no-op (no DDB call).
+  //
+  // The patch type explicitly excludes contactEmail. Email changes must go
+  // through commitEmailChange (which bumps tokenVersion in the same write —
+  // critical for invalidating the JWT issued before the change). Including
+  // contactEmail here would let a caller skip that flow with a single typo.
   async updateProfile(
     id: string,
-    patch: Partial<Pick<PublisherRecord, 'name' | 'organization' | 'sourceUrl' | 'sourceType' | 'contactEmail'>>,
+    patch: Partial<Pick<PublisherRecord, 'name' | 'organization' | 'sourceUrl' | 'sourceType'>>,
   ): Promise<void> {
     if (Object.keys(patch).length === 0) return;
     const setParts: string[] = [];
