@@ -102,7 +102,8 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
-          "dynamodb:TransactWriteItems"
+          "dynamodb:TransactWriteItems",
+          "dynamodb:ConditionCheckItem"
         ],
         Resource = [
           aws_dynamodb_table.publishers.arn,
@@ -200,7 +201,8 @@ resource "aws_iam_role_policy" "admin_publisher_access" {
         "dynamodb:PutItem",
         "dynamodb:UpdateItem",
         "dynamodb:DeleteItem",
-        "dynamodb:TransactWriteItems"
+        "dynamodb:TransactWriteItems",
+        "dynamodb:ConditionCheckItem"
       ],
       Resource = [
         aws_dynamodb_table.publishers.arn,
