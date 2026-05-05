@@ -52,6 +52,31 @@ import {
 } from '../services/rateLimitService';
 import type { ApplyFormPayload, PublisherRecord, SourceType } from '../types/publisher';
 
+// ─── Doc-client helper ───────────────────────────────────────────────────
+//
+// Multiple singletons in this file build their own DDB doc clients with the
+// same boilerplate (region from AWS_REGION, optional DYNAMODB_ENDPOINT for
+// local dev with dummy creds). Centralise to one helper so a future change
+// to the connection shape — e.g. adding a custom retry strategy — is a
+// one-edit operation, and so the singletons stay symmetric in code review.
+//
+// The credentials block is only attached when DYNAMODB_ENDPOINT is set,
+// matching the existing pattern: in Lambda the SDK picks creds from the
+// task role, which we never want to override.
+function buildDocClient(): DynamoDBDocumentClient {
+  const dynamoClient = new DynamoDBClient({
+    region: process.env.AWS_REGION || 'us-east-1',
+    ...(process.env.DYNAMODB_ENDPOINT && {
+      endpoint: process.env.DYNAMODB_ENDPOINT,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
+      },
+    }),
+  });
+  return DynamoDBDocumentClient.from(dynamoClient);
+}
+
 // ─── Rate limiter ────────────────────────────────────────────────────────
 //
 // Phase D: backed by DynamoDB so the limit holds across concurrent Lambda
@@ -94,18 +119,7 @@ function rateLimiter(): RateLimiter {
   if (_rateLimiter) return _rateLimiter;
   const tableName = process.env.PUBLISHER_RATE_LIMIT_TABLE_NAME;
   if (tableName) {
-    const dynamoClient = new DynamoDBClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(process.env.DYNAMODB_ENDPOINT && {
-        endpoint: process.env.DYNAMODB_ENDPOINT,
-        credentials: {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
-        },
-      }),
-    });
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
-    _rateLimiter = new DynamoRateLimiter(docClient, tableName);
+    _rateLimiter = new DynamoRateLimiter(buildDocClient(), tableName);
   } else {
     _rateLimiter = new InMemoryRateLimiter();
   }
@@ -269,17 +283,7 @@ let _appService: PublisherApplicationService | null = null;
 
 function appService(): PublisherApplicationService {
   if (!_appService) {
-    const dynamoClient = new DynamoDBClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(process.env.DYNAMODB_ENDPOINT && {
-        endpoint: process.env.DYNAMODB_ENDPOINT,
-        credentials: {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
-        },
-      }),
-    });
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = buildDocClient();
     const registry = new PublisherRegistryService(
       docClient,
       process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
@@ -476,17 +480,7 @@ let _statusRegistry: PublisherRegistryService | null = null;
 
 function statusRegistry(): PublisherRegistryService {
   if (!_statusRegistry) {
-    const dynamoClient = new DynamoDBClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(process.env.DYNAMODB_ENDPOINT && {
-        endpoint: process.env.DYNAMODB_ENDPOINT,
-        credentials: {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
-        },
-      }),
-    });
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = buildDocClient();
     _statusRegistry = new PublisherRegistryService(
       docClient,
       process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
@@ -645,17 +639,7 @@ let _emailChangeService: PublisherEmailChangeService | null = null;
 
 function emailChangeService(): PublisherEmailChangeService {
   if (!_emailChangeService) {
-    const dynamoClient = new DynamoDBClient({
-      region: process.env.AWS_REGION || 'us-east-1',
-      ...(process.env.DYNAMODB_ENDPOINT && {
-        endpoint: process.env.DYNAMODB_ENDPOINT,
-        credentials: {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
-        },
-      }),
-    });
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = buildDocClient();
     const registry = new PublisherRegistryService(
       docClient,
       process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
@@ -1039,17 +1023,7 @@ export function _setSelfDisableActionForTests(
 let _selfDisableDeps: SelfDisableDeps | null = null;
 function selfDisableDeps(): SelfDisableDeps {
   if (_selfDisableDeps) return _selfDisableDeps;
-  const dynamoClient = new DynamoDBClient({
-    region: process.env.AWS_REGION || 'us-east-1',
-    ...(process.env.DYNAMODB_ENDPOINT && {
-      endpoint: process.env.DYNAMODB_ENDPOINT,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
-      },
-    }),
-  });
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = buildDocClient();
   const tokens = new MagicTokenService(
     docClient,
     process.env.PUBLISHER_MAGIC_TOKEN_TABLE_NAME ?? 'chautauqua-calendar-publisher-magic-tokens',
