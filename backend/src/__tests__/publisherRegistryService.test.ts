@@ -1,6 +1,10 @@
 jest.unmock('@aws-sdk/lib-dynamodb');
 
-import { ConcurrentApplicationUpdateError, PublisherRegistryService } from '../services/publisherRegistryService';
+import {
+  ConcurrentApplicationUpdateError,
+  PublisherNotFoundError,
+  PublisherRegistryService,
+} from '../services/publisherRegistryService';
 
 const mockSend = jest.fn();
 const mockClient: any = { send: mockSend };
@@ -215,6 +219,8 @@ describe('PublisherRegistryService', () => {
       expect(cmd.input.UpdateExpression).not.toMatch(/REMOVE/);
       expect(cmd.input.ExpressionAttributeValues[':p']).toBe(true);
       expect(typeof cmd.input.ExpressionAttributeValues[':now']).toBe('string');
+      // Guards against resurrecting a deleted row as a partial fragment.
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
     });
 
     it('with paused=true and selfInitiated=false sets paused only (admin-paused)', async () => {
@@ -224,6 +230,7 @@ describe('PublisherRegistryService', () => {
       expect(cmd.input.UpdateExpression).toBe('SET paused = :p');
       expect(cmd.input.ExpressionAttributeValues[':p']).toBe(true);
       expect(cmd.input.ExpressionAttributeValues[':now']).toBeUndefined();
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
     });
 
     it('with paused=false clears paused and removes selfPausedAt', async () => {
@@ -233,6 +240,19 @@ describe('PublisherRegistryService', () => {
       expect(cmd.input.UpdateExpression).toMatch(/SET paused = :p/);
       expect(cmd.input.UpdateExpression).toMatch(/REMOVE selfPausedAt/);
       expect(cmd.input.ExpressionAttributeValues[':p']).toBe(false);
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.setPausedFlag('deleted', true, {})).rejects.toBeInstanceOf(PublisherNotFoundError);
+    });
+
+    it('surfaces non-condition DDB errors unchanged', async () => {
+      const err = Object.assign(new Error('throttled'), { name: 'ProvisionedThroughputExceededException' });
+      mockSend.mockRejectedValue(err);
+      await expect(svc.setPausedFlag('p', true, {})).rejects.toBe(err);
     });
   });
 
@@ -247,6 +267,13 @@ describe('PublisherRegistryService', () => {
       expect(cmd.input.ExpressionAttributeValues[':f']).toBe(false);
       expect(cmd.input.ExpressionAttributeValues[':one']).toBe(1);
       expect(typeof cmd.input.ExpressionAttributeValues[':now']).toBe('string');
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.setSelfDisabled('deleted')).rejects.toBeInstanceOf(PublisherNotFoundError);
     });
   });
 
@@ -258,6 +285,64 @@ describe('PublisherRegistryService', () => {
       expect(cmd.input.Key).toEqual({ id: 'pub-1' });
       expect(cmd.input.UpdateExpression).toBe('ADD tokenVersion :one');
       expect(cmd.input.ExpressionAttributeValues[':one']).toBe(1);
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.bumpTokenVersion('deleted')).rejects.toBeInstanceOf(PublisherNotFoundError);
+    });
+  });
+
+  describe('setEmailChangeLock', () => {
+    it('emits attribute_exists guard and writes the lock timestamp', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.setEmailChangeLock('pub-1', '2026-05-06T00:00:00.000Z');
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.UpdateExpression).toBe('SET emailChangeLockedUntil = :u');
+      expect(cmd.input.ExpressionAttributeValues[':u']).toBe('2026-05-06T00:00:00.000Z');
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.setEmailChangeLock('deleted', 't')).rejects.toBeInstanceOf(PublisherNotFoundError);
+    });
+  });
+
+  describe('clearEmailChangeLock', () => {
+    it('emits attribute_exists guard and a REMOVE expression', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.clearEmailChangeLock('pub-1');
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.UpdateExpression).toBe('REMOVE emailChangeLockedUntil');
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.clearEmailChangeLock('deleted')).rejects.toBeInstanceOf(PublisherNotFoundError);
+    });
+  });
+
+  describe('commitEmailChange', () => {
+    it('emits attribute_exists guard, sets contactEmail, and bumps tokenVersion', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.commitEmailChange('pub-1', 'new@example.com');
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.UpdateExpression).toBe('SET contactEmail = :e ADD tokenVersion :one');
+      expect(cmd.input.ExpressionAttributeValues[':e']).toBe('new@example.com');
+      expect(cmd.input.ExpressionAttributeValues[':one']).toBe(1);
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.commitEmailChange('deleted', 'x@y.com')).rejects.toBeInstanceOf(PublisherNotFoundError);
     });
   });
 
@@ -267,6 +352,8 @@ describe('PublisherRegistryService', () => {
       await svc.updateProfile('pub-1', { name: 'New Name', organization: 'Org' });
       const cmd: any = mockSend.mock.calls[0][0];
       expect(cmd.input.Key).toEqual({ id: 'pub-1' });
+      // Guards against resurrecting a deleted row.
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
       const expr: string = cmd.input.UpdateExpression;
       expect(expr).toMatch(/^SET /);
       // Both supplied fields must appear in the SET clause.
@@ -315,6 +402,12 @@ describe('PublisherRegistryService', () => {
       mockSend.mockResolvedValue({});
       await svc.updateProfile('pub-1', {});
       expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.updateProfile('deleted', { name: 'X' })).rejects.toBeInstanceOf(PublisherNotFoundError);
     });
   });
 });

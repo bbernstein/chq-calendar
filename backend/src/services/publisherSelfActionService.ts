@@ -11,7 +11,7 @@
 // names. We compare strictly (case-sensitive, exact match) so a paste with
 // trailing whitespace or a typo'd hyphen fails closed.
 
-import { PublisherRegistryService } from './publisherRegistryService';
+import { PublisherNotFoundError, PublisherRegistryService } from './publisherRegistryService';
 import { MagicTokenService } from './magicTokenService';
 import { MailService } from './mailService';
 
@@ -61,7 +61,19 @@ export async function selfDisable(
     throw new SelfDisableError('confirm_mismatch');
   }
 
-  await deps.registry.setSelfDisabled(input.publisherId);
+  // The registry helper guards against a row deleted between our get() above
+  // and this write (very narrow race, but possible if an admin deletes the
+  // row while the publisher is mid-confirm). Translate the typed not-found
+  // error into the same SelfDisableError 'not_found' code so the handler
+  // returns a clean 404 either way.
+  try {
+    await deps.registry.setSelfDisabled(input.publisherId);
+  } catch (err) {
+    if (err instanceof PublisherNotFoundError) {
+      throw new SelfDisableError('not_found');
+    }
+    throw err;
+  }
   await deps.magicTokens.deleteEmailChangePairByPublisher(input.publisherId);
 
   try {

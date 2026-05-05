@@ -10,7 +10,7 @@
 // registry row itself (e.g. "URL changed → must pass feed test") are
 // expressed as effects on `deps`, not inline.
 
-import type { PublisherRegistryService } from './publisherRegistryService';
+import { PublisherNotFoundError, type PublisherRegistryService } from './publisherRegistryService';
 import type { SourceType } from '../types/publisher';
 
 export class ProfileValidationError extends Error {
@@ -151,5 +151,16 @@ export async function updatePublisherProfile(
     }
   }
 
-  await deps.registry.updateProfile(publisherId, patch);
+  // The registry helper guards with attribute_exists(id) so a row deleted
+  // between the validation read and this write doesn't get resurrected as a
+  // partial fragment. Translate to the local typed error so the handler can
+  // map it to a 404 the same way the rest of the validation surface does.
+  try {
+    await deps.registry.updateProfile(publisherId, patch);
+  } catch (err) {
+    if (err instanceof PublisherNotFoundError) {
+      throw new ProfileValidationError('not_found', 'Publisher not found.');
+    }
+    throw err;
+  }
 }

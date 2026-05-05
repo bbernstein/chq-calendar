@@ -11,6 +11,7 @@
 //     don't want a flaky mail to roll back a successful disable).
 
 import { selfDisable, SelfDisableError } from '../services/publisherSelfActionService';
+import { PublisherNotFoundError } from '../services/publisherRegistryService';
 import type { PublisherRecord } from '../types/publisher';
 
 function makeRecord(overrides: Partial<PublisherRecord> = {}): PublisherRecord {
@@ -129,6 +130,25 @@ describe('selfDisable', () => {
     } finally {
       errSpy.mockRestore();
     }
+  });
+
+  it('translates registry PublisherNotFoundError into SelfDisableError("not_found")', async () => {
+    // Race: publisher row deleted between our get() and the registry write.
+    // The attribute_exists guard in setSelfDisabled trips and we surface the
+    // typed not-found so the handler returns a clean 404 either way.
+    registry.get.mockResolvedValue(makeRecord());
+    registry.setSelfDisabled.mockRejectedValueOnce(
+      new PublisherNotFoundError('pub-abc', 'setSelfDisabled'),
+    );
+    await expect(
+      selfDisable(
+        { publisherId: 'pub-abc', confirmSlug: 'pub-abc' },
+        { registry: registry as any, magicTokens: magicTokens as any, mail: mail as any },
+      ),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    // Side effects past the failed write must not run.
+    expect(magicTokens.deleteEmailChangePairByPublisher).not.toHaveBeenCalled();
+    expect(mail.sendSelfDisabledConfirmation).not.toHaveBeenCalled();
   });
 
   it('idempotent: calling twice on an already-disabled publisher repeats the same writes', async () => {

@@ -12,6 +12,22 @@ export class ConcurrentApplicationUpdateError extends Error {
   }
 }
 
+// Thrown by self-service mutation helpers (setPausedFlag, setSelfDisabled,
+// bumpTokenVersion, updateProfile, commitEmailChange, setEmailChangeLock,
+// clearEmailChangeLock) when the underlying UpdateItem fails its
+// `attribute_exists(id)` guard — i.e. the publisher row was deleted between
+// the caller's earlier read (typically requirePublisherSession) and this
+// write. Without the guard, DDB UpdateItem with SET would CREATE a partial
+// row containing only the fields the helper touched, silently resurrecting
+// a deleted publisher in a malformed state. Handlers should map this to a
+// 404 (the caller's session is no longer meaningful).
+export class PublisherNotFoundError extends Error {
+  constructor(public readonly publisherId: string, operation: string) {
+    super(`publisher ${publisherId} not found during ${operation}`);
+    this.name = 'PublisherNotFoundError';
+  }
+}
+
 // Profile fields the publisher portal is allowed to clear (REMOVE) by passing
 // an empty string. All other profile fields are required-non-empty in the
 // PublisherRecord type — clearing them would produce rows that violate the
@@ -240,54 +256,93 @@ export class PublisherRegistryService {
     const expr =
       `SET ${setParts.join(', ')}` +
       (removeParts.length ? ` REMOVE ${removeParts.join(', ')}` : '');
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: expr,
-      ExpressionAttributeValues: values,
-    }));
+    // ConditionExpression `attribute_exists(id)` prevents a deleted publisher
+    // row from being resurrected as a partial row containing only the paused
+    // flag — see the PublisherNotFoundError class comment for the broader
+    // rationale. Maps the conditional-fail to a typed not-found error so
+    // handlers can return a clean 404.
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: expr,
+        ExpressionAttributeValues: values,
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'setPausedFlag');
+      }
+      throw err;
+    }
   }
 
   // Self-disable: clears the ingest gate, stamps the timestamp, and bumps
   // tokenVersion in a single write so any already-issued JWT for this
   // publisher is invalidated immediately (see services/publisherSession.ts).
   // Reversible only by an admin (via setApplicationStatus or a separate
-  // re-enable path).
+  // re-enable path). attribute_exists(id) guard — see PublisherNotFoundError.
   async setSelfDisabled(id: string): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: 'SET enabled = :f, selfDisabledAt = :now ADD tokenVersion :one',
-      ExpressionAttributeValues: {
-        ':f': false,
-        ':now': new Date().toISOString(),
-        ':one': 1,
-      },
-    }));
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'SET enabled = :f, selfDisabledAt = :now ADD tokenVersion :one',
+        ExpressionAttributeValues: {
+          ':f': false,
+          ':now': new Date().toISOString(),
+          ':one': 1,
+        },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'setSelfDisabled');
+      }
+      throw err;
+    }
   }
 
   // Phase 4 (email change). Sets the email-change lock to the given ISO
   // timestamp. The lock is consulted at initiate time to bounce repeated
   // email-change attempts from a publisher whose old address just clicked
   // "this wasn't me". Auto-clears just by passing the timestamp.
+  // attribute_exists(id) guard — see PublisherNotFoundError.
   async setEmailChangeLock(id: string, untilIso: string): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: 'SET emailChangeLockedUntil = :u',
-      ExpressionAttributeValues: { ':u': untilIso },
-    }));
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'SET emailChangeLockedUntil = :u',
+        ExpressionAttributeValues: { ':u': untilIso },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'setEmailChangeLock');
+      }
+      throw err;
+    }
   }
 
   // Removes the email-change lock. Useful for an admin "unlock now" path,
   // and exercised by tests. Self-clears via the timestamp comparison in
   // normal operation, so this is a manual override.
+  // attribute_exists(id) guard — see PublisherNotFoundError.
   async clearEmailChangeLock(id: string): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: 'REMOVE emailChangeLockedUntil',
-    }));
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'REMOVE emailChangeLockedUntil',
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'clearEmailChangeLock');
+      }
+      throw err;
+    }
   }
 
   // Email-change verify commits the new contactEmail and bumps tokenVersion
@@ -298,24 +353,42 @@ export class PublisherRegistryService {
   // consistent but the publisher's already-issued JWT is now mismatched
   // against contactEmail rather than tokenVersion, causing them to fail
   // requirePublisherSession with the wrong reason.
+  // attribute_exists(id) guard — see PublisherNotFoundError.
   async commitEmailChange(id: string, newEmail: string): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: 'SET contactEmail = :e ADD tokenVersion :one',
-      ExpressionAttributeValues: { ':e': newEmail, ':one': 1 },
-    }));
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'SET contactEmail = :e ADD tokenVersion :one',
+        ExpressionAttributeValues: { ':e': newEmail, ':one': 1 },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'commitEmailChange');
+      }
+      throw err;
+    }
   }
 
   // Increments tokenVersion by 1 — used by email-change verify to invalidate
   // the old session's JWT once the new email is confirmed.
+  // attribute_exists(id) guard — see PublisherNotFoundError.
   async bumpTokenVersion(id: string): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: 'ADD tokenVersion :one',
-      ExpressionAttributeValues: { ':one': 1 },
-    }));
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'ADD tokenVersion :one',
+        ExpressionAttributeValues: { ':one': 1 },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'bumpTokenVersion');
+      }
+      throw err;
+    }
   }
 
   // Sparse profile update — writes only the keys present in `patch`. A
@@ -356,12 +429,23 @@ export class PublisherRegistryService {
     const expr =
       (setParts.length ? `SET ${setParts.join(', ')}` : '') +
       (removeParts.length ? ` REMOVE ${removeParts.join(', ')}` : '');
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: expr.trim(),
-      ExpressionAttributeNames: names,
-      ...(Object.keys(values).length ? { ExpressionAttributeValues: values } : {}),
-    }));
+    // attribute_exists(id) guard — see PublisherNotFoundError. Without it,
+    // a partial profile update on a deleted row would resurrect it as a
+    // type-violating fragment.
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: expr.trim(),
+        ExpressionAttributeNames: names,
+        ...(Object.keys(values).length ? { ExpressionAttributeValues: values } : {}),
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'updateProfile');
+      }
+      throw err;
+    }
   }
 }

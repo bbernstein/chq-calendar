@@ -8,6 +8,7 @@ import {
   PublisherEmailChangeService,
   EmailChangeError,
 } from '../services/publisherEmailChangeService';
+import { PublisherNotFoundError } from '../services/publisherRegistryService';
 import type { PublisherRecord } from '../types/publisher';
 
 function mkDeps(overrides: { fixedNow?: Date } = {}) {
@@ -332,6 +333,28 @@ describe('PublisherEmailChangeService.verifyByNewAddress', () => {
     expect(deps.mail.sendEmailChangeCommitted).toHaveBeenCalledTimes(2);
   });
 
+  it('returns publisher_missing when commitEmailChange throws PublisherNotFoundError', async () => {
+    // Race: the publisher row was deleted between pair issuance (24h ago) and
+    // the new-address click. The registry helper's attribute_exists guard
+    // catches it before we resurrect a partial row. We surface this as a
+    // distinct kind so the verify landing page can render the correct error
+    // (rather than "ok" when nothing actually committed).
+    const deps = mkDeps();
+    deps.tokens.consumeEmailChangeToken.mockResolvedValue(mkConsumeOk());
+    deps.registry.getByEmail.mockResolvedValue([]); // race-clear
+    deps.registry.commitEmailChange.mockRejectedValueOnce(
+      new PublisherNotFoundError('pub-1', 'commitEmailChange'),
+    );
+    const svc = new PublisherEmailChangeService(deps);
+
+    const r = await svc.verifyByNewAddress('V_RAW');
+    expect(r).toEqual({ kind: 'publisher_missing' });
+    // No "committed" notifications should fire on the failure path.
+    expect(deps.mail.sendEmailChangeCommitted).not.toHaveBeenCalled();
+    // Best-effort cleanup of orphan peer rows still happens.
+    expect(deps.tokens.deleteEmailChangePairByPublisher).toHaveBeenCalledWith('pub-1');
+  });
+
   it('returns ok even if confirmation emails throw', async () => {
     // Post-commit notification is best-effort: an SES outage must not turn
     // an authoritative commit into a user-facing 500.
@@ -407,6 +430,23 @@ describe('PublisherEmailChangeService.cancelByOldAddress', () => {
     const r = await svc.cancelByOldAddress('C_RAW');
     expect(r).toEqual({ kind: 'already_used' });
     expect(deps.registry.setEmailChangeLock).not.toHaveBeenCalled();
+  });
+
+  it('returns publisher_missing when setEmailChangeLock throws PublisherNotFoundError', async () => {
+    // Race: row deleted between pair issuance and the cancel click. Pair was
+    // already cleaned up; the lock helper's guard catches the resurrect risk
+    // and we surface a distinct kind so the cancel landing page renders the
+    // correct outcome.
+    const deps = mkDeps();
+    deps.tokens.consumeEmailChangeToken.mockResolvedValue(mkConsumeOk());
+    deps.registry.setEmailChangeLock.mockRejectedValueOnce(
+      new PublisherNotFoundError('pub-1', 'setEmailChangeLock'),
+    );
+    const svc = new PublisherEmailChangeService(deps);
+
+    const r = await svc.cancelByOldAddress('C_RAW');
+    expect(r).toEqual({ kind: 'publisher_missing' });
+    expect(deps.mail.sendEmailChangeCancelled).not.toHaveBeenCalled();
   });
 });
 

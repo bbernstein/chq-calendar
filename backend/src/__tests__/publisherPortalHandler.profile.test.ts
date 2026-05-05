@@ -310,6 +310,22 @@ describe('handlePublisherProfilePatch', () => {
     expect(r.statusCode).toBe(200);
   });
 
+  it('returns 404 when registry.updateProfile throws PublisherNotFoundError (row deleted between gate and write)', async () => {
+    (verifyPublisherJwt as jest.Mock).mockResolvedValue({
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
+    });
+    registry.get.mockResolvedValueOnce(makeRecord());
+    const { PublisherNotFoundError } = await import('../services/publisherRegistryService');
+    registry.updateProfile.mockRejectedValue(new PublisherNotFoundError('pub-1', 'updateProfile'));
+    const r = await handlePublisherProfilePatch(
+      evt({ headers: { Authorization: 'Bearer good.jwt' } }),
+      { name: 'New Name' },
+    );
+    expect(r.statusCode).toBe(404);
+    const body = JSON.parse(r.body);
+    expect(body.code).toBe('not_found');
+  });
+
   it('returns 500 on unexpected exception', async () => {
     (verifyPublisherJwt as jest.Mock).mockResolvedValue({
       sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,

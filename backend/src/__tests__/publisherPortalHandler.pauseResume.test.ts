@@ -177,6 +177,37 @@ describe('handlePublisherPause / handlePublisherResume', () => {
     expect(registry.setPausedFlag).toHaveBeenCalledWith('pub-1', false, {});
   });
 
+  // ── race window (registry attribute_exists guard tripped) ────────────
+  it('pause returns 404 when setPausedFlag throws PublisherNotFoundError (row deleted between gate and write)', async () => {
+    (verifyPublisherJwt as jest.Mock).mockResolvedValue({
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
+    });
+    registry.get.mockResolvedValue(makeRecord());
+    const { PublisherNotFoundError } = await import('../services/publisherRegistryService');
+    registry.setPausedFlag.mockRejectedValue(new PublisherNotFoundError('pub-1', 'setPausedFlag'));
+    const r = await handlePublisherPause(
+      evt({ headers: { Authorization: 'Bearer ok' } }),
+      {},
+    );
+    expect(r.statusCode).toBe(404);
+    const body = JSON.parse(r.body);
+    expect(body.error).toMatch(/not found/i);
+  });
+
+  it('resume returns 404 when setPausedFlag throws PublisherNotFoundError', async () => {
+    (verifyPublisherJwt as jest.Mock).mockResolvedValue({
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
+    });
+    registry.get.mockResolvedValue(makeRecord({ paused: true }));
+    const { PublisherNotFoundError } = await import('../services/publisherRegistryService');
+    registry.setPausedFlag.mockRejectedValue(new PublisherNotFoundError('pub-1', 'setPausedFlag'));
+    const r = await handlePublisherResume(
+      evt({ headers: { Authorization: 'Bearer ok' } }),
+      {},
+    );
+    expect(r.statusCode).toBe(404);
+  });
+
   // ── rate limit ─────────────────────────────────────────────────────────
   it('rate-limits after 10 toggles in a minute (per-publisher key)', async () => {
     (verifyPublisherJwt as jest.Mock).mockResolvedValue({

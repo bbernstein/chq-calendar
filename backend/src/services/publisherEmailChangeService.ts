@@ -26,7 +26,7 @@
 // docs/plans/2026-05-05-publisher-self-service-design.md ("Edge cases enforced").
 
 import type { MagicTokenService, MagicTokenRow } from './magicTokenService';
-import type { PublisherRegistryService } from './publisherRegistryService';
+import { PublisherNotFoundError, type PublisherRegistryService } from './publisherRegistryService';
 import type { MailService } from './mailService';
 
 export interface EmailChangeServiceDeps {
@@ -60,12 +60,14 @@ export type VerifyEmailChangeResult =
   | { kind: 'ok'; publisherId: string; newEmail: string }
   | { kind: 'already_used' }    // not_found / wrong_purpose
   | { kind: 'expired' }
-  | { kind: 'email_taken' };    // race: newEmail snatched between submit and verify
+  | { kind: 'email_taken' }     // race: newEmail snatched between submit and verify
+  | { kind: 'publisher_missing' }; // publisher row deleted between issue and verify
 
 export type CancelEmailChangeResult =
   | { kind: 'ok'; publisherId: string; lockedUntil: string }
   | { kind: 'already_used' }
-  | { kind: 'expired' };
+  | { kind: 'expired' }
+  | { kind: 'publisher_missing' }; // publisher row deleted between issue and cancel
 
 function isValidEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
@@ -198,7 +200,23 @@ export class PublisherEmailChangeService {
     }
 
     // Commit registry: change contactEmail and bump tokenVersion in one write.
-    await this.deps.registry.commitEmailChange(publisherId, newEmail);
+    // The helper guards with attribute_exists(id); if the row was deleted
+    // between issue and verify, signal 'publisher_missing' so the handler
+    // doesn't render a misleading "ok" page.
+    try {
+      await this.deps.registry.commitEmailChange(publisherId, newEmail);
+    } catch (err) {
+      if (err instanceof PublisherNotFoundError) {
+        // Best-effort cleanup of any orphan peer row, then surface.
+        await this.deps.tokens
+          .deleteEmailChangePairByPublisher(publisherId)
+          .catch(cleanupErr =>
+            console.error('[email-change] verify: orphan-cleanup failed after publisher-missing', cleanupErr),
+          );
+        return { kind: 'publisher_missing' };
+      }
+      throw err;
+    }
 
     // Post-commit best-effort cleanup. The commit above is the authoritative
     // event — if any of these throw (e.g. underlying DDB Scan failure on
@@ -250,9 +268,18 @@ export class PublisherEmailChangeService {
     // Delete the peer verify row (and any other orphans).
     await this.deps.tokens.deleteEmailChangePairByPublisher(publisherId);
 
-    // Set the lock.
+    // Set the lock. attribute_exists(id) guard in the helper — if the row was
+    // deleted between issue and cancel, signal 'publisher_missing'. We've
+    // already deleted the peer rows above so cleanup is complete.
     const lockedUntil = new Date(this.now().getTime() + LOCK_DURATION_MS).toISOString();
-    await this.deps.registry.setEmailChangeLock(publisherId, lockedUntil);
+    try {
+      await this.deps.registry.setEmailChangeLock(publisherId, lockedUntil);
+    } catch (err) {
+      if (err instanceof PublisherNotFoundError) {
+        return { kind: 'publisher_missing' };
+      }
+      throw err;
+    }
 
     // Notify both addresses.
     await Promise.all([

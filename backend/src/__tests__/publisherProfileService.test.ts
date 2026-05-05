@@ -194,6 +194,20 @@ describe('updatePublisherProfile', () => {
     expect(deps.get).not.toHaveBeenCalled();
   });
 
+  it('translates registry PublisherNotFoundError into ProfileValidationError("not_found")', async () => {
+    // Race: the publisher row was deleted between the validation phase and
+    // the registry write. The helper's attribute_exists guard fires; we
+    // surface the typed not-found so the handler returns 404, not 400.
+    const { PublisherNotFoundError } = await import('../services/publisherRegistryService');
+    const deps = makeDeps();
+    deps.updateProfile.mockRejectedValueOnce(
+      new PublisherNotFoundError('pub-1', 'updateProfile'),
+    );
+    await expect(
+      updatePublisherProfile('pub-1', { name: 'X' }, deps),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+
   it('passes name + sourceUrl together: feed test runs once, updateProfile called with both', async () => {
     const deps = makeDeps({ current: baseRecord });
     await updatePublisherProfile(

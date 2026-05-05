@@ -27,7 +27,7 @@ import {
 import { testPublisherFeed } from '../services/publisherTestService';
 import { MagicTokenService } from '../services/magicTokenService';
 import { SesMailService } from '../services/mailService';
-import { PublisherRegistryService } from '../services/publisherRegistryService';
+import { PublisherNotFoundError, PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherApplicationService, EmailAlreadyInUseError } from '../services/publisherApplicationService';
 import { requirePublisherSession } from '../services/publisherSession';
 import { verifyCaptcha } from '../services/captchaService';
@@ -575,7 +575,11 @@ export async function handlePublisherProfilePatch(
     return json(200, { publisher: sanitizePublisher(updated) });
   } catch (err) {
     if (err instanceof ProfileValidationError) {
-      return json(400, {
+      // 'not_found' means the row vanished between validation and write
+      // (registry guard tripped, or the pre-write get returned null) —
+      // surface as 404 so the frontend redirects to login.
+      const status = err.code === 'not_found' ? 404 : 400;
+      return json(status, {
         error: err.message,
         code: err.code,
         details: err.details ?? null,
@@ -755,6 +759,7 @@ export async function handlePublisherEmailChangeCancelSelf(
 //   200 { kind: 'already_used' }
 //   200 { kind: 'expired' }
 //   200 { kind: 'email_taken' }
+//   200 { kind: 'publisher_missing' } — publisher deleted between issue and verify
 //
 // Always 200 — non-2xx would force the frontend to differentiate transport
 // errors from outcome errors. The `kind` field carries the outcome.
@@ -786,6 +791,7 @@ export async function handlePublisherEmailChangeVerify(
 //   200 { kind: 'ok', lockedUntil }
 //   200 { kind: 'already_used' }
 //   200 { kind: 'expired' }
+//   200 { kind: 'publisher_missing' } — publisher deleted between issue and cancel
 export async function handlePublisherEmailChangeCancelByOld(
   event: APIGatewayProxyEvent,
   _body: Record<string, unknown>,
@@ -955,8 +961,17 @@ async function togglePaused(
 
     // selfInitiated only matters when transitioning to paused — see
     // PublisherRegistryService.setPausedFlag. On unpause the registry
-    // clears selfPausedAt unconditionally.
-    await statusRegistry().setPausedFlag(publisher.id, paused, paused ? { selfInitiated: true } : {});
+    // clears selfPausedAt unconditionally. The helper enforces an
+    // attribute_exists(id) guard; if the row was deleted between our gate
+    // read and this write, it throws PublisherNotFoundError → 404.
+    try {
+      await statusRegistry().setPausedFlag(publisher.id, paused, paused ? { selfInitiated: true } : {});
+    } catch (err) {
+      if (err instanceof PublisherNotFoundError) {
+        return json(404, { error: 'Publisher not found' });
+      }
+      throw err;
+    }
     const updated = await statusRegistry().get(publisher.id);
     if (!updated) {
       return json(404, { error: 'Publisher not found' });
