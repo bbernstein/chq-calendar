@@ -27,6 +27,11 @@ export interface PublisherRecord {
   selfPausedAt?: string;
   // Set when the publisher self-disables. Reversible only by an admin.
   selfDisabledAt?: string;
+  // Phase 4 (publisher email change). When the old-address one-shot cancel
+  // link is clicked, this timestamp is written 24h in the future. While
+  // `now < emailChangeLockedUntil` the initiate path returns 423. The lock
+  // auto-expires by passing the timestamp; no cleanup needed. ISO 8601.
+  emailChangeLockedUntil?: string;
   createdAt: string;
   lastFetchedAt?: string;
   lastFetchStatus?: FetchStatus;
