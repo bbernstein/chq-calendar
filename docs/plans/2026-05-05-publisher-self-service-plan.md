@@ -1552,7 +1552,7 @@ In `frontend/src/app/publish/login/page.tsx`, on mount read `URLSearchParams.get
 
 ### Task 5.1 — Single-publisher mode in `runIngest`
 
-- [ ] **Step 5.1.1: Write the failing tests**
+- [x] **Step 5.1.1: Write the failing tests**
 
 Extend `backend/src/handlers/__tests__/publisherIngestHandler.test.ts`:
 
@@ -1563,11 +1563,11 @@ it('respects disabled status: a singlePublisherId for a disabled publisher still
 it('logs and skips quietly when singlePublisherId does not match any row', async () => {});
 ```
 
-- [ ] **Step 5.1.2: Modify `runIngest`**
+- [x] **Step 5.1.2: Modify `runIngest`**
 
 Update `IngestDeps` and `runIngest` to accept `opts?: { singlePublisherId?: string }`. When set, list only that one publisher (`registry.get`) instead of `listAll`, and route it into the correct bucket directly.
 
-- [ ] **Step 5.1.3: Modify `scheduledHandler`**
+- [x] **Step 5.1.3: Modify `scheduledHandler`**
 
 Read `singlePublisherId` from the Lambda event payload:
 
@@ -1578,32 +1578,32 @@ export async function scheduledHandler(evt?: { singlePublisherId?: string }): Pr
 }
 ```
 
-- [ ] **Step 5.1.4: Update the existing admin "run-ingest" payload (no behaviour change for admin)**
+- [x] **Step 5.1.4: Update the existing admin "run-ingest" payload (no behaviour change for admin)**
 
 The admin button keeps invoking with `{ source: 'admin-ui', triggeredBy, triggeredAt }` (no `singlePublisherId`), which falls through to the all-publishers branch.
 
-- [ ] **Step 5.1.5: Run tests + commit**
+- [x] **Step 5.1.5: Run tests + commit**
 
-### Task 5.2 — `POST /publisher/me/fetch-now`
+### Task 5.2 — `POST /publisher-fetch-now`
 
-- [ ] Test: rate-limit enforced (429 after one call within 5 minutes), 202 on success, Lambda invoked with `{ singlePublisherId: <self> }`.
-- [ ] Implementation: in `publisherSelfActionService.ts`, wrap a `LambdaClient.send(new InvokeCommand(...))`. Use the existing rate-limit table; key `fetch_now#<publisherId>` with a 5-minute window.
-- [ ] Add the route in `publisherPortalHandler.ts`.
-- [ ] IAM: the admin Lambda role already has `lambda:InvokeFunction` for `chautauqua-calendar-publisher-ingest` (per the admin "run-ingest" feature). The publisher portal Lambda may or may not — check `infrastructure/publisher-portal.tf` and add the policy if missing.
-- [ ] Commit.
+- [x] Test: rate-limit enforced (429 after one call within 5 minutes), 202 on success, Lambda invoked with `{ singlePublisherId: <self> }`.
+- [x] Implementation: inline in `publisherPortalHandler.ts`. Shared LambdaClient + ingest-function-name resolver extracted to `services/publisherIngestInvoker.ts` (reused by adminHandler's run-ingest button). Uses the existing rate-limit table; key `fetch_now#<publisherId>` with a 5-minute window.
+- [x] Add the route in `adminHandler.ts` (publisher-portal handlers route through the admin Lambda — same Lambda already has `lambda:InvokeFunction`, no IAM change needed).
+- [x] IAM: confirmed `aws_iam_role_policy.lambda_invoke_publisher_ingest` already attaches to `admin_lambda_role` (infrastructure/main.tf:878-892).
+- [x] Commit.
 
-### Task 5.3 — `POST /publisher/me/pause` and `/resume`
+### Task 5.3 — `POST /publisher-pause` and `/publisher-resume`
 
-- [ ] Tests: 200 on success; status applies; idempotent.
-- [ ] Implementation: thin wrappers around `registry.setPausedFlag(id, true|false, { selfInitiated: true|undefined })`.
-- [ ] Add routes.
-- [ ] Commit.
+- [x] Tests: 200 on success; status applies; idempotent.
+- [x] Implementation: thin wrappers around `registry.setPausedFlag(id, true|false, { selfInitiated: true|undefined })`. Same per-publisher rate limit pattern (10 toggles/min) keyed `pause_resume#<publisherId>`.
+- [x] Add routes.
+- [x] Commit.
 
 ### Task 5.4 — Frontend `IngestControls`
 
-- [ ] Test + implement: Pause button (with confirmation modal explaining "events stay live, fetches stop"), Resume button, Fetch-now button with countdown when rate-limited (parse `Retry-After` header from the 429 response).
+- [x] Test + implement: Pause button (with confirmation modal explaining "events stay live, fetches stop"), Resume button, Fetch-now button with countdown when rate-limited (reads `retryAfterSeconds` from response body — typed contract, with `Retry-After` header as fallback).
 
-### Task 5.5 — Phase-5 PR
+### Task 5.5 — Phase-5 PR (deferred — not pushing per task instructions)
 
 ---
 
