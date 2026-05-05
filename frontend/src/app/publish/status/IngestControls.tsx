@@ -25,6 +25,14 @@ export interface IngestControlsProps {
 
 export function IngestControls({ publisher, onChanged }: IngestControlsProps) {
   const paused = publisher.paused === true;
+  // An admin-disabled publisher (`enabled === false`) should not see Pause /
+  // Resume / Fetch-now controls — those mutations don't make sense once the
+  // ingest gate is off, and clicking Resume on an admin-disabled row would
+  // not actually restart fetches. A self-disabled publisher's tokenVersion
+  // was bumped, so they'd already be redirected to login on the next API
+  // call; this branch is for the admin-disable case where the JWT is still
+  // valid. The disable copy mirrors the "Disabled" wording on status/page.tsx.
+  const adminDisabled = publisher.enabled === false;
 
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
   const [busy, setBusy] = useState<null | 'pause' | 'resume' | 'fetch'>(null);
@@ -96,6 +104,24 @@ export function IngestControls({ publisher, onChanged }: IngestControlsProps) {
     } finally {
       setBusy(null);
     }
+  }
+
+  if (adminDisabled) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+          Ingest controls
+        </h2>
+        <p className="text-sm text-gray-700 dark:text-gray-300">
+          This publisher is{' '}
+          <span className="font-semibold text-red-700 dark:text-red-300">
+            disabled
+          </span>
+          . Contact an admin to re-enable. Events have been retracted from
+          the calendar.
+        </p>
+      </div>
+    );
   }
 
   return (

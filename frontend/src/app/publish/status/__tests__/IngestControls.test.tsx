@@ -22,6 +22,28 @@ describe('IngestControls', () => {
   });
   afterEach(() => cleanup());
 
+  it('renders the disabled-state message and no buttons when publisher.enabled is false', () => {
+    // An admin-disabled publisher with a still-valid JWT should not see
+    // Pause/Resume/Fetch-now — those would be ineffective and confusing
+    // because the ingest gate is already off. (A self-disabled publisher's
+    // session is invalidated immediately via tokenVersion bump.)
+    render(
+      <IngestControls
+        publisher={{ ...baseRec, enabled: false }}
+        onChanged={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/this publisher is/i).textContent,
+    ).toMatch(/disabled/i);
+    expect(screen.getByText(/contact an admin/i)).toBeTruthy();
+    expect(screen.getByText(/events have been retracted/i)).toBeTruthy();
+    // None of the action buttons are rendered.
+    expect(screen.queryByText('Pause fetches')).toBeNull();
+    expect(screen.queryByText('Resume fetches')).toBeNull();
+    expect(screen.queryByText('Fetch now')).toBeNull();
+  });
+
   it('shows "active" copy and a Pause button when not paused', () => {
     render(<IngestControls publisher={baseRec} onChanged={vi.fn()} />);
     expect(screen.getByText(/your feed is/i).textContent).toMatch(/active/i);
