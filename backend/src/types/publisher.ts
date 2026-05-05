@@ -13,6 +13,11 @@ export interface PublisherRecord {
   sourceType: SourceType;
   trustLevel: TrustLevel;
   enabled: boolean;
+  // When true, the publisher is enabled but the ingest loop skips fetching
+  // its feed. Existing events remain in the store and stay visible. Distinct
+  // from `enabled = false`, which retracts (hard-deletes) all events on the
+  // next ingest run. Optional/defaulted-undefined; absence means "not paused".
+  paused?: boolean;
   createdAt: string;
   lastFetchedAt?: string;
   lastFetchStatus?: FetchStatus;

@@ -114,11 +114,13 @@ resource "aws_dynamodb_table" "publisher_rate_limit" {
 # IAM: extend the admin Lambda role with publisher-portal permissions.
 #
 # Phase A's /publisher-test endpoint already runs on aws_lambda_function.admin_handler
-# (delegated via adminHandler.ts → publisherPortalHandler.ts). Phase B routes will
-# extend the same handler, so we attach to the same `lambda_role`.
+# (delegated via adminHandler.ts → publisherPortalHandler.ts). Phase B routes
+# extend the same handler. Attached to the dedicated `admin_lambda_role`
+# (split from `lambda_role` in main.tf) so the public calendar handler and
+# sync handlers don't inherit secrets/SES/portal-table access they never use.
 resource "aws_iam_role_policy" "publisher_portal_access" {
   name = "${var.app_name}-publisher-portal-access"
-  role = aws_iam_role.lambda_role.id
+  role = aws_iam_role.admin_lambda_role.id
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [

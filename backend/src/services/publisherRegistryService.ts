@@ -1,5 +1,5 @@
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { ApplicationStatus, FetchStatus, PublisherRecord } from '../types/publisher';
 
 // Thrown by setApplicationStatus when the optional `expectedFromStatus` does
@@ -57,26 +57,50 @@ export class PublisherRegistryService {
     await this.db.send(new PutCommand({ TableName: this.tableName, Item: rec }));
   }
 
+  async delete(id: string): Promise<void> {
+    await this.db.send(new DeleteCommand({ TableName: this.tableName, Key: { id } }));
+  }
+
   async recordFetchOutcome(id: string, outcome: { status: FetchStatus; message?: string }): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: 'SET lastFetchedAt = :now, lastFetchStatus = :status, lastFetchMessage = :msg',
-      ExpressionAttributeValues: {
-        ':now': new Date().toISOString(),
-        ':status': outcome.status,
-        ':msg': outcome.message ?? null,
-      },
-    }));
+    // ConditionExpression `attribute_exists(id)` prevents an in-flight ingest
+    // from resurrecting a publisher row that an admin deleted between the
+    // listAll snapshot and this update — without the condition, DDB
+    // UpdateItem with SET would create a partial row containing only the
+    // fetch-outcome fields. Silently swallow the conditional-fail (the
+    // publisher is gone; no outcome to record).
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'SET lastFetchedAt = :now, lastFetchStatus = :status, lastFetchMessage = :msg',
+        ExpressionAttributeValues: {
+          ':now': new Date().toISOString(),
+          ':status': outcome.status,
+          ':msg': outcome.message ?? null,
+        },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return;
+      throw err;
+    }
   }
 
   async setThresholdHalt(id: string, halt: PublisherRecord['pendingThresholdHalt']): Promise<void> {
-    await this.db.send(new UpdateCommand({
-      TableName: this.tableName,
-      Key: { id },
-      UpdateExpression: 'SET pendingThresholdHalt = :h',
-      ExpressionAttributeValues: { ':h': halt ?? null },
-    }));
+    // Same delete-during-ingest race as recordFetchOutcome — see that method's
+    // comment for rationale.
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'SET pendingThresholdHalt = :h',
+        ExpressionAttributeValues: { ':h': halt ?? null },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return;
+      throw err;
+    }
   }
 
   // ─── Phase B (publisher portal apply flow) ─────────────────────────────

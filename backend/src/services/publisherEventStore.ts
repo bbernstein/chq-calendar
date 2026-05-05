@@ -129,8 +129,24 @@ export class PublisherEventStore {
     return events.length;
   }
 
-  async applyDiff(diff: ReconcileDiff): Promise<void> {
-    const items = [
+  // Thrown by applyDiff when the optional `requirePublisher` ConditionCheck
+  // fails — the publisher row was deleted between snapshot and write, so we
+  // refuse to apply the diff (would otherwise resurrect events for a
+  // publisher that no longer exists). Caller's choice whether to retry
+  // (the publisher might have been re-created) or skip silently.
+
+  async applyDiff(
+    diff: ReconcileDiff,
+    opts: {
+      // If supplied, every transaction batch will include a ConditionCheck
+      // asserting `attribute_exists(id)` on the publisher row. This closes
+      // the delete-during-ingest race: if the publisher was hard-deleted
+      // between the ingest's snapshot and applyDiff's commit, the entire
+      // transaction aborts atomically — no events are written.
+      requirePublisher?: { tableName: string; id: string };
+    } = {},
+  ): Promise<void> {
+    const eventOps = [
       ...diff.inserts.map(it => ({ Put: { TableName: this.tableName, Item: it } })),
       ...diff.updates.map(it => ({ Put: { TableName: this.tableName, Item: it } })),
       ...diff.removals.map(it => ({
@@ -140,11 +156,69 @@ export class PublisherEventStore {
         },
       })),
     ];
-    if (items.length === 0) return;
-    for (let i = 0; i < items.length; i += TRANSACT_BATCH_SIZE) {
-      await this.db.send(new TransactWriteCommand({
-        TransactItems: items.slice(i, i + TRANSACT_BATCH_SIZE),
-      }));
+    if (eventOps.length === 0) return;
+
+    const requirePublisher = opts.requirePublisher;
+    // TransactWriteItems caps at 100 items; if we prepend a ConditionCheck
+    // every batch, we shrink the per-batch event budget by one.
+    const perBatch = requirePublisher ? TRANSACT_BATCH_SIZE - 1 : TRANSACT_BATCH_SIZE;
+
+    for (let i = 0; i < eventOps.length; i += perBatch) {
+      const slice = eventOps.slice(i, i + perBatch);
+      const items = requirePublisher
+        ? [
+            {
+              ConditionCheck: {
+                TableName: requirePublisher.tableName,
+                Key: { id: requirePublisher.id },
+                ConditionExpression: 'attribute_exists(id)',
+              },
+            },
+            ...slice,
+          ]
+        : slice;
+      try {
+        await this.db.send(new TransactWriteCommand({ TransactItems: items }));
+      } catch (err) {
+        // DDB raises TransactionCanceledException for several distinct
+        // reasons (ConditionalCheckFailed, TransactionConflict, capacity
+        // exhaustion, etc.). We only want to wrap as
+        // PublisherDeletedDuringApplyError when the FIRST item's reason
+        // is `ConditionalCheckFailed` — that's our ConditionCheck on the
+        // publisher row, the only condition we attached. Other reasons
+        // (e.g. concurrent transaction conflict) are real failures the
+        // caller needs to know about and potentially retry, not silent
+        // skips.
+        if (
+          requirePublisher &&
+          (err as { name?: string })?.name === 'TransactionCanceledException' &&
+          firstReasonIsConditionalCheckFailed(err)
+        ) {
+          throw new PublisherDeletedDuringApplyError(requirePublisher.id);
+        }
+        throw err;
+      }
     }
   }
+}
+
+export class PublisherDeletedDuringApplyError extends Error {
+  constructor(public readonly publisherId: string) {
+    super(`publisher ${publisherId} was deleted during applyDiff`);
+    this.name = 'PublisherDeletedDuringApplyError';
+  }
+}
+
+// Inspect a TransactionCanceledException's CancellationReasons array.
+// Returns true iff the first cancellation reason is `ConditionalCheckFailed`
+// — i.e. the publisher-existence ConditionCheck (which is always the first
+// item we attach when requirePublisher is set) was the cause. Other reasons
+// (TransactionConflict, ProvisionedThroughputExceeded, ItemCollectionSize-
+// LimitExceeded, ValidationError, ThrottlingError) propagate up unchanged
+// so the caller can distinguish "publisher deleted" from "retry me".
+function firstReasonIsConditionalCheckFailed(err: unknown): boolean {
+  const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> })
+    ?.CancellationReasons;
+  if (!Array.isArray(reasons) || reasons.length === 0) return false;
+  return reasons[0]?.Code === 'ConditionalCheckFailed';
 }

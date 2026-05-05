@@ -61,6 +61,7 @@ describe('PublisherAdminService', () => {
       listAll: jest.fn(),
       get: jest.fn(),
       upsert: jest.fn(),
+      delete: jest.fn(),
       setThresholdHalt: jest.fn(),
       listPending: jest.fn(),
       setApplicationStatus: jest.fn(),
@@ -69,7 +70,8 @@ describe('PublisherAdminService', () => {
       listPending: jest.fn(),
       approveEvent: jest.fn(),
       rejectEvent: jest.fn(),
-    };
+      deleteAllForPublisher: jest.fn(),
+    } as any;
     svc = new PublisherAdminService(registry as any, store as any);
   });
 
@@ -188,6 +190,80 @@ describe('PublisherAdminService', () => {
     await svc.setEnabled('pub-1', true);
 
     expect(registry.upsert).toHaveBeenCalledWith(expect.objectContaining({ id: 'pub-1', enabled: true }));
+  });
+
+  // ── setPaused ──────────────────────────────────────────────────────────────
+
+  it('setPaused(true) merges paused=true onto existing record via updatePublisher', async () => {
+    const existing = makeRecord({ id: 'pub-1', enabled: true });
+    registry.get.mockResolvedValue(existing);
+    registry.upsert.mockResolvedValue(undefined);
+
+    await svc.setPaused('pub-1', true);
+
+    expect(registry.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'pub-1', enabled: true, paused: true }),
+    );
+  });
+
+  it('setPaused(false) clears the paused flag', async () => {
+    const existing = makeRecord({ id: 'pub-1', enabled: true, paused: true });
+    registry.get.mockResolvedValue(existing);
+    registry.upsert.mockResolvedValue(undefined);
+
+    await svc.setPaused('pub-1', false);
+
+    expect(registry.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'pub-1', enabled: true, paused: false }),
+    );
+  });
+
+  it('setPaused throws on unknown id', async () => {
+    registry.get.mockResolvedValue(null);
+    await expect(svc.setPaused('missing', true)).rejects.toThrow(/unknown publisher missing/);
+    expect(registry.upsert).not.toHaveBeenCalled();
+  });
+
+  // ── deletePublisher ────────────────────────────────────────────────────────
+
+  it('deletePublisher removes the publisher row first, then the events, and returns the deleted-events count', async () => {
+    const existing = makeRecord({ id: 'pub-1' });
+    registry.get.mockResolvedValue(existing);
+    (store as any).deleteAllForPublisher.mockResolvedValue(7);
+    (registry as any).delete.mockResolvedValue(undefined);
+
+    const result = await svc.deletePublisher('pub-1');
+
+    expect(result).toEqual({ deletedEvents: 7 });
+    expect((store as any).deleteAllForPublisher).toHaveBeenCalledWith('pub-1');
+    expect((registry as any).delete).toHaveBeenCalledWith('pub-1');
+    // Order matters: publisher row FIRST. Once it's gone, applyDiff's
+    // ConditionCheck (`attribute_exists(id)` on the publishers table)
+    // will reject any in-flight ingest's writes, so a concurrent ingest
+    // cannot race past our event deletion and re-insert events for a
+    // publisher that no longer exists.
+    const publisherCallOrder = (registry as any).delete.mock.invocationCallOrder[0];
+    const eventsCallOrder = (store as any).deleteAllForPublisher.mock.invocationCallOrder[0];
+    expect(publisherCallOrder).toBeLessThan(eventsCallOrder);
+  });
+
+  it('deletePublisher throws on unknown id and does not delete events or row', async () => {
+    registry.get.mockResolvedValue(null);
+    await expect(svc.deletePublisher('missing')).rejects.toThrow(/unknown publisher missing/);
+    expect((store as any).deleteAllForPublisher).not.toHaveBeenCalled();
+    expect((registry as any).delete).not.toHaveBeenCalled();
+  });
+
+  it('deletePublisher returns deletedEvents=0 when the publisher had no stored events', async () => {
+    const existing = makeRecord({ id: 'pub-1' });
+    registry.get.mockResolvedValue(existing);
+    (store as any).deleteAllForPublisher.mockResolvedValue(0);
+    (registry as any).delete.mockResolvedValue(undefined);
+
+    const result = await svc.deletePublisher('pub-1');
+
+    expect(result).toEqual({ deletedEvents: 0 });
+    expect((registry as any).delete).toHaveBeenCalledWith('pub-1');
   });
 
   // ── listPendingEvents ──────────────────────────────────────────────────────
