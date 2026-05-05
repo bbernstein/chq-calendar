@@ -69,7 +69,8 @@ async function cancel(): Promise<Status> {
   const params = new URLSearchParams(window.location.search);
   const token = params.get('token');
   if (!token) {
-    return { kind: 'error', message: 'No token in URL.' };
+    // Same UX as the backend's `kind: 'invalid'` — link likely truncated.
+    return { kind: 'error', message: explainKind('invalid') };
   }
   try {
     const r = await fetch(
@@ -90,6 +91,14 @@ async function cancel(): Promise<Status> {
 
 function explainKind(kind: string): string {
   switch (kind) {
+    case 'invalid':
+      // No usable token — likely a truncated-by-email-client link. Distinct
+      // from "already used" so the user doesn't think they double-clicked.
+      return (
+        'This link looks broken. Try clicking it directly from your email — ' +
+        'some email clients truncate long links when copy-pasted. If that ' +
+        'still fails, sign in at /publish/login/ to manage your account.'
+      );
     case 'already_used':
       return 'This link has already been used.';
     case 'expired':

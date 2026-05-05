@@ -79,7 +79,9 @@ async function verify(): Promise<Status> {
   const params = new URLSearchParams(window.location.search);
   const token = params.get('token');
   if (!token) {
-    return { kind: 'error', message: 'No token in URL.' };
+    // Same UX as the backend's `kind: 'invalid'` — usually means the email
+    // client mangled the link.
+    return { kind: 'error', message: explainKind('invalid') };
   }
   try {
     const r = await fetch(
@@ -100,6 +102,15 @@ async function verify(): Promise<Status> {
 
 function explainKind(kind: string): string {
   switch (kind) {
+    case 'invalid':
+      // Link arrived without a usable token at all — most often the email
+      // client truncated the URL. Tell the user how to recover rather than
+      // implying they did something wrong (which "already used" would).
+      return (
+        'This link looks broken. Try clicking it directly from your email — ' +
+        'some email clients truncate long links when copy-pasted. If that ' +
+        'still fails, sign in at /publish/login/ and request a new email change.'
+      );
     case 'already_used':
       return 'This link is no longer valid — it may have already been used or cancelled.';
     case 'expired':

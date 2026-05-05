@@ -58,6 +58,7 @@ export class EmailChangeError extends Error {
 
 export type VerifyEmailChangeResult =
   | { kind: 'ok'; publisherId: string; newEmail: string }
+  | { kind: 'invalid' }         // token entirely missing/empty (link truncated)
   | { kind: 'already_used' }    // not_found / wrong_purpose
   | { kind: 'expired' }
   | { kind: 'email_taken' }     // race: newEmail snatched between submit and verify
@@ -65,6 +66,7 @@ export type VerifyEmailChangeResult =
 
 export type CancelEmailChangeResult =
   | { kind: 'ok'; publisherId: string; lockedUntil: string }
+  | { kind: 'invalid' }         // token entirely missing/empty (link truncated)
   | { kind: 'already_used' }
   | { kind: 'expired' }
   | { kind: 'publisher_missing' }; // publisher row deleted between issue and cancel

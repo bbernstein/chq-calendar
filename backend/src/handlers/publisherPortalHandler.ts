@@ -763,6 +763,9 @@ export async function handlePublisherEmailChangeCancelSelf(
 //
 // Response shapes:
 //   200 { kind: 'ok', newEmail }
+//   200 { kind: 'invalid' }       — token query-param entirely missing/empty
+//                                   (link truncated by the email client; not the
+//                                   same UX as "already used")
 //   200 { kind: 'already_used' }
 //   200 { kind: 'expired' }
 //   200 { kind: 'email_taken' }
@@ -777,7 +780,7 @@ export async function handlePublisherEmailChangeVerify(
   try {
     const token = readQueryParam(event, 'token');
     if (!token) {
-      return json(200, { kind: 'already_used' });
+      return json(200, { kind: 'invalid' });
     }
     const r = await emailChangeService().verifyByNewAddress(token);
     if (r.kind === 'ok') {
@@ -796,6 +799,7 @@ export async function handlePublisherEmailChangeVerify(
 //
 // Response shapes:
 //   200 { kind: 'ok', lockedUntil }
+//   200 { kind: 'invalid' }       — token query-param entirely missing/empty
 //   200 { kind: 'already_used' }
 //   200 { kind: 'expired' }
 //   200 { kind: 'publisher_missing' } — publisher deleted between issue and cancel
@@ -806,7 +810,7 @@ export async function handlePublisherEmailChangeCancelByOld(
   try {
     const token = readQueryParam(event, 'token');
     if (!token) {
-      return json(200, { kind: 'already_used' });
+      return json(200, { kind: 'invalid' });
     }
     const r = await emailChangeService().cancelByOldAddress(token);
     if (r.kind === 'ok') {

@@ -237,13 +237,26 @@ describe('GET /publisher-email-change/verify', () => {
     expect(JSON.parse(r.body)).toEqual({ kind: 'email_taken' });
   });
 
-  it('returns already_used when token query param missing (no service call)', async () => {
+  it('returns invalid when token query param missing (no service call)', async () => {
+    // Missing-token must NOT report 'already_used' — that misleads the user
+    // into thinking they consumed the link. Truncated-link UX path lives
+    // under 'invalid'.
     const r = await handlePublisherEmailChangeVerify(
       evt({ httpMethod: 'GET', queryStringParameters: null }),
       {},
     );
     expect(r.statusCode).toBe(200);
-    expect(JSON.parse(r.body)).toEqual({ kind: 'already_used' });
+    expect(JSON.parse(r.body)).toEqual({ kind: 'invalid' });
+    expect(emailChange.verifyByNewAddress).not.toHaveBeenCalled();
+  });
+
+  it('returns invalid when token query param is the empty string', async () => {
+    const r = await handlePublisherEmailChangeVerify(
+      evt({ httpMethod: 'GET', queryStringParameters: { token: '' } }),
+      {},
+    );
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.body)).toEqual({ kind: 'invalid' });
     expect(emailChange.verifyByNewAddress).not.toHaveBeenCalled();
   });
 });
@@ -279,12 +292,21 @@ describe('GET /publisher-email-change/cancel', () => {
     expect(JSON.parse(r.body)).toEqual({ kind: 'expired' });
   });
 
-  it('returns already_used when token query param missing', async () => {
+  it('returns invalid when token query param missing', async () => {
     const r = await handlePublisherEmailChangeCancelByOld(
       evt({ httpMethod: 'GET', queryStringParameters: null }),
       {},
     );
-    expect(JSON.parse(r.body)).toEqual({ kind: 'already_used' });
+    expect(JSON.parse(r.body)).toEqual({ kind: 'invalid' });
+    expect(emailChange.cancelByOldAddress).not.toHaveBeenCalled();
+  });
+
+  it('returns invalid when token query param is the empty string', async () => {
+    const r = await handlePublisherEmailChangeCancelByOld(
+      evt({ httpMethod: 'GET', queryStringParameters: { token: '' } }),
+      {},
+    );
+    expect(JSON.parse(r.body)).toEqual({ kind: 'invalid' });
     expect(emailChange.cancelByOldAddress).not.toHaveBeenCalled();
   });
 });
