@@ -155,9 +155,16 @@ export function _resetPublisherAuthRateLimitForTests(): void {
 }
 
 // ─── Response helpers ────────────────────────────────────────────────────
+//
+// Origin is locked to the first-party site (SITE_BASE_URL, defaulting to the
+// production hostname). The legacy admin / sync / calendar handlers still
+// echo `*` because they predate this hardening; this scoping is intentional
+// — only the publisher-portal endpoints are tightened here. If a future
+// preview environment needs a different origin it can override SITE_BASE_URL
+// at the Lambda env level.
 const corsHeaders = {
   'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   // Authorization is included for Phase C authenticated publisher endpoints
   // (status page, feed management). The Phase A/B routes here don't read it,

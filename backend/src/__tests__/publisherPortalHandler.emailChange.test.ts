@@ -288,3 +288,23 @@ describe('GET /publisher-email-change/cancel', () => {
     expect(emailChange.cancelByOldAddress).not.toHaveBeenCalled();
   });
 });
+
+// CORS lockdown: every response from the publisher-portal handler must echo
+// a first-party Allow-Origin, never `*`. The cancel handler is convenient
+// because it's reachable without auth or a service mock — but the
+// `corsHeaders` constant is shared by every other handler in the module, so
+// asserting once here is sufficient.
+describe('publisher-portal CORS', () => {
+  it('Access-Control-Allow-Origin is the first-party site, never *', async () => {
+    const r = await handlePublisherEmailChangeCancelByOld(
+      evt({ httpMethod: 'GET', queryStringParameters: null }),
+      {},
+    );
+    const allowOrigin = (r.headers ?? {})['Access-Control-Allow-Origin'];
+    expect(allowOrigin).toBeDefined();
+    expect(allowOrigin).not.toBe('*');
+    // Either the env-supplied SITE_BASE_URL (test runners may set it) or
+    // the production default — both are acceptable; the wildcard is not.
+    expect(String(allowOrigin)).toMatch(/^https?:\/\//);
+  });
+});
