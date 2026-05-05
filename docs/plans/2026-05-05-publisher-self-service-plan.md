@@ -22,7 +22,7 @@
 | 4 | Email change end-to-end (initiate, verify, cancel-by-old, cancel-by-self, all edge cases) + frontend banner + verify/cancel landing pages + login `?reason=email-changed` | `-email-change` |
 | 5 | Single-publisher ingest mode + `POST /publisher/me/fetch-now` + `pause` / `resume` routes + frontend ingest controls | `-ingest-controls` |
 | 6 | Self-disable with typed-confirmation + `tokenVersion` bump + frontend danger zone | `-self-disable` |
-| 7 | Extend publisher-ingest E2E CI test with the full self-service flow | `-e2e-coverage` |
+| 7 ✅ | Extend publisher-ingest E2E CI test with single-publisher ingest mode (full email-flow E2E deferred — needs mock-SES) | `-e2e-coverage` |
 | 8 | Documentation + cleanup polish | `-docs` |
 
 Each phase is independently mergeable. Phases 2 onward depend on Phase 1; Phase 4 also depends on Phase 3 (uniqueness check is reused inside email-change verify).
@@ -1625,21 +1625,38 @@ The admin button keeps invoking with `{ source: 'admin-ui', triggeredBy, trigger
 
 ---
 
-## Phase 7 — E2E coverage
+## Phase 7 — E2E coverage ✅ DONE (scope adjusted)
 
-### Task 7.1 — Extend `tests/e2e/publisher-ingest.spec.ts` (or wherever it lives)
+### Scope adjustment
 
-Per the publisher-ingest E2E memory, we have a CI test that does apply → approve → ingest. Extend it:
+The original Phase 7 plan called for a full-flow E2E (apply → approve → log in → edit URL → fetch-now → email-change → re-login). That requires SES mocking infrastructure that does not exist in CI today — the existing publisher-ingest E2E bypasses SES by pre-seeding the publisher row via Terraform (`var.enable_ci_e2e_publisher = true`). Building out a mock-SES outbound queue + magic-link harvesting + email-change verify-link clicking is its own multi-day project and was out of scope for this round.
 
-- After approval and login, edit the source URL via `PATCH /publisher/me` with a passing preview.
-- Trigger `POST /publisher/me/fetch-now`.
-- Wait for ingest run; assert events ingested under the new URL.
-- Trigger `POST /publisher/me/email-change` with a new address; read the mock-SES outbound queue for the verify link; click it.
-- Assert the original session JWT now returns 401 on `/publisher/me`.
-- Re-login with the new email via the magic-link flow.
-- Assert `/publisher-status` returns 200 with the new email.
+**What shipped instead**: extended the existing `.github/workflows/deploy-production.yml` shell-script E2E with one additional step that exercises the **single-publisher ingest mode** (`{ singlePublisherId, source }` payload). This is the authoritative code path that backs `POST /publisher-fetch-now`, so a deployment-time regression in IAM, payload parsing, or sidecar refresh on a single-publisher run will now fail CI.
 
-### Task 7.2 — Phase-7 PR
+The other Phase 5/6 features (pause, resume, disable, profile-edit) are already covered by:
+- backend handler + service unit tests (Phase 5/6),
+- the existing disable→retract E2E (which exercises the same registry helpers),
+- the new single-publisher E2E step.
+
+Adding more E2E surface here was deemed low marginal value vs the cost of more flaky CI minutes per deploy.
+
+### Task 7.1 — Extend the publisher-ingest E2E with single-publisher mode ✅
+
+Added a new `Publisher single-publisher mode E2E test` step in `.github/workflows/deploy-production.yml`, sequenced AFTER the existing `Publisher disable→retract end-to-end test`. The step:
+
+1. Reads `infrastructure/ci-e2e-feed.json` for the year and expected event count.
+2. Asserts the sidecar starts clean (the previous step's cleanup left it that way).
+3. Re-enables the `ci-e2e-test` publisher with a strict `attribute_exists(id)` guard.
+4. Invokes the Lambda with `{ "singlePublisherId": "ci-e2e-test", "source": "ci-e2e-self-service-test" }` synchronously and asserts no `FunctionError`.
+5. Polls the sidecar S3 object until events appear (30s timeout).
+6. Asserts the count matches the feed — single-publisher mode must ingest the whole feed, not a subset.
+7. Always-runs cleanup via `trap`: disables the publisher and fires a fire-and-forget retraction ingest.
+
+### Task 7.2 — Phase-7 PR — pending (commit ready on branch)
+
+### Deferred to a future round
+
+- Full apply → approve → fetch-now → email-change → re-login E2E (blocked on mock-SES infrastructure).
 
 ---
 
