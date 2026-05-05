@@ -266,6 +266,47 @@ export class PublisherRegistryService {
     }));
   }
 
+  // Phase 4 (email change). Sets the email-change lock to the given ISO
+  // timestamp. The lock is consulted at initiate time to bounce repeated
+  // email-change attempts from a publisher whose old address just clicked
+  // "this wasn't me". Auto-clears just by passing the timestamp.
+  async setEmailChangeLock(id: string, untilIso: string): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression: 'SET emailChangeLockedUntil = :u',
+      ExpressionAttributeValues: { ':u': untilIso },
+    }));
+  }
+
+  // Removes the email-change lock. Useful for an admin "unlock now" path,
+  // and exercised by tests. Self-clears via the timestamp comparison in
+  // normal operation, so this is a manual override.
+  async clearEmailChangeLock(id: string): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression: 'REMOVE emailChangeLockedUntil',
+    }));
+  }
+
+  // Email-change verify commits the new contactEmail and bumps tokenVersion
+  // in a SINGLE write. Doing both atomically prevents the case where the
+  // contactEmail flips but the JWT keeps validating against the old version
+  // (or vice versa). The two-write alternative — updateProfile then
+  // bumpTokenVersion — opens a window where the registry is internally
+  // consistent but the publisher's already-issued JWT is now mismatched
+  // against contactEmail rather than tokenVersion, causing them to fail
+  // requirePublisherSession with the wrong reason.
+  async commitEmailChange(id: string, newEmail: string): Promise<void> {
+    await this.db.send(new UpdateCommand({
+      TableName: this.tableName,
+      Key: { id },
+      UpdateExpression: 'SET contactEmail = :e ADD tokenVersion :one',
+      ExpressionAttributeValues: { ':e': newEmail, ':one': 1 },
+    }));
+  }
+
   // Increments tokenVersion by 1 — used by email-change verify to invalidate
   // the old session's JWT once the new email is confirmed.
   async bumpTokenVersion(id: string): Promise<void> {
