@@ -20,6 +20,11 @@ export interface PublisherClaims {
   sub: string;        // publisher id
   role: 'publisher';
   email: string;
+  // Identity-version counter copied from PublisherRecord.tokenVersion at sign
+  // time. Must equal the row's current value at verify time, otherwise the
+  // session is treated as invalid (see services/publisherSession.ts).
+  // Defaults to 0 for legacy rows / callers that omit the field.
+  tokenVersion: number;
   iat?: number;
   exp?: number;
 }
@@ -27,7 +32,7 @@ export interface PublisherClaims {
 const DEFAULT_EXPIRY = '7d';
 
 export async function signPublisherJwt(
-  payload: { publisherId: string; email: string },
+  payload: { publisherId: string; email: string; tokenVersion?: number },
   expiresIn: string | number = DEFAULT_EXPIRY,
 ): Promise<string> {
   const secret = await getPublisherJwtSecret();
@@ -36,6 +41,7 @@ export async function signPublisherJwt(
       sub: payload.publisherId,
       role: 'publisher' as const,
       email: payload.email.trim().toLowerCase(),
+      tokenVersion: payload.tokenVersion ?? 0,
     },
     secret,
     { expiresIn: expiresIn as jwt.SignOptions['expiresIn'] },
@@ -52,7 +58,8 @@ export async function verifyPublisherJwt(token: string): Promise<PublisherClaims
     if (
       typeof c.sub !== 'string' ||
       typeof c.email !== 'string' ||
-      c.role !== 'publisher'
+      c.role !== 'publisher' ||
+      typeof c.tokenVersion !== 'number'
     ) {
       return null;
     }
@@ -60,6 +67,7 @@ export async function verifyPublisherJwt(token: string): Promise<PublisherClaims
       sub: c.sub,
       role: 'publisher',
       email: c.email,
+      tokenVersion: c.tokenVersion,
       iat: typeof c.iat === 'number' ? c.iat : undefined,
       exp: typeof c.exp === 'number' ? c.exp : undefined,
     };

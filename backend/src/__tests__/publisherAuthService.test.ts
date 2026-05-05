@@ -65,4 +65,31 @@ describe('publisherAuthService', () => {
     expect(await verifyPublisherJwt(undefined as any)).toBeNull();
     expect(await verifyPublisherJwt(null as any)).toBeNull();
   });
+
+  describe('tokenVersion', () => {
+    it('round-trips the tokenVersion claim', async () => {
+      const token = await signPublisherJwt({
+        publisherId: 'pub-abc',
+        email: 'a@b.com',
+        tokenVersion: 7,
+      });
+      const claims = await verifyPublisherJwt(token);
+      expect(claims).not.toBeNull();
+      expect(claims!.tokenVersion).toBe(7);
+    });
+
+    it('defaults tokenVersion to 0 when caller omits it', async () => {
+      const token = await signPublisherJwt({ publisherId: 'pub-abc', email: 'a@b.com' });
+      const claims = await verifyPublisherJwt(token);
+      expect(claims!.tokenVersion).toBe(0);
+    });
+
+    it('returns null for a token whose tokenVersion claim is non-numeric', async () => {
+      const forged = jwt.sign(
+        { sub: 'pub-x', role: 'publisher', email: 'x@y.com', tokenVersion: 'not-a-number' },
+        'test-secret-do-not-use-in-prod',
+      );
+      expect(await verifyPublisherJwt(forged)).toBeNull();
+    });
+  });
 });

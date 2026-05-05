@@ -104,7 +104,11 @@ export class PublisherApplicationService {
     };
     await this.deps.registry.upsert(rec);
 
-    const jwt = await signPublisherJwt({ publisherId, email: rec.contactEmail });
+    const jwt = await signPublisherJwt({
+      publisherId,
+      email: rec.contactEmail,
+      tokenVersion: rec.tokenVersion ?? 0,
+    });
     return { ok: true, jwt, publisherId, email: rec.contactEmail };
   }
 
@@ -160,6 +164,7 @@ export class PublisherApplicationService {
     const jwt = await signPublisherJwt({
       publisherId: pub.id,
       email: pub.contactEmail,
+      tokenVersion: pub.tokenVersion ?? 0,
     });
     return { ok: true, jwt, publisherId: pub.id, email: pub.contactEmail };
   }
