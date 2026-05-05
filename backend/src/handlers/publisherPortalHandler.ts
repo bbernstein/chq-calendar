@@ -24,7 +24,7 @@ import { MagicTokenService } from '../services/magicTokenService';
 import { SesMailService } from '../services/mailService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherApplicationService } from '../services/publisherApplicationService';
-import { verifyPublisherJwt } from '../services/publisherAuthService';
+import { requirePublisherSession } from '../services/publisherSession';
 import { verifyCaptcha } from '../services/captchaService';
 import {
   DynamoRateLimiter,
@@ -456,34 +456,15 @@ export async function handlePublisherStatus(
   event: APIGatewayProxyEvent,
   _requestBody: Record<string, unknown>,
 ): Promise<APIGatewayProxyResult> {
-  const auth = readAuthHeader(event);
-  if (!auth) {
-    return json(401, { error: 'Authentication required' });
-  }
-  const claims = await verifyPublisherJwt(auth);
-  if (!claims) {
-    return json(401, { error: 'Authentication required' });
-  }
   try {
-    const rec = await statusRegistry().get(claims.sub);
-    if (!rec) {
-      return json(404, { error: 'Publisher not found' });
-    }
-    return json(200, { publisher: sanitizePublisher(rec) });
+    const sess = await requirePublisherSession(event, statusRegistry());
+    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
+    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
+    return json(200, { publisher: sanitizePublisher(sess.publisher) });
   } catch (err) {
     console.error('Error in /publisher-status:', err);
     return json(500, { error: 'Internal server error' });
   }
-}
-
-// Header lookup is case-insensitive; APIGatewayProxyEvent normalizes to the
-// caller's casing, so we check both common forms.
-function readAuthHeader(event: APIGatewayProxyEvent): string | null {
-  const headers = event.headers ?? {};
-  const raw = headers.Authorization ?? headers.authorization;
-  if (typeof raw !== 'string') return null;
-  const m = raw.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : null;
 }
 
 function sanitizePublisher(rec: PublisherRecord) {
