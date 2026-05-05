@@ -28,6 +28,7 @@
 import type { MagicTokenService, MagicTokenRow } from './magicTokenService';
 import { PublisherNotFoundError, type PublisherRegistryService } from './publisherRegistryService';
 import type { MailService } from './mailService';
+import { isValidEmail } from '../utils/validateEmail';
 
 export interface EmailChangeServiceDeps {
   registry: PublisherRegistryService;
@@ -70,10 +71,6 @@ export type CancelEmailChangeResult =
   | { kind: 'already_used' }
   | { kind: 'expired' }
   | { kind: 'publisher_missing' }; // publisher row deleted between issue and cancel
-
-function isValidEmail(s: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
 
 export class PublisherEmailChangeService {
   private readonly now: () => Date;

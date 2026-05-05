@@ -16,6 +16,7 @@ import type { MagicTokenService } from './magicTokenService';
 import type { MailService } from './mailService';
 import { signPublisherJwt } from './publisherAuthService';
 import { validateUrlIsPublic } from './urlGuard';
+import { isValidEmail } from '../utils/validateEmail';
 
 export interface PublisherApplicationServiceDeps {
   registry: PublisherRegistryService;
@@ -214,12 +215,6 @@ export class PublisherApplicationService {
 }
 
 // ─── Input validation ──────────────────────────────────────────────────
-
-function isValidEmail(s: string): boolean {
-  // Cheap RFC-shaped check; we don't attempt full RFC 5322. SES will reject
-  // truly malformed addresses; this just catches obvious typos.
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
 
 type ValidationResult =
   | { ok: true }
