@@ -139,9 +139,16 @@ describe('PublisherEventStore', () => {
       expect(items[1].Put.Item.eventId).toBe('e1');
     });
 
-    it('throws PublisherDeletedDuringApplyError on TransactionCanceledException when requirePublisher is set', async () => {
+    it('throws PublisherDeletedDuringApplyError when the FIRST reason is ConditionalCheckFailed', async () => {
+      // The ConditionCheck on the publisher row is always the first item
+      // we attach when requirePublisher is set, so the corresponding
+      // CancellationReasons entry is also at index 0.
       const cancelErr = Object.assign(new Error('canceled'), {
         name: 'TransactionCanceledException',
+        CancellationReasons: [
+          { Code: 'ConditionalCheckFailed', Message: 'attribute_exists(id) failed' },
+          { Code: 'None' },
+        ],
       });
       mockSend.mockRejectedValue(cancelErr);
       await expect(
@@ -152,9 +159,43 @@ describe('PublisherEventStore', () => {
       ).rejects.toBeInstanceOf(PublisherDeletedDuringApplyError);
     });
 
+    it('does NOT wrap TransactionCanceledException when the cause is something other than ConditionalCheckFailed', async () => {
+      // Concurrent-write race / throughput exhaustion / etc. raise the
+      // same exception class but for an entirely different reason. Wrapping
+      // those as "publisher deleted" would silently drop legitimate updates.
+      const cancelErr = Object.assign(new Error('canceled'), {
+        name: 'TransactionCanceledException',
+        CancellationReasons: [
+          { Code: 'None' },
+          { Code: 'TransactionConflict' },
+        ],
+      });
+      mockSend.mockRejectedValue(cancelErr);
+      await expect(
+        store.applyDiff(
+          { inserts: [evt('e1')], updates: [], removals: [], unchanged: 0 },
+          { requirePublisher: { tableName: 'chq-publishers', id: 'p1' } },
+        ),
+      ).rejects.toBe(cancelErr);
+    });
+
+    it('does NOT wrap when CancellationReasons is missing entirely (defensive)', async () => {
+      const cancelErr = Object.assign(new Error('canceled'), {
+        name: 'TransactionCanceledException',
+      });
+      mockSend.mockRejectedValue(cancelErr);
+      await expect(
+        store.applyDiff(
+          { inserts: [evt('e1')], updates: [], removals: [], unchanged: 0 },
+          { requirePublisher: { tableName: 'chq-publishers', id: 'p1' } },
+        ),
+      ).rejects.toBe(cancelErr);
+    });
+
     it('does not wrap TransactionCanceledException when requirePublisher is omitted', async () => {
       const cancelErr = Object.assign(new Error('canceled'), {
         name: 'TransactionCanceledException',
+        CancellationReasons: [{ Code: 'ConditionalCheckFailed' }],
       });
       mockSend.mockRejectedValue(cancelErr);
       await expect(

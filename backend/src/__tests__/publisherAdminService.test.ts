@@ -226,7 +226,7 @@ describe('PublisherAdminService', () => {
 
   // ── deletePublisher ────────────────────────────────────────────────────────
 
-  it('deletePublisher removes events first, then the publisher row, and returns the deleted-events count', async () => {
+  it('deletePublisher removes the publisher row first, then the events, and returns the deleted-events count', async () => {
     const existing = makeRecord({ id: 'pub-1' });
     registry.get.mockResolvedValue(existing);
     (store as any).deleteAllForPublisher.mockResolvedValue(7);
@@ -237,11 +237,14 @@ describe('PublisherAdminService', () => {
     expect(result).toEqual({ deletedEvents: 7 });
     expect((store as any).deleteAllForPublisher).toHaveBeenCalledWith('pub-1');
     expect((registry as any).delete).toHaveBeenCalledWith('pub-1');
-    // Order matters: events first so a partial failure leaves no orphaned
-    // publisher row pointing at events that no longer exist.
-    const eventsCallOrder = (store as any).deleteAllForPublisher.mock.invocationCallOrder[0];
+    // Order matters: publisher row FIRST. Once it's gone, applyDiff's
+    // ConditionCheck (`attribute_exists(id)` on the publishers table)
+    // will reject any in-flight ingest's writes, so a concurrent ingest
+    // cannot race past our event deletion and re-insert events for a
+    // publisher that no longer exists.
     const publisherCallOrder = (registry as any).delete.mock.invocationCallOrder[0];
-    expect(eventsCallOrder).toBeLessThan(publisherCallOrder);
+    const eventsCallOrder = (store as any).deleteAllForPublisher.mock.invocationCallOrder[0];
+    expect(publisherCallOrder).toBeLessThan(eventsCallOrder);
   });
 
   it('deletePublisher throws on unknown id and does not delete events or row', async () => {

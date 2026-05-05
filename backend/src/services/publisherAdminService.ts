@@ -92,13 +92,23 @@ export class PublisherAdminService {
   // ingest loop on its hourly cadence, or manually via "Run ingest now")
   // will reflect the removal. We do NOT publish here — the admin handler
   // owns that decision so callers can batch deletes if desired.
+  //
+  // Order: publisher row FIRST, then events. This is load-bearing for the
+  // delete-during-ingest race close — applyDiff's ConditionCheck asserts
+  // attribute_exists(publisher_row) before writing events, so removing the
+  // row first guarantees that an in-flight applyDiff is rejected rather
+  // than racing past our event-deletion. If we deleted events first, a
+  // concurrent ingest's applyDiff could still pass its ConditionCheck
+  // (the publisher row still exists at that moment) and write fresh
+  // events between our two writes — the very orphan-events scenario the
+  // ConditionCheck was designed to prevent.
   async deletePublisher(id: string): Promise<{ deletedEvents: number }> {
     const existing = await this.registry.get(id);
     if (existing == null) {
       throw new Error(`unknown publisher ${id}`);
     }
-    const deletedEvents = await this.store.deleteAllForPublisher(id);
     await this.registry.delete(id);
+    const deletedEvents = await this.store.deleteAllForPublisher(id);
     return { deletedEvents };
   }
 

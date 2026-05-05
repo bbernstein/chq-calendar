@@ -262,7 +262,24 @@ export default function PublishersPage() {
   //     delete isn't already in flight.
   //   - On close, restore focus to the originating row's Delete button so
   //     the user's keyboard position is preserved.
+  //
+  // The effect intentionally depends ONLY on deleteTarget. Re-running on
+  // deletingIds would cause the cleanup (which restores focus to the
+  // background row) to fire while the modal is still open during an
+  // in-flight delete — letting focus escape outside the dialog and
+  // breaking the aria-modal contract. The Escape handler reads
+  // deletingIds via the ref-stable setter pattern (the predicate only
+  // checks the latest deleteTarget against the latest deletingIds at
+  // event time, so we don't need re-binding).
   // -------------------------------------------------------------------------
+  // Live ref so the keydown handler always sees the current deletingIds
+  // without forcing the focus-trap effect to re-run (and prematurely fire
+  // its focus-restore cleanup) every time a delete starts/finishes.
+  const deletingIdsRef = useRef(deletingIds);
+  useEffect(() => {
+    deletingIdsRef.current = deletingIds;
+  }, [deletingIds]);
+
   useEffect(() => {
     if (!deleteTarget) return;
     lastFocusBeforeModalRef.current =
@@ -270,7 +287,9 @@ export default function PublishersPage() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (!deletingIds.has(deleteTarget.id)) {
+        // Read the latest deletingIds via the ref so we don't have to
+        // re-bind this effect when in-flight state changes.
+        if (!deletingIdsRef.current.has(deleteTarget.id)) {
           e.preventDefault();
           setDeleteTarget(null);
         }
@@ -299,16 +318,17 @@ export default function PublishersPage() {
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      // Restore focus when the modal unmounts. Wrapped in a try/catch
-      // because the originating element may have been removed from the DOM
-      // (e.g. publisher row no longer rendered after a successful delete).
+      // Restore focus when the modal unmounts (deleteTarget → null).
+      // Wrapped in a try/catch because the originating element may have
+      // been removed from the DOM (e.g. publisher row gone after a
+      // successful delete).
       try {
         lastFocusBeforeModalRef.current?.focus();
       } catch {
         // ignore — element gone, browser will pick a sensible default.
       }
     };
-  }, [deleteTarget, deletingIds]);
+  }, [deleteTarget]);
 
   // -------------------------------------------------------------------------
   // Run ingest now

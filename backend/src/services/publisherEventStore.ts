@@ -180,13 +180,19 @@ export class PublisherEventStore {
       try {
         await this.db.send(new TransactWriteCommand({ TransactItems: items }));
       } catch (err) {
-        // TransactionCanceledException with reason "ConditionalCheckFailed"
-        // on the ConditionCheck means the publisher was deleted mid-run.
-        // We surface this as the dedicated error class so callers can
-        // distinguish it from arbitrary DDB failures.
+        // DDB raises TransactionCanceledException for several distinct
+        // reasons (ConditionalCheckFailed, TransactionConflict, capacity
+        // exhaustion, etc.). We only want to wrap as
+        // PublisherDeletedDuringApplyError when the FIRST item's reason
+        // is `ConditionalCheckFailed` — that's our ConditionCheck on the
+        // publisher row, the only condition we attached. Other reasons
+        // (e.g. concurrent transaction conflict) are real failures the
+        // caller needs to know about and potentially retry, not silent
+        // skips.
         if (
           requirePublisher &&
-          (err as { name?: string })?.name === 'TransactionCanceledException'
+          (err as { name?: string })?.name === 'TransactionCanceledException' &&
+          firstReasonIsConditionalCheckFailed(err)
         ) {
           throw new PublisherDeletedDuringApplyError(requirePublisher.id);
         }
@@ -201,4 +207,18 @@ export class PublisherDeletedDuringApplyError extends Error {
     super(`publisher ${publisherId} was deleted during applyDiff`);
     this.name = 'PublisherDeletedDuringApplyError';
   }
+}
+
+// Inspect a TransactionCanceledException's CancellationReasons array.
+// Returns true iff the first cancellation reason is `ConditionalCheckFailed`
+// — i.e. the publisher-existence ConditionCheck (which is always the first
+// item we attach when requirePublisher is set) was the cause. Other reasons
+// (TransactionConflict, ProvisionedThroughputExceeded, ItemCollectionSize-
+// LimitExceeded, ValidationError, ThrottlingError) propagate up unchanged
+// so the caller can distinguish "publisher deleted" from "retry me".
+function firstReasonIsConditionalCheckFailed(err: unknown): boolean {
+  const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> })
+    ?.CancellationReasons;
+  if (!Array.isArray(reasons) || reasons.length === 0) return false;
+  return reasons[0]?.Code === 'ConditionalCheckFailed';
 }
