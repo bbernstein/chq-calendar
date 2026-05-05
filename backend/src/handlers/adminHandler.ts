@@ -16,6 +16,7 @@ import {
   handlePublisherAuthRequest,
   handlePublisherAuthVerify,
   handlePublisherStatus,
+  handlePublisherProfilePatch,
 } from './publisherPortalHandler';
 
 // DynamoDB client
@@ -430,6 +431,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     // handler, so it sits BEFORE the admin auth gate below.
     if (path === '/publisher-status' && httpMethod === 'GET') {
       return await handlePublisherStatus(event, requestBody);
+    }
+
+    // Phase 2 (publisher self-service): publisher edits their own profile
+    // (name, organization, sourceUrl, sourceType). Same publisher-JWT auth
+    // model as /publisher-status — the handler enforces it itself, so this
+    // also sits BEFORE the admin auth gate.
+    if (path === '/publisher-profile' && httpMethod === 'PATCH') {
+      return await handlePublisherProfilePatch(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development

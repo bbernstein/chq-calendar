@@ -27,11 +27,16 @@ import { PublisherApplicationService } from '../services/publisherApplicationSer
 import { requirePublisherSession } from '../services/publisherSession';
 import { verifyCaptcha } from '../services/captchaService';
 import {
+  updatePublisherProfile,
+  ProfileValidationError,
+  type FeedTestResult,
+} from '../services/publisherProfileService';
+import {
   DynamoRateLimiter,
   InMemoryRateLimiter,
   type RateLimiter,
 } from '../services/rateLimitService';
-import type { ApplyFormPayload, PublisherRecord } from '../types/publisher';
+import type { ApplyFormPayload, PublisherRecord, SourceType } from '../types/publisher';
 
 // ─── Rate limiter ────────────────────────────────────────────────────────
 //
@@ -465,6 +470,92 @@ export async function handlePublisherStatus(
     console.error('Error in /publisher-status:', err);
     return json(500, { error: 'Internal server error' });
   }
+}
+
+// ─── PATCH /publisher-profile (publisher JWT only) ───────────────────────
+//
+// Self-service edits for an approved publisher's row. Allowed fields:
+//   - name, organization (free-form text)
+//   - sourceUrl, sourceType (gated by a feed test before commit)
+//
+// Auth: same publisher JWT as /publisher-status. Pending/rejected applicants
+// get 403 — the row exists but isn't editable until an admin approves.
+//
+// The URL/sourceType change path runs the same SSRF guard + fetch + parse +
+// validate pipeline as POST /publisher-test, so a publisher can't move
+// themselves to a feed that would fail at ingest time. We adapt
+// testPublisherFeed's discriminated-union result into the simple
+// `{ ok, errors[] }` shape that the profile service expects (see comments
+// inline below for the mapping).
+export async function handlePublisherProfilePatch(
+  event: APIGatewayProxyEvent,
+  body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const sess = await requirePublisherSession(event, statusRegistry());
+    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
+    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
+    // Approved-only: pending/rejected publishers can't edit the row that
+    // admins are reviewing (we'd be moving the goalposts out from under them)
+    // and rejected publishers should re-apply, not edit in place.
+    if (sess.publisher.applicationStatus !== undefined &&
+        sess.publisher.applicationStatus !== 'approved') {
+      return json(403, {
+        error: 'Profile editing is only available to approved publishers.',
+      });
+    }
+
+    await updatePublisherProfile(sess.publisher.id, body, {
+      registry: statusRegistry(),
+      runFeedTest: async ({ url, sourceType }) => adaptFeedTest(url, sourceType),
+    });
+
+    const updated = await statusRegistry().get(sess.publisher.id);
+    if (!updated) {
+      // Row was deleted between the validation read and the post-write read.
+      // Treat as 404 — the publisher's session is no longer meaningful.
+      return json(404, { error: 'Publisher not found' });
+    }
+    return json(200, { publisher: sanitizePublisher(updated) });
+  } catch (err) {
+    if (err instanceof ProfileValidationError) {
+      return json(400, {
+        error: err.message,
+        code: err.code,
+        details: err.details ?? null,
+      });
+    }
+    console.error('Error in PATCH /publisher-profile:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// Adapter: testPublisherFeed returns
+//   { kind: 'error', error: { kind: 'blocked_url', reason } }    — SSRF guard rejection
+//   { kind: 'ok', output: { fetchStatus, feed, report } }        — fetch ran; outcome on the report
+//
+// The profile-service contract is `{ ok, errors[], summary? }`. We translate:
+//   - blocked_url             → ok=false, errors=[reason]
+//   - fetchStatus !== 'ok'    → ok=false, errors=report.errors.map(message)
+//   - fetchStatus === 'ok'    → ok=true,  summary="Validated N events"
+async function adaptFeedTest(url: string, sourceType: SourceType): Promise<FeedTestResult> {
+  const result = await testPublisherFeed({ url, sourceType });
+  if (result.kind === 'error') {
+    return { ok: false, errors: [result.error.reason] };
+  }
+  const out = result.output;
+  if (out.fetchStatus === 'ok') {
+    const eventCount = out.feed?.events.length ?? 0;
+    return { ok: true, summary: `Validated ${eventCount} event${eventCount === 1 ? '' : 's'}.` };
+  }
+  // parse_error / validation_error / network_error / threshold_halt → surface
+  // the human-readable error messages from the validation report. Fall back
+  // to a generic message (with the fetchStatus code) when the report is empty.
+  const messages = out.report.errors.map(e => e.message).filter(Boolean);
+  if (messages.length === 0) {
+    messages.push(`Feed test failed (${out.fetchStatus}).`);
+  }
+  return { ok: false, errors: messages };
 }
 
 function sanitizePublisher(rec: PublisherRecord) {
