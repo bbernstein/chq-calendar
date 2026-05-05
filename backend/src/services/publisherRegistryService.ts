@@ -12,6 +12,13 @@ export class ConcurrentApplicationUpdateError extends Error {
   }
 }
 
+// Profile fields the publisher portal is allowed to clear (REMOVE) by passing
+// an empty string. All other profile fields are required-non-empty in the
+// PublisherRecord type — clearing them would produce rows that violate the
+// type, so updateProfile throws if a caller tries. Module-level so it isn't
+// re-allocated on every call.
+const CLEARABLE_PROFILE_FIELDS: ReadonlySet<string> = new Set(['organization']);
+
 export class PublisherRegistryService {
   constructor(
     private readonly db: DynamoDBDocumentClient,
@@ -270,15 +277,19 @@ export class PublisherRegistryService {
     }));
   }
 
-  // Sparse profile update — writes only the keys present in `patch`. An
-  // explicit `undefined` or empty string clears (REMOVEs) the field; a
-  // populated value SETs it. Empty patch is a no-op (no DDB call). Note:
-  // contactEmail changes here are NOT a substitute for the full email-change
-  // flow (which must go through magic-link verify and bumpTokenVersion).
+  // Sparse profile update — writes only the keys present in `patch`. A
+  // populated value SETs the field; an empty string clears (REMOVEs) it, but
+  // ONLY for fields in CLEARABLE_PROFILE_FIELDS — every other field is
+  // required-non-empty in the PublisherRecord type, so the helper throws
+  // rather than silently producing a type-violating row. Empty patch is a
+  // no-op (no DDB call). Note: contactEmail changes here are NOT a
+  // substitute for the full email-change flow (which must go through
+  // magic-link verify and bumpTokenVersion).
   async updateProfile(
     id: string,
     patch: Partial<Pick<PublisherRecord, 'name' | 'organization' | 'sourceUrl' | 'sourceType' | 'contactEmail'>>,
   ): Promise<void> {
+    if (Object.keys(patch).length === 0) return;
     const setParts: string[] = [];
     const removeParts: string[] = [];
     const values: Record<string, unknown> = {};
@@ -289,6 +300,11 @@ export class PublisherRegistryService {
       const namePlaceholder = `#k${i}`;
       names[namePlaceholder] = k;
       if (v === undefined || v === '') {
+        if (!CLEARABLE_PROFILE_FIELDS.has(k)) {
+          throw new Error(
+            `updateProfile: cannot clear required field "${k}". Caller must validate inputs before calling this helper.`,
+          );
+        }
         removeParts.push(namePlaceholder);
       } else {
         setParts.push(`${namePlaceholder} = ${placeholder}`);
@@ -296,7 +312,6 @@ export class PublisherRegistryService {
       }
       i += 1;
     }
-    if (setParts.length === 0 && removeParts.length === 0) return;
     const expr =
       (setParts.length ? `SET ${setParts.join(', ')}` : '') +
       (removeParts.length ? ` REMOVE ${removeParts.join(', ')}` : '');

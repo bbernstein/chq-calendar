@@ -285,9 +285,9 @@ describe('PublisherRegistryService', () => {
       expect(Object.values(vals)).toEqual(expect.arrayContaining(['New Name', 'Org']));
     });
 
-    it('REMOVEs fields when value is undefined or empty string', async () => {
+    it('REMOVEs organization when passed empty string', async () => {
       mockSend.mockResolvedValue({});
-      // organization explicitly cleared via empty string
+      // organization is the only clearable profile field
       await svc.updateProfile('pub-1', { organization: '' });
       const cmd: any = mockSend.mock.calls[0][0];
       const expr: string = cmd.input.UpdateExpression;
@@ -297,6 +297,18 @@ describe('PublisherRegistryService', () => {
       expect(cmd.input.ExpressionAttributeValues).toBeUndefined();
       const removedNames = Object.values(cmd.input.ExpressionAttributeNames as Record<string, string>);
       expect(removedNames).toContain('organization');
+    });
+
+    it('throws when caller attempts to clear a required field', async () => {
+      mockSend.mockResolvedValue({});
+      await expect(svc.updateProfile('pub-1', { name: '' })).rejects.toThrow(
+        /cannot clear required field "name"/,
+      );
+      await expect(svc.updateProfile('pub-1', { name: undefined })).rejects.toThrow(
+        /cannot clear required field "name"/,
+      );
+      // None of the failed calls should have hit DDB.
+      expect(mockSend).not.toHaveBeenCalled();
     });
 
     it('is a no-op when patch is empty', async () => {
