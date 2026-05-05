@@ -184,17 +184,11 @@ export class PublisherEmailChangeService {
     // best-effort double-check is the spec.
     const existingRows = await this.deps.registry.getByEmail(newEmail);
     if (existingRows.some(rec => rec.id !== publisherId)) {
-      // Re-issue a placeholder so the publisher's status banner doesn't
-      // disappear without explanation. We have no token left (it was
-      // consumed); issue a fresh pair so cancel-by-self / cancel-by-old
-      // remain options.
-      //
-      // Rejecting the spec here intentionally: the spec says "pending row
-      // stays so they can cancel cleanly." But we already deleted that row
-      // via consumeEmailChangeToken. The simplest user-facing behaviour is
-      // to delete any peer cancel row too and let the publisher retry from
-      // /publish/status/. The supersede path on initiate will do the right
-      // thing.
+      // Race-loser path: another publisher claimed `newEmail` between submit
+      // and verify. Delete both peer rows so the panel state is clean, and
+      // signal `email_taken` so the verify landing page renders the right
+      // error. The publisher can re-initiate from /publish/status/ — the
+      // supersede path on initiate will do the right thing.
       await this.deps.tokens.deleteEmailChangePairByPublisher(publisherId);
       return { kind: 'email_taken' };
     }

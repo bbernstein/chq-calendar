@@ -4,8 +4,14 @@
 //   1. No pending change   → "Change email" button → modal with new-email
 //      input → on submit calls requestEmailChange.
 //   2. Pending change      → yellow banner showing the masked target
-//      address + remaining time + "Cancel change" button (calls
+//      address + a "link expires in <Xh Ym>" hint computed from
+//      pendingEmailChange.expiresAt + a "Cancel change" button (calls
 //      cancelEmailChangeBySelf).
+//
+// The remaining-time hint is computed once on render (no live ticker).
+// The token has a 24h TTL on the backend, so a slightly stale render-time
+// value is fine — the publisher will see the updated value on the next
+// page interaction.
 //
 // Hooks come from 'react' (which @preact/preset-vite aliases to
 // preact/compat at build time). See project CLAUDE.md.
@@ -41,6 +47,27 @@ export function maskEmail(email: string): string {
   return `${head}***@${domain}`;
 }
 
+// Format the remaining time until `expiresAt` as a coarse "Xh Ym" string,
+// computed once at render time. Returns null if the value is unparseable
+// or already in the past — the caller hides the line in either case rather
+// than print a misleading "0m" or negative value.
+export function formatRemainingTime(expiresAt: string, nowMs?: number): string | null {
+  const exp = Date.parse(expiresAt);
+  if (!Number.isFinite(exp)) return null;
+  const ms = exp - (nowMs ?? Date.now());
+  if (ms <= 0) return null;
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  // < 1h remaining — render minutes only (so the band reads "5m" not "0h 5m").
+  // Floor of <1m to "<1m" so the user never sees "0m" while the link is still
+  // technically valid for a few seconds.
+  return totalMinutes >= 1 ? `${minutes}m` : '<1m';
+}
+
 export function EmailChangePanel(props: EmailChangePanelProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -60,6 +87,7 @@ export function EmailChangePanel(props: EmailChangePanelProps) {
   }
 
   if (props.pendingEmailChange) {
+    const remaining = formatRemainingTime(props.pendingEmailChange.expiresAt);
     return (
       <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
         <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-1">
@@ -70,6 +98,7 @@ export function EmailChangePanel(props: EmailChangePanelProps) {
           <span className="font-mono">
             {maskEmail(props.pendingEmailChange.newEmail)}
           </span>
+          {remaining ? <> &mdash; link expires in {remaining}</> : null}
           . We&apos;ve sent a confirmation link to that address. The change takes
           effect once the new address clicks the link.
         </p>
