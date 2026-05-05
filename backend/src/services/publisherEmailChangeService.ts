@@ -312,7 +312,15 @@ export class PublisherEmailChangeService {
     };
   }
 
-  // Helper exposed for tests / the cancel-pending-on-disable hook.
+  /**
+   * @internal — exposed only for tests and the cancel-pending-on-disable hook.
+   *
+   * The leading underscore on the name is the historical signal that this is
+   * not part of the supported service surface. No production caller currently
+   * uses it; if a future caller needs the same data it should go through
+   * `getPendingForPublisher` (which returns the sanitized wire shape) rather
+   * than reach for this method's raw rows.
+   */
   async _peerByPublisher(publisherId: string): Promise<MagicTokenRow[]> {
     const verify = await this.deps.tokens.findActiveEmailChangeByPublisher(publisherId);
     return verify ? [verify] : [];
