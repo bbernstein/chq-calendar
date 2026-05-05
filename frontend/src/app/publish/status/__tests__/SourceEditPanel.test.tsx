@@ -1,15 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
-import { SourceEditPanel } from '../SourceEditPanel';
+import { SourceEditPanel, type SourceEditPanelProps } from '../SourceEditPanel';
+
+type PreviewFn = SourceEditPanelProps['onPreview'];
+type SaveFn = SourceEditPanelProps['onSave'];
+type CancelFn = SourceEditPanelProps['onCancel'];
 
 function renderPanel(overrides: {
-  onPreview?: ReturnType<typeof vi.fn>;
-  onSave?: ReturnType<typeof vi.fn>;
-  onCancel?: ReturnType<typeof vi.fn>;
+  onPreview?: Mock | PreviewFn;
+  onSave?: Mock | SaveFn;
+  onCancel?: Mock | CancelFn;
 } = {}) {
-  const onPreview = overrides.onPreview ?? vi.fn().mockResolvedValue({ ok: true, summary: 'Validated 3 events.' });
-  const onSave = overrides.onSave ?? vi.fn().mockResolvedValue(undefined);
-  const onCancel = overrides.onCancel ?? vi.fn();
+  const onPreview: PreviewFn =
+    (overrides.onPreview as PreviewFn | undefined) ??
+    (vi.fn().mockResolvedValue({ ok: true, summary: 'Validated 3 events.' }) as unknown as PreviewFn);
+  const onSave: SaveFn =
+    (overrides.onSave as SaveFn | undefined) ??
+    (vi.fn().mockResolvedValue(undefined) as unknown as SaveFn);
+  const onCancel: CancelFn =
+    (overrides.onCancel as CancelFn | undefined) ?? (vi.fn() as unknown as CancelFn);
   render(
     <SourceEditPanel
       currentUrl="https://example.com/feed.json"
