@@ -109,8 +109,8 @@ No new tables. Two new item shapes added to existing tables:
 
 Two new fields on each publisher row:
 
-- `tokenVersion: number` (default `0`). Bumped on email-change verify and on self-disable. Issued JWTs include the version; `requirePublisherAuth` rejects mismatches with 401.
-- `selfDisabledAt?: ISO8601` and `selfPaused?: boolean`. Distinguish self-actions from admin-actions for the admin dashboard's information.
+- `tokenVersion: number` (default `0`). Bumped on email-change verify and on self-disable. Issued JWTs include the version; the auth helper rejects mismatches with 401.
+- `selfPausedAt?: ISO8601` and `selfDisabledAt?: ISO8601`. Distinguish self-actions from admin-actions for the admin dashboard. (The boolean `paused` field already exists; these timestamps annotate it.)
 
 ### Apply-form uniqueness
 
@@ -148,7 +148,7 @@ Separate "Change email" affordance because the flow is async.
 
 Below `LastFetchPanel`. Three controls:
 
-- **Pause / Resume** toggle. Pause shows a confirmation modal that explicitly says *"Pausing will retract your live events from the calendar within an hour. Resume to re-publish."* (PR #78 retract-on-disable already runs on next ingest.)
+- **Pause / Resume** toggle. Pause shows a confirmation modal that says *"Pausing stops new fetches of your feed. Your previously-published events stay live on the calendar until you Resume or Disable."* This matches the registry's existing `paused` semantics — paused publishers skip the fetch loop but their events are NOT retracted (only `enabled=false` retracts via PR #78).
 - **Fetch now** button, disabled with countdown when rate-limited. Submits to `POST /publisher/me/fetch-now`.
 
 ### Danger zone footer
@@ -239,11 +239,11 @@ Invokes the `chautauqua-calendar-publisher-ingest` Lambda asynchronously with pa
 
 ### `POST /publisher/me/pause`
 
-Sets `enabled=false` and `selfPaused=true` via `setApplicationStatus({ enabled: false })` (existing helper from PR #84). Per existing PR #78 retract-on-disable logic, the next ingest run retracts events tied to a disabled publisher. **The Pause confirmation modal makes this consequence explicit** — pause is not just "stop new ingestion," it removes the publisher's live events within an hour. Idempotent.
+Sets `paused=true` and `selfPausedAt=now` on the registry row via a new `setPausedFlag` helper. The ingest loop already skips publishers with `enabled && paused` — events stay live, fetches stop. Idempotent.
 
 ### `POST /publisher/me/resume`
 
-Sets `enabled=true`, clears `selfPaused`. Idempotent. The next ingest run re-publishes events.
+Sets `paused=false`, clears `selfPausedAt`. The next ingest run resumes fetching. Idempotent.
 
 ### `POST /publisher/me/disable`
 
@@ -334,11 +334,11 @@ This is the design's best estimate. The implementation plan will refine.
 
 - `infrastructure/publisher-portal.tf` — possibly a new `contactEmail` GSI on the registry table; admin Lambda env vars for any new mail template references.
 
-## Open questions for the implementation plan
+## Resolved during plan-writing (was open in design)
 
-The plan-writing pass should resolve:
+These questions were left open for the plan-writing pass and have now been resolved by reading the code:
 
-1. Does the publisher registry table already have a `contactEmail` GSI? If not, that's a Terraform addition with a required apply step.
-2. Where exactly is the publisher JWT minted (which file, which function), so the `tokenVersion` claim can be added cleanly?
-3. Is the "single-publisher mode" payload shape on `chautauqua-calendar-publisher-ingest` Lambda fully documented? The plan needs to confirm the exact event shape PR #96 introduced.
-4. Does `setApplicationStatus` already handle `enabled=true` on a previously-disabled row, or does resume need a new helper?
+1. **`contactEmail` GSI**: The publishers table has only an `id` hash key — no GSI. `publisherRegistryService.getByEmail` already scans with a self-comment ("if this grows past a few hundred rows, add `by-contactEmail` GSI"). The registry currently has dozens of rows, so the plan keeps Scan and does not add a GSI in this round. Revisit when row count crosses ~200.
+2. **JWT mint site**: `signPublisherJwt` in `backend/src/services/publisherAuthService.ts`. Verification is `verifyPublisherJwt` in the same file, called inline (no central middleware). The plan adds `tokenVersion` to the claims and introduces a small `requirePublisherSession` helper that performs the JWT verify *and* the registry-row `tokenVersion` comparison; new routes use the helper, existing routes are migrated.
+3. **Single-publisher ingest**: Does NOT exist today. The admin "run-ingest" button (PR #96) invokes the whole Lambda with payload `{ source: 'admin-ui', triggeredBy, triggeredAt }`. The plan adds a `singlePublisherId?: string` field to the payload and an early branch in `runIngest` that processes only the named publisher (passing through whatever bucket — active/paused/disabled — they currently sit in).
+4. **`setApplicationStatus` for resume**: Built around the approve/reject lifecycle (mutates `reviewerEmail`, `rejectionReason`, etc.). Reusing it for pause/resume would clobber review state. The plan adds new dedicated helpers `setPausedFlag(id, paused, opts)` and `setSelfDisabled(id)` to `publisherRegistryService.ts`; `setApplicationStatus` keeps its review-only role.
