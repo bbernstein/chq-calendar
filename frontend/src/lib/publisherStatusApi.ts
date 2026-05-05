@@ -28,6 +28,10 @@ export interface PublisherStatusRecord {
   // not yet clicked / cancelled / expired). Drives the yellow banner on
   // /publish/status/.
   pendingEmailChange?: { newEmail: string; expiresAt: string };
+  // Phase 5 — self-service pause state. Both fields are optional; when
+  // unset the publisher is considered active.
+  paused?: boolean;
+  selfPausedAt?: string;
 }
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
@@ -234,6 +238,112 @@ export async function requestEmailChange(newEmail: string): Promise<void> {
       body?.details ?? null,
     );
   }
+}
+
+// ─── Phase 5 (self-service ingest controls) ───────────────────────────────
+//
+// Three routes — fetch-now (202 / 429), pause (200), resume (200). All
+// authenticated; 401 clears the session and bounces to /publish/login/
+// like the other endpoints in this module.
+//
+// FetchNowError carries retryAfterSeconds so the IngestControls component
+// can render a countdown without re-parsing the body.
+
+export class PublisherFetchNowError extends PublisherStatusError {
+  constructor(
+    message: string,
+    status: number,
+    public readonly retryAfterSeconds: number | null,
+  ) {
+    super(message, status);
+    this.name = 'PublisherFetchNowError';
+  }
+}
+
+export interface FetchNowResponse {
+  acceptedAt: string;
+}
+
+export async function triggerFetchNow(): Promise<FetchNowResponse> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/publisher-fetch-now`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${jwt}`,
+    },
+  });
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 429) {
+    // Prefer the body's retryAfterSeconds (always set by the backend) over
+    // parsing the Retry-After header — the backend writes both for transport
+    // robustness, but the body is the typed contract.
+    const retryAfter = typeof body?.retryAfterSeconds === 'number'
+      ? body.retryAfterSeconds
+      : Number(r.headers.get('Retry-After')) || null;
+    throw new PublisherFetchNowError(
+      typeof body?.error === 'string' ? body.error : 'Fetch-now is rate-limited.',
+      429,
+      retryAfter,
+    );
+  }
+  if (!r.ok) {
+    throw new PublisherStatusError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+    );
+  }
+  return {
+    acceptedAt: typeof body?.acceptedAt === 'string' ? body.acceptedAt : new Date().toISOString(),
+  };
+}
+
+async function postPauseToggle(path: 'publisher-pause' | 'publisher-resume'): Promise<PublisherStatusRecord> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${jwt}`,
+    },
+  });
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new PublisherStatusError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+    );
+  }
+  if (!body || typeof body.publisher !== 'object' || body.publisher === null) {
+    throw new PublisherStatusError('Malformed response.', 500);
+  }
+  return body.publisher as PublisherStatusRecord;
+}
+
+export async function pausePublisher(): Promise<PublisherStatusRecord> {
+  return postPauseToggle('publisher-pause');
+}
+
+export async function resumePublisher(): Promise<PublisherStatusRecord> {
+  return postPauseToggle('publisher-resume');
 }
 
 // DELETE /api/publisher-email-change — cancel-by-self. Always succeeds

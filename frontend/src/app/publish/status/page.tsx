@@ -30,6 +30,7 @@ import {
 import { EditableField } from './EditableField';
 import { SourceEditPanel } from './SourceEditPanel';
 import { EmailChangePanel } from './EmailChangePanel';
+import { IngestControls } from './IngestControls';
 
 type Status =
   | { kind: 'loading' }
@@ -231,6 +232,10 @@ function StatusView({
       )}
 
       {applicationStatus === 'approved' && <LastFetchPanel rec={rec} />}
+
+      {applicationStatus === 'approved' && (
+        <IngestControls publisher={rec} onChanged={handleEmailChanged} />
+      )}
     </div>
   );
 }
@@ -375,7 +380,7 @@ function PublisherCard({
         <Detail label="Source type" value={rec.sourceType.toUpperCase()} />
         <Detail
           label="Ingest"
-          value={rec.enabled ? 'Active' : 'Paused'}
+          value={!rec.enabled ? 'Disabled' : rec.paused ? 'Paused' : 'Active'}
         />
         <Detail
           label="Created"
