@@ -19,6 +19,11 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { InvokeCommand } from '@aws-sdk/client-lambda';
+import {
+  lambdaClient as ingestLambdaClient,
+  publisherIngestFunctionName,
+} from '../services/publisherIngestInvoker';
 import { testPublisherFeed } from '../services/publisherTestService';
 import { MagicTokenService } from '../services/magicTokenService';
 import { SesMailService } from '../services/mailService';
@@ -55,6 +60,20 @@ const PUBLISHER_TEST_RATE_LIMIT_MAX = 10;
 
 const PUBLISHER_AUTH_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const PUBLISHER_AUTH_RATE_LIMIT_MAX = 10;
+
+// Phase 5 — self-service ingest controls.
+//
+// Fetch-now is rate-limited to 1 invocation per 5 minutes per publisher
+// (not per IP) — the protected resource is the upstream feed-fetch budget,
+// not the API surface. A publisher iterating from two browsers should still
+// be capped together.
+const FETCH_NOW_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+const FETCH_NOW_RATE_LIMIT_MAX = 1;
+
+// Pause/resume is far cheaper but we cap toggles per minute to prevent a
+// runaway script (or panicked user clicking) from hammering DynamoDB.
+const PAUSE_RESUME_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const PAUSE_RESUME_RATE_LIMIT_MAX = 10;
 
 let _rateLimiter: RateLimiter | null = null;
 
@@ -777,6 +796,163 @@ export async function handlePublisherEmailChangeCancelByOld(
 function readQueryParam(event: APIGatewayProxyEvent, name: string): string | null {
   const v = event.queryStringParameters?.[name];
   return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+// ─── Phase 5 — self-service ingest controls ──────────────────────────────
+//
+// All three endpoints share the same auth + applicationStatus gate:
+//   - Authenticated via publisher JWT (requirePublisherSession).
+//   - 401 on missing/invalid JWT, 404 on publisher row missing.
+//   - 403 if applicationStatus is set and not 'approved'. (Legacy admin-
+//     created rows have no applicationStatus and are treated as approved,
+//     consistent with /publisher-profile and /publisher-email-change.)
+
+interface IngestControlGate {
+  ok: true;
+  publisher: PublisherRecord;
+}
+
+async function gateApprovedPublisher(
+  event: APIGatewayProxyEvent,
+): Promise<IngestControlGate | APIGatewayProxyResult> {
+  const sess = await requirePublisherSession(event, statusRegistry());
+  if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
+  if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
+  if (sess.publisher.applicationStatus !== undefined &&
+      sess.publisher.applicationStatus !== 'approved') {
+    return json(403, {
+      error: 'This action is only available to approved publishers.',
+    });
+  }
+  return { ok: true, publisher: sess.publisher };
+}
+
+// ─── POST /publisher-fetch-now (publisher JWT) ───────────────────────────
+//
+// Triggers an immediate publisher-ingest run for the caller's own feed
+// (single-publisher mode). Async invoke; the 202 response says "queued",
+// not "fetched" — the publisher must poll /publisher-status to see the
+// updated lastFetchedAt timestamp.
+//
+// Per-publisher rate limit: 1 invocation per 5 minutes. The bucket key is
+// `fetch_now#<publisherId>` so two browsers signed into the same account
+// share the cap (the protected resource is the upstream feed budget).
+//
+// Returns:
+//   202 { acceptedAt }
+//   401 / 403 / 404 — auth gates
+//   429 { error, retryAfterSeconds } — rate-limit
+export async function handlePublisherFetchNow(
+  event: APIGatewayProxyEvent,
+  _body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const gated = await gateApprovedPublisher(event);
+    if ('statusCode' in gated) return gated;
+    const publisher = gated.publisher;
+
+    const rl = await rateLimiter().checkAndConsume({
+      key: `fetch_now#${publisher.id}`,
+      windowMs: FETCH_NOW_RATE_LIMIT_WINDOW_MS,
+      max: FETCH_NOW_RATE_LIMIT_MAX,
+    });
+    if (rl.ok === false) {
+      return {
+        statusCode: 429,
+        headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfterSeconds) },
+        body: JSON.stringify({
+          error: `Fetch-now is limited to once every ${FETCH_NOW_RATE_LIMIT_WINDOW_MS / 60000} minutes. Try again in ${rl.retryAfterSeconds} seconds.`,
+          retryAfterSeconds: rl.retryAfterSeconds,
+        }),
+      };
+    }
+
+    const acceptedAt = new Date().toISOString();
+    try {
+      await ingestLambdaClient().send(new InvokeCommand({
+        FunctionName: publisherIngestFunctionName(),
+        InvocationType: 'Event',
+        Payload: Buffer.from(JSON.stringify({
+          singlePublisherId: publisher.id,
+          source: 'self-service-fetch-now',
+          triggeredBy: publisher.id,
+          triggeredAt: acceptedAt,
+        })),
+      }));
+    } catch (err) {
+      console.error('Error invoking publisher-ingest from /publisher-fetch-now:', err);
+      const message = err instanceof Error ? err.message : 'unknown error';
+      return json(500, { error: `Failed to trigger fetch: ${message}` });
+    }
+    return json(202, { acceptedAt });
+  } catch (err) {
+    console.error('Error in POST /publisher-fetch-now:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// ─── POST /publisher-pause (publisher JWT) ────────────────────────────────
+//
+// Sets paused=true and stamps selfPausedAt. Idempotent — calling pause on
+// an already-paused publisher succeeds with 200. Events stay live in the
+// sidecar; only future fetches are skipped (see runIngest's paused bucket).
+//
+// Returns 200 with the sanitized updated publisher record.
+export async function handlePublisherPause(
+  event: APIGatewayProxyEvent,
+  _body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  return await togglePaused(event, true);
+}
+
+// ─── POST /publisher-resume (publisher JWT) ───────────────────────────────
+//
+// Clears paused (and selfPausedAt). Idempotent.
+export async function handlePublisherResume(
+  event: APIGatewayProxyEvent,
+  _body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  return await togglePaused(event, false);
+}
+
+async function togglePaused(
+  event: APIGatewayProxyEvent,
+  paused: boolean,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const gated = await gateApprovedPublisher(event);
+    if ('statusCode' in gated) return gated;
+    const publisher = gated.publisher;
+
+    const rl = await rateLimiter().checkAndConsume({
+      key: `pause_resume#${publisher.id}`,
+      windowMs: PAUSE_RESUME_RATE_LIMIT_WINDOW_MS,
+      max: PAUSE_RESUME_RATE_LIMIT_MAX,
+    });
+    if (rl.ok === false) {
+      return {
+        statusCode: 429,
+        headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfterSeconds) },
+        body: JSON.stringify({
+          error: `Too many pause/resume requests. Try again in ${rl.retryAfterSeconds} seconds.`,
+          retryAfterSeconds: rl.retryAfterSeconds,
+        }),
+      };
+    }
+
+    // selfInitiated only matters when transitioning to paused — see
+    // PublisherRegistryService.setPausedFlag. On unpause the registry
+    // clears selfPausedAt unconditionally.
+    await statusRegistry().setPausedFlag(publisher.id, paused, paused ? { selfInitiated: true } : {});
+    const updated = await statusRegistry().get(publisher.id);
+    if (!updated) {
+      return json(404, { error: 'Publisher not found' });
+    }
+    return json(200, { publisher: sanitizePublisher(updated) });
+  } catch (err) {
+    console.error(`Error in POST /publisher-${paused ? 'pause' : 'resume'}:`, err);
+    return json(500, { error: 'Internal server error' });
+  }
 }
 
 function explainTokenFailure(
