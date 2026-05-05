@@ -86,6 +86,14 @@ export class PublisherApplicationService {
     if (existing.length > 0) {
       throw new EmailAlreadyInUseError();
     }
+    // Phase 4 — extend the uniqueness gate to consider in-flight email
+    // changes too: if another publisher has a pending email_change_verify
+    // row pointed at this address, we must NOT let an applicant claim it.
+    // (Otherwise two flows would race for the same final identity.)
+    const pendingChange = await this.deps.tokens.queryActiveEmailChangeByNewEmail(normalizedEmail);
+    if (pendingChange) {
+      throw new EmailAlreadyInUseError();
+    }
 
     const issued = await this.deps.tokens.issueToken({
       purpose: 'apply',

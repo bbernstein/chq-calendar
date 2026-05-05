@@ -18,6 +18,9 @@ const mkDeps = () => {
   const tokens = {
     issueToken: jest.fn(),
     consumeToken: jest.fn(),
+    // Phase 4 — pending-email-change uniqueness gate. Default to "no
+    // pending change" so existing tests are unaffected.
+    queryActiveEmailChangeByNewEmail: jest.fn().mockResolvedValue(null),
   };
   const mail = {
     sendApplyMagicLink: jest.fn().mockResolvedValue({ messageId: 'mid' }),
@@ -245,6 +248,36 @@ describe('requestApply — email uniqueness', () => {
     expect(r).toEqual({ ok: true });
     expect(deps.tokens.issueToken).toHaveBeenCalledTimes(1);
     expect(deps.mail.sendApplyMagicLink).toHaveBeenCalledTimes(1);
+  });
+
+  // Phase 4 — also reject when there's an in-flight email-change targeting
+  // this address. Otherwise an applicant could race a publisher's verify
+  // step for the same identity.
+  it('rejects when a pending email_change_verify targets this address', async () => {
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([]); // registry clean
+    deps.tokens.queryActiveEmailChangeByNewEmail.mockResolvedValue({
+      tokenHash: 'h',
+      purpose: 'email_change_verify',
+      email: 'fresh@e.com',
+      publisherId: 'pub-someone-else',
+      emailChangePayload: {
+        publisherId: 'pub-someone-else',
+        oldEmail: 'old@e.com',
+        newEmail: 'fresh@e.com',
+        requestedAt: '2026-05-05T00:00:00Z',
+      },
+      createdAt: 't',
+      expiresAt: 9999999999,
+    });
+    const svc = new PublisherApplicationService(deps);
+
+    await expect(svc.requestApply(apply('fresh@e.com')))
+      .rejects.toBeInstanceOf(EmailAlreadyInUseError);
+
+    expect(deps.tokens.queryActiveEmailChangeByNewEmail).toHaveBeenCalledWith('fresh@e.com');
+    expect(deps.tokens.issueToken).not.toHaveBeenCalled();
+    expect(deps.mail.sendApplyMagicLink).not.toHaveBeenCalled();
   });
 });
 
