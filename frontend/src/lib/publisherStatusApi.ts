@@ -24,6 +24,10 @@ export interface PublisherStatusRecord {
   lastFetchedAt?: string;
   lastFetchStatus?: 'ok' | 'parse_error' | 'validation_error' | 'network_error' | 'threshold_halt';
   lastFetchMessage?: string;
+  // Phase 4 — surfaced when an email change is mid-flight (verify token
+  // not yet clicked / cancelled / expired). Drives the yellow banner on
+  // /publish/status/.
+  pendingEmailChange?: { newEmail: string; expiresAt: string };
 }
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
@@ -181,4 +185,82 @@ export async function previewPublisherFeed(
     ok: false,
     errors: [`Preview failed (HTTP ${r.status})`],
   };
+}
+
+// ─── Phase 4 (email-change double-opt-in) ─────────────────────────────────
+
+export class PublisherEmailChangeError extends PublisherStatusError {
+  constructor(
+    message: string,
+    status: number,
+    public readonly code: string | null,
+    public readonly details: unknown,
+  ) {
+    super(message, status);
+    this.name = 'PublisherEmailChangeError';
+  }
+}
+
+// POSTs to /api/publisher-email-change. Returns when the backend has
+// accepted the request (verify+warning emails dispatched). Throws
+// PublisherEmailChangeError on validation rejection (with `code` carrying
+// the backend's code so callers can render the right message), or
+// PublisherStatusError on other transport / 5xx errors.
+export async function requestEmailChange(newEmail: string): Promise<void> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/publisher-email-change`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${jwt}`,
+    },
+    body: JSON.stringify({ newEmail }),
+  });
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new PublisherEmailChangeError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+      typeof body?.code === 'string' ? body.code : null,
+      body?.details ?? null,
+    );
+  }
+}
+
+// DELETE /api/publisher-email-change — cancel-by-self. Always succeeds
+// (idempotent server-side). 401 still triggers the redirect-to-login path.
+export async function cancelEmailChangeBySelf(): Promise<void> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/publisher-email-change`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${jwt}`,
+    },
+  });
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new PublisherStatusError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+    );
+  }
 }

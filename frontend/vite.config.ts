@@ -101,6 +101,8 @@ export default defineConfig({
         'publish-verify': resolve(__dirname, 'publish/verify/index.html'),
         'publish-login': resolve(__dirname, 'publish/login/index.html'),
         'publish-status': resolve(__dirname, 'publish/status/index.html'),
+        'publish-email-change-verify': resolve(__dirname, 'publish/email-change/verify/index.html'),
+        'publish-email-change-cancel': resolve(__dirname, 'publish/email-change/cancel/index.html'),
       },
     },
   },

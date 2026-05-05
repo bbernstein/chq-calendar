@@ -29,6 +29,7 @@ import {
 } from '@/lib/publisherStatusApi';
 import { EditableField } from './EditableField';
 import { SourceEditPanel } from './SourceEditPanel';
+import { EmailChangePanel } from './EmailChangePanel';
 
 type Status =
   | { kind: 'loading' }
@@ -180,6 +181,19 @@ function StatusView({
     setSourceEditOpen(false);
   }
 
+  // After an email-change submit/cancel, refetch the status so the banner
+  // (or its absence) reflects the freshly-mutated state.
+  async function handleEmailChanged() {
+    try {
+      const fresh = await getPublisherStatus();
+      onUpdated(fresh);
+    } catch {
+      // Failure here is rare (status fetch already worked once); if it does
+      // happen, the next mount will catch up. No need to surface the error
+      // through the banner state.
+    }
+  }
+
   return (
     <div className="space-y-6">
       <StatusBadge status={applicationStatus} />
@@ -205,6 +219,14 @@ function StatusView({
           onPreview={previewPublisherFeed}
           onSave={handleSourceSave}
           onCancel={() => setSourceEditOpen(false)}
+        />
+      )}
+
+      {editable && (
+        <EmailChangePanel
+          contactEmail={rec.contactEmail}
+          pendingEmailChange={rec.pendingEmailChange ?? null}
+          onChanged={handleEmailChanged}
         />
       )}
 
