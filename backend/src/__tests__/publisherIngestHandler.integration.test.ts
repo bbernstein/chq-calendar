@@ -709,4 +709,188 @@ describe('runIngest (integration)', () => {
     expect(fetcher).not.toHaveBeenCalled();
     expect(store.deleteAllForPublisher).toHaveBeenCalledWith('disabled-paused');
   });
+
+  // ── Phase 5 — single-publisher mode ───────────────────────────────────────
+  //
+  // The self-service /publisher-fetch-now endpoint invokes runIngest with
+  // singlePublisherId set. The expectations below cover the four routing
+  // cases plus the "row not found" early-exit.
+
+  describe('singlePublisherId mode', () => {
+    it('runs only the named publisher when singlePublisherId is supplied', async () => {
+      const target = {
+        id: 'target', name: 'T', contactEmail: 'a@b', sourceUrl: 'https://t',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+      };
+      const other = {
+        id: 'other', name: 'O', contactEmail: 'a@b', sourceUrl: 'https://o',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+      };
+      const byId: Record<string, typeof target> = { target, other };
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([target, other]),
+        get: jest.fn().mockImplementation((id: string) => Promise.resolve(byId[id] ?? null)),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn().mockImplementation(async (req: any) => ({
+        fetchStatus: 'ok',
+        report: { ok: true, errors: [], warnings: [] },
+        feed: {
+          formatVersion: '1.0',
+          publisher: { id: req.registeredPublisherId, name: 'X', contactEmail: 'a@b' },
+          events: [],
+        },
+      }));
+      const store = {
+        listForPublisher: jest.fn().mockResolvedValue([]),
+        applyDiff: jest.fn().mockResolvedValue(undefined),
+        listAllPublished: jest.fn().mockResolvedValue([]),
+        deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+      };
+      const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+      await runIngest(
+        {
+          registry: registry as any,
+          store: store as any,
+          sidecar: sidecar as any,
+          fetcher: fetcher as any,
+          now: new Date('2026-06-01T00:00:00Z'),
+          publishersTableName: 'chq-publishers',
+        },
+        { singlePublisherId: 'target' },
+      );
+
+      // Only the target publisher's feed is fetched. listAll is NOT called —
+      // single-publisher mode reads the one row directly via registry.get.
+      expect(registry.listAll).not.toHaveBeenCalled();
+      expect(registry.get).toHaveBeenCalledWith('target');
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      const fetchedReq = fetcher.mock.calls[0][0];
+      expect(fetchedReq.registeredPublisherId).toBe('target');
+      // Sidecar still re-publishes (the contract is "every run refreshes the
+      // global view", not "every run touches every publisher").
+      expect(sidecar.publish).toHaveBeenCalledTimes(1);
+    });
+
+    it('processes a singlePublisherId publisher even when paused (single-publisher routes through the same buckets)', async () => {
+      // The plan's expectation here is "single-publisher routes through the
+      // same active/paused/disabled buckets". A paused publisher therefore
+      // gets the paused treatment in single-publisher mode too — no fetch,
+      // no retraction, sidecar still republishes. (If the design changes to
+      // "single-publisher bypasses paused", flip this expectation.)
+      const pausedRow = {
+        id: 'paused-pub', name: 'P', contactEmail: 'a@b', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, paused: true, createdAt: 't',
+      };
+      const registry = {
+        listAll: jest.fn(),
+        get: jest.fn().mockResolvedValue(pausedRow),
+        recordFetchOutcome: jest.fn(),
+        setThresholdHalt: jest.fn(),
+      };
+      const fetcher = jest.fn();
+      const store = {
+        listForPublisher: jest.fn(),
+        applyDiff: jest.fn(),
+        listAllPublished: jest.fn().mockResolvedValue([]),
+        deleteAllForPublisher: jest.fn(),
+      };
+      const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+      await runIngest(
+        {
+          registry: registry as any,
+          store: store as any,
+          sidecar: sidecar as any,
+          fetcher: fetcher as any,
+          now: new Date('2026-06-01T00:00:00Z'),
+          publishersTableName: 'chq-publishers',
+        },
+        { singlePublisherId: 'paused-pub' },
+      );
+
+      expect(registry.listAll).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(store.deleteAllForPublisher).not.toHaveBeenCalled();
+      expect(sidecar.publish).toHaveBeenCalledTimes(1);
+    });
+
+    it('respects disabled status: a singlePublisherId for a disabled publisher still retracts events', async () => {
+      const disabledRow = {
+        id: 'disabled-pub', name: 'D', contactEmail: 'a@b', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: false, createdAt: 't',
+      };
+      const registry = {
+        listAll: jest.fn(),
+        get: jest.fn().mockResolvedValue(disabledRow),
+        recordFetchOutcome: jest.fn(),
+        setThresholdHalt: jest.fn(),
+      };
+      const fetcher = jest.fn();
+      const store = {
+        listForPublisher: jest.fn(),
+        applyDiff: jest.fn(),
+        listAllPublished: jest.fn().mockResolvedValue([]),
+        deleteAllForPublisher: jest.fn().mockResolvedValue(5),
+      };
+      const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+
+      await runIngest(
+        {
+          registry: registry as any,
+          store: store as any,
+          sidecar: sidecar as any,
+          fetcher: fetcher as any,
+          now: new Date('2026-06-01T00:00:00Z'),
+          publishersTableName: 'chq-publishers',
+        },
+        { singlePublisherId: 'disabled-pub' },
+      );
+
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(store.deleteAllForPublisher).toHaveBeenCalledWith('disabled-pub');
+      expect(sidecar.publish).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs and skips quietly when singlePublisherId does not match any row, but still republishes the sidecar', async () => {
+      const registry = {
+        listAll: jest.fn(),
+        get: jest.fn().mockResolvedValue(null),
+        recordFetchOutcome: jest.fn(),
+        setThresholdHalt: jest.fn(),
+      };
+      const fetcher = jest.fn();
+      const store = {
+        listForPublisher: jest.fn(),
+        applyDiff: jest.fn(),
+        listAllPublished: jest.fn().mockResolvedValue([]),
+        deleteAllForPublisher: jest.fn(),
+      };
+      const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      try {
+        await runIngest(
+          {
+            registry: registry as any,
+            store: store as any,
+            sidecar: sidecar as any,
+            fetcher: fetcher as any,
+            now: new Date('2026-06-01T00:00:00Z'),
+            publishersTableName: 'chq-publishers',
+          },
+          { singlePublisherId: 'no-such-pub' },
+        );
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      expect(registry.listAll).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(store.deleteAllForPublisher).not.toHaveBeenCalled();
+      expect(sidecar.publish).toHaveBeenCalledTimes(1);
+    });
+  });
 });
