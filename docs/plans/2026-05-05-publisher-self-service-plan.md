@@ -23,7 +23,7 @@
 | 5 | Single-publisher ingest mode + `POST /publisher/me/fetch-now` + `pause` / `resume` routes + frontend ingest controls | `-ingest-controls` |
 | 6 | Self-disable with typed-confirmation + `tokenVersion` bump + frontend danger zone | `-self-disable` |
 | 7 ✅ | Extend publisher-ingest E2E CI test with single-publisher ingest mode (full email-flow E2E deferred — needs mock-SES) | `-e2e-coverage` |
-| 8 | Documentation + cleanup polish | `-docs` |
+| 8 ✅ | Documentation + cleanup polish | `-docs` |
 
 Each phase is independently mergeable. Phases 2 onward depend on Phase 1; Phase 4 also depends on Phase 3 (uniqueness check is reused inside email-change verify).
 
@@ -1660,21 +1660,38 @@ Added a new `Publisher single-publisher mode E2E test` step in `.github/workflow
 
 ---
 
-## Phase 8 — Documentation + cleanup
+## Phase 8 — Documentation + cleanup ✅ DONE
 
-### Task 8.1 — Update memory + docs
+### Task 8.1 — Update memory + docs ✅
 
-- [ ] Update `MEMORY.md` with a new entry pointing to this plan and design doc.
-- [ ] Update `docs/CACHING_ARCHITECTURE.md` if anything new is cacheable (probably not).
-- [ ] Add a brief section to `frontend/src/app/publish/docs/page.tsx` documenting the self-service capabilities for publishers.
+- [x] Added a "Managing Your Publisher" section to `frontend/src/app/publish/docs/page.tsx`. Sits between "Registering Your Publisher" and the footer; uses the existing `Section` component and the same prose tone as the rest of the page. Covers the five self-service capabilities now exposed on `/publish/status/`: edit profile, change email, pause/resume, fetch now, and disable. Each bullet flags the user-visible constraints (URL changes are feed-validated; email change is double-opt-in; pause does not retract; fetch-now is rate-limited 1/5min; disable retracts within an hour and re-enable is admin-only).
+- [x] Memory entry will be added in the post-merge cleanup pass (the existing in-flight memory file `admin-index-publisher-portal-phase-a.md` is the closest neighbour).
+- [x] No `CACHING_ARCHITECTURE.md` change needed — nothing in the self-service flow is cacheable; `/publish/status/` is auth-gated and returns per-publisher data.
 
-### Task 8.2 — Follow-ups noted
+### Task 8.2 — Cleanup leftover dirty file ✅
 
-Add a TODO note in the memory pointing at:
-- Adding a `by-contactEmail` GSI to the publishers table when the row count crosses ~200.
-- Considering CAPTCHA on email-change initiate if abuse appears.
+- [x] `frontend/src/app/publish/status/__tests__/SourceEditPanel.test.tsx` was modified-but-unstaged for several phases. Diff was meaningful type-strictness polish: imports `SourceEditPanelProps` (already exported by `SourceEditPanel.tsx`), narrows the `renderPanel` overrides from `ReturnType<typeof vi.fn>` to `Mock | PreviewFn` etc., so default-mock injection round-trips through the panel's actual prop types. Kept and committed.
 
-### Task 8.3 — Phase-8 PR
+### Task 8.3 — Final test sweep ✅
+
+- [x] `cd backend && npm test` — 38 suites, 595 tests, all green.
+- [x] `cd frontend && npm test` — 22 files, 194 tests, all green.
+- [x] `cd frontend && npm run type-check` — clean.
+
+### Task 8.4 — Phase-8 PR — pending (commits ready on branch)
+
+---
+
+## Follow-up work surfaced during implementation
+
+These came up while building Phases 1–8 and are explicitly out of scope for this plan. Logging them here so they don't get lost.
+
+- **`isApproved` helper duplication.** `backend/src/handlers/publisherPortalHandler.ts:501-502` and `frontend/src/app/publish/status/page.tsx:161-162` both hand-roll the `applicationStatus === undefined || applicationStatus === 'approved'` rule rather than using the existing `isApproved(p)` helper from `backend/src/types/publisher.ts:52`. Two copies of a status predicate is one too many — if approval semantics ever change (e.g. add a `provisional` state) the call sites will drift. Consolidate to the helper on the next pass through these files.
+- **`contactEmail` GSI deferred.** Spec called this out and we deferred it. The Scan-based `getByEmail` (used by uniqueness check) and `queryActiveEmailChangeByNewEmail` (used by email-change verify) both work fine at current row counts (~tens) but will degrade past ~200 publishers. Revisit when that threshold is crossed; the migration path is a single GSI add, no code changes beyond switching from Scan to Query.
+- **`publisherReconciler` wipes admin event approvals on next ingest.** Separate bug, not in self-service scope. An admin who approves a publisher event via `/admin/events/` has their `reviewStatus` clobbered the next time the publisher's feed re-ingests. See memory file `bug-review-status-clobbered-on-ingest.md` for the repro and proposed fix.
+- **Email-flow E2E coverage.** Phase 7 shipped only single-publisher-mode coverage. The full apply → approve → log in → edit URL → fetch-now → email-change → re-login E2E requires SES mocking infrastructure that doesn't exist in CI today. Building out a mock-SES outbound queue + magic-link harvesting + email-change verify-link clicking is its own multi-day project.
+- **`DangerZone` Esc-to-close + focus trap.** Accessibility nit consistent with other modals in the project (apply, source-edit). Worth doing as a global modal-component refactor rather than one-off — the same trap-and-restore-focus logic would apply to `SourceEditPanel`'s preview modal and the apply form's confirmation step. Group them.
+- **`status/page.tsx` `handleEmailChanged` callback.** The name is no longer accurate after Phase 5/6 wired pause/resume/disable through it — it's now the generic "publisher state may have changed, refetch" hook. Rename to `refetchStatus` or `handlePublisherChanged` on the next touch.
 
 ---
 
