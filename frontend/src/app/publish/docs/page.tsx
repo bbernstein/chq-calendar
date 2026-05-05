@@ -265,6 +265,58 @@ export default function PublishDocsPage() {
             </p>
           </Section>
 
+          <Section id="manage" title="Managing Your Publisher">
+            <p>
+              After approval, sign in at{' '}
+              <a className="link" href="/publish/status/">
+                /publish/status/
+              </a>{' '}
+              with the magic-link flow at{' '}
+              <a className="link" href="/publish/login/">
+                /publish/login/
+              </a>{' '}
+              to manage your publisher yourself. The status page shows your
+              latest fetch result, last error (if any), and the following
+              self-service controls:
+            </p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>
+                <strong>Edit profile</strong>: change your display name,
+                organization, source URL, and source type. URL or
+                source-type changes are validated against your live feed
+                before saving — if the new URL doesn&rsquo;t parse, the
+                save is rejected with the validator&rsquo;s error.
+              </li>
+              <li>
+                <strong>Change email</strong>: triggers a verification link
+                to the new address. The old address simultaneously gets a
+                notification with a &ldquo;this wasn&rsquo;t me&rdquo;
+                cancel link, so a stolen session can&rsquo;t silently
+                hijack your account. The change only takes effect once the
+                new address clicks the link.
+              </li>
+              <li>
+                <strong>Pause / Resume</strong>: pause to temporarily stop
+                fetches without retracting your already-published events.
+                Useful during off-season maintenance. Resume to start
+                fetching again on the next hourly cycle.
+              </li>
+              <li>
+                <strong>Fetch now</strong>: manually trigger an
+                out-of-cycle ingest of your feed. Rate-limited to once
+                every five minutes per publisher. Handy after pushing an
+                update you want to see live immediately.
+              </li>
+              <li>
+                <strong>Disable</strong>: permanently disable your
+                publisher. Requires typing your publisher slug to
+                confirm. Within an hour your events are retracted from
+                the calendar. Re-enabling requires an admin to flip the
+                flag back — there&rsquo;s no self-serve undo.
+              </li>
+            </ul>
+          </Section>
+
           <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-sm">
             <a href="/publish/" className="link">
               ← Back to publisher portal
