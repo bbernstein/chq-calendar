@@ -26,6 +26,10 @@ export interface MailService {
   sendEmailChangeWarning(opts: EmailChangeWarningOpts): Promise<{ messageId: string }>;
   sendEmailChangeCommitted(opts: EmailChangeCommittedOpts): Promise<{ messageId: string }>;
   sendEmailChangeCancelled(opts: EmailChangeCancelledOpts): Promise<{ messageId: string }>;
+  // Phase 6 (publisher self-disable). Sent to the current contact address
+  // after a successful self-disable confirmation. Records the slug so the
+  // publisher has a written reference for re-enable conversations.
+  sendSelfDisabledConfirmation(opts: SelfDisabledConfirmationOpts): Promise<{ messageId: string }>;
 }
 
 export interface EmailChangeVerifyOpts {
@@ -49,6 +53,11 @@ export interface EmailChangeCancelledOpts {
   to: string;       // sent to BOTH old and new — caller invokes twice
   oldEmail: string;
   newEmail: string;
+}
+
+export interface SelfDisabledConfirmationOpts {
+  to: string;       // current contactEmail
+  slug: string;     // publisher.id — needed for any future re-enable request
 }
 
 export interface ApprovalEmailOpts {
@@ -156,6 +165,16 @@ export class SesMailService implements MailService {
     const subject = 'Email change cancelled';
     const text = emailChangeCancelledText(opts);
     const html = emailChangeCancelledHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendSelfDisabledConfirmation(opts: SelfDisabledConfirmationOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Your Chautauqua Calendar publisher is disabled';
+    const text = selfDisabledConfirmationText(opts);
+    const html = selfDisabledConfirmationHtml(opts);
     return this._send(opts.to, subject, text, html);
   }
 
@@ -462,6 +481,49 @@ function emailChangeCancelledHtml(o: EmailChangeCancelledOpts): string {
     '<p>A pending request to change a Chautauqua Calendar publisher contact email was cancelled.</p>',
     `<p>Previous: <code>${safeOld}</code><br/>Requested: <code>${safeNew}</code></p>`,
     '<p>No change was made. The publisher account remains tied to the previous address.</p>',
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+// ─── Self-disable confirmation (Phase 6) ─────────────────────────────────
+
+function selfDisabledConfirmationText(o: SelfDisabledConfirmationOpts): string {
+  return [
+    'Hi,',
+    '',
+    'Your Chautauqua Calendar publisher account has been disabled at your',
+    'request. The next ingest run will retract your events from the calendar',
+    '(usually within an hour).',
+    '',
+    'Your publisher record stays on file so a future re-enable preserves your',
+    'slug:',
+    '',
+    `    ${o.slug}`,
+    '',
+    'Re-enabling a disabled publisher is an admin action — reply to this',
+    'email or contact us at hello@chqcal.org if you change your mind. Your',
+    'previously-published events will need to be re-fetched from your feed,',
+    'so make sure the feed is still serving them when you ask to re-enable.',
+    '',
+    'If you did NOT request this, contact us right away.',
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function selfDisabledConfirmationHtml(o: SelfDisabledConfirmationOpts): string {
+  // Same <pre> rationale as the approval template — Outlook strips font-family
+  // from <p>, so the slug needs its own monospace block.
+  const safeSlug = escapeHtml(o.slug);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    '<p>Hi,</p>',
+    '<p>Your Chautauqua Calendar publisher account has been <strong>disabled</strong> at your request. The next ingest run will retract your events from the calendar (usually within an hour).</p>',
+    '<p>Your publisher record stays on file so a future re-enable preserves your slug:</p>',
+    `<pre style="margin:0.5em 0 0.5em 1em;font-size:1.05em">${safeSlug}</pre>`,
+    '<p>Re-enabling a disabled publisher is an admin action — reply to this email or contact us at <a href="mailto:hello@chqcal.org">hello@chqcal.org</a> if you change your mind. Your previously-published events will need to be re-fetched from your feed, so make sure the feed is still serving them when you ask to re-enable.</p>',
+    '<p>If you did <strong>not</strong> request this, contact us right away.</p>',
     '<p>— Chautauqua Calendar</p>',
     '</body></html>',
   ].join('');
