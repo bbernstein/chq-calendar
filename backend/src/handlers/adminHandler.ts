@@ -29,6 +29,7 @@ import {
   handlePublisherFetchNow,
   handlePublisherPause,
   handlePublisherResume,
+  handlePublisherDisable,
 } from './publisherPortalHandler';
 
 // DynamoDB client
@@ -441,6 +442,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     }
     if (path === '/publisher-resume' && httpMethod === 'POST') {
       return await handlePublisherResume(event, requestBody);
+    }
+
+    // Phase 6 (publisher self-service self-disable): publisher-JWT-auth'd
+    // route used by the DangerZone card on /publish/status/. Same pattern as
+    // the other /publisher-* routes — handler enforces auth itself, so it
+    // sits BEFORE the admin auth gate.
+    if (path === '/publisher-disable' && httpMethod === 'POST') {
+      return await handlePublisherDisable(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development

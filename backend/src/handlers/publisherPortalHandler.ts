@@ -41,6 +41,11 @@ import {
   EmailChangeError,
 } from '../services/publisherEmailChangeService';
 import {
+  selfDisable as selfDisableAction,
+  SelfDisableError,
+  type SelfDisableDeps,
+} from '../services/publisherSelfActionService';
+import {
   DynamoRateLimiter,
   InMemoryRateLimiter,
   type RateLimiter,
@@ -74,6 +79,14 @@ const FETCH_NOW_RATE_LIMIT_MAX = 1;
 // runaway script (or panicked user clicking) from hammering DynamoDB.
 const PAUSE_RESUME_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const PAUSE_RESUME_RATE_LIMIT_MAX = 10;
+
+// Phase 6 — self-disable. Conservative cap: this action retracts events on
+// the next ingest run and bumps tokenVersion (kicking the active session out),
+// so a flurry of attempts almost certainly indicates either confused-user
+// retries or scripted abuse. 5 per hour gives a real publisher plenty of
+// room to retry on transient failures while shutting the door on either.
+const DISABLE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DISABLE_RATE_LIMIT_MAX = 5;
 
 let _rateLimiter: RateLimiter | null = null;
 
@@ -951,6 +964,144 @@ async function togglePaused(
     return json(200, { publisher: sanitizePublisher(updated) });
   } catch (err) {
     console.error(`Error in POST /publisher-${paused ? 'pause' : 'resume'}:`, err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// ─── POST /publisher-disable (Phase 6 — self-disable) ────────────────────
+//
+// Body: { confirmSlug: string } — must equal the publisher's id exactly.
+// Auth: same publisher-JWT gate as the rest of /publisher-* (approved-only).
+//
+// Side effects (composed in publisherSelfActionService.selfDisable):
+//   - Registry row: enabled=false, selfDisabledAt=now, tokenVersion+=1.
+//   - Magic-token table: any in-flight email-change pair is purged.
+//   - SES: confirmation email to the current contactEmail.
+//
+// The tokenVersion bump invalidates the JWT used to make this very request,
+// so the frontend must redirect to /publish/ on the 200 — calling /publisher-
+// status afterwards would 401. The 200 body intentionally omits the publisher
+// record (the row is now disabled / not interesting) and just returns the
+// emailedTo so the UI can surface "we sent you confirmation at…".
+//
+// Per-publisher rate limit (5/hour). Keyed on publisher.id, not IP, since
+// we want both browsers signed into the same account capped together.
+//
+// Returns:
+//   200 { ok: true, emailedTo }
+//   400 { error, code: 'missing_confirm' }
+//   400 { error, code: 'confirm_mismatch' }
+//   401 — JWT missing/invalid
+//   403 — pending/rejected applicant
+//   404 — publisher row vanished
+//   429 — rate-limited
+
+let _selfDisableServiceForTests:
+  | ((input: { publisherId: string; confirmSlug: string }) => Promise<{ publisherId: string; slug: string; emailedTo: string }>)
+  | null = null;
+
+export function _setSelfDisableActionForTests(
+  fn:
+    | ((input: { publisherId: string; confirmSlug: string }) => Promise<{ publisherId: string; slug: string; emailedTo: string }>)
+    | null,
+): void {
+  _selfDisableServiceForTests = fn;
+}
+
+// Build the deps lazily on first use, like the other singletons in this file.
+// Reuses `statusRegistry()` so we don't pay a second DDB-client cold-start.
+let _selfDisableDeps: SelfDisableDeps | null = null;
+function selfDisableDeps(): SelfDisableDeps {
+  if (_selfDisableDeps) return _selfDisableDeps;
+  const dynamoClient = new DynamoDBClient({
+    region: process.env.AWS_REGION || 'us-east-1',
+    ...(process.env.DYNAMODB_ENDPOINT && {
+      endpoint: process.env.DYNAMODB_ENDPOINT,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || 'dummy',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || 'dummy',
+      },
+    }),
+  });
+  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const tokens = new MagicTokenService(
+    docClient,
+    process.env.PUBLISHER_MAGIC_TOKEN_TABLE_NAME ?? 'chautauqua-calendar-publisher-magic-tokens',
+  );
+  const mail = new SesMailService();
+  _selfDisableDeps = {
+    registry: statusRegistry(),
+    magicTokens: tokens,
+    mail,
+  };
+  return _selfDisableDeps;
+}
+
+export function _setSelfDisableDepsForTests(deps: SelfDisableDeps | null): void {
+  _selfDisableDeps = deps;
+}
+
+export async function handlePublisherDisable(
+  event: APIGatewayProxyEvent,
+  body: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const gated = await gateApprovedPublisher(event);
+    if ('statusCode' in gated) return gated;
+    const publisher = gated.publisher;
+
+    const confirmSlug = typeof body?.confirmSlug === 'string' ? body.confirmSlug : '';
+    if (confirmSlug.length === 0) {
+      return json(400, {
+        error: 'Missing `confirmSlug` — type your publisher slug exactly to confirm.',
+        code: 'missing_confirm',
+      });
+    }
+
+    // Rate-limit AFTER the missing-field 400 so a typo doesn't burn a slot.
+    // The mismatch path still consumes a slot, which is intentional —
+    // brute-force guesses (1-in-millions for a uuid4 slug, but still) should
+    // hit the cap quickly.
+    const rl = await rateLimiter().checkAndConsume({
+      key: `disable#${publisher.id}`,
+      windowMs: DISABLE_RATE_LIMIT_WINDOW_MS,
+      max: DISABLE_RATE_LIMIT_MAX,
+    });
+    if (rl.ok === false) {
+      return {
+        statusCode: 429,
+        headers: { ...corsHeaders, 'Retry-After': String(rl.retryAfterSeconds) },
+        body: JSON.stringify({
+          error: `Too many disable attempts. Try again in ${rl.retryAfterSeconds} seconds.`,
+          retryAfterSeconds: rl.retryAfterSeconds,
+        }),
+      };
+    }
+
+    try {
+      const action = _selfDisableServiceForTests ?? ((input) =>
+        selfDisableAction(input, selfDisableDeps()));
+      const result = await action({
+        publisherId: publisher.id,
+        confirmSlug,
+      });
+      return json(200, { ok: true, emailedTo: result.emailedTo });
+    } catch (err) {
+      if (err instanceof SelfDisableError) {
+        if (err.code === 'not_found') {
+          return json(404, { error: 'Publisher not found' });
+        }
+        // 'confirm_mismatch' → 400 with code so the frontend can render the
+        // typed-confirmation hint without parsing the message string.
+        return json(400, {
+          error: 'The confirmation slug did not match. Type your publisher slug exactly.',
+          code: 'confirm_mismatch',
+        });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('Error in POST /publisher-disable:', err);
     return json(500, { error: 'Internal server error' });
   }
 }
