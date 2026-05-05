@@ -549,25 +549,24 @@ export async function handlePublisherProfilePatch(
   body: Record<string, unknown>,
 ): Promise<APIGatewayProxyResult> {
   try {
-    const sess = await requirePublisherSession(event, statusRegistry());
-    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
-    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
-    // Approved-only: pending/rejected publishers can't edit the row that
-    // admins are reviewing (we'd be moving the goalposts out from under them)
-    // and rejected publishers should re-apply, not edit in place.
-    if (sess.publisher.applicationStatus !== undefined &&
-        sess.publisher.applicationStatus !== 'approved') {
-      return json(403, {
-        error: 'Profile editing is only available to approved publishers.',
-      });
-    }
+    // Same approved-only gate as the Phase 5/6 ingest controls. Pending or
+    // rejected publishers can't edit the row that admins are reviewing
+    // (we'd be moving the goalposts out from under them) and rejected
+    // publishers should re-apply, not edit in place. Note: gateApprovedPublisher
+    // returns the generic "This action is only available to approved
+    // publishers." 403 message, slightly more concise than the previous
+    // hand-rolled "Profile editing is only available…" — this is intentional
+    // (admins can disambiguate from logs / route).
+    const gated = await gateApprovedPublisher(event);
+    if ('statusCode' in gated) return gated;
+    const publisher = gated.publisher;
 
-    await updatePublisherProfile(sess.publisher.id, body, {
+    await updatePublisherProfile(publisher.id, body, {
       registry: statusRegistry(),
       runFeedTest: async ({ url, sourceType }) => adaptFeedTest(url, sourceType),
     });
 
-    const updated = await statusRegistry().get(sess.publisher.id);
+    const updated = await statusRegistry().get(publisher.id);
     if (!updated) {
       // Row was deleted between the validation read and the post-write read.
       // Treat as 404 — the publisher's session is no longer meaningful.
@@ -679,13 +678,12 @@ export async function handlePublisherEmailChangeRequest(
   body: Record<string, unknown>,
 ): Promise<APIGatewayProxyResult> {
   try {
-    const sess = await requirePublisherSession(event, statusRegistry());
-    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
-    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
-    if (sess.publisher.applicationStatus !== undefined &&
-        sess.publisher.applicationStatus !== 'approved') {
-      return json(403, { error: 'Email change is only available to approved publishers.' });
-    }
+    // Same approved-only gate as profile/ingest-controls. Pending or rejected
+    // applicants don't have a confirmed identity to "change", and admins
+    // shouldn't be racing a magic-link flow against an in-flight review.
+    const gated = await gateApprovedPublisher(event);
+    if ('statusCode' in gated) return gated;
+    const publisher = gated.publisher;
 
     const newEmail = typeof body?.newEmail === 'string' ? body.newEmail : '';
     if (newEmail.length === 0) {
@@ -694,8 +692,8 @@ export async function handlePublisherEmailChangeRequest(
 
     try {
       await emailChangeService().initiate({
-        publisherId: sess.publisher.id,
-        oldEmail: sess.publisher.contactEmail,
+        publisherId: publisher.id,
+        oldEmail: publisher.contactEmail,
         newEmail,
       });
       return json(200, { ok: true });
