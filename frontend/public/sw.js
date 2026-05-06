@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'chqcal-v2';
+const CACHE_VERSION = 'chqcal-v3';
 const STATIC_CACHE = CACHE_VERSION + '-static';
 const DATA_CACHE = CACHE_VERSION + '-data';
 
@@ -100,10 +100,19 @@ async function staleWhileRevalidate(event, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
 
-  // Fetch fresh data in background regardless
+  // Fetch fresh data in background regardless. On a non-OK response (e.g.
+  // a sidecar that was deleted upstream after a publisher was disabled or
+  // had its last event retracted) we must EVICT the cached entry — leaving
+  // it behind would let stale-while-revalidate serve the deleted payload
+  // forever, since this branch only ever runs on subsequent loads and the
+  // 404 itself wouldn't otherwise dislodge the prior good cache. Network
+  // errors (the .catch branch) intentionally do nothing so a transient
+  // offline blip doesn't wipe a still-valid cached body.
   const fetchPromise = fetch(request).then((response) => {
     if (response.ok) {
       cache.put(request, response.clone());
+    } else {
+      cache.delete(request);
     }
     return response;
   }).catch(() => null);
