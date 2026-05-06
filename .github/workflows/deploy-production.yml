@@ -806,6 +806,18 @@ jobs:
 
           echo "✅ Publisher single-publisher mode E2E test passed"
 
+      - name: Reinstall dev dependencies for smoke step
+        # The earlier "Deploy admin/calendar/sync/publisher-ingest Lambda"
+        # steps each run `npm ci --omit=dev` inside ./backend. In a
+        # workspaces monorepo that prunes hoisted devDependencies from
+        # the top-level node_modules — including jest and ts-jest, which
+        # the smoke step (npm run smoke:publisher) needs. Re-run the full
+        # install at the repo root to restore them. This is faster than
+        # rearranging the deploy steps and keeps each step's contract
+        # local: deploy steps assume a pruned tree, the smoke step assumes
+        # a full tree.
+        run: npm ci
+
       - name: Post-deploy publisher-lifecycle smoke
         # Runs scripts/smoke/publisher-lifecycle.test.ts against the
         # just-deployed prod stack. Walks bbtest through apply → approve →
