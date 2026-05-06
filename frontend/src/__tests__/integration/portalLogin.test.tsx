@@ -91,9 +91,10 @@ describe('PublishLoginPage (integration)', () => {
 describe('PublishVerifyPage (integration)', () => {
   let mock: FetchMock;
   let nav: NavigationStub;
-  const originalSearch = window.location.search;
+  let originalSearch: string;
 
   beforeEach(() => {
+    originalSearch = window.location.search;
     nav = installNavigationStub();
     mock = installFetchMock();
   });

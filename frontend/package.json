@@ -14,7 +14,6 @@
     "validate": "npm run type-check && npm run lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
     "test:ci": "vitest run --coverage"
   },
   "dependencies": {
@@ -26,7 +25,6 @@
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",
-    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
