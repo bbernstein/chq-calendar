@@ -130,7 +130,7 @@ describe('reconcile', () => {
     expect(r.diff.updates[0].state).toBe('published');
   });
 
-  it('updates stored event when trust-level demotes published → pending', () => {
+  it('preserves published state on trust-level demotion (auto → review)', () => {
     const stored = [ev('a', '2026-07-01T00:00:00-04:00', '2026-05-01T00:00:00-04:00', 'published')];
     const r = reconcile({
       stored,
@@ -138,8 +138,8 @@ describe('reconcile', () => {
       now: NOW,
       trustLevel: 'review',
     });
-    expect(r.diff.updates).toHaveLength(1);
-    expect(r.diff.updates[0].state).toBe('pending');
+    expect(r.diff.updates).toHaveLength(0);
+    expect(r.diff.unchanged).toBe(1);
   });
 
   it('preserves admin-approved published state across re-ingest with newer lastModified (review trust)', () => {
