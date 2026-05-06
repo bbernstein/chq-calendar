@@ -88,7 +88,7 @@ describeMaybe('post-deploy publisher lifecycle', () => {
     const apply = await api.publisher.applyRequest({
       email: SMOKE_BBTEST_EMAIL,
       name: 'bbtest smoke',
-      sourceUrl: 'https://example.com/bbtest.json', // overridden below
+      sourceUrl: 'https://example.com/bbtest.json',
       sourceType: 'json',
       organization: 'CI smoke run',
       notes: `smoke run @ ${new Date().toISOString()}`,
