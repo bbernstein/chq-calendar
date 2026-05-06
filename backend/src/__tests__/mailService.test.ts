@@ -168,6 +168,55 @@ describe('SesMailService', () => {
     expect(html).toContain('&lt;img');
   });
 
+  it('sendSelfDisabledConfirmation includes the slug, retract notice, and re-enable contact path', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-disable-1' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    const out = await svc.sendSelfDisabledConfirmation({
+      to: 'pub@example.com',
+      slug: 'acme-concerts',
+    });
+    expect(out.messageId).toBe('mid-disable-1');
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Destination.ToAddresses).toEqual(['pub@example.com']);
+    expect(cmd.input.Content.Simple.Subject.Data).toMatch(/disabled/i);
+    const text = cmd.input.Content.Simple.Body.Text.Data;
+    // Slug is the durable identifier the publisher can quote in any
+    // re-enable conversation, so it must appear in the body.
+    expect(text).toContain('acme-concerts');
+    // Retract notice — per the plan, the user needs to know events come
+    // down (and roughly when) so they can react appropriately.
+    expect(text).toMatch(/retract/i);
+    // Re-enable path so the user knows it's possible (admin-only).
+    expect(text).toMatch(/admin/i);
+    expect(text).toMatch(/hello@chqcal\.org/);
+    const html = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).toContain('acme-concerts');
+    // Same <pre> rationale as the approval email — Outlook strips font-family
+    // from <p>, so monospace blocks need their own element.
+    expect(html).toContain('<pre');
+  });
+
+  it('sendSelfDisabledConfirmation HTML-escapes an unusual slug', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-disable-2' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendSelfDisabledConfirmation({
+      to: 'p@x.com',
+      slug: 'pub-<bad>',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    const html: string = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).not.toContain('pub-<bad>');
+    expect(html).toContain('pub-&lt;bad&gt;');
+  });
+
+  it('sendSelfDisabledConfirmation throws if SES_FROM_ADDRESS is empty', async () => {
+    const svc = new SesMailService(mockClient, '');
+    await expect(
+      svc.sendSelfDisabledConfirmation({ to: 'a@b.com', slug: 'pub-x' }),
+    ).rejects.toThrow(/SES_FROM_ADDRESS/);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
   it('approval/rejection emails throw if SES_FROM_ADDRESS is empty', async () => {
     const svc = new SesMailService(mockClient, '');
     await expect(

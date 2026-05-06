@@ -438,14 +438,29 @@ jobs:
           SIDECAR_S3_KEY="cache/calendar-cache/publisher-events-${SIDECAR_YEAR}.json"
           echo "[ci-e2e] sidecar year=${SIDECAR_YEAR}, s3 key=${SIDECAR_S3_KEY}"
 
-          # Verify the Lambda's response file isn't holding a FunctionError —
+          # Verify the Lambda invocation didn't produce a handler error.
           # `aws lambda invoke --invocation-type RequestResponse` returns
-          # exit 0 even when the handler throws; the error lives in the
-          # response payload as the magic key "FunctionError".
+          # exit 0 even when the handler throws — the error is signalled
+          # two places, NEITHER of which is the literal substring
+          # "FunctionError" inside the response payload file:
+          #   1. The CLI's STDOUT metadata JSON contains a `FunctionError`
+          #      key (e.g. "Unhandled") — captured separately at the call
+          #      site and passed in as $3.
+          #   2. The response PAYLOAD file (--out destination) contains
+          #      Lambda's unhandled-error shape: `{ "errorType": ...,
+          #      "errorMessage": ..., "trace": [...] }`.
+          # Check both so we catch handler throws regardless of which
+          # surface AWS uses to report them.
           assert_no_function_error() {
-            local file="$1" label="$2"
-            if grep -q '"FunctionError"' "$file" 2>/dev/null; then
-              echo "::error::${label}: Lambda returned a FunctionError"
+            local file="$1" label="$2" meta="${3:-}"
+            if [ -n "$meta" ] && echo "$meta" | jq -e '.FunctionError' >/dev/null 2>&1; then
+              echo "::error::${label}: Lambda returned a FunctionError ($(echo "$meta" | jq -r '.FunctionError'))"
+              echo "[ci-e2e] response payload:"
+              cat "$file"
+              return 1
+            fi
+            if jq -e '.errorType // .errorMessage' "$file" >/dev/null 2>&1; then
+              echo "::error::${label}: Lambda response payload contains errorType/errorMessage"
               cat "$file"
               return 1
             fi
@@ -558,15 +573,19 @@ jobs:
             --update-expression 'SET enabled = :t' \
             --expression-attribute-values '{":t":{"BOOL":true}}'
 
-          # 3. Trigger ingest synchronously.
-          aws lambda invoke --function-name "$LAMBDA" \
+          # 3. Trigger ingest synchronously. Capture STDOUT metadata
+          #    (StatusCode, FunctionError, ExecutedVersion) separately
+          #    from the response payload file so assert_no_function_error
+          #    can inspect both.
+          INGEST1_META=$(aws lambda invoke --function-name "$LAMBDA" \
             --invocation-type RequestResponse \
             --cli-binary-format raw-in-base64-out --payload '{}' \
-            /tmp/ci-e2e-ingest1.json
+            /tmp/ci-e2e-ingest1.json)
+          echo "[ci-e2e] ingest #1 metadata: $INGEST1_META"
           echo "[ci-e2e] ingest #1 response:"
           cat /tmp/ci-e2e-ingest1.json
           echo
-          assert_no_function_error /tmp/ci-e2e-ingest1.json "ingest #1"
+          assert_no_function_error /tmp/ci-e2e-ingest1.json "ingest #1" "$INGEST1_META"
 
           # 4. Poll sidecar (read directly from S3 in count_test_events_in_sidecar)
           #    for the test events to appear.
@@ -594,15 +613,18 @@ jobs:
             --update-expression 'SET enabled = :f' \
             --expression-attribute-values '{":f":{"BOOL":false}}'
 
-          # 6. Trigger ingest again.
-          aws lambda invoke --function-name "$LAMBDA" \
+          # 6. Trigger ingest again — same metadata-capture pattern as
+          #    step 3 so assert_no_function_error sees the FunctionError
+          #    key (if any) on the CLI's STDOUT JSON.
+          INGEST2_META=$(aws lambda invoke --function-name "$LAMBDA" \
             --invocation-type RequestResponse \
             --cli-binary-format raw-in-base64-out --payload '{}' \
-            /tmp/ci-e2e-ingest2.json
+            /tmp/ci-e2e-ingest2.json)
+          echo "[ci-e2e] ingest #2 metadata: $INGEST2_META"
           echo "[ci-e2e] ingest #2 response:"
           cat /tmp/ci-e2e-ingest2.json
           echo
-          assert_no_function_error /tmp/ci-e2e-ingest2.json "ingest #2"
+          assert_no_function_error /tmp/ci-e2e-ingest2.json "ingest #2" "$INGEST2_META"
 
           # 7. Poll sidecar for the test events to disappear.
           COUNT=1  # fail-closed so a transient curl error doesn't immediately
@@ -622,6 +644,167 @@ jobs:
           fi
 
           echo "✅ Publisher disable→retract end-to-end test passed"
+
+      - name: Publisher single-publisher mode E2E test
+        # Validates the singlePublisherId code path that backs the
+        # `/publisher-fetch-now` self-service endpoint (Phase 5 of the
+        # publisher self-service plan). Phase 5's unit tests cover the
+        # Lambda payload contract; this step catches deployment-time
+        # regressions (IAM, payload parsing in the deployed handler,
+        # sidecar refresh logic on a single-publisher run).
+        #
+        # Sequencing: runs AFTER the disable→retract step, which leaves
+        # the ci-e2e-test publisher disabled with no sidecar events.
+        # We re-enable, run a singlePublisherId ingest, assert events
+        # appear, then disable + cleanup.
+        #
+        # Requires `var.enable_ci_e2e_publisher = true` so the
+        # ci-e2e-test publisher row + static feed exist (same row used
+        # by the previous step).
+        shell: bash
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+
+          PUBLISHER_ID="ci-e2e-test"
+          PUBLISHERS_TABLE="chautauqua-calendar-publishers"
+          LAMBDA="chautauqua-calendar-publisher-ingest"
+          LOCAL_FEED_PATH="$GITHUB_WORKSPACE/infrastructure/ci-e2e-feed.json"
+
+          # Sidecar key derived the same way as the previous step — see
+          # that step for the reasoning behind reading from the local
+          # checkout rather than the deployed S3 object.
+          SIDECAR_YEAR=$(jq -r '.events[0].startDate[0:4]' "$LOCAL_FEED_PATH")
+          if ! [[ "$SIDECAR_YEAR" =~ ^[0-9]{4}$ ]]; then
+            echo "::error::SIDECAR_YEAR '${SIDECAR_YEAR}' from $LOCAL_FEED_PATH is not a 4-digit year"
+            exit 1
+          fi
+          SIDECAR_S3_KEY="cache/calendar-cache/publisher-events-${SIDECAR_YEAR}.json"
+          # Expected count from the local feed — assert that the
+          # single-publisher run ingested ALL feed events, not just one.
+          EXPECTED_COUNT=$(jq '.events | length' "$LOCAL_FEED_PATH")
+          echo "[ci-e2e single] sidecar year=${SIDECAR_YEAR}, s3 key=${SIDECAR_S3_KEY}, expected count=${EXPECTED_COUNT}"
+
+          # See the disable→retract step above for the rationale: grepping
+          # the response payload for the literal "FunctionError" string is
+          # incorrect — that key lives in the CLI's STDOUT metadata, not
+          # the payload file. We check both surfaces (metadata JSON passed
+          # in as $3, plus the payload's `errorType`/`errorMessage` shape).
+          assert_no_function_error() {
+            local file="$1" label="$2" meta="${3:-}"
+            if [ -n "$meta" ] && echo "$meta" | jq -e '.FunctionError' >/dev/null 2>&1; then
+              echo "::error::${label}: Lambda returned a FunctionError ($(echo "$meta" | jq -r '.FunctionError'))"
+              echo "[ci-e2e single] response payload:"
+              cat "$file"
+              return 1
+            fi
+            if jq -e '.errorType // .errorMessage' "$file" >/dev/null 2>&1; then
+              echo "::error::${label}: Lambda response payload contains errorType/errorMessage"
+              cat "$file"
+              return 1
+            fi
+          }
+
+          count_test_events_in_sidecar() {
+            if aws s3api get-object \
+                --bucket "$S3_BUCKET" --key "$SIDECAR_S3_KEY" \
+                /tmp/ci-e2e-single-sidecar.json >/dev/null 2>/tmp/ci-e2e-single-s3.err; then
+              jq "[.data[]? | select(.sourcePublisherId==\"$PUBLISHER_ID\")] | length" \
+                /tmp/ci-e2e-single-sidecar.json 2>/dev/null \
+                || echo ""
+              return
+            fi
+            if grep -q 'NoSuchKey\|Not Found\|404' /tmp/ci-e2e-single-s3.err; then
+              echo 0
+              return
+            fi
+            echo "[ci-e2e single] s3 get-object failed (transient):" >&2
+            cat /tmp/ci-e2e-single-s3.err >&2
+            echo ""
+          }
+
+          cleanup() {
+            # Always-runs cleanup. Mirrors the previous step's pattern:
+            # disable the publisher, then fire-and-forget a full ingest
+            # to retract any leftover events. Errors are swallowed so a
+            # cleanup failure can't mask the real test failure.
+            set +e
+            echo "[ci-e2e single] cleanup: disabling $PUBLISHER_ID and purging events"
+            aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
+              --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
+              --update-expression 'SET enabled = :f' \
+              --expression-attribute-values '{":f":{"BOOL":false}}' || true
+            aws lambda invoke --function-name "$LAMBDA" \
+              --invocation-type Event \
+              --cli-binary-format raw-in-base64-out --payload '{}' \
+              /tmp/ci-e2e-single-cleanup.json || true
+          }
+          trap cleanup EXIT
+
+          # 1. Pre-test cleanliness: the previous step's cleanup should
+          #    have left zero ci-e2e-test events in the sidecar.
+          INITIAL_RAW=$(count_test_events_in_sidecar)
+          INITIAL_COUNT=${INITIAL_RAW:-0}
+          if [ "$INITIAL_COUNT" -gt 0 ]; then
+            echo "::error::Sidecar already has ${INITIAL_COUNT} stale ${PUBLISHER_ID} event(s) before single-publisher test start"
+            exit 1
+          fi
+
+          # 2. Re-enable the test publisher (strict update — fails if
+          #    the row is missing rather than upserting a partial row).
+          aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
+            --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
+            --condition-expression 'attribute_exists(id)' \
+            --update-expression 'SET enabled = :t' \
+            --expression-attribute-values '{":t":{"BOOL":true}}'
+
+          # 3. Invoke the Lambda with singlePublisherId — synchronous so
+          #    we can assert no FunctionError. Payload mirrors what
+          #    publisherPortalHandler sends from /publisher-fetch-now,
+          #    plus a `source` tag so the CloudWatch log line is
+          #    attributable to this CI step. Capture STDOUT metadata
+          #    so assert_no_function_error can inspect the
+          #    FunctionError key (the CLI does NOT put it in the
+          #    payload file).
+          INGEST_META=$(aws lambda invoke --function-name "$LAMBDA" \
+            --invocation-type RequestResponse \
+            --cli-binary-format raw-in-base64-out \
+            --payload "{\"singlePublisherId\":\"$PUBLISHER_ID\",\"source\":\"ci-e2e-self-service-test\"}" \
+            /tmp/ci-e2e-single-ingest.json)
+          echo "[ci-e2e single] ingest metadata: $INGEST_META"
+          echo "[ci-e2e single] ingest response:"
+          cat /tmp/ci-e2e-single-ingest.json
+          echo
+          assert_no_function_error /tmp/ci-e2e-single-ingest.json "single-publisher ingest" "$INGEST_META"
+
+          # 4. Poll sidecar for the test events to appear.
+          COUNT=0
+          for i in $(seq 1 30); do
+            RAW=$(count_test_events_in_sidecar)
+            COUNT=${RAW:-0}
+            if [ "$COUNT" -ge 1 ]; then
+              echo "[ci-e2e single] events present after ${i}s (count=$COUNT)"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$COUNT" -lt 1 ]; then
+            echo "::error::Single-publisher ingest did not produce events in sidecar within 30s"
+            exit 1
+          fi
+
+          # 5. Assert the count matches the feed — single-publisher mode
+          #    must ingest ALL of that publisher's events, not a subset.
+          if [ "$COUNT" -ne "$EXPECTED_COUNT" ]; then
+            echo "::error::Single-publisher ingest produced $COUNT events but feed has $EXPECTED_COUNT"
+            exit 1
+          fi
+
+          # 6. Cleanup runs via trap — disables the publisher and fires
+          #    a fire-and-forget full ingest to retract these events.
+
+          echo "✅ Publisher single-publisher mode E2E test passed"
 
       - name: Trigger calendar data sync
         continue-on-error: true

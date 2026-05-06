@@ -2,7 +2,12 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda
 import { randomBytes } from 'crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { InvokeCommand } from '@aws-sdk/client-lambda';
+import {
+  lambdaClient,
+  publisherIngestFunctionName,
+  _setLambdaClientForTests as _setIngestLambdaClientForTests,
+} from '../services/publisherIngestInvoker';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
 import { ApplicationStateError, PublisherAdminService } from '../services/publisherAdminService';
@@ -16,6 +21,15 @@ import {
   handlePublisherAuthRequest,
   handlePublisherAuthVerify,
   handlePublisherStatus,
+  handlePublisherProfilePatch,
+  handlePublisherEmailChangeRequest,
+  handlePublisherEmailChangeCancelSelf,
+  handlePublisherEmailChangeVerify,
+  handlePublisherEmailChangeCancelByOld,
+  handlePublisherFetchNow,
+  handlePublisherPause,
+  handlePublisherResume,
+  handlePublisherDisable,
 } from './publisherPortalHandler';
 
 // DynamoDB client
@@ -31,54 +45,11 @@ const dynamoClient = new DynamoDBClient({
 });
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
-// Lambda client used to invoke the publisher-ingest function on demand from
-// the admin "Run ingest now" button. Async (Event) invocation only — admin
-// API Gateway has a 29s timeout and ingest runs can exceed that.
-let _lambdaClient: LambdaClient | null = null;
-function lambdaClient(): LambdaClient {
-  if (!_lambdaClient) {
-    _lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
-  }
-  return _lambdaClient;
-}
-
-// Test-only: inject a fake LambdaClient (or a stub with a `send` method).
-export function _setLambdaClientForTests(client: LambdaClient | null): void {
-  _lambdaClient = client;
-}
-
-// Read per-call rather than caching at module load so tests can override the
-// env var without re-importing the module.
-//
-// In production the env var is wired by Terraform (see infrastructure/main.tf
-// admin_handler.environment.PUBLISHER_INGEST_FUNCTION_NAME) and we fall back
-// to the canonical name only as a defensive default. In local dev (Docker /
-// `npm run dev`) the env var is unset and falling back to the prod name would
-// cause the dev "Run ingest now" button to invoke the real production Lambda
-// — surprising and potentially expensive. So:
-//   - If the env var is set, use it (any environment).
-//   - If unset and we look like we're running in real Lambda
-//     (AWS_LAMBDA_FUNCTION_NAME is set), fall back to the canonical name.
-//   - Otherwise (local dev), throw so the route returns 500 instead of
-//     reaching across to production.
-class IngestFunctionNotConfiguredError extends Error {
-  constructor() {
-    super(
-      'PUBLISHER_INGEST_FUNCTION_NAME is not set. Refusing to default to ' +
-        'the production function name from outside an AWS Lambda runtime.',
-    );
-    this.name = 'IngestFunctionNotConfiguredError';
-  }
-}
-
-function publisherIngestFunctionName(): string {
-  const fromEnv = process.env.PUBLISHER_INGEST_FUNCTION_NAME;
-  if (fromEnv) return fromEnv;
-  if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    return 'chautauqua-calendar-publisher-ingest';
-  }
-  throw new IngestFunctionNotConfiguredError();
-}
+// Re-export the test-only injection point under the historical name so the
+// existing adminHandler tests keep working. The Lambda client is now owned
+// by services/publisherIngestInvoker.ts and shared with the publisher-portal
+// /publisher-fetch-now path; both routes invoke the same target Lambda.
+export const _setLambdaClientForTests = _setIngestLambdaClientForTests;
 
 // Lazy singleton for PublisherAdminService — one instance per Lambda warm container.
 // Phase C: pass MailService + siteBaseUrl so approve/reject can notify publishers.
@@ -430,6 +401,55 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     // handler, so it sits BEFORE the admin auth gate below.
     if (path === '/publisher-status' && httpMethod === 'GET') {
       return await handlePublisherStatus(event, requestBody);
+    }
+
+    // Phase 2 (publisher self-service): publisher edits their own profile
+    // (name, organization, sourceUrl, sourceType). Same publisher-JWT auth
+    // model as /publisher-status — the handler enforces it itself, so this
+    // also sits BEFORE the admin auth gate.
+    if (path === '/publisher-profile' && httpMethod === 'PATCH') {
+      return await handlePublisherProfilePatch(event, requestBody);
+    }
+
+    // Phase 4 (publisher self-service email change): two authenticated
+    // routes (POST initiate / DELETE cancel-by-self) and two public,
+    // token-clickable routes (GET verify / GET cancel). All four sit
+    // BEFORE the admin auth gate — the public ones because they're
+    // intentionally unauthenticated, the authenticated ones because they
+    // use the publisher JWT, not the admin JWT.
+    if (path === '/publisher-email-change' && httpMethod === 'POST') {
+      return await handlePublisherEmailChangeRequest(event, requestBody);
+    }
+    if (path === '/publisher-email-change' && httpMethod === 'DELETE') {
+      return await handlePublisherEmailChangeCancelSelf(event, requestBody);
+    }
+    if (path === '/publisher-email-change/verify' && httpMethod === 'GET') {
+      return await handlePublisherEmailChangeVerify(event, requestBody);
+    }
+    if (path === '/publisher-email-change/cancel' && httpMethod === 'GET') {
+      return await handlePublisherEmailChangeCancelByOld(event, requestBody);
+    }
+
+    // Phase 5 (publisher self-service ingest controls): publisher-JWT-auth'd
+    // routes that publishers use from /publish/status/. Same pattern as the
+    // other /publisher-* routes — handler enforces auth itself, so they sit
+    // BEFORE the admin auth gate.
+    if (path === '/publisher-fetch-now' && httpMethod === 'POST') {
+      return await handlePublisherFetchNow(event, requestBody);
+    }
+    if (path === '/publisher-pause' && httpMethod === 'POST') {
+      return await handlePublisherPause(event, requestBody);
+    }
+    if (path === '/publisher-resume' && httpMethod === 'POST') {
+      return await handlePublisherResume(event, requestBody);
+    }
+
+    // Phase 6 (publisher self-service self-disable): publisher-JWT-auth'd
+    // route used by the DangerZone card on /publish/status/. Same pattern as
+    // the other /publisher-* routes — handler enforces auth itself, so it
+    // sits BEFORE the admin auth gate.
+    if (path === '/publisher-disable' && httpMethod === 'POST') {
+      return await handlePublisherDisable(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development

@@ -21,6 +21,43 @@ export interface MailService {
   sendLoginMagicLink(toEmail: string, magicLinkUrl: string): Promise<{ messageId: string }>;
   sendApprovalEmail(opts: ApprovalEmailOpts): Promise<{ messageId: string }>;
   sendRejectionEmail(opts: RejectionEmailOpts): Promise<{ messageId: string }>;
+  // Phase 4 (publisher email change — double-opt-in).
+  sendEmailChangeVerify(opts: EmailChangeVerifyOpts): Promise<{ messageId: string }>;
+  sendEmailChangeWarning(opts: EmailChangeWarningOpts): Promise<{ messageId: string }>;
+  sendEmailChangeCommitted(opts: EmailChangeCommittedOpts): Promise<{ messageId: string }>;
+  sendEmailChangeCancelled(opts: EmailChangeCancelledOpts): Promise<{ messageId: string }>;
+  // Phase 6 (publisher self-disable). Sent to the current contact address
+  // after a successful self-disable confirmation. Records the slug so the
+  // publisher has a written reference for re-enable conversations.
+  sendSelfDisabledConfirmation(opts: SelfDisabledConfirmationOpts): Promise<{ messageId: string }>;
+}
+
+export interface EmailChangeVerifyOpts {
+  to: string;       // newEmail
+  verifyUrl: string;
+}
+
+export interface EmailChangeWarningOpts {
+  to: string;       // oldEmail
+  newEmail: string; // shown to the user; escaped in HTML
+  cancelUrl: string;
+}
+
+export interface EmailChangeCommittedOpts {
+  to: string;       // sent to BOTH old and new — caller invokes twice
+  oldEmail: string;
+  newEmail: string;
+}
+
+export interface EmailChangeCancelledOpts {
+  to: string;       // sent to BOTH old and new — caller invokes twice
+  oldEmail: string;
+  newEmail: string;
+}
+
+export interface SelfDisabledConfirmationOpts {
+  to: string;       // current contactEmail
+  slug: string;     // publisher.id — needed for any future re-enable request
 }
 
 export interface ApprovalEmailOpts {
@@ -91,6 +128,56 @@ export class SesMailService implements MailService {
     return this._send(opts.to, subject, text, html);
   }
 
+  async sendEmailChangeVerify(opts: EmailChangeVerifyOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Confirm your new Chautauqua Calendar publisher email';
+    const text = emailChangeVerifyText(opts);
+    const html = emailChangeVerifyHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendEmailChangeWarning(opts: EmailChangeWarningOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Someone requested to change your publisher email';
+    const text = emailChangeWarningText(opts);
+    const html = emailChangeWarningHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendEmailChangeCommitted(opts: EmailChangeCommittedOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Your publisher email was changed';
+    const text = emailChangeCommittedText(opts);
+    const html = emailChangeCommittedHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendEmailChangeCancelled(opts: EmailChangeCancelledOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Email change cancelled';
+    const text = emailChangeCancelledText(opts);
+    const html = emailChangeCancelledHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendSelfDisabledConfirmation(opts: SelfDisabledConfirmationOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Your Chautauqua Calendar publisher is disabled';
+    const text = selfDisabledConfirmationText(opts);
+    const html = selfDisabledConfirmationHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
   private async _send(to: string, subject: string, text: string, html: string) {
     const cmd = new SendEmailCommand({
       FromEmailAddress: this.fromAddress,
@@ -142,7 +229,7 @@ function applyHtml(name: string, url: string): string {
     `<p>Hi ${safeName},</p>`,
     '<p>Thanks for applying to publish events on chqcal.org.</p>',
     '<p>To complete your application, click the link below within 15 minutes:</p>',
-    `<p><a href="${safeUrl}">${safeUrl}</a></p>`,
+    `<p><a href="${safeUrl}">${escapeHtml(safeUrl)}</a></p>`,
     '<p>If you did not submit this application, you can safely ignore this email.</p>',
     '<p>— Chautauqua Calendar</p>',
     '</body></html>',
@@ -170,7 +257,7 @@ function loginHtml(url: string): string {
     '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
     '<p>Hi,</p>',
     '<p>Click the link below within 15 minutes to sign in to your Chautauqua Calendar publisher account:</p>',
-    `<p><a href="${safeUrl}">${safeUrl}</a></p>`,
+    `<p><a href="${safeUrl}">${escapeHtml(safeUrl)}</a></p>`,
     '<p>If you did not request this, you can safely ignore this email.</p>',
     '<p>— Chautauqua Calendar</p>',
     '</body></html>',
@@ -228,8 +315,8 @@ function approvalHtml(o: ApprovalEmailOpts): string {
     `<pre style="margin:0.5em 0 0.5em 1em;font-size:1.05em">${safeId}</pre>`,
     '<p>You <strong>must</strong> include this exact value as <code>publisher.id</code> in your feed (or in the <code>chq-publisher</code> HTML comment) for your events to appear on chqcal.org. Without it the feed validates but no events go live.</p>',
     '<p>Once your feed lists this ID, the next ingest run will pick up your events.</p>',
-    `<p>Sign in to view your status and recent fetch history: <a href="${safeLogin}">${safeLogin}</a></p>`,
-    `<p>You can check your status anytime here: <a href="${safeStatus}">${safeStatus}</a></p>`,
+    `<p>Sign in to view your status and recent fetch history: <a href="${safeLogin}">${escapeHtml(safeLogin)}</a></p>`,
+    `<p>You can check your status anytime here: <a href="${safeStatus}">${escapeHtml(safeStatus)}</a></p>`,
     '<p>— Chautauqua Calendar</p>',
     '</body></html>',
   ].join('');
@@ -265,7 +352,178 @@ function rejectionHtml(o: RejectionEmailOpts): string {
     `<p>Hi ${safeName},</p>`,
     '<p>Thanks for applying to publish events on chqcal.org. After review, we are not able to approve your application at this time.</p>',
     reasonBlock,
-    `<p>You are welcome to address any issues and apply again here: <a href="${safeApply}">${safeApply}</a></p>`,
+    `<p>You are welcome to address any issues and apply again here: <a href="${safeApply}">${escapeHtml(safeApply)}</a></p>`,
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+// ─── Email-change templates (Phase 4) ────────────────────────────────────
+
+function emailChangeVerifyText(o: EmailChangeVerifyOpts): string {
+  return [
+    'Hi,',
+    '',
+    'Someone — hopefully you — asked to use this address as the contact email',
+    'for a Chautauqua Calendar publisher account.',
+    '',
+    'To confirm and complete the change, click the link below within 24 hours:',
+    '',
+    o.verifyUrl,
+    '',
+    'If you did not expect this, you can safely ignore this email — no change',
+    'will be made.',
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function emailChangeVerifyHtml(o: EmailChangeVerifyOpts): string {
+  const safeUrl = encodeURI(o.verifyUrl);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    '<p>Hi,</p>',
+    '<p>Someone — hopefully you — asked to use this address as the contact email for a Chautauqua Calendar publisher account.</p>',
+    '<p>To confirm and complete the change, click the link below within 24 hours:</p>',
+    `<p><a href="${safeUrl}">${escapeHtml(safeUrl)}</a></p>`,
+    '<p>If you did not expect this, you can safely ignore this email — no change will be made.</p>',
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+function emailChangeWarningText(o: EmailChangeWarningOpts): string {
+  return [
+    'Hi,',
+    '',
+    'A request was just made to move your Chautauqua Calendar publisher contact',
+    `email to a new address: ${o.newEmail}`,
+    '',
+    'If that was you, no action is needed — the new address must confirm the',
+    'change before it takes effect.',
+    '',
+    'If that was NOT you, click the link below to cancel the request and lock',
+    'email-change attempts on your account for 24 hours:',
+    '',
+    o.cancelUrl,
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function emailChangeWarningHtml(o: EmailChangeWarningOpts): string {
+  const safeNew = escapeHtml(o.newEmail);
+  const safeUrl = encodeURI(o.cancelUrl);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    '<p>Hi,</p>',
+    `<p>A request was just made to move your Chautauqua Calendar publisher contact email to a new address: <strong>${safeNew}</strong>.</p>`,
+    '<p>If that was you, no action is needed — the new address must confirm the change before it takes effect.</p>',
+    '<p>If that was <strong>not</strong> you, click the link below to cancel the request and lock email-change attempts on your account for 24 hours:</p>',
+    `<p><a href="${safeUrl}">${escapeHtml(safeUrl)}</a></p>`,
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+function emailChangeCommittedText(o: EmailChangeCommittedOpts): string {
+  return [
+    'Hi,',
+    '',
+    'Your Chautauqua Calendar publisher contact email has been changed.',
+    '',
+    `Previous: ${o.oldEmail}`,
+    `New:      ${o.newEmail}`,
+    '',
+    'If you did not request this, contact us right away.',
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function emailChangeCommittedHtml(o: EmailChangeCommittedOpts): string {
+  const safeOld = escapeHtml(o.oldEmail);
+  const safeNew = escapeHtml(o.newEmail);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    '<p>Hi,</p>',
+    '<p>Your Chautauqua Calendar publisher contact email has been changed.</p>',
+    `<p>Previous: <code>${safeOld}</code><br/>New: <code>${safeNew}</code></p>`,
+    '<p>If you did not request this, contact us right away.</p>',
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+function emailChangeCancelledText(o: EmailChangeCancelledOpts): string {
+  return [
+    'Hi,',
+    '',
+    'A pending request to change a Chautauqua Calendar publisher contact email',
+    'was cancelled.',
+    '',
+    `Previous: ${o.oldEmail}`,
+    `Requested: ${o.newEmail}`,
+    '',
+    'No change was made. The publisher account remains tied to the previous',
+    'address.',
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function emailChangeCancelledHtml(o: EmailChangeCancelledOpts): string {
+  const safeOld = escapeHtml(o.oldEmail);
+  const safeNew = escapeHtml(o.newEmail);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    '<p>Hi,</p>',
+    '<p>A pending request to change a Chautauqua Calendar publisher contact email was cancelled.</p>',
+    `<p>Previous: <code>${safeOld}</code><br/>Requested: <code>${safeNew}</code></p>`,
+    '<p>No change was made. The publisher account remains tied to the previous address.</p>',
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+// ─── Self-disable confirmation (Phase 6) ─────────────────────────────────
+
+function selfDisabledConfirmationText(o: SelfDisabledConfirmationOpts): string {
+  return [
+    'Hi,',
+    '',
+    'Your Chautauqua Calendar publisher account has been disabled at your',
+    'request. The next ingest run will retract your events from the calendar',
+    '(usually within an hour).',
+    '',
+    'Your publisher record stays on file so a future re-enable preserves your',
+    'slug:',
+    '',
+    `    ${o.slug}`,
+    '',
+    'Re-enabling a disabled publisher is an admin action — reply to this',
+    'email or contact us at hello@chqcal.org if you change your mind. Your',
+    'previously-published events will need to be re-fetched from your feed,',
+    'so make sure the feed is still serving them when you ask to re-enable.',
+    '',
+    'If you did NOT request this, contact us right away.',
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function selfDisabledConfirmationHtml(o: SelfDisabledConfirmationOpts): string {
+  // Same <pre> rationale as the approval template — Outlook strips font-family
+  // from <p>, so the slug needs its own monospace block.
+  const safeSlug = escapeHtml(o.slug);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    '<p>Hi,</p>',
+    '<p>Your Chautauqua Calendar publisher account has been <strong>disabled</strong> at your request. The next ingest run will retract your events from the calendar (usually within an hour).</p>',
+    '<p>Your publisher record stays on file so a future re-enable preserves your slug:</p>',
+    `<pre style="margin:0.5em 0 0.5em 1em;font-size:1.05em">${safeSlug}</pre>`,
+    '<p>Re-enabling a disabled publisher is an admin action — reply to this email or contact us at <a href="mailto:hello@chqcal.org">hello@chqcal.org</a> if you change your mind. Your previously-published events will need to be re-fetched from your feed, so make sure the feed is still serving them when you ask to re-enable.</p>',
+    '<p>If you did <strong>not</strong> request this, contact us right away.</p>',
     '<p>— Chautauqua Calendar</p>',
     '</body></html>',
   ].join('');

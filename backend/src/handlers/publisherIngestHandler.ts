@@ -20,13 +20,41 @@ export interface IngestDeps {
   publishersTableName: string;
 }
 
-export async function runIngest(deps: IngestDeps): Promise<void> {
+export interface RunIngestOpts {
+  // When set, runIngest only processes the named publisher. Used by the
+  // self-service `/publisher-fetch-now` endpoint so a publisher can re-pull
+  // their own feed without forcing a global scan. The single publisher is
+  // routed through the same active/paused/disabled buckets — paused or
+  // disabled publishers in single-publisher mode behave the same as in a
+  // full scan (paused → skipped, disabled → retracted).
+  singlePublisherId?: string;
+}
+
+export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Promise<void> {
   // Single Scan: DynamoDB Scan reads every row regardless of FilterExpression,
   // so two scans (listEnabled + listDisabled) doubles RCU for no benefit. The
   // in-memory split also catches publishers whose `enabled` attribute is
   // missing (treated as falsy → disabled), which a `enabled = :f` filter
   // would silently skip.
-  const allPublishers = await deps.registry.listAll();
+  let allPublishers;
+  if (opts.singlePublisherId) {
+    const one = await deps.registry.get(opts.singlePublisherId);
+    if (one == null) {
+      console.log(
+        `[publisher-ingest] singlePublisherId ${opts.singlePublisherId} not found; skipping`,
+      );
+      // Still re-publish the sidecar — a single-publisher request that hits a
+      // missing row is harmless, but skipping the sidecar republish would
+      // diverge from the all-publishers branch's contract that every run
+      // refreshes the global view.
+      const all = await deps.store.listAllPublished();
+      await deps.sidecar.publish(all);
+      return;
+    }
+    allPublishers = [one];
+  } else {
+    allPublishers = await deps.registry.listAll();
+  }
   // Three buckets:
   //   - active   (enabled && !paused): re-fetch and reconcile
   //   - paused   (enabled &&  paused): skip entirely; existing events stay
@@ -137,7 +165,9 @@ export async function runIngest(deps: IngestDeps): Promise<void> {
   await deps.sidecar.publish(all);
 }
 
-export async function scheduledHandler(): Promise<void> {
+export async function scheduledHandler(
+  evt?: { singlePublisherId?: string; source?: string; triggeredBy?: string; triggeredAt?: string },
+): Promise<void> {
   const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
   // Don't let a missing/malformed refs bundle take down the whole Lambda —
   // unknown venueIds already gracefully pass through unchanged in the
@@ -149,17 +179,20 @@ export async function scheduledHandler(): Promise<void> {
   } catch (err) {
     console.warn('[publisher-ingest] failed to load venue refs, venue enrichment disabled:', err);
   }
-  await runIngest({
-    registry: new PublisherRegistryService(ddb, process.env.PUBLISHERS_TABLE_NAME!),
-    store: new PublisherEventStore(ddb, process.env.PUBLISHER_EVENTS_TABLE_NAME!),
-    sidecar: new PublisherSidecarPublisher(
-      new S3Client({}),
-      process.env.CACHE_S3_BUCKET!,
-      process.env.CACHE_S3_KEY_PREFIX!,
-      venuesById,
-    ),
-    fetcher: fetchAndParseFeed,
-    now: new Date(),
-    publishersTableName: process.env.PUBLISHERS_TABLE_NAME!,
-  });
+  await runIngest(
+    {
+      registry: new PublisherRegistryService(ddb, process.env.PUBLISHERS_TABLE_NAME!),
+      store: new PublisherEventStore(ddb, process.env.PUBLISHER_EVENTS_TABLE_NAME!),
+      sidecar: new PublisherSidecarPublisher(
+        new S3Client({}),
+        process.env.CACHE_S3_BUCKET!,
+        process.env.CACHE_S3_KEY_PREFIX!,
+        venuesById,
+      ),
+      fetcher: fetchAndParseFeed,
+      now: new Date(),
+      publishersTableName: process.env.PUBLISHERS_TABLE_NAME!,
+    },
+    { singlePublisherId: evt?.singlePublisherId },
+  );
 }

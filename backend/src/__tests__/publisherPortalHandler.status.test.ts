@@ -78,7 +78,7 @@ describe('handlePublisherStatus', () => {
 
   it('returns 404 when publisher row no longer exists', async () => {
     (verifyPublisherJwt as jest.Mock).mockResolvedValue({
-      sub: 'pub-deleted', role: 'publisher', email: 'p@x.com',
+      sub: 'pub-deleted', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
     });
     registry.get.mockResolvedValue(null);
     const r = await handlePublisherStatus(
@@ -91,7 +91,7 @@ describe('handlePublisherStatus', () => {
 
   it('returns 200 with the sanitized publisher record on success', async () => {
     (verifyPublisherJwt as jest.Mock).mockResolvedValue({
-      sub: 'pub-1', role: 'publisher', email: 'pub@example.com',
+      sub: 'pub-1', role: 'publisher', email: 'pub@example.com', tokenVersion: 0,
     });
     const rec = makeRecord({
       id: 'pub-1',
@@ -126,7 +126,7 @@ describe('handlePublisherStatus', () => {
 
   it('uses authoritative sub from JWT to look up the row (not any header)', async () => {
     (verifyPublisherJwt as jest.Mock).mockResolvedValue({
-      sub: 'pub-from-jwt', role: 'publisher', email: 'p@x.com',
+      sub: 'pub-from-jwt', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
     });
     registry.get.mockResolvedValue(makeRecord({ id: 'pub-from-jwt' }));
     await handlePublisherStatus(
@@ -138,7 +138,7 @@ describe('handlePublisherStatus', () => {
 
   it('accepts lowercase "authorization" header', async () => {
     (verifyPublisherJwt as jest.Mock).mockResolvedValue({
-      sub: 'pub-1', role: 'publisher', email: 'p@x.com',
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
     });
     registry.get.mockResolvedValue(makeRecord({ id: 'pub-1' }));
     const r = await handlePublisherStatus(
@@ -150,7 +150,7 @@ describe('handlePublisherStatus', () => {
 
   it('returns 500 on registry exception', async () => {
     (verifyPublisherJwt as jest.Mock).mockResolvedValue({
-      sub: 'pub-1', role: 'publisher', email: 'p@x.com',
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
     });
     registry.get.mockRejectedValue(new Error('DDB throttled'));
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);

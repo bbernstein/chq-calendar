@@ -18,6 +18,20 @@ export interface PublisherRecord {
   // from `enabled = false`, which retracts (hard-deletes) all events on the
   // next ingest run. Optional/defaulted-undefined; absence means "not paused".
   paused?: boolean;
+  // Identity-version counter. Bumped on email change verify and self-disable.
+  // Issued JWTs include this; mismatch with the row's current value → 401.
+  // Defaults to 0 for legacy rows that were created before this field existed.
+  tokenVersion?: number;
+  // Set when the publisher pauses themselves (vs admin-paused). Distinguishing
+  // these is purely informational for the admin dashboard.
+  selfPausedAt?: string;
+  // Set when the publisher self-disables. Reversible only by an admin.
+  selfDisabledAt?: string;
+  // Phase 4 (publisher email change). When the old-address one-shot cancel
+  // link is clicked, this timestamp is written 24h in the future. While
+  // `now < emailChangeLockedUntil` the initiate path returns 423. The lock
+  // auto-expires by passing the timestamp; no cleanup needed. ISO 8601.
+  emailChangeLockedUntil?: string;
   createdAt: string;
   lastFetchedAt?: string;
   lastFetchStatus?: FetchStatus;

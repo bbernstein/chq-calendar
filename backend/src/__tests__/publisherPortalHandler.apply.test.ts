@@ -15,6 +15,7 @@ import {
   _setAppServiceForTests,
   _resetPublisherAuthRateLimitForTests,
 } from '../handlers/publisherPortalHandler';
+import { EmailAlreadyInUseError } from '../services/publisherApplicationService';
 import { verifyCaptcha } from '../services/captchaService';
 
 const mockVerifyCaptcha = verifyCaptcha as jest.MockedFunction<typeof verifyCaptcha>;
@@ -129,6 +130,24 @@ describe('handlePublisherApplyRequest', () => {
     const body = JSON.parse(r.body);
     expect(body.field).toBe('sourceUrl');
     expect(body.error).toMatch(/localhost/);
+  });
+
+  it('returns 400 with a generic email-in-use message when service throws EmailAlreadyInUseError', async () => {
+    // Phase 3 — the handler must NOT leak which application status the
+    // address holds. The body is fixed and points the user to login.
+    const stub = mkApp();
+    stub.requestApply.mockRejectedValue(new EmailAlreadyInUseError());
+    _setAppServiceForTests(stub as any);
+
+    const r = await handlePublisherApplyRequest(evt(), validBody);
+    expect(r.statusCode).toBe(400);
+    const body = JSON.parse(r.body);
+    expect(body.error).toBe(
+      "We can't accept this email address. If you already have a publisher account, sign in at /publish/login/.",
+    );
+    // No status-specific leak in the body.
+    expect(body.field).toBeUndefined();
+    expect(body.error).not.toMatch(/approved|pending|rejected/i);
   });
 
   it('rate-limits at 11th request from same IP within an hour', async () => {

@@ -29,8 +29,21 @@ const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
 // 10/hour per IP regardless; this is a UX nudge, not a security control.
 const RESEND_COOLDOWN_MS = 60_000;
 
+// Reads the URL query string ONCE on mount. We don't want re-renders to
+// flip the banner state if the URL is later cleaned by replaceState — the
+// banner is purely informational, tied to the navigation that landed here.
+function readEmailChangedSignal(): { emailPrefill: string; showBanner: boolean } {
+  if (typeof window === 'undefined') return { emailPrefill: '', showBanner: false };
+  const params = new URLSearchParams(window.location.search);
+  return {
+    emailPrefill: params.get('email') ?? '',
+    showBanner: params.get('reason') === 'email-changed',
+  };
+}
+
 export default function PublishLoginPage() {
-  const [email, setEmail] = useState('');
+  const [signal] = useState(readEmailChangedSignal);
+  const [email, setEmail] = useState(signal.emailPrefill);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [cooldownEndsAt, setCooldownEndsAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -121,6 +134,13 @@ export default function PublishLoginPage() {
 
       <main className="max-w-md mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 sm:p-8">
+          {signal.showBanner && (
+            <div className="mb-4 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
+              <p className="text-sm text-green-800 dark:text-green-200">
+                Email changed successfully. Sign in with your new address.
+              </p>
+            </div>
+          )}
           <p className="text-sm text-gray-700 dark:text-gray-300 mb-6">
             Enter the email you applied with. We&apos;ll send a one-time sign-in
             link to that address — no password needed.

@@ -3,18 +3,24 @@ jest.mock('../services/publisherSecretCache', () => ({
   _resetPublisherSecretCacheForTests: jest.fn(),
 }));
 
-import { PublisherApplicationService } from '../services/publisherApplicationService';
+import { PublisherApplicationService, EmailAlreadyInUseError } from '../services/publisherApplicationService';
 import type { ApplyFormPayload, PublisherRecord } from '../types/publisher';
 
 const mkDeps = () => {
   const registry = {
     get: jest.fn(),
-    getByEmail: jest.fn(),
+    // Default to "no existing row" so the apply uniqueness gate (Phase 3)
+    // is satisfied by default. Tests that exercise the gate explicitly
+    // override this with the seeded rows they want.
+    getByEmail: jest.fn().mockResolvedValue([]),
     upsert: jest.fn(),
   };
   const tokens = {
     issueToken: jest.fn(),
     consumeToken: jest.fn(),
+    // Phase 4 — pending-email-change uniqueness gate. Default to "no
+    // pending change" so existing tests are unaffected.
+    queryActiveEmailChangeByNewEmail: jest.fn().mockResolvedValue(null),
   };
   const mail = {
     sendApplyMagicLink: jest.fn().mockResolvedValue({ messageId: 'mid' }),
@@ -144,6 +150,134 @@ describe('PublisherApplicationService — apply flow', () => {
     const svc = new PublisherApplicationService(deps);
     const r = await svc.verifyApply('rawtok');
     expect(r).toEqual({ ok: false, reason: 'malformed_payload' });
+  });
+});
+
+describe('requestApply — email uniqueness', () => {
+  // Phase 3 — apply submissions whose email already maps to ANY publisher
+  // row (approved, pending, or rejected) must be rejected before any side
+  // effect: no token issued, no email sent, no DB row written.
+  // The handler converts this into a generic 400 to avoid leaking which
+  // status the address holds.
+
+  const seededRow = (overrides: Partial<PublisherRecord>): PublisherRecord => ({
+    id: 'pub-existing',
+    name: 'Existing',
+    contactEmail: 'taken@e.com',
+    sourceUrl: 'https://x.test/feed',
+    sourceType: 'json',
+    trustLevel: 'auto',
+    enabled: true,
+    createdAt: 't',
+    ...overrides,
+  });
+
+  const apply = (email: string): { payload: ApplyFormPayload } => ({
+    payload: { ...validPayload, email },
+  });
+
+  it('rejects when an approved publisher already uses this email', async () => {
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([
+      seededRow({ applicationStatus: 'approved' }),
+    ]);
+    const svc = new PublisherApplicationService(deps);
+
+    await expect(svc.requestApply(apply('taken@e.com')))
+      .rejects.toBeInstanceOf(EmailAlreadyInUseError);
+
+    // No side effects.
+    expect(deps.tokens.issueToken).not.toHaveBeenCalled();
+    expect(deps.mail.sendApplyMagicLink).not.toHaveBeenCalled();
+    expect(deps.registry.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects when a pending publisher already uses this email', async () => {
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([
+      seededRow({ applicationStatus: 'pending', enabled: false, trustLevel: 'review' }),
+    ]);
+    const svc = new PublisherApplicationService(deps);
+
+    await expect(svc.requestApply(apply('taken@e.com')))
+      .rejects.toBeInstanceOf(EmailAlreadyInUseError);
+    expect(deps.tokens.issueToken).not.toHaveBeenCalled();
+    expect(deps.mail.sendApplyMagicLink).not.toHaveBeenCalled();
+  });
+
+  it('rejects when a rejected publisher already uses this email', async () => {
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([
+      seededRow({
+        applicationStatus: 'rejected',
+        enabled: false,
+        trustLevel: 'review',
+        rejectionReason: 'spam-looking',
+      }),
+    ]);
+    const svc = new PublisherApplicationService(deps);
+
+    await expect(svc.requestApply(apply('taken@e.com')))
+      .rejects.toBeInstanceOf(EmailAlreadyInUseError);
+    expect(deps.tokens.issueToken).not.toHaveBeenCalled();
+  });
+
+  it('treats email comparison case-insensitively', async () => {
+    const deps = mkDeps();
+    // Registry stores normalized lowercase. The submission uses uppercase;
+    // the service must normalize before lookup so the gate still fires.
+    deps.registry.getByEmail.mockResolvedValue([
+      seededRow({ applicationStatus: 'approved' }),
+    ]);
+    const svc = new PublisherApplicationService(deps);
+
+    await expect(svc.requestApply(apply('TAKEN@E.COM')))
+      .rejects.toBeInstanceOf(EmailAlreadyInUseError);
+
+    // Lookup happened with the lowercased form.
+    expect(deps.registry.getByEmail).toHaveBeenCalledWith('taken@e.com');
+  });
+
+  it('does NOT throw when the email is unused — happy path proceeds', async () => {
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([]);
+    deps.tokens.issueToken.mockResolvedValue({ rawToken: 'rawtok', expiresAt: 9 });
+    const svc = new PublisherApplicationService(deps);
+
+    const r = await svc.requestApply(apply('fresh@e.com'));
+    expect(r).toEqual({ ok: true });
+    expect(deps.tokens.issueToken).toHaveBeenCalledTimes(1);
+    expect(deps.mail.sendApplyMagicLink).toHaveBeenCalledTimes(1);
+  });
+
+  // Phase 4 — also reject when there's an in-flight email-change targeting
+  // this address. Otherwise an applicant could race a publisher's verify
+  // step for the same identity.
+  it('rejects when a pending email_change_verify targets this address', async () => {
+    const deps = mkDeps();
+    deps.registry.getByEmail.mockResolvedValue([]); // registry clean
+    deps.tokens.queryActiveEmailChangeByNewEmail.mockResolvedValue({
+      tokenHash: 'h',
+      purpose: 'email_change_verify',
+      email: 'fresh@e.com',
+      publisherId: 'pub-someone-else',
+      emailChangePayload: {
+        publisherId: 'pub-someone-else',
+        oldEmail: 'old@e.com',
+        newEmail: 'fresh@e.com',
+        requestedAt: '2026-05-05T00:00:00Z',
+      },
+      createdAt: 't',
+      expiresAt: 9999999999,
+    });
+    const svc = new PublisherApplicationService(deps);
+
+    await expect(svc.requestApply(apply('fresh@e.com')))
+      .rejects.toBeInstanceOf(EmailAlreadyInUseError);
+
+    expect(deps.tokens.queryActiveEmailChangeByNewEmail).toHaveBeenCalledWith('fresh@e.com');
+    expect(deps.tokens.issueToken).not.toHaveBeenCalled();
+    expect(deps.mail.sendApplyMagicLink).not.toHaveBeenCalled();
   });
 });
 

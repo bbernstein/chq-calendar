@@ -23,8 +23,15 @@ import {
 } from '@/lib/publisherAuthClient';
 import {
   getPublisherStatus,
+  patchPublisherProfile,
+  previewPublisherFeed,
   type PublisherStatusRecord,
 } from '@/lib/publisherStatusApi';
+import { EditableField } from './EditableField';
+import { SourceEditPanel } from './SourceEditPanel';
+import { EmailChangePanel } from './EmailChangePanel';
+import { IngestControls } from './IngestControls';
+import { DangerZone } from './DangerZone';
 
 type Status =
   | { kind: 'loading' }
@@ -52,6 +59,13 @@ export default function PublishStatusPage() {
   function handleSignOut() {
     clearPublisherSession();
     window.location.replace('/publish/');
+  }
+
+  // Replace the local record with whatever the backend returned after a
+  // successful profile patch. Encoded as a callback so the children don't
+  // need to know about the Status discriminator shape.
+  function handleRecordUpdated(rec: PublisherStatusRecord) {
+    setStatus({ kind: 'ok', rec });
   }
 
   const session = getPublisherSession();
@@ -93,7 +107,9 @@ export default function PublishStatusPage() {
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {status.kind === 'loading' && <Loading />}
         {status.kind === 'error' && <ErrorBlock message={status.message} />}
-        {status.kind === 'ok' && <StatusView rec={status.rec} />}
+        {status.kind === 'ok' && (
+          <StatusView rec={status.rec} onUpdated={handleRecordUpdated} />
+        )}
       </main>
 
       <footer className="bg-gray-800 text-white mt-16">
@@ -135,11 +151,50 @@ function ErrorBlock({ message }: { message: string }) {
   );
 }
 
-function StatusView({ rec }: { rec: PublisherStatusRecord }) {
+function StatusView({
+  rec,
+  onUpdated,
+}: {
+  rec: PublisherStatusRecord;
+  onUpdated: (rec: PublisherStatusRecord) => void;
+}) {
   // Treat a missing applicationStatus as approved — that's how the backend
   // treats admin-created rows for ingest, and the same logic should apply
   // to the publisher-facing view.
   const applicationStatus = rec.applicationStatus ?? 'approved';
+  const editable = applicationStatus === 'approved';
+
+  // The source-edit panel is rendered inline below the card when toggled,
+  // not in a modal — keeps the read-only context (current URL, last-fetch
+  // status) visible while the publisher is choosing a replacement.
+  const [sourceEditOpen, setSourceEditOpen] = useState(false);
+
+  async function handleNamePatch(newName: string) {
+    const updated = await patchPublisherProfile({ name: newName });
+    onUpdated(updated);
+  }
+  async function handleOrgPatch(newOrg: string) {
+    const updated = await patchPublisherProfile({ organization: newOrg });
+    onUpdated(updated);
+  }
+  async function handleSourceSave(url: string, sourceType: 'json' | 'html') {
+    const updated = await patchPublisherProfile({ sourceUrl: url, sourceType });
+    onUpdated(updated);
+    setSourceEditOpen(false);
+  }
+
+  // After an email-change submit/cancel, refetch the status so the banner
+  // (or its absence) reflects the freshly-mutated state.
+  async function handleEmailChanged() {
+    try {
+      const fresh = await getPublisherStatus();
+      onUpdated(fresh);
+    } catch {
+      // Failure here is rare (status fetch already worked once); if it does
+      // happen, the next mount will catch up. No need to surface the error
+      // through the banner state.
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -150,9 +205,40 @@ function StatusView({ rec }: { rec: PublisherStatusRecord }) {
         <RejectedNotice reason={rec.rejectionReason} />
       )}
 
-      <PublisherCard rec={rec} />
+      <PublisherCard
+        rec={rec}
+        editable={editable}
+        sourceEditOpen={sourceEditOpen}
+        onEditSource={() => setSourceEditOpen(true)}
+        onNamePatch={handleNamePatch}
+        onOrgPatch={handleOrgPatch}
+      />
+
+      {editable && sourceEditOpen && (
+        <SourceEditPanel
+          currentUrl={rec.sourceUrl}
+          currentType={rec.sourceType}
+          onPreview={previewPublisherFeed}
+          onSave={handleSourceSave}
+          onCancel={() => setSourceEditOpen(false)}
+        />
+      )}
+
+      {editable && (
+        <EmailChangePanel
+          contactEmail={rec.contactEmail}
+          pendingEmailChange={rec.pendingEmailChange ?? null}
+          onChanged={handleEmailChanged}
+        />
+      )}
 
       {applicationStatus === 'approved' && <LastFetchPanel rec={rec} />}
+
+      {applicationStatus === 'approved' && (
+        <IngestControls publisher={rec} onChanged={handleEmailChanged} />
+      )}
+
+      {applicationStatus === 'approved' && <DangerZone publisher={rec} />}
     </div>
   );
 }
@@ -219,35 +305,85 @@ function RejectedNotice({ reason }: { reason?: string }) {
   );
 }
 
-function PublisherCard({ rec }: { rec: PublisherStatusRecord }) {
+function PublisherCard({
+  rec,
+  editable,
+  sourceEditOpen,
+  onEditSource,
+  onNamePatch,
+  onOrgPatch,
+}: {
+  rec: PublisherStatusRecord;
+  editable: boolean;
+  sourceEditOpen: boolean;
+  onEditSource: () => void;
+  onNamePatch: (next: string) => Promise<void>;
+  onOrgPatch: (next: string) => Promise<void>;
+}) {
+  // When the publisher row is editable, the Name and Organization rows swap
+  // to inline EditableField widgets. Source is edited via the standalone
+  // SourceEditPanel (rendered by the parent) — here we just expose a button
+  // that toggles it. Pending/rejected applicants see the read-only display
+  // for every field.
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
         Publisher details
       </h2>
       <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-2 gap-x-4 text-sm">
-        <Detail label="Name" value={rec.name} />
+        <Detail
+          label="Name"
+          value={
+            editable
+              ? <EditableField label="Name" value={rec.name} onSave={onNamePatch} />
+              : rec.name
+          }
+        />
         <Detail label="Publisher ID" value={<span className="font-mono text-xs">{rec.id}</span>} />
         <Detail label="Contact email" value={rec.contactEmail} />
-        {rec.organization && <Detail label="Organization" value={rec.organization} />}
+        <Detail
+          label="Organization"
+          value={
+            editable
+              ? <EditableField
+                  label="Organization"
+                  value={rec.organization ?? ''}
+                  allowEmpty
+                  onSave={onOrgPatch}
+                />
+              : (rec.organization || <span className="text-gray-400 italic">—</span>)
+          }
+        />
         <Detail
           label="Source"
           value={
-            <a
-              href={rec.sourceUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-blue-600 dark:text-blue-400 hover:underline break-all"
-            >
-              {rec.sourceUrl}
-            </a>
+            <div className="flex items-start gap-2">
+              <a
+                href={rec.sourceUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-blue-600 dark:text-blue-400 hover:underline break-all"
+              >
+                {rec.sourceUrl}
+              </a>
+              {editable && !sourceEditOpen && (
+                <button
+                  type="button"
+                  onClick={onEditSource}
+                  aria-label="Edit source"
+                  className="shrink-0 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs"
+                >
+                  ✎
+                </button>
+              )}
+            </div>
           }
           span={2}
         />
         <Detail label="Source type" value={rec.sourceType.toUpperCase()} />
         <Detail
           label="Ingest"
-          value={rec.enabled ? 'Active' : 'Paused'}
+          value={!rec.enabled ? 'Disabled' : rec.paused ? 'Paused' : 'Active'}
         />
         <Detail
           label="Created"

@@ -16,6 +16,7 @@ import type { MagicTokenService } from './magicTokenService';
 import type { MailService } from './mailService';
 import { signPublisherJwt } from './publisherAuthService';
 import { validateUrlIsPublic } from './urlGuard';
+import { isValidEmail } from '../utils/validateEmail';
 
 export interface PublisherApplicationServiceDeps {
   registry: PublisherRegistryService;
@@ -32,6 +33,22 @@ export interface RequestApplyInput {
 export type RequestApplyResult =
   | { ok: true }
   | { ok: false; reason: 'invalid_input'; field: string; message: string };
+
+/**
+ * Thrown by `requestApply` when the submitted email address already maps to
+ * a publisher row in the registry — regardless of `applicationStatus`
+ * (approved, pending, or rejected). The handler converts this to a generic
+ * 400 to avoid leaking which specific status the address holds.
+ *
+ * Phase 4 will extend the same gate to cover pending email-change rows once
+ * that data shape exists.
+ */
+export class EmailAlreadyInUseError extends Error {
+  constructor(message = 'Email already in use') {
+    super(message);
+    this.name = 'EmailAlreadyInUseError';
+  }
+}
 
 export type VerifyApplyResult =
   | { ok: true; jwt: string; publisherId: string; email: string }
@@ -60,6 +77,24 @@ export class PublisherApplicationService {
     // doing it once at the boundary keeps downstream consumers simple.
     const normalizedEmail = input.payload.email.trim().toLowerCase();
     const payload: ApplyFormPayload = { ...input.payload, email: normalizedEmail };
+
+    // Phase 3 — uniqueness gate. If the email is already attached to ANY
+    // publisher row (approved, pending, or rejected), refuse the apply
+    // before any side effect: no token issued, no email sent, no row
+    // written. The handler converts this to a generic 400; we don't want
+    // the response to disclose which status the address holds.
+    const existing = await this.deps.registry.getByEmail(normalizedEmail);
+    if (existing.length > 0) {
+      throw new EmailAlreadyInUseError();
+    }
+    // Phase 4 — extend the uniqueness gate to consider in-flight email
+    // changes too: if another publisher has a pending email_change_verify
+    // row pointed at this address, we must NOT let an applicant claim it.
+    // (Otherwise two flows would race for the same final identity.)
+    const pendingChange = await this.deps.tokens.queryActiveEmailChangeByNewEmail(normalizedEmail);
+    if (pendingChange) {
+      throw new EmailAlreadyInUseError();
+    }
 
     const issued = await this.deps.tokens.issueToken({
       purpose: 'apply',
@@ -104,7 +139,11 @@ export class PublisherApplicationService {
     };
     await this.deps.registry.upsert(rec);
 
-    const jwt = await signPublisherJwt({ publisherId, email: rec.contactEmail });
+    const jwt = await signPublisherJwt({
+      publisherId,
+      email: rec.contactEmail,
+      tokenVersion: rec.tokenVersion ?? 0,
+    });
     return { ok: true, jwt, publisherId, email: rec.contactEmail };
   }
 
@@ -160,6 +199,7 @@ export class PublisherApplicationService {
     const jwt = await signPublisherJwt({
       publisherId: pub.id,
       email: pub.contactEmail,
+      tokenVersion: pub.tokenVersion ?? 0,
     });
     return { ok: true, jwt, publisherId: pub.id, email: pub.contactEmail };
   }
@@ -175,12 +215,6 @@ export class PublisherApplicationService {
 }
 
 // ─── Input validation ──────────────────────────────────────────────────
-
-function isValidEmail(s: string): boolean {
-  // Cheap RFC-shaped check; we don't attempt full RFC 5322. SES will reject
-  // truly malformed addresses; this just catches obvious typos.
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
 
 type ValidationResult =
   | { ok: true }
