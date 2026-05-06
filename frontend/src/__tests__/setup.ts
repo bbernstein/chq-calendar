@@ -1,4 +1,6 @@
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
+import { afterEach } from 'vitest';
+import { cleanup } from '@testing-library/preact';
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -14,3 +16,9 @@ const localStorageMock = (() => {
 })();
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
+
+// Clean up between tests so DOM and storage don't bleed across cases.
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
