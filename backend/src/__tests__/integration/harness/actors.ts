@@ -134,15 +134,27 @@ export interface Actors {
 }
 
 // To make admin handler routes pass auth, we mint an admin JWT each call.
-// adminHandler.ts captures JWT_SECRET at module load (line ~89), so once
-// it's loaded our setting `process.env.JWT_SECRET` here has no effect.
-// We sniff the captured value via the same default ('your-secret-key')
-// adminHandler uses. The whitelist is read on every call, so setting it
-// here works.
+// adminHandler.ts captures JWT_SECRET at module load. integrationSetup.ts
+// (which every integration test imports as its first import) sets
+// process.env.JWT_SECRET *before* any production module loads, so that
+// captured value is whatever integrationSetup wrote. We re-read it here
+// at the same point in time so signatures verify.
+//
+// We deliberately do NOT fall back to a different literal — if the env
+// var is unset, the captured adminHandler value would be 'your-secret-key'
+// (its production fallback), which would silently break verification.
+// Instead we throw, which will surface as a fast, obvious test failure.
 const ADMIN_EMAIL = 'admin@test.chqcal.local';
-// Match harness.ts's pre-import env. Both agree on the same value so the
-// adminHandler-captured constant matches what we sign with.
-const ADMIN_JWT_SECRET = process.env.JWT_SECRET ?? 'test-admin-jwt-secret';
+const ADMIN_JWT_SECRET = (() => {
+  const v = process.env.JWT_SECRET;
+  if (!v) {
+    throw new Error(
+      "actors.ts: process.env.JWT_SECRET is not set. " +
+      "Make sure integrationSetup.ts ran (every integration test imports it via harness.ts)."
+    );
+  }
+  return v;
+})();
 
 import jwt from 'jsonwebtoken';
 

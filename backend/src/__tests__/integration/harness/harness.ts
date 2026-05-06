@@ -191,8 +191,12 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
   };
   const invoker = new FakeLambdaInvoker(runIngestInProcess);
 
-  // Wire handler-level injection points. Each call captures the prior value
-  // so dispose() can restore.
+  // Wire handler-level injection points. The setters simply overwrite the
+  // module-level singletons in each handler; dispose() passes `null` to
+  // each one, which causes those handlers to fall back to lazily
+  // constructing fresh defaults on the next call (rather than restoring a
+  // previously-captured value). This is safe because every test file
+  // builds a new harness in beforeEach and tears it down in afterEach.
   portal._setStatusRegistryForTests(registry);
   portal._setAppServiceForTests(appService);
   portal._setEmailChangeServiceForTests(emailChangeService);
