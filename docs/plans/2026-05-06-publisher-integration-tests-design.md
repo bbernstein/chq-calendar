@@ -61,7 +61,7 @@ Implements the `.send(cmd)` shape of `DynamoDBDocumentClient`. Storage is `Map<t
 
 GSI support: each table can declare GSIs at construction time; `Query` against an `IndexName` scans the map for items whose hash/sort match. Fine for test volumes (hundreds of items at most).
 
-The fake **does not** implement: streams, TTL, transactions across tables (it does support cross-table within a single `TransactWrite`), pagination beyond `LastEvaluatedKey` echo, server-side filters that aren't `KeyConditionExpression`/`FilterExpression` literals.
+The fake **does** commit a single `TransactWrite` atomically across in-memory tables (all items succeed or none do, including items targeting different tables in the same call). It **does not** implement: streams, TTL, distributed ACID guarantees beyond a single `TransactWrite` call, `TransactGetItems`, PartiQL (`ExecuteStatement`), pagination beyond `LastEvaluatedKey` echo, server-side filters that aren't `KeyConditionExpression`/`FilterExpression` literals.
 
 ### Wiring
 

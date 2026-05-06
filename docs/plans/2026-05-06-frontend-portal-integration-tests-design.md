@@ -57,7 +57,7 @@ frontend/
 
 ### Test runner
 
-Vitest + `@testing-library/preact` + happy-dom (already a Vite-friendly stack). If `vitest.config.ts` doesn't exist, the implementation plan adds it; configuration aliases match `vite.config.ts` (the `react` → `preact/compat` alias is critical — without it form handlers break exactly as CLAUDE.md warns).
+Vitest + `@testing-library/preact` + **jsdom**. `frontend/vitest.config.ts` already exists, already specifies `environment: 'jsdom'`, already declares the `react` → `preact/compat` aliases (which is the critical bit for the CLAUDE.md gotcha), and already points `setupFiles` at `./src/__tests__/setup.ts`. The implementation plan therefore adds tests *into* this config, not on top of a new one. We deliberately keep `jsdom` (not `happy-dom`) because the existing config already chose it — switching environments is a breaking change for any other Vitest tests that may land in parallel and provides no concrete benefit here.
 
 ### Fetch mock
 
@@ -66,6 +66,10 @@ A small `fetchMock` helper that registers `(method, urlPattern) → response` ru
 ### Auth helper
 
 `loginAs({ email, publisherId, jwt })` writes the session token to `localStorage` exactly the way `frontend/src/lib/auth.ts` does in production. Tests that exercise authenticated portals call this in `beforeEach`.
+
+### Redirect / navigation seam
+
+Several portal tests need to assert that a page navigates (e.g. unauthenticated → `/publisher-portal/login`, post-self-disable → terminal page). The portal pages perform navigation via `window.location.href = ...` or `route(...)` from preact-router. Tests stub the navigation seam in one place — `helpers/render.tsx` exposes `installNavigationStub()` that replaces the seam with a recorder, and `getNavigations()` returns the URLs that were navigated to. Each navigation test asserts on `getNavigations()` rather than on `window.location` directly, so the same pattern works whether the page uses `location.href` or a router.
 
 ### What we assert
 

@@ -19,43 +19,38 @@
 ## Task 1: Wire up Vitest
 
 **Files:**
-- New (or modify): `frontend/vitest.config.ts`
+- Confirm: `frontend/vitest.config.ts` (already exists with jsdom + react aliases + setupFiles)
+- Modify (probably): `frontend/src/__tests__/setup.ts`
 - Modify: `frontend/package.json` (scripts + dev deps)
 
-- [ ] **Step 1: Check whether `vitest.config.ts` already exists**
+- [ ] **Step 1: Confirm the existing `vitest.config.ts` is suitable**
 
-  ```bash
-  ls frontend/vitest.config.ts 2>/dev/null
-  ```
-
-  If missing, create it:
+  Read it. As of this plan's date it contains:
 
   ```ts
-  import { defineConfig } from 'vitest/config';
-  import preact from '@preact/preset-vite';
-  import path from 'node:path';
-
-  export default defineConfig({
-    plugins: [preact()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-        // CRITICAL: matches vite.config.ts. Without this, react-imported
-        // hooks resolve to real React in tests and form handlers behave
-        // differently than in production (see CLAUDE.md note).
-        react: 'preact/compat',
-        'react-dom': 'preact/compat',
-      },
-    },
-    test: {
-      environment: 'happy-dom',
-      globals: true,
-      setupFiles: ['./src/__tests__/integration/helpers/setup.ts'],
-    },
-  });
+  // existing
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/__tests__/setup.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
+  }
   ```
 
-  If it already exists, confirm the `react` → `preact/compat` aliases are present; add them if not. This is the gotcha called out in CLAUDE.md.
+  with `react` → `preact/compat` aliases already in place. **Do not switch environments to happy-dom** — jsdom is the existing baseline and switching is a breaking change for any other Vitest tests that land in parallel.
+
+  Add a `coverage` block so `test:ci --coverage` produces the report Plan 4 (coverage floor) reads:
+
+  ```ts
+  test: {
+    // ...existing
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'json-summary'],   // json-summary is what Plan 4 reads
+      exclude: ['out/**', 'src/**/__tests__/**', '**/*.test.{ts,tsx}'],
+    },
+  }
+  ```
 
 - [ ] **Step 2: Add scripts and dev deps**
 
@@ -70,13 +65,15 @@
   Add devDependencies (`npm i -D --workspace=frontend`):
 
   ```
-  vitest @vitest/coverage-v8 happy-dom
+  vitest @vitest/coverage-v8 jsdom
   @testing-library/preact @testing-library/user-event @testing-library/jest-dom
   ```
 
-- [ ] **Step 3: Setup file**
+  (jsdom listed for clarity — it's the env we're keeping; it may already be installed.)
 
-  Create `frontend/src/__tests__/integration/helpers/setup.ts`:
+- [ ] **Step 3: Confirm/extend the existing setup file**
+
+  `frontend/src/__tests__/setup.ts` already exists. Read it. Confirm it imports `@testing-library/jest-dom/vitest` and runs `cleanup()` in `afterEach`. If either is missing, add:
 
   ```ts
   import '@testing-library/jest-dom/vitest';
@@ -84,6 +81,8 @@
   import { cleanup } from '@testing-library/preact';
   afterEach(() => { cleanup(); localStorage.clear(); });
   ```
+
+  The integration tests we add live under `src/__tests__/integration/`; the existing `setupFiles` path covers them.
 
 - [ ] **Step 4: Smoke test**
 

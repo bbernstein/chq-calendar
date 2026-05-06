@@ -32,8 +32,19 @@
   - The bbtest publisher ID (if any)
   - Its slug
   - Its current `enabled` / `state` / `trustLevel`
+  - Its `sourceUrl`
 
   If multiple bbtest rows exist, decide which is canonical and delete the others now.
+
+- [ ] **Step 1a: Confirm the bbtest feed serves at least one valid event**
+
+  Hit the recorded `sourceUrl` and confirm the JSON parses against the publisher-format schema and contains ≥ 1 future event:
+
+  ```bash
+  curl -fsSL "<sourceUrl>" | jq '.events | length'
+  ```
+
+  If empty or unreachable, the smoke's `expect(publishedCount).toBeGreaterThan(0)` will fail every run. Either fix the feed (point bbtest at a synthetic always-on JSON we host in S3) or stop and bring this back to the user. Do NOT proceed past Task 1 with a dead feed.
 
 - [ ] **Step 2: Pick a stable email for the smoke**
 
@@ -47,27 +58,38 @@
 - Modify: `backend/src/services/captchaService.ts`
 - Modify: `backend/src/__tests__/captchaService.test.ts`
 
-- [ ] **Step 1: Add the bypass branch**
+- [ ] **Step 1: Add the bypass branch — wrapper approach (no signature change)**
 
-  At the top of `verifyCaptcha`, before any HTTP call:
+  Today's signature is `verifyCaptcha(token: string, action?: string): Promise<boolean>`. We don't want to widen it (that touches every callsite). Instead, add a sibling wrapper that consumes the bypass header and falls through to `verifyCaptcha`:
 
   ```ts
-  const bypassToken = process.env.CAPTCHA_BYPASS_TOKEN;
-  if (bypassToken && bypassHeader && bypassHeader === bypassToken) {
-    console.info('[captcha] bypass accepted', { source: 'smoke', requestId });
-    return { ok: true, score: 1 };
+  // backend/src/services/captchaService.ts
+  export async function verifyCaptchaWithBypass(
+    token: string,
+    action: string | undefined,
+    headers: { [k: string]: string | undefined },
+  ): Promise<boolean> {
+    const bypassToken = process.env.CAPTCHA_BYPASS_TOKEN;
+    const bypassHeader = headers['x-smoke-bypass'] ?? headers['X-Smoke-Bypass'];
+    if (bypassToken && bypassHeader && bypassHeader === bypassToken) {
+      console.info('[captcha] bypass accepted', { source: 'smoke' });
+      return true;
+    }
+    return verifyCaptcha(token, action);
   }
   ```
 
-  The function signature already takes a `headers` map (or add one if missing); read `X-Smoke-Bypass`. If `CAPTCHA_BYPASS_TOKEN` is unset (production-without-smoke or local dev), the bypass is permanently disabled regardless of header.
+  Then update only the apply route (the single callsite the smoke needs to bypass) to call `verifyCaptchaWithBypass(token, action, event.headers)` instead of `verifyCaptcha(token, action)`. All other callsites keep using `verifyCaptcha` and are unaffected.
+
+  If `CAPTCHA_BYPASS_TOKEN` is unset (production-without-smoke or local dev), the bypass is permanently disabled regardless of header — `verifyCaptcha` runs as today.
 
 - [ ] **Step 2: Tests**
 
-  Add to `captchaService.test.ts`:
-  - Bypass accepted when env + header match
-  - Bypass rejected when env unset (header ignored)
-  - Bypass rejected when header doesn't match env
-  - Bypass log line emitted on accept (assert via spy on `console.info`)
+  Add to `captchaService.test.ts` (covering the new `verifyCaptchaWithBypass` wrapper):
+  - Bypass accepted when env + header match → returns `true`, no fetch made
+  - Bypass rejected when env unset (header ignored) → falls through to `verifyCaptcha`
+  - Bypass rejected when header doesn't match env → falls through
+  - Bypass log line emitted on accept. **Note:** `backend/src/__tests__/setup.ts` replaces `global.console.info` with a `jest.fn()`. To assert on the log, read directly from that mock: `expect((global.console.info as jest.Mock).mock.calls).toContainEqual(...)` rather than spying anew with `jest.spyOn(console, 'info')`.
 
 - [ ] **Step 3: Commit**
 
@@ -212,13 +234,23 @@
 
 - [ ] **Step 5: Jest config**
 
-  In `jest.smoke.config.js`:
+  In `jest.smoke.config.js` — use an inline tsconfig override so the smoke is decoupled from `backend/tsconfig.json` (changes to backend's `target`, `lib`, or `moduleResolution` shouldn't silently break the smoke):
 
   ```js
   module.exports = {
     rootDir: __dirname,
     testMatch: ['<rootDir>/*.test.ts'],
-    transform: { '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/../../backend/tsconfig.json' }] },
+    transform: {
+      '^.+\\.ts$': ['ts-jest', {
+        tsconfig: {
+          target: 'ES2022',
+          module: 'commonjs',
+          esModuleInterop: true,
+          resolveJsonModule: true,
+          strict: true,
+        },
+      }],
+    },
     testTimeout: 5 * 60 * 1000,
   };
   ```
@@ -314,7 +346,12 @@ EOF
   Cover:
   - What the smoke does
   - How to interpret each step's failure
-  - How to reset bbtest manually (`POST /admin/smoke-reset-bbtest`)
+  - How to reset bbtest manually (`POST /admin/smoke-reset-bbtest`) — include a working `curl` example using a smoke admin token signed locally with the rotated signing key, e.g.:
+    ```bash
+    TOKEN=$(node -e "console.log(require('jsonwebtoken').sign({sub:'smoke-bot',iss:'smoke'}, process.env.ADMIN_SMOKE_SIGNING_KEY, {algorithm:'HS256', expiresIn:'5m'}))")
+    curl -fsSL -X POST -H "Authorization: Bearer $TOKEN" https://www.chqcal.org/admin/smoke-reset-bbtest
+    ```
+  - Recovery for stale bbtest state when CI was killed mid-journey before `afterAll(reset)` fired (manual reset call above + `gh run list --workflow=deploy-production.yml` to confirm last run).
   - How to disable the smoke step temporarily if it's flaking
   - Rotation steps for the bypass token and signing key
 

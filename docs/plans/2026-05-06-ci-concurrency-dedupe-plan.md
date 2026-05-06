@@ -104,7 +104,7 @@
 
 - [ ] **Step 1: Squash the test commits**
 
-  If the verification commits in Task 3 are still on the branch, squash them down to one meaningful commit:
+  Only do this **after** the cancel verification in Task 3 has been observed in the GitHub Actions UI (otherwise you cancel the very runs you were verifying against). If the verification commits are still on the branch:
 
   ```bash
   git reset --soft origin/main

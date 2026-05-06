@@ -8,7 +8,7 @@
 
 **Architecture:** New `backend/src/__tests__/integration/` directory with a harness that constructs real services against a fake `DynamoDBDocumentClient` and injects them via the existing `_setXxxForTests` hooks on each handler. Tests are journey-shaped (`it('walks ...', async () => ...)`).
 
-**Tech Stack:** TypeScript, Jest, Node 24, in-process fake DDB, no docker.
+**Tech Stack:** TypeScript, Jest, Node 24+ (CI matrix runs 24 and 25), in-process fake DDB, no docker.
 
 **Branch:** create `feat/publisher-integration-tests` off `main`.
 
@@ -71,7 +71,7 @@ The fake must implement enough of `DynamoDBDocumentClient.send(cmd)` for all ser
   - Scan with `FilterExpression` filters items
   - TransactWrite with three Puts atomically commits; if one Put has a failing condition, none commit
   - BatchWrite with both Puts and Deletes processes all
-  - Unsupported command shape (e.g. ProjectionExpression) throws a clear error
+  - Unsupported command shape (e.g. `TransactGetItems` or `ExecuteStatement`/PartiQL — commands the fake explicitly won't implement) throws a clear error. (`ProjectionExpression` is a real DDB parameter and must NOT throw — it can be a no-op or applied to the projected result.)
 
   Run:
 
@@ -128,8 +128,8 @@ The fake must implement enough of `DynamoDBDocumentClient.send(cmd)` for all ser
   export class CaptchaToggle {
     pass(): void;
     fail(): void;
-    /** module-mock target */
-    verify(token: string): Promise<{ ok: boolean }>;
+    /** module-mock target — matches verifyCaptcha(token, action) → Promise<boolean> */
+    verify(token: string, action?: string): Promise<boolean>;
   }
   ```
 
@@ -193,7 +193,8 @@ The fake must implement enough of `DynamoDBDocumentClient.send(cmd)` for all ser
   In `actors.ts`, build typed wrappers around `APIGatewayProxyEvent`. Each wrapper:
 
   - Builds the event (path, method, headers, body).
-  - Calls the handler via `import('../../handlers/publisherPortalHandler').handlePublisherX(event)`.
+  - Calls a statically-imported handler (e.g. `handlePublisherStatus(event)`).
+    **Important:** use static `import { handlePublisherX } from '../../handlers/publisherPortalHandler'` at the top of the file — NOT a dynamic `import(...)` expression inside the function. Dynamic imports re-evaluate the module on every call, bypass Jest's module registry, and break the `jest.mock()` setup wired in `harness.ts`.
   - Parses the response body. On non-2xx, throws `new HandlerError(statusCode, body)`.
 
   Three actor objects: `publisher`, `admin`, `ingest`. Methods listed in the design doc, Architecture → Wiring section.

@@ -65,22 +65,21 @@ scripts/
   env:
     SMOKE_API_BASE: https://www.chqcal.org
     SMOKE_BBTEST_EMAIL: ${{ secrets.SMOKE_BBTEST_EMAIL }}
-    SMOKE_BBTEST_GMAIL_REFRESH_TOKEN: ${{ secrets.SMOKE_BBTEST_GMAIL_REFRESH_TOKEN }}
     SMOKE_ADMIN_SIGNING_KEY: ${{ secrets.SMOKE_ADMIN_SIGNING_KEY }}
     SMOKE_CAPTCHA_BYPASS_TOKEN: ${{ secrets.SMOKE_CAPTCHA_BYPASS_TOKEN }}
 ```
+
+(No Gmail refresh token — we use the in-band `/admin/smoke-magic-token-by-email` endpoint instead of mailbox polling.)
 
 `npm run smoke:publisher` calls `jest --config=jest.smoke.config.js scripts/smoke/publisher-lifecycle.test.ts` so test output appears alongside other Jest output in the deploy log.
 
 ### Test-only backend hooks needed
 
-To keep the smoke test simple without weakening prod security:
+All three are NEW additions; none currently exist in the codebase. Implementation order and tasks are in the plan doc.
 
-1. **CAPTCHA bypass.** `verifyCaptcha` already returns `{ ok: true }` when a request carries header `X-Smoke-Bypass: <secret>` matching env `CAPTCHA_BYPASS_TOKEN`. Secret stored in CI and Lambda env. Time-window checks should still apply.
-2. **Admin service token.** `adminHandler` already accepts `Authorization: Bearer <jwt>` from Google OAuth. Add a separate verifier branch: a JWT signed with an HS256 key (env `ADMIN_SMOKE_SIGNING_KEY`) and `sub: 'smoke-bot'` is accepted as admin **only** for routes used by the smoke test (approve application, run ingest, list publishers, disable, re-enable, reset). Other routes reject the smoke token.
-3. **Magic-link out-of-band fetch.** Mail is sent via real SES to `bbtest-<random>@<owned-domain>`. The smoke script polls the bbtest Gmail inbox via Gmail API for the new message and parses the link. Alternative: `MagicTokenService` exposes a test-only DDB lookup-by-email endpoint authorized by the smoke admin token. We pick the second — Gmail polling is fragile.
-
-The first two of these already exist (per memory note about CAPTCHA and admin auth shape). The third is a new test-only endpoint, ~50 lines.
+1. **CAPTCHA bypass.** New behavior in `verifyCaptcha`: when env `CAPTCHA_BYPASS_TOKEN` is set AND the request carries header `X-Smoke-Bypass` matching it, return early with success. Today's signature is `verifyCaptcha(token, action) → Promise<boolean>` — the change must either (a) add a `headers` parameter and thread it through every callsite, or (b) gate via a wrapper that consumes the header before calling `verifyCaptcha`. The plan picks (b) to avoid touching every callsite. Secret stored in CI and Lambda env.
+2. **Admin service token.** New verifier branch in `adminHandler`'s auth resolution: after the Google OAuth check fails, fall through to an HS256 JWT verifier (env `ADMIN_SMOKE_SIGNING_KEY`) with `sub: 'smoke-bot'`. Accepted as admin **only** for the smoke route allowlist (approve application, run ingest, list publishers, disable, re-enable, smoke-reset, smoke-magic-token-by-email, event-count). Other routes 403 even with a valid smoke token.
+3. **Magic-link in-band fetch.** Real SES still sends mail (so the production path is exercised), but the smoke script never reads mail. Instead, a new endpoint `POST /admin/smoke-magic-token-by-email` (admin-allowlisted) returns the latest unverified magic-token row for an email. ~50 lines.
 
 ### Idempotent reset
 
@@ -116,6 +115,9 @@ describe('post-deploy publisher lifecycle', () => {
     expect(await api.admin.eventCount({ publisherId })).toBe(publishedCount);  // unchanged
 
     await api.publisher.resume(publisherId);
+    await api.admin.runIngest({ publisherId });
+    expect(await api.admin.eventCount({ publisherId })).toBeGreaterThan(0);   // republished after resume
+
     await api.publisher.selfDisable(publisherId, { confirmSlug: 'bbtest' });
     await api.admin.runIngest({ publisherId });
     expect(await api.admin.eventCount({ publisherId })).toBe(0);  // retracted

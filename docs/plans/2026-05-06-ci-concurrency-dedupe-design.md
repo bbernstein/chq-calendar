@@ -92,6 +92,7 @@ This *is* the CI integration. No external dependencies.
 - **`if:` filter on jobs vs workflow-level `if`.** Job-level `if` still consumes a runner slot briefly to evaluate. Acceptable; the alternative is a workflow-level filter expression which GitHub doesn't natively support.
 - **Cancelled runs leaving partial coverage artifacts.** Acceptable; the artifact upload step is keyed on `if: always()`. If the artifact is missing, the next successful run produces it.
 - **Required-check status confusion.** When a run is cancelled, GitHub shows it as "Cancelled" not "Failed", which doesn't satisfy a required-check rule. The follow-up successful run (on the new commit) does. Documented in the implementation plan so reviewers know cancelled runs are expected on rapid pushes.
+- **Matrix-cell skip vs required check.** A matrix job suppressed by `if:` shows as "Skipped" per cell. Skipped cells do **not** satisfy a required-check rule when individual cells (e.g. `test-backend (24)`, `test-backend (25)`) are listed as required. This only affects same-repo PRs (where the `pull_request` event is suppressed) — for those, the corresponding `push` event run produces the satisfying check, so the merge gate is met by a different workflow run on the same SHA. Required: the same-repo PR's `push`-event run must complete green; the cancelled-and-skipped `pull_request` run is harmless. Fork PRs always run via `pull_request` (forks don't fire `push:` against the upstream repo) so all cells run normally and the gate works the obvious way.
 
 ## File counts (estimated)
 

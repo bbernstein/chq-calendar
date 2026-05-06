@@ -28,6 +28,8 @@
   Open `backend/coverage/coverage-summary.json` (or `lcov-report/index.html`). Record:
   - Lines: `__.__%`
 
+  **Note on what's measured:** `backend/jest.config.js` already excludes `src/handlers/*.ts` and `src/scripts/*.ts` from `collectCoverageFrom`. The recorded number is over services + utils + types only. Don't try to floor handlers via this mechanism — they're tested via integration tests, not coverage gates. Document this in the runbook (Task 4) so future contributors don't wonder why handlers aren't gated.
+
   If the integration tests from `publisher-integration-tests-plan` have landed, this number will be higher; that's the right baseline to floor against. If they haven't landed, decide whether to wait or floor at the lower number — the design spec recommends *picking the floor 0.5% below the current measurement either way*.
 
 - [ ] **Step 2: Pick the floor**
@@ -48,11 +50,11 @@
   ```json
   {
     "backend": { "lines": 77.9 },
-    "frontend": { "lines": null }
+    "frontend": { "lines": 0 }
   }
   ```
 
-  (Replace 77.9 with the value from Task 1.)
+  (Replace 77.9 with the value from Task 1. `frontend.lines: 0` is an explicit "no gate" — Vitest accepts 0 as a threshold and treats it as always-passing. Bumped to a real number when the frontend portion lands in Task 5. Do NOT use `null` — Vitest behavior on `null` is implementation-defined.)
 
 - [ ] **Step 2: Commit**
 
@@ -79,7 +81,7 @@
 
 - [ ] **Step 2: Add `coverageThreshold`**
 
-  At the top of the file:
+  At the top of the file (`jest.config.js` is CommonJS, so `require()` is fine — no `resolveJsonModule` needed because Jest doesn't go through TypeScript here):
 
   ```js
   const floor = require('../.coverage-floor.json');
@@ -92,6 +94,8 @@
     global: { lines: floor.backend.lines },
   },
   ```
+
+  For the frontend Vitest config in Task 5, the JSON import goes through TypeScript, so verify `frontend/tsconfig.json` has `"resolveJsonModule": true` (already true as of this plan's date).
 
 - [ ] **Step 3: Verify it enforces**
 
@@ -130,7 +134,7 @@
 
 - [ ] **Step 2: Add a pointer in CLAUDE.md**
 
-  Under the "Verification Checklist" section, add a bullet:
+  Under the existing `## Verification Checklist` section (line 279 as of this plan's date — confirm the exact heading before editing), add a bullet:
   - "Coverage floor enforced via `.coverage-floor.json`; see `docs/coverage.md`."
 
 - [ ] **Step 3: Commit**
