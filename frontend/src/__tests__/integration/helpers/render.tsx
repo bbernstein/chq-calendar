@@ -68,7 +68,7 @@ export function installNavigationStub(overrides: Partial<Record<string, unknown>
     enumerable: true,
     writable: true,
     value: new Proxy(stub, {
-      get(target, prop, receiver) {
+      get(target, prop, _receiver) {
         if (prop === 'href') return target.href;
         if (prop === 'replace') return target.replace;
         if (prop === 'assign') return target.assign;
