@@ -108,3 +108,37 @@ export async function verifyCaptcha(
     clearTimeout(timeout);
   }
 }
+
+/**
+ * Wrapper around verifyCaptcha that admits a test-only bypass header for the
+ * post-deploy publisher smoke test (scripts/smoke/publisher-lifecycle.test.ts).
+ *
+ * The bypass fires ONLY when both:
+ *   - process.env.CAPTCHA_BYPASS_TOKEN is non-empty (i.e. infra explicitly
+ *     provisioned a smoke-bypass secret on this Lambda), AND
+ *   - the caller sent header `X-Smoke-Bypass` (case-insensitive) matching
+ *     that secret exactly.
+ *
+ * If either condition fails we fall through to verifyCaptcha — production
+ * traffic without CAPTCHA_BYPASS_TOKEN provisioned cannot use this path no
+ * matter what header values it sends, and a wrong header value short-circuits
+ * back to the real verification.
+ *
+ * Auditability: each accepted bypass is logged with a fixed source tag so
+ * misuse is greppable in CloudWatch.
+ */
+export async function verifyCaptchaWithBypass(
+  token: string,
+  action: string | undefined,
+  headers: { [k: string]: string | undefined },
+): Promise<boolean> {
+  const bypassToken = process.env.CAPTCHA_BYPASS_TOKEN;
+  // Pull both common-cased forms — API Gateway lowercases inbound header
+  // names but reflective lookups by the original casing are still safe.
+  const bypassHeader = headers['x-smoke-bypass'] ?? headers['X-Smoke-Bypass'];
+  if (bypassToken && bypassHeader && bypassHeader === bypassToken) {
+    console.info('[captcha] bypass accepted', { source: 'smoke' });
+    return true;
+  }
+  return verifyCaptcha(token, action);
+}
