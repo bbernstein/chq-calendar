@@ -37,8 +37,12 @@ interface NavigatedLocation {
  *
  * Returns a handle that exposes the recorded URLs and lets the test undo
  * the stub.
+ *
+ * `overrides` lets a test pin specific Location members (e.g. `hostname`) to
+ * test values that jsdom's defaults don't cover — useful for asserting code
+ * paths that gate behavior on `hostname === 'localhost'`.
  */
-export function installNavigationStub(): NavigationStub {
+export function installNavigationStub(overrides: Partial<Record<string, unknown>> = {}): NavigationStub {
   const navigations: string[] = [];
   const realLocation = window.location;
 
@@ -68,6 +72,12 @@ export function installNavigationStub(): NavigationStub {
         if (prop === 'href') return target.href;
         if (prop === 'replace') return target.replace;
         if (prop === 'assign') return target.assign;
+        // Per-test overrides take precedence so a test can pin e.g.
+        // `hostname` to a non-localhost value when exercising guards
+        // that branch on it.
+        if (typeof prop === 'string' && Object.prototype.hasOwnProperty.call(overrides, prop)) {
+          return overrides[prop];
+        }
         // Any other Location member (pathname, search, hostname, origin,
         // host, protocol, hash, ...) reads from the real jsdom location at
         // access time, so URL changes via history.replaceState are seen.
