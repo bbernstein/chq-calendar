@@ -14,6 +14,11 @@
 // It calls the production handlers' `_setXxxForTests` injection points so the
 // handlers route through our fakes instead of building their own clients.
 
+// Side-effect import: sets env vars and unmocks the AWS SDK BEFORE any
+// production module loads. adminHandler.ts captures JWT_SECRET / whitelist
+// at module load, so this must be the first import in this file.
+import './integrationSetup';
+
 import { InMemoryDocClient, type TableSpec } from './inMemoryDocClient';
 import {
   ClockController,
