@@ -21,7 +21,19 @@ function toStored(
   publisher: FeedDocument['publisher'],
   trustLevel: TrustLevel,
   nowIso: string,
+  existing?: StoredPublisherEvent,
 ): StoredPublisherEvent {
+  // Once an event reaches state='published' it is terminal. Re-ingest never
+  // demotes — admin approvals (state='published' under trustLevel='review')
+  // and trust-level changes never push a published row back to pending.
+  // The only ways out of 'published' are admin reject (delete) or removal
+  // due to feed-absence, both handled outside toStored.
+  const state: 'published' | 'pending' =
+    existing?.state === 'published'
+      ? 'published'
+      : trustLevel === 'auto'
+        ? 'published'
+        : 'pending';
   return {
     publisherId: publisher.id,
     eventId: ev.id,
@@ -29,7 +41,7 @@ function toStored(
     endDate: ev.endDate,
     lastModified: ev.lastModified,
     payload: { ...ev, sourcePublisherId: publisher.id, sourcePublisherName: publisher.name },
-    state: trustLevel === 'auto' ? 'published' : 'pending',
+    state,
     updatedAt: nowIso,
   };
 }
@@ -46,7 +58,7 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
 
   for (const inc of feed.events) {
     const ex = storedById.get(inc.id);
-    const newRec = toStored(inc, feed.publisher, trustLevel, nowIso);
+    const newRec = toStored(inc, feed.publisher, trustLevel, nowIso, ex);
     if (!ex) {
       inserts.push(newRec);
     } else if (
