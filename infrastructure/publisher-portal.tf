@@ -130,12 +130,20 @@ resource "aws_iam_role_policy" "publisher_portal_access" {
         Resource = aws_secretsmanager_secret.publisher_jwt_secret.arn
       },
       {
+        # Scan is required by the email-change flow:
+        #   - queryActiveEmailChangeByNewEmail (uniqueness gate on initiate)
+        #   - scanEmailChangeRowsByPublisher (find/delete pending pair)
+        # The table has no GSI on publisherId or emailChangePayload.newEmail,
+        # so these lookups have to scan. The table is small and bounded by a
+        # 24h TTL, so Scan is acceptable here (see the comment on
+        # magicTokenService.ts:237).
         Effect = "Allow",
         Action = [
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:DeleteItem",
-          "dynamodb:UpdateItem"
+          "dynamodb:UpdateItem",
+          "dynamodb:Scan"
         ],
         Resource = aws_dynamodb_table.publisher_magic_tokens.arn
       },
