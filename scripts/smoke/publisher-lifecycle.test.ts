@@ -143,7 +143,9 @@ describeMaybe('post-deploy publisher lifecycle', () => {
 
     // 7. Self-disable + ingest. The reconciler retracts (deletes) all
     //    events for self-disabled publishers; count must drop to 0.
-    await api.publisher.selfDisable(publisherJwt, { confirmSlug: 'bbtest smoke' });
+    // confirmSlug must equal the publisher id exactly (per
+    // backend/src/handlers/publisherPortalHandler.ts handlePublisherDisable).
+    await api.publisher.selfDisable(publisherJwt, { confirmSlug: publisherId });
     await api.admin.runIngest();
     const afterDisable = await waitForEventCount(
       publisherId,
