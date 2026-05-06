@@ -41,12 +41,11 @@ interface NavigatedLocation {
 export function installNavigationStub(): NavigationStub {
   const navigations: string[] = [];
   const realLocation = window.location;
-  const realPathname = realLocation.pathname;
-  const realSearch = realLocation.search;
 
-  // Build a stand-in object. Other Location members fall through to the real
-  // location via Object.assign so reads (e.g. pathname, search, hostname)
-  // keep working.
+  // Build a stand-in. Reads we don't override fall through to the real
+  // jsdom location via the Proxy `get` handler so production code reading
+  // `pathname` / `search` / `hostname` keeps working as the URL evolves
+  // (e.g. via window.history.replaceState).
   const stub: NavigatedLocation = {
     href: realLocation.href,
     replace(url) {
@@ -69,13 +68,11 @@ export function installNavigationStub(): NavigationStub {
         if (prop === 'href') return target.href;
         if (prop === 'replace') return target.replace;
         if (prop === 'assign') return target.assign;
-        if (prop === 'pathname') return realPathname;
-        if (prop === 'search') return realSearch;
-        if (prop === 'hostname') return realLocation.hostname;
-        if (prop === 'origin') return realLocation.origin;
-        if (prop === 'host') return realLocation.host;
-        if (prop === 'protocol') return realLocation.protocol;
-        return Reflect.get(target, prop, receiver);
+        // Any other Location member (pathname, search, hostname, origin,
+        // host, protocol, hash, ...) reads from the real jsdom location at
+        // access time, so URL changes via history.replaceState are seen.
+        const v = Reflect.get(realLocation, prop);
+        return typeof v === 'function' ? v.bind(realLocation) : v;
       },
       set(target, prop, value) {
         if (prop === 'href') {
