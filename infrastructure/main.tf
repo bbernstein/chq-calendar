@@ -81,10 +81,13 @@ variable "recaptcha_site_key" {
 # work unchanged — the corresponding backend code paths fall through to
 # their normal behavior when the env var is empty.
 #
-# Production should set both to high-entropy random values (e.g.
-# `openssl rand -hex 32`). Same values must be set as GitHub repo secrets:
+# Production should set all three to the appropriate values. The signing
+# key + bypass token should be high-entropy random (e.g. `openssl rand
+# -hex 32`); the bbtest email is the dedicated smoke mailbox. Same values
+# must be set as GitHub repo secrets:
 #   - admin_smoke_signing_key   ↔ secrets.SMOKE_ADMIN_SIGNING_KEY
 #   - captcha_bypass_token      ↔ secrets.SMOKE_CAPTCHA_BYPASS_TOKEN
+#   - smoke_bbtest_email        ↔ secrets.SMOKE_BBTEST_EMAIL
 # so deploy-production.yml can drive the smoke against the deployed stack.
 variable "admin_smoke_signing_key" {
   description = "HS256 signing key for the post-deploy publisher-lifecycle smoke. Empty disables the smoke admin auth path."
@@ -95,6 +98,13 @@ variable "admin_smoke_signing_key" {
 
 variable "captcha_bypass_token" {
   description = "Bypass token for /publisher-apply/request CAPTCHA, sent via X-Smoke-Bypass header. Empty disables the bypass entirely."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "smoke_bbtest_email" {
+  description = "Lambda-side gate for the smoke-only /smoke-reset-bbtest and /smoke-magic-token-by-email routes. Both routes refuse any request whose email body field does not match this value (defense-in-depth: a leaked admin_smoke_signing_key cannot mint actions for arbitrary emails). Empty disables both routes."
   type        = string
   sensitive   = true
   default     = ""
@@ -981,12 +991,14 @@ resource "aws_lambda_function" "admin_handler" {
       # calendar Lambda for the public feedback form. When unset, the shared
       # captchaService fails closed in prod and is permissive in dev/test.
       RECAPTCHA_SECRET_KEY = var.recaptcha_secret_key
-      # Post-deploy publisher-lifecycle smoke (scripts/smoke/...). Both vars
-      # MUST be unset (or empty) outside production — when empty, the backend
-      # code paths reject every smoke-bot token and ignore every bypass
-      # header, so the smoke surface is permanently inert.
+      # Post-deploy publisher-lifecycle smoke (scripts/smoke/...). All three
+      # vars MUST be unset (or empty) outside production — when empty, the
+      # backend code paths reject every smoke-bot token, ignore every bypass
+      # header, and 403 the email-keyed smoke routes, so the smoke surface
+      # is permanently inert.
       ADMIN_SMOKE_SIGNING_KEY = var.admin_smoke_signing_key
       CAPTCHA_BYPASS_TOKEN    = var.captcha_bypass_token
+      SMOKE_BBTEST_EMAIL      = var.smoke_bbtest_email
     }
   }
 }

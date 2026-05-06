@@ -35,14 +35,17 @@ into git, or via `TF_VAR_*` env vars in your wrapper script):
 ```hcl
 admin_smoke_signing_key = "<same value as SMOKE_ADMIN_SIGNING_KEY>"
 captcha_bypass_token    = "<same value as SMOKE_CAPTCHA_BYPASS_TOKEN>"
+smoke_bbtest_email      = "<same value as SMOKE_BBTEST_EMAIL>"
 ```
 
 Then run `terraform apply` in `infrastructure/`. This wires the values
-into the admin Lambda's environment as `ADMIN_SMOKE_SIGNING_KEY` and
-`CAPTCHA_BYPASS_TOKEN` (see `aws_lambda_function.admin_handler` in
-`infrastructure/main.tf`). Both default to empty strings; while empty,
-the corresponding backend code paths are inert (smoke admin auth refuses
-all tokens, CAPTCHA bypass header is ignored).
+into the admin Lambda's environment as `ADMIN_SMOKE_SIGNING_KEY`,
+`CAPTCHA_BYPASS_TOKEN`, and `SMOKE_BBTEST_EMAIL` (see
+`aws_lambda_function.admin_handler` in `infrastructure/main.tf`). All
+default to empty strings; while empty, the corresponding backend code
+paths are inert (smoke admin auth refuses all tokens, CAPTCHA bypass
+header is ignored, the email-keyed smoke routes return 403 for every
+request).
 
 ### 3. Verify
 
@@ -143,9 +146,13 @@ publisher may be left in a non-baseline state (paused, self-disabled,
 half-processed events). To reset manually:
 
 ```bash
-# 1. Sign a short-lived smoke admin token locally.
+# 1. Sign a short-lived smoke admin token locally. The local-side env var
+#    is SMOKE_ADMIN_SIGNING_KEY (matches the GitHub repo secret name and
+#    the smoke runner under scripts/smoke/lib/adminAuth.ts). The Lambda
+#    receives the same value under ADMIN_SMOKE_SIGNING_KEY (set via
+#    terraform variable admin_smoke_signing_key).
 TOKEN=$(node -e "console.log(require('jsonwebtoken').sign(\
-  {sub:'smoke-bot',iss:'smoke'}, process.env.ADMIN_SMOKE_SIGNING_KEY, \
+  {sub:'smoke-bot',iss:'smoke'}, process.env.SMOKE_ADMIN_SIGNING_KEY, \
   {algorithm:'HS256', expiresIn:'5m'}))")
 
 # 2. Hit the reset endpoint.

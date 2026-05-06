@@ -271,16 +271,24 @@ const SMOKE_ADMIN_ROUTE_ALLOWLIST: ReadonlyArray<{ method: string; pattern: RegE
   { method: 'POST',  pattern: /^\/publisher-applications\/[^/]+\/approve$/ },
   // Trigger an immediate publisher-ingest run (async invoke).
   { method: 'POST',  pattern: /^\/publishers\/run-ingest$/ },
-  // List all publishers (smoke needs to assert the bbtest row's state).
+  // List all publishers — the smoke asserts the just-approved bbtest row
+  // appears in the list with enabled=true. This route exposes contact
+  // emails, so the value of "smoke-bot can read it" is weighed against
+  // "leaked smoke key + this route = email list dump" — we accept that
+  // tradeoff because (a) the same data is already reachable via real
+  // admin auth, and (b) the smoke needs a way to confirm the approve
+  // step actually persisted.
   { method: 'GET',   pattern: /^\/publishers$/ },
-  // Admin disable/enable of a publisher row uses PATCH /publishers/{id}.
-  // Smoke uses this to drive the pause / resume / re-enable transitions
-  // for bbtest after self-disable retraction.
-  { method: 'PATCH', pattern: /^\/publishers\/[^/]+$/ },
   // Smoke-only endpoints (defined in this handler below).
   { method: 'POST',  pattern: /^\/smoke-reset-bbtest$/ },
   { method: 'POST',  pattern: /^\/smoke-magic-token-by-email$/ },
   { method: 'POST',  pattern: /^\/publishers\/[^/]+\/events\/count$/ },
+  // NOTE: PATCH /publishers/{id} is intentionally NOT on this allowlist.
+  // Pause/resume/self-disable transitions in the smoke go through the
+  // publisher-JWT routes (/publisher-pause, /publisher-resume,
+  // /publisher-disable), not the admin PATCH. Keeping PATCH off the
+  // allowlist means a leaked smoke key cannot mutate arbitrary publisher
+  // rows (e.g. flip another publisher's trustLevel or contactEmail).
 ];
 
 function routeMatchesSmokeAllowlist(method: string, path: string): boolean {
@@ -807,14 +815,30 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     // allowlist + signing-key check is what blocks an attacker with a
     // forged smoke token from driving anything outside the smoke's needs.
     //
-    // The smoke runs against real production DDB; even if these endpoints
-    // are accidentally hit by something else, the bbtest-email scoping
-    // means the blast radius is limited to one publisher.
+    // Defense-in-depth: the email-keyed routes (smoke-reset-bbtest and
+    // smoke-magic-token-by-email) ALSO hard-gate the supplied email
+    // against process.env.SMOKE_BBTEST_EMAIL. A leaked signing key would
+    // otherwise let an attacker mint reset/JWT actions for arbitrary
+    // emails. With this gate, the blast radius is limited to the single
+    // configured bbtest mailbox even on key compromise. If
+    // SMOKE_BBTEST_EMAIL is unset (e.g. in environments where the smoke
+    // is intentionally not provisioned), both routes return 403.
     if (path === '/smoke-reset-bbtest' && httpMethod === 'POST') {
       try {
-        const email = typeof requestBody?.email === 'string' ? requestBody.email : '';
+        const expectedEmail = (process.env.SMOKE_BBTEST_EMAIL ?? '').trim().toLowerCase();
+        if (!expectedEmail) {
+          console.log('[admin] smoke-reset-bbtest rejected: SMOKE_BBTEST_EMAIL not configured');
+          return createResponse(403, { error: 'Smoke bbtest email is not configured on this Lambda' });
+        }
+        const email = typeof requestBody?.email === 'string' ? requestBody.email.trim().toLowerCase() : '';
         if (!email) {
           return createResponse(400, { error: 'email is required' });
+        }
+        if (email !== expectedEmail) {
+          console.log('[admin] smoke-reset-bbtest rejected: email does not match SMOKE_BBTEST_EMAIL', {
+            adminSubject: 'smoke-bot',
+          });
+          return createResponse(403, { error: 'Email does not match the configured smoke bbtest email' });
         }
         const deps = smokeRouteDeps();
         const reset = deps.resetImpl ?? _resetBbtestImpl;
@@ -852,13 +876,26 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       // reads no mailbox.
       //
       // Allowlisted to smoke-bot only (SMOKE_ADMIN_ROUTE_ALLOWLIST). NEVER
-      // reachable without a valid smoke-bot signed token.
+      // reachable without a valid smoke-bot signed token. ALSO hard-gated
+      // to process.env.SMOKE_BBTEST_EMAIL so a leaked signing key cannot
+      // mint a JWT for an arbitrary email.
       try {
+        const expectedEmail = (process.env.SMOKE_BBTEST_EMAIL ?? '').trim().toLowerCase();
+        if (!expectedEmail) {
+          console.log('[admin] smoke-magic-token-by-email rejected: SMOKE_BBTEST_EMAIL not configured');
+          return createResponse(403, { error: 'Smoke bbtest email is not configured on this Lambda' });
+        }
         const email = typeof requestBody?.email === 'string' ? requestBody.email : '';
         if (!email) {
           return createResponse(400, { error: 'email is required' });
         }
         const normalized = email.trim().toLowerCase();
+        if (normalized !== expectedEmail) {
+          console.log('[admin] smoke-magic-token-by-email rejected: email does not match SMOKE_BBTEST_EMAIL', {
+            adminSubject: 'smoke-bot',
+          });
+          return createResponse(403, { error: 'Email does not match the configured smoke bbtest email' });
+        }
         const deps = smokeRouteDeps();
         type SmokeTokenRow = {
           tokenHash: string;
@@ -939,8 +976,10 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       try {
         const publisherId = decodeURIComponent(matchEventCount[1]);
         const deps = smokeRouteDeps();
-        const events = await deps.eventStore.listForPublisher(publisherId);
-        return createResponse(200, { count: events.length });
+        // Use a DDB Query with Select=COUNT so we never hydrate event
+        // payloads into Lambda memory — see PublisherEventStore.countForPublisher.
+        const count = await deps.eventStore.countForPublisher(publisherId);
+        return createResponse(200, { count });
       } catch (error) {
         console.error('Error in smoke event count:', error);
         return createResponse(500, { error: 'smoke event count failed' });
