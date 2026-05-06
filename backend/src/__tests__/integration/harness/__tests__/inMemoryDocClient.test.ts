@@ -254,4 +254,93 @@ describe('InMemoryDocClient', () => {
     })) as { Items: any[] };
     expect(r.Items).toHaveLength(1);
   });
+
+  // ─── Pagination ─────────────────────────────────────────────────────────
+
+  it('Query with Limit < total returns LastEvaluatedKey built from hash+sort', async () => {
+    const c = makeClient();
+    for (let i = 0; i < 5; i++) {
+      await c.send(new PutCommand({
+        TableName: 'composite',
+        Item: { pk: 'p1', sk: `s${i}`, n: i },
+      }));
+    }
+    const r = await c.send(new QueryCommand({
+      TableName: 'composite',
+      KeyConditionExpression: 'pk = :p',
+      ExpressionAttributeValues: { ':p': 'p1' },
+      Limit: 2,
+    })) as { Items: any[]; Count: number; LastEvaluatedKey?: Record<string, unknown> };
+    expect(r.Items).toHaveLength(2);
+    expect(r.Items.map(i => i.sk)).toEqual(['s0', 's1']);
+    expect(r.LastEvaluatedKey).toEqual({ pk: 'p1', sk: 's1' });
+  });
+
+  it('Query resumes from ExclusiveStartKey to return remaining items', async () => {
+    const c = makeClient();
+    for (let i = 0; i < 5; i++) {
+      await c.send(new PutCommand({
+        TableName: 'composite',
+        Item: { pk: 'p1', sk: `s${i}`, n: i },
+      }));
+    }
+    // Page 1: Limit 2 → returns s0, s1; LastEvaluatedKey = { pk:'p1', sk:'s1' }
+    const r1 = await c.send(new QueryCommand({
+      TableName: 'composite',
+      KeyConditionExpression: 'pk = :p',
+      ExpressionAttributeValues: { ':p': 'p1' },
+      Limit: 2,
+    })) as { Items: any[]; LastEvaluatedKey?: Record<string, unknown> };
+    expect(r1.LastEvaluatedKey).toBeDefined();
+    // Page 2: resume → returns s2, s3, s4; no further LastEvaluatedKey.
+    const r2 = await c.send(new QueryCommand({
+      TableName: 'composite',
+      KeyConditionExpression: 'pk = :p',
+      ExpressionAttributeValues: { ':p': 'p1' },
+      ExclusiveStartKey: r1.LastEvaluatedKey,
+    })) as { Items: any[]; LastEvaluatedKey?: Record<string, unknown> };
+    expect(r2.Items.map(i => i.sk)).toEqual(['s2', 's3', 's4']);
+    expect(r2.LastEvaluatedKey).toBeUndefined();
+  });
+
+  it('Query with Limit ≥ total: no LastEvaluatedKey emitted', async () => {
+    const c = makeClient();
+    for (let i = 0; i < 3; i++) {
+      await c.send(new PutCommand({
+        TableName: 'composite',
+        Item: { pk: 'p1', sk: `s${i}`, n: i },
+      }));
+    }
+    const r = await c.send(new QueryCommand({
+      TableName: 'composite',
+      KeyConditionExpression: 'pk = :p',
+      ExpressionAttributeValues: { ':p': 'p1' },
+      Limit: 10,
+    })) as { Items: any[]; LastEvaluatedKey?: Record<string, unknown> };
+    expect(r.Items).toHaveLength(3);
+    expect(r.LastEvaluatedKey).toBeUndefined();
+  });
+
+  it('Scan with Limit + ExclusiveStartKey paginates over hash-only table', async () => {
+    const c = makeClient();
+    for (let i = 0; i < 4; i++) {
+      await c.send(new PutCommand({ TableName: 'simple', Item: { id: `id${i}`, n: i } }));
+    }
+    const r1 = await c.send(new ScanCommand({
+      TableName: 'simple',
+      Limit: 2,
+    })) as { Items: any[]; LastEvaluatedKey?: Record<string, unknown> };
+    expect(r1.Items).toHaveLength(2);
+    expect(r1.LastEvaluatedKey).toBeDefined();
+    // The LEK should only carry the hash key for a hash-only table.
+    expect(Object.keys(r1.LastEvaluatedKey!)).toEqual(['id']);
+    const r2 = await c.send(new ScanCommand({
+      TableName: 'simple',
+      ExclusiveStartKey: r1.LastEvaluatedKey,
+    })) as { Items: any[]; LastEvaluatedKey?: Record<string, unknown> };
+    // The two pages combined should cover all 4 items.
+    const seen = [...r1.Items, ...r2.Items].map(i => i.id).sort();
+    expect(seen).toEqual(['id0', 'id1', 'id2', 'id3']);
+    expect(r2.LastEvaluatedKey).toBeUndefined();
+  });
 });

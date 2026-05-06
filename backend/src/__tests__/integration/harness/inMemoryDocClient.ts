@@ -621,12 +621,10 @@ export class InMemoryDocClient {
   private doQuery(input: any): { Items?: Item[]; Count?: number; LastEvaluatedKey?: Record<string, unknown> } {
     this.commandLog.push({ type: 'Query', input });
     const t = this.requireTable(input.TableName);
-    let hashKey = t.spec.hashKey;
     let sortKey = t.spec.sortKey;
     if (input.IndexName) {
       const gsi = (t.spec.gsis ?? []).find(g => g.name === input.IndexName);
       if (!gsi) throw new Error(`Unknown index '${input.IndexName}' on table '${t.spec.name}'`);
-      hashKey = gsi.hashKey;
       sortKey = gsi.sortKey;
     }
     const all = Array.from(t.items.values());
@@ -648,7 +646,9 @@ export class InMemoryDocClient {
         }),
       );
     }
-    // Sort by sort key ascending (or by hashKey if no sortKey).
+    // Sort by sort key ascending (when present). DDB makes no ordering
+    // promise without a sort key; we leave hash-only results in insertion
+    // order to match what production code would actually rely on.
     if (sortKey) {
       candidates.sort((a, b) => {
         const av = a[sortKey!] as string | number | undefined;
@@ -659,10 +659,7 @@ export class InMemoryDocClient {
         return 0;
       });
     }
-    return {
-      Items: candidates.map(i => JSON.parse(JSON.stringify(i))),
-      Count: candidates.length,
-    };
+    return this.applyPagination(candidates, t.spec, input);
   }
 
   // ─── ScanCommand ───────────────────────────────────────────────────────
@@ -679,10 +676,49 @@ export class InMemoryDocClient {
         }),
       );
     }
-    return {
-      Items: candidates.map(i => JSON.parse(JSON.stringify(i))),
-      Count: candidates.length,
+    return this.applyPagination(candidates, t.spec, input);
+  }
+
+  // Apply ExclusiveStartKey + Limit semantics:
+  //   - resume: drop items up to and including the one whose hash+sort match
+  //     ExclusiveStartKey (matches DDB behaviour where the start key is the
+  //     last *returned* item from the previous page).
+  //   - Limit is applied AFTER filtering, mirroring DDB's contract for
+  //     filtered queries — we don't model the page-before-filter behaviour
+  //     because production code paginates with `while (LastEvaluatedKey)` loops
+  //     that drain all pages, and what matters there is total convergence.
+  //   - LastEvaluatedKey is built from the table's hash+sort attributes of the
+  //     last returned item, but only when there are more items beyond it.
+  private applyPagination(
+    candidates: Item[],
+    spec: TableSpec,
+    input: { Limit?: number; ExclusiveStartKey?: Record<string, unknown> },
+  ): { Items: Item[]; Count: number; LastEvaluatedKey?: Record<string, unknown> } {
+    let working = candidates;
+    if (input.ExclusiveStartKey) {
+      const startJson = keyJsonFromKey(spec, input.ExclusiveStartKey);
+      const idx = working.findIndex(i => keyJsonFromItem(spec, i) === startJson);
+      if (idx >= 0) working = working.slice(idx + 1);
+      // If the start key is no longer present (e.g. deleted between pages),
+      // we conservatively return the full remaining slice — DDB's actual
+      // behaviour is undefined here and production code does not rely on it.
+    }
+    const limit = typeof input.Limit === 'number' && input.Limit > 0 ? input.Limit : undefined;
+    let returned = working;
+    let lastEvaluatedKey: Record<string, unknown> | undefined;
+    if (limit !== undefined && working.length > limit) {
+      returned = working.slice(0, limit);
+      const last = returned[returned.length - 1];
+      const lek: Record<string, unknown> = { [spec.hashKey]: last[spec.hashKey] };
+      if (spec.sortKey !== undefined) lek[spec.sortKey] = last[spec.sortKey];
+      lastEvaluatedKey = lek;
+    }
+    const out: { Items: Item[]; Count: number; LastEvaluatedKey?: Record<string, unknown> } = {
+      Items: returned.map(i => JSON.parse(JSON.stringify(i))),
+      Count: returned.length,
     };
+    if (lastEvaluatedKey) out.LastEvaluatedKey = lastEvaluatedKey;
+    return out;
   }
 
   // ─── BatchGetCommand ───────────────────────────────────────────────────
