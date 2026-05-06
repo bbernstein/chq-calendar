@@ -296,6 +296,8 @@ npm run dev
 # Verify: events load, search works, filters work, descriptions expand
 ```
 
+Coverage floor enforced via `.coverage-floor.json`; see `docs/coverage.md`.
+
 ## Dependencies
 
 ### Production
