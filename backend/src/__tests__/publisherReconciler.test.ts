@@ -56,6 +56,7 @@ describe('reconcile', () => {
       trustLevel: 'auto',
     });
     expect(r.diff.updates).toHaveLength(1);
+    expect(r.diff.updates[0].state).toBe('published');
   });
 
   it('counts unchanged when feed lastModified is not newer', () => {
