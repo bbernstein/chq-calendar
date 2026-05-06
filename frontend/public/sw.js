@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'chqcal-v2';
+const CACHE_VERSION = 'chqcal-v3';
 const STATIC_CACHE = CACHE_VERSION + '-static';
 const DATA_CACHE = CACHE_VERSION + '-data';
 
@@ -100,10 +100,26 @@ async function staleWhileRevalidate(event, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
 
-  // Fetch fresh data in background regardless
+  // Fetch fresh data in background regardless. On a 404 we EVICT the cached
+  // entry — that's the "resource was deleted upstream" signal (e.g. the
+  // publisher sidecar JSON gets DeleteObject'd by PublisherSidecarPublisher
+  // when a publisher is disabled or a year has zero published events).
+  // Without eviction, stale-while-revalidate keeps serving the deleted
+  // payload forever: cached entries are returned synchronously and the
+  // background 404 wouldn't otherwise dislodge them.
+  //
+  // We deliberately limit eviction to 404 (not all non-OK). A transient
+  // CloudFront/origin 5xx during background revalidation should NOT wipe a
+  // perfectly valid cached body — on the next load, the user would see a
+  // broken/empty page instead of usable stale data while the origin
+  // recovers. Same reasoning for 403/429/etc.: those are not "the resource
+  // is gone" signals. Network errors (.catch branch) preserve cache for
+  // the same reason.
   const fetchPromise = fetch(request).then((response) => {
     if (response.ok) {
       cache.put(request, response.clone());
+    } else if (response.status === 404) {
+      cache.delete(request);
     }
     return response;
   }).catch(() => null);
