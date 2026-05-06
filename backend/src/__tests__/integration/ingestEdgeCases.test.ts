@@ -67,7 +67,7 @@ describe('ingest edge cases', () => {
     expect(await h.events.count(publisherId)).toBe(1);
   });
 
-  it('unchanged feed (same lastModified): no state changes; updates timestamps', async () => {
+  it('unchanged feed (same lastModified): event row is not rewritten (updatedAt preserved)', async () => {
     const { publisherId } = await applyApprove(h, 'unchanged@example.com');
     const evt = { id: 'e1', startDate: '2026-08-01T10:00:00Z', endDate: '2026-08-01T11:00:00Z', lastModified: '2026-06-01T00:00:00Z' };
     h.feeds.set(publisherId, feedOk(publisherId, 'U', [evt]));

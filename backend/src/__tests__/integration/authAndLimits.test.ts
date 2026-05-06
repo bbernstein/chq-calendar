@@ -98,15 +98,16 @@ describe('auth and limits', () => {
   });
 
   it('DNS-rebinding guard rejects loopback / private / metadata URLs at apply time (PR #85)', async () => {
-    for (const url of [
+    const urls = [
       'http://0.0.0.0/feed.json',
       'http://127.0.0.1/feed.json',
       'http://169.254.169.254/feed.json',
-    ]) {
+    ];
+    for (let i = 0; i < urls.length; i++) {
       await expect(h.actors.publisher.apply({
         name: 'Bad',
-        email: `bad-${Math.random()}@example.com`,
-        sourceUrl: url,
+        email: `bad-${i}@example.com`,
+        sourceUrl: urls[i],
         sourceType: 'json',
       })).rejects.toMatchObject({ statusCode: 400 });
     }
