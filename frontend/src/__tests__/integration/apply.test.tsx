@@ -68,18 +68,12 @@ describe('PublishApplyPage (integration)', () => {
   });
 
   it('renders an inline field error when the server returns one (e.g. EmailAlreadyInUse)', async () => {
+    // Use the structured `{ status, body }` shape — the fetchMock helper now
+    // honors it directly so we don't need a Response factory or a reset.
     mock.on('POST', '/api/publisher-apply/request', {
       status: 400,
       body: { error: 'Email already in use', field: 'email' },
     });
-    // The fetchMock helper accepts a function for nuanced statuses:
-    mock.reset();
-    mock.on('POST', '/api/publisher-apply/request', () =>
-      new Response(JSON.stringify({ error: 'Email already in use', field: 'email' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
 
     renderPage(<PublishApplyPage />);
     fireEvent.input(screen.getByPlaceholderText(/Athenaeum Hotel/i), {

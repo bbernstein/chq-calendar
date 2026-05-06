@@ -14,7 +14,7 @@ import PublishLoginPage from '@/app/publish/login/page';
 import PublishVerifyPage from '@/app/publish/verify/page';
 import { renderPage, installNavigationStub, type NavigationStub } from './helpers/render';
 import { installFetchMock, type FetchMock } from './helpers/fetchMock';
-import { logout } from './helpers/auth';
+import { logout, loginAsPublisher } from './helpers/auth';
 import {
   PUBLISHER_EMAIL_KEY,
   PUBLISHER_ID_KEY,
@@ -77,19 +77,9 @@ describe('PublishLoginPage (integration)', () => {
   });
 
   it('redirects to /publish/status/ when an authenticated user lands on this page', async () => {
-    // Simulate an authenticated session: stash a JWT with a far-future exp.
-    const exp = Math.floor(Date.now() / 1000) + 3600;
-    const payload = btoa(JSON.stringify({ sub: 'pub-1', email: 'a@b.c', exp }))
-      .replace(/=+$/, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
-      .replace(/=+$/, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-    localStorage.setItem(PUBLISHER_JWT_KEY, `${header}.${payload}.sig`);
-    localStorage.setItem(PUBLISHER_ID_KEY, 'pub-1');
-    localStorage.setItem(PUBLISHER_EMAIL_KEY, 'a@b.c');
+    // Use the shared helper rather than hand-rolling a JWT — it mirrors the
+    // app's localStorage contract and synthesizes a valid `exp` claim.
+    loginAsPublisher({ publisherId: 'pub-1', email: 'a@b.c' });
 
     renderPage(<PublishLoginPage />);
     await waitFor(() => {
