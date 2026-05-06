@@ -18,7 +18,8 @@
     "deploy:backend": "cd backend && npm run deploy",
     "deploy:frontend": "cd frontend && npm run build && npm run deploy",
     "setup": "./scripts/setup.sh",
-    "test:integration": "node integration-test.js"
+    "test:integration": "node integration-test.js",
+    "smoke:publisher": "jest --config=scripts/smoke/jest.smoke.config.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
