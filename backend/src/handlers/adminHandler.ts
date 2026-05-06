@@ -10,6 +10,7 @@ import {
 } from '../services/publisherIngestInvoker';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
+import { verifySmokeAdminToken } from '../services/smokeAdminAuth';
 import { ApplicationStateError, PublisherAdminService } from '../services/publisherAdminService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
@@ -196,6 +197,43 @@ const isAuthorizedEmail = (email: string): boolean => {
   const whitelist = ADMIN_EMAIL_WHITELIST.split(',').map(e => e.trim());
   return whitelist.includes(email);
 };
+
+// ─── Smoke-bot allowlist ──────────────────────────────────────────────
+//
+// Routes the post-deploy publisher-lifecycle smoke is allowed to call when
+// authenticated as `smoke-bot` via verifySmokeAdminToken (a separate signing
+// key from the Google OAuth path — see services/smokeAdminAuth.ts).
+//
+// Format: `${HTTP_METHOD} ${path-template}`. Path templates use `{id}` for
+// dynamic segments and are matched against the actual path via the regex
+// helpers below — keep this in sync with routeMatchesSmokeAllowlist.
+//
+// The smoke MUST NOT be able to call any route outside this set, even with
+// a valid signing-key JWT — leaking the key should not let an attacker
+// drive arbitrary admin actions. Every existing admin-only route stays
+// gated to Google-OAuth admins.
+const SMOKE_ADMIN_ROUTE_ALLOWLIST: ReadonlyArray<{ method: string; pattern: RegExp }> = [
+  // Approve a pending publisher application.
+  { method: 'POST',  pattern: /^\/publisher-applications\/[^/]+\/approve$/ },
+  // Trigger an immediate publisher-ingest run (async invoke).
+  { method: 'POST',  pattern: /^\/publishers\/run-ingest$/ },
+  // List all publishers (smoke needs to assert the bbtest row's state).
+  { method: 'GET',   pattern: /^\/publishers$/ },
+  // Admin disable/enable of a publisher row uses PATCH /publishers/{id}.
+  // Smoke uses this to drive the pause / resume / re-enable transitions
+  // for bbtest after self-disable retraction.
+  { method: 'PATCH', pattern: /^\/publishers\/[^/]+$/ },
+  // Smoke-only endpoints (defined in this handler below).
+  { method: 'POST',  pattern: /^\/smoke-reset-bbtest$/ },
+  { method: 'POST',  pattern: /^\/smoke-magic-token-by-email$/ },
+  { method: 'POST',  pattern: /^\/publishers\/[^/]+\/events\/count$/ },
+];
+
+function routeMatchesSmokeAllowlist(method: string, path: string): boolean {
+  return SMOKE_ADMIN_ROUTE_ALLOWLIST.some(
+    ({ method: m, pattern }) => m === method && pattern.test(path),
+  );
+}
 
 // Authentication middleware for Lambda
 const authenticateRequest = (event: APIGatewayProxyEvent): { email: string; name: string } | null => {
@@ -456,7 +494,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     let user = authenticateRequest(event);
     console.log('Authentication result:', user ? `authenticated as "${user.name}"` : 'unauthenticated');
     console.log('Request path:', path);
-    
+
     // In local development, bypass authentication and use dummy user.
     // Requires explicit opt-in via DEV_AUTH_BYPASS=true to prevent accidental bypass in staging.
     const isDevelopment = !isProduction && process.env.DEV_AUTH_BYPASS === 'true';
@@ -464,7 +502,42 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       console.log('Local development mode: bypassing authentication with dummy user');
       user = { email: 'dev@localhost.local', name: 'Local Dev User' };
     }
-    
+
+    // Smoke-bot fallback for the post-deploy publisher-lifecycle smoke test.
+    // Falls through to a smoke-signing-key JWT only when the regular admin
+    // auth produced no user. Even with a valid smoke token, we 403 routes
+    // outside SMOKE_ADMIN_ROUTE_ALLOWLIST — a leaked key cannot drive
+    // arbitrary admin actions. CloudWatch logs include `adminSubject:
+    // 'smoke-bot'` so smoke-driven mutations are auditable.
+    if (!user) {
+      const smokeAuthHeader =
+        event.headers.Authorization
+        || event.headers.authorization
+        || event.headers['X-Auth-Token']
+        || event.headers['x-auth-token'];
+      const smokePrincipal = verifySmokeAdminToken(smokeAuthHeader);
+      if (smokePrincipal) {
+        if (!routeMatchesSmokeAllowlist(httpMethod, path)) {
+          console.log('[admin] smoke-bot token rejected for non-allowlisted route', {
+            adminSubject: 'smoke-bot',
+            method: httpMethod,
+            path,
+          });
+          return createResponse(403, { error: 'Smoke route not permitted' });
+        }
+        console.log('[admin] smoke-bot authenticated', {
+          adminSubject: 'smoke-bot',
+          method: httpMethod,
+          path,
+        });
+        // Surface a synthetic email so downstream code that audits
+        // `user.email` (e.g. approveApplication's reviewerEmail) records
+        // the smoke run rather than crashing. The email is a non-routable
+        // sentinel — receiving mail to it is not possible.
+        user = { email: 'smoke-bot@chqcal.invalid', name: 'smoke-bot' };
+      }
+    }
+
     if (!user) {
       return createResponse(401, { error: 'Authentication required' });
     }
