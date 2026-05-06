@@ -159,10 +159,13 @@ describe('PublishApplyPage (integration)', () => {
   });
 
   it('disables the submit button while the request is in flight', async () => {
-    let resolveNet: (() => void) | null = null;
+    // TS's flow analyzer narrows `resolveNet` to `null` at the call site below
+    // (the closure mutation is invisible to it), so use a type variable that
+    // explicitly preserves the function-or-null union via the indirect ref.
+    const resolverRef: { current: (() => void) | null } = { current: null };
     mock.on('POST', '/api/publisher-apply/request', () => {
       return new Promise<Response>(resolve => {
-        resolveNet = () =>
+        resolverRef.current = () =>
           resolve(
             new Response(JSON.stringify({ ok: true }), {
               status: 200,
@@ -189,7 +192,7 @@ describe('PublishApplyPage (integration)', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Sending/i })).toBeDisabled();
     });
-    resolveNet?.();
+    resolverRef.current?.();
     await waitFor(() => {
       expect(screen.getByText(/Check your email/i)).toBeInTheDocument();
     });

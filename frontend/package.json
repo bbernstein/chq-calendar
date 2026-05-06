@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "npm run validate && vite build",
+    "build": "npm run validate && npm run test:ci && vite build",
     "preview": "vite preview",
     "lint": "eslint src/",
     "type-check": "tsc --noEmit",
