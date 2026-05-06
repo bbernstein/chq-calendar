@@ -31,6 +31,30 @@ export class PublisherEventStore {
     return out;
   }
 
+  // Count events for a publisher without loading their payloads. Uses DDB's
+  // `Select: 'COUNT'` so the response carries only `Count` per page — no
+  // item payloads ever cross the wire. This matters for the smoke's
+  // events/count endpoint, which polls during ingest and would otherwise
+  // pull every event row into Lambda memory just to call .length on it.
+  // Pagination still applies (DDB caps each Query at ~1MB scanned), so
+  // the loop sums Count across pages.
+  async countForPublisher(publisherId: string): Promise<number> {
+    let total = 0;
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'publisherId = :p',
+        ExpressionAttributeValues: { ':p': publisherId },
+        Select: 'COUNT',
+        ExclusiveStartKey: last,
+      }));
+      total += r.Count ?? 0;
+      last = r.LastEvaluatedKey;
+    } while (last);
+    return total;
+  }
+
   async listAllPublished(): Promise<StoredPublisherEvent[]> {
     const out: StoredPublisherEvent[] = [];
     let last: Record<string, unknown> | undefined;

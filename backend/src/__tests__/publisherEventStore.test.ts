@@ -32,6 +32,34 @@ describe('PublisherEventStore', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
+  it('countForPublisher issues a Select=COUNT Query and sums Count across pages', async () => {
+    mockSend
+      .mockResolvedValueOnce({ Count: 7, LastEvaluatedKey: { x: 1 } })
+      .mockResolvedValueOnce({ Count: 4 });
+    const total = await store.countForPublisher('p');
+    expect(total).toBe(11);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.KeyConditionExpression).toContain('publisherId');
+    expect(cmd.input.ExpressionAttributeValues[':p']).toBe('p');
+    expect(cmd.input.Select).toBe('COUNT');
+    // The COUNT query MUST NOT request items — that would defeat the point.
+    // DDB returns Count only when Select='COUNT'; the Items array (if
+    // present) is empty in that mode.
+  });
+
+  it('countForPublisher returns 0 when DDB reports Count=0 with no pagination', async () => {
+    mockSend.mockResolvedValueOnce({ Count: 0 });
+    expect(await store.countForPublisher('p')).toBe(0);
+  });
+
+  it('countForPublisher tolerates an absent Count field (treats as 0)', async () => {
+    // Defensive: the SDK's typing has Count optional. Make sure we don't
+    // NaN out if a stub or a future SDK version omits it.
+    mockSend.mockResolvedValueOnce({});
+    expect(await store.countForPublisher('p')).toBe(0);
+  });
+
   it('applyDiff issues TransactWriteItems with inserts + updates + deletes', async () => {
     mockSend.mockResolvedValue({});
     const ins: StoredPublisherEvent = {
