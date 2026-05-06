@@ -142,6 +142,30 @@ describe('reconcile', () => {
     expect(r.diff.updates[0].state).toBe('pending');
   });
 
+  it('preserves admin-approved published state across re-ingest with newer lastModified (review trust)', () => {
+    const stored = [ev('a', '2026-07-01T00:00:00-04:00', '2026-04-01T00:00:00-04:00', 'published')];
+    const r = reconcile({
+      stored,
+      feed: feed([{ id: 'a', title: 'A', startDate: '2026-07-01T00:00:00-04:00', endDate: '2026-07-01T01:00:00-04:00', category: 'Lecture', lastModified: '2026-05-01T00:00:00-04:00' }]),
+      now: NOW,
+      trustLevel: 'review',
+    });
+    expect(r.diff.updates).toHaveLength(1);
+    expect(r.diff.updates[0].state).toBe('published');
+  });
+
+  it('counts unchanged for an admin-approved event re-emitted with same lastModified (review trust)', () => {
+    const stored = [ev('a', '2026-07-01T00:00:00-04:00', '2026-05-01T00:00:00-04:00', 'published')];
+    const r = reconcile({
+      stored,
+      feed: feed([{ id: 'a', title: 'A', startDate: '2026-07-01T00:00:00-04:00', endDate: '2026-07-01T01:00:00-04:00', category: 'Lecture', lastModified: '2026-05-01T00:00:00-04:00' }]),
+      now: NOW,
+      trustLevel: 'review',
+    });
+    expect(r.diff.updates).toHaveLength(0);
+    expect(r.diff.unchanged).toBe(1);
+  });
+
   it('routes to pending when trustLevel is flagged', () => {
     const r = reconcile({
       stored: [],
