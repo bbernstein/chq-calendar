@@ -27,12 +27,10 @@ describe('fetchMock helper', () => {
     expect((await r.json()).id).toBe(1);
   });
 
-  it('returns 404 for unhandled requests and logs an error', async () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const r = await fetch('/api/missing');
-    expect(r.status).toBe(404);
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+  it('throws on unhandled requests by default and records them in unhandledCalls()', async () => {
+    await expect(fetch('/api/missing')).rejects.toThrow(/no route registered for GET/);
+    expect(mock.unhandledCalls()).toHaveLength(1);
+    expect(mock.unhandledCalls()[0].url).toContain('/api/missing');
   });
 
   it('records calls() and filters by URL', async () => {
@@ -50,10 +48,9 @@ describe('fetchMock helper', () => {
     await fetch('/api/z');
     mock.reset();
     expect(mock.calls()).toHaveLength(0);
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const r = await fetch('/api/z');
-    expect(r.status).toBe(404);
-    spy.mockRestore();
+    expect(mock.unhandledCalls()).toHaveLength(0);
+    // Strict mode: now that the route is gone, the next call throws.
+    await expect(fetch('/api/z')).rejects.toThrow(/no route registered/);
   });
 
   it('uninstall() restores the original fetch', () => {
@@ -73,5 +70,50 @@ describe('fetchMock helper', () => {
     const r = await fetch('/api/raw');
     expect(r.status).toBe(201);
     expect(await r.text()).toBe('plain');
+  });
+
+  it('honors a structured { status, body } response shape', async () => {
+    mock.on('POST', '/api/struct', { status: 400, body: { error: 'bad', field: 'email' } });
+    const r = await fetch('/api/struct', { method: 'POST' });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: 'bad', field: 'email' });
+  });
+
+  it('honors a structured response with custom headers', async () => {
+    mock.on('GET', '/api/headers', {
+      status: 200,
+      body: { ok: true },
+      headers: { 'X-Custom': 'yes' },
+    });
+    const r = await fetch('/api/headers');
+    expect(r.headers.get('X-Custom')).toBe('yes');
+  });
+
+  it('falls back to JSON-body-with-status-200 when an object lacks status/headers', async () => {
+    mock.on('GET', '/api/plain', { hello: 'world' });
+    const r = await fetch('/api/plain');
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ hello: 'world' });
+  });
+});
+
+describe('fetchMock helper — permissive mode', () => {
+  let mock: FetchMock;
+
+  beforeEach(() => {
+    mock = installFetchMock({ allowUnhandled: true });
+  });
+
+  afterEach(() => {
+    mock.uninstall();
+  });
+
+  it('returns 404 for unhandled requests when allowUnhandled is true', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await fetch('/api/missing');
+    expect(r.status).toBe(404);
+    expect(spy).toHaveBeenCalled();
+    expect(mock.unhandledCalls()).toHaveLength(1);
+    spy.mockRestore();
   });
 });
