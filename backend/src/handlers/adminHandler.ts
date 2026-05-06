@@ -15,6 +15,8 @@ import { ApplicationStateError, PublisherAdminService } from '../services/publis
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
 import { SesMailService } from '../services/mailService';
+import { signPublisherJwt } from '../services/publisherAuthService';
+import { v4 as uuidv4 } from 'uuid';
 import {
   handlePublisherTest,
   handlePublisherApplyRequest,
@@ -74,6 +76,58 @@ function publisherAdmin(): PublisherAdminService {
 // to the lazily-constructed real instance.
 export function _setPublisherAdminForTests(svc: PublisherAdminService | null): void {
   _publisherAdmin = svc;
+}
+
+// Smoke-bot route plumbing. Lazy singletons + an injection point so the
+// adminHandler tests can drive the smoke routes without standing up real
+// DDB connections. The smoke endpoints share the underlying registry +
+// event-store with publisherAdmin(), but it's cleaner to construct them
+// independently than to expose private members of PublisherAdminService.
+import type { SmokeResetResult } from '../services/smokeReset';
+import { resetBbtest as _resetBbtestImpl } from '../services/smokeReset';
+
+interface SmokeRouteDeps {
+  registry: PublisherRegistryService;
+  eventStore: PublisherEventStore;
+  magicTokensTableName: string;
+  // Override hook for tests — defaults to the production resetBbtest
+  // implementation. We re-bind through this seam so a unit test can
+  // assert "the route called resetBbtest with these args" without having
+  // to spin up a fake DDB.
+  resetImpl?: (
+    deps: {
+      registry: PublisherRegistryService;
+      eventStore: PublisherEventStore;
+      db: DynamoDBDocumentClient;
+      magicTokensTableName: string;
+    },
+    bbtestEmail: string,
+  ) => Promise<SmokeResetResult>;
+}
+
+let _smokeRouteDeps: SmokeRouteDeps | null = null;
+function smokeRouteDeps(): SmokeRouteDeps {
+  if (!_smokeRouteDeps) {
+    _smokeRouteDeps = {
+      registry: new PublisherRegistryService(
+        docClient,
+        process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
+      ),
+      eventStore: new PublisherEventStore(
+        docClient,
+        process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chautauqua-calendar-publisher-events',
+      ),
+      magicTokensTableName:
+        process.env.PUBLISHER_MAGIC_TOKEN_TABLE_NAME
+          ?? 'chautauqua-calendar-publisher-magic-tokens',
+    };
+  }
+  return _smokeRouteDeps;
+}
+
+// Test-only: inject smoke-route plumbing. Pass null to revert.
+export function _setSmokeRouteDepsForTests(deps: SmokeRouteDeps | null): void {
+  _smokeRouteDeps = deps;
 }
 
 // Environment variables
@@ -741,6 +795,155 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       } catch (error) {
         console.error('Error cancelling threshold halt:', error);
         return createResponse(500, { error: 'Failed to cancel threshold halt' });
+      }
+    }
+
+    // ─── Smoke-bot endpoints ───────────────────────────────────────────
+    //
+    // Three test-only routes used exclusively by the post-deploy
+    // publisher-lifecycle smoke. All three are also gated by
+    // SMOKE_ADMIN_ROUTE_ALLOWLIST above — Google-OAuth admins are NOT
+    // expected to hit these (they have richer dashboards), but the
+    // allowlist + signing-key check is what blocks an attacker with a
+    // forged smoke token from driving anything outside the smoke's needs.
+    //
+    // The smoke runs against real production DDB; even if these endpoints
+    // are accidentally hit by something else, the bbtest-email scoping
+    // means the blast radius is limited to one publisher.
+    if (path === '/smoke-reset-bbtest' && httpMethod === 'POST') {
+      try {
+        const email = typeof requestBody?.email === 'string' ? requestBody.email : '';
+        if (!email) {
+          return createResponse(400, { error: 'email is required' });
+        }
+        const deps = smokeRouteDeps();
+        const reset = deps.resetImpl ?? _resetBbtestImpl;
+        const result = await reset(
+          {
+            registry: deps.registry,
+            eventStore: deps.eventStore,
+            db: docClient,
+            magicTokensTableName: deps.magicTokensTableName,
+          },
+          email,
+        );
+        console.log('[smoke] reset complete', { adminSubject: 'smoke-bot', email, result });
+        return createResponse(200, result);
+      } catch (error) {
+        console.error('Error in smoke-reset-bbtest:', error);
+        const message = error instanceof Error ? error.message : 'unknown error';
+        return createResponse(500, { error: `smoke reset failed: ${message}` });
+      }
+    }
+
+    if (path === '/smoke-magic-token-by-email' && httpMethod === 'POST') {
+      // Smoke-only "consume the apply magic-link by email lookup" path.
+      //
+      // The real magic-token store only persists the SHA-256 hash of the
+      // raw token (raw tokens go out via SES, never written to DDB), so
+      // an email-keyed lookup CANNOT recover the raw token to feed
+      // /publisher-apply/verify. Instead, this endpoint replays the
+      // verifyApply effects directly: find the most-recent apply row for
+      // the email, materialize the publisher row from its applyPayload,
+      // delete the token row, and return the publisher id + JWT.
+      //
+      // The production SES delivery still happens upstream — apply mail
+      // is sent every smoke run, exercising real SES — but the smoke
+      // reads no mailbox.
+      //
+      // Allowlisted to smoke-bot only (SMOKE_ADMIN_ROUTE_ALLOWLIST). NEVER
+      // reachable without a valid smoke-bot signed token.
+      try {
+        const email = typeof requestBody?.email === 'string' ? requestBody.email : '';
+        if (!email) {
+          return createResponse(400, { error: 'email is required' });
+        }
+        const normalized = email.trim().toLowerCase();
+        const deps = smokeRouteDeps();
+        type SmokeTokenRow = {
+          tokenHash: string;
+          createdAt: string;
+          purpose: string;
+          email: string;
+          applyPayload?: {
+            name: string;
+            email: string;
+            sourceUrl: string;
+            sourceType: 'json' | 'html';
+            organization?: string;
+            notes?: string;
+          };
+        };
+        let last: Record<string, unknown> | undefined;
+        let latest: SmokeTokenRow | null = null;
+        do {
+          const r = await docClient.send(new ScanCommand({
+            TableName: deps.magicTokensTableName,
+            FilterExpression: 'email = :e AND purpose = :p',
+            ExpressionAttributeValues: { ':e': normalized, ':p': 'apply' },
+            ExclusiveStartKey: last,
+          }));
+          for (const item of (r.Items ?? []) as SmokeTokenRow[]) {
+            if (!latest || item.createdAt > latest.createdAt) {
+              latest = item;
+            }
+          }
+          last = r.LastEvaluatedKey;
+        } while (last);
+        if (!latest || !latest.applyPayload) {
+          return createResponse(404, { error: 'no apply token found' });
+        }
+
+        // Materialize the publisher row from the apply payload (mirrors
+        // PublisherApplicationService.verifyApply) and delete the magic-
+        // token row so it can't be reused.
+        const publisherId = `pub-${uuidv4()}`;
+        const nowIso = new Date().toISOString();
+        await deps.registry.upsert({
+          id: publisherId,
+          name: latest.applyPayload.name,
+          contactEmail: normalized,
+          sourceUrl: latest.applyPayload.sourceUrl,
+          sourceType: latest.applyPayload.sourceType,
+          trustLevel: 'review',
+          enabled: false,
+          createdAt: nowIso,
+          applicationStatus: 'pending',
+          appliedAt: nowIso,
+          organization: latest.applyPayload.organization,
+          applicantNotes: latest.applyPayload.notes,
+        });
+        await docClient.send(new DeleteCommand({
+          TableName: deps.magicTokensTableName,
+          Key: { tokenHash: latest.tokenHash },
+        }));
+
+        const publisherJwt = await signPublisherJwt({
+          publisherId,
+          email: normalized,
+          tokenVersion: 0,
+        });
+        return createResponse(200, { jwt: publisherJwt, publisherId, email: normalized });
+      } catch (error) {
+        console.error('Error in smoke-magic-token-by-email:', error);
+        return createResponse(500, { error: 'smoke token lookup failed' });
+      }
+    }
+
+    const matchEventCount = path.match(/^\/publishers\/([^/]+)\/events\/count$/);
+    if (matchEventCount && httpMethod === 'POST') {
+      // Smoke uses this to count published events between ingest runs.
+      // Could be GET, but we use POST to keep symmetry with the other
+      // smoke endpoints (all of which are POST) and to leave room for
+      // optional filter args in the body without breaking caching rules.
+      try {
+        const publisherId = decodeURIComponent(matchEventCount[1]);
+        const deps = smokeRouteDeps();
+        const events = await deps.eventStore.listForPublisher(publisherId);
+        return createResponse(200, { count: events.length });
+      } catch (error) {
+        console.error('Error in smoke event count:', error);
+        return createResponse(500, { error: 'smoke event count failed' });
       }
     }
 

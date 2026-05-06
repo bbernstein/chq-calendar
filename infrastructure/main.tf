@@ -76,6 +76,30 @@ variable "recaptcha_site_key" {
   default     = ""
 }
 
+# Post-deploy publisher-lifecycle smoke test secrets. Both default to empty
+# so envs that don't run the smoke (local, staging, dev personal stacks)
+# work unchanged — the corresponding backend code paths fall through to
+# their normal behavior when the env var is empty.
+#
+# Production should set both to high-entropy random values (e.g.
+# `openssl rand -hex 32`). Same values must be set as GitHub repo secrets:
+#   - admin_smoke_signing_key   ↔ secrets.SMOKE_ADMIN_SIGNING_KEY
+#   - captcha_bypass_token      ↔ secrets.SMOKE_CAPTCHA_BYPASS_TOKEN
+# so deploy-production.yml can drive the smoke against the deployed stack.
+variable "admin_smoke_signing_key" {
+  description = "HS256 signing key for the post-deploy publisher-lifecycle smoke. Empty disables the smoke admin auth path."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "captcha_bypass_token" {
+  description = "Bypass token for /publisher-apply/request CAPTCHA, sent via X-Smoke-Bypass header. Empty disables the bypass entirely."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "cloudfront_cache_ttl" {
   description = "Default TTL (in seconds) for CloudFront cache behavior"
   type        = number
@@ -957,6 +981,12 @@ resource "aws_lambda_function" "admin_handler" {
       # calendar Lambda for the public feedback form. When unset, the shared
       # captchaService fails closed in prod and is permissive in dev/test.
       RECAPTCHA_SECRET_KEY = var.recaptcha_secret_key
+      # Post-deploy publisher-lifecycle smoke (scripts/smoke/...). Both vars
+      # MUST be unset (or empty) outside production — when empty, the backend
+      # code paths reject every smoke-bot token and ignore every bypass
+      # header, so the smoke surface is permanently inert.
+      ADMIN_SMOKE_SIGNING_KEY = var.admin_smoke_signing_key
+      CAPTCHA_BYPASS_TOKEN    = var.captcha_bypass_token
     }
   }
 }
