@@ -2,26 +2,28 @@
 // publisher-lifecycle smoke test.
 //
 // Why a dedicated reset path (instead of running the smoke against a fresh
-// publisher each time): bbtest already exists in production and survives
-// across deploys. Provisioning a fresh publisher per smoke run would add
-// real DDB rows and SES traffic for what is fundamentally a deploy
-// verification — and would force the smoke to invent a different email
-// every run. Instead, the smoke asserts that bbtest's lifecycle works
-// end-to-end starting from a known baseline.
+// publisher each time): the smoke walks the bbtest email through a full
+// apply → approve → publish → ... lifecycle. Without an idempotent reset,
+// killed runs would leave half-baked state (a pending application, an
+// approved-but-paused publisher row, half-ingested events) that the next
+// run would trip over.
 //
-// Baseline (after reset): bbtest publisher row exists with
-//   { enabled: true, applicationStatus: 'approved', trustLevel: 'auto',
-//     paused: false, selfPausedAt: null, selfDisabledAt: null }
-// ...and zero events for the publisher, zero application rows, zero
-// magic-token rows for the bbtest email.
+// Baseline (after reset): there are NO publisher rows for the bbtest
+// email — neither approved nor pending. This is required for the smoke's
+// step 1 (apply): PublisherApplicationService.requestApply() rejects any
+// email that already maps to a publisher row regardless of its
+// applicationStatus, so the row MUST be gone for the next apply to
+// succeed. Magic-token rows for the email are also fully cleaned.
 //
 // Idempotency: every step is a delete-or-no-op. Running reset twice in a
 // row (e.g. afterAll fires while beforeAll is still running on a retry) is
 // always safe — the second invocation just sees nothing to clean up.
 //
-// Why not piggy-back on PublisherAdminService.deletePublisher: that method
-// hard-deletes the row, which would break our "bbtest always exists"
-// invariant. We reset state in place instead.
+// Why not piggy-back on PublisherAdminService.deletePublisher: that
+// method's signature requires us to know the publisher's id (we look it
+// up by email here), and it has admin-side concerns (audit trail, etc.)
+// that aren't relevant to a smoke teardown. We hard-delete via the
+// registry directly instead.
 
 import {
   ScanCommand,
@@ -38,7 +40,10 @@ export interface SmokeResetResult {
   rowsAffected: number;
   // Per-domain counters for observability.
   applicationsDeleted: number;
-  publishersResetInPlace: number;
+  // Publisher rows deleted (any applicationStatus). Renamed from
+  // publishersResetInPlace because we now hard-delete approved rows too —
+  // requestApply rejects any email already attached to ANY publisher row.
+  publishersDeleted: number;
   eventsDeleted: number;
   magicTokensDeleted: number;
 }
@@ -58,14 +63,14 @@ export interface SmokeResetDeps {
  * Resets bbtest state to baseline. See file header for the contract.
  *
  * Step order matters:
- *   1. Delete events first (cheap, doesn't depend on publisher row state).
- *   2. Reset publisher row in place (preserves the row's identity so
- *      smoke assertions like `expect(listPublishers).toContain(bbtest)`
- *      remain meaningful).
- *   3. Delete pending application rows for the email (these are different
- *      DDB rows in the publishers table — applications-as-pending-publishers
- *      that were never approved).
- *   4. Delete magic-token rows last — if a magic token survives a row
+ *   1. For each publisher row matching the email, delete its events first
+ *      (cheap, doesn't depend on the publisher row state) and then
+ *      hard-delete the publisher row itself. We delete approved rows too
+ *      (not just pending/rejected) — PublisherApplicationService
+ *      .requestApply() refuses to issue a magic link for any email that
+ *      already maps to ANY publisher row, so leaving an approved row
+ *      around would break the smoke's apply step on the very next run.
+ *   2. Delete magic-token rows last — if a magic token survives a row
  *      cleanup, the next smoke run might pick up a stale token.
  */
 export async function resetBbtest(
@@ -75,7 +80,7 @@ export async function resetBbtest(
   const result: SmokeResetResult = {
     rowsAffected: 0,
     applicationsDeleted: 0,
-    publishersResetInPlace: 0,
+    publishersDeleted: 0,
     eventsDeleted: 0,
     magicTokensDeleted: 0,
   };
@@ -93,41 +98,30 @@ export async function resetBbtest(
   // Both approved publisher rows AND pending application rows live in the
   // same `publishers` table — applications are publisher rows with
   // applicationStatus='pending' and enabled=false. getByEmail returns both.
+  // We hard-delete every match regardless of applicationStatus so the next
+  // /publisher-apply/request can issue a fresh application against this
+  // email (the requestApply uniqueness gate refuses any email already
+  // attached to a publisher row).
   const rowsForEmail = await deps.registry.getByEmail(normalizedEmail);
 
   for (const row of rowsForEmail) {
     if (row.applicationStatus === 'pending' || row.applicationStatus === 'rejected') {
-      // Pending/rejected application: hard-delete. The smoke's apply
-      // step needs an unused email to issue a fresh application against.
+      // Pending/rejected application — no events to clean up (these rows
+      // were never approved + ingested). Hard-delete the row.
       await deps.registry.delete(row.id);
       result.applicationsDeleted += 1;
       result.rowsAffected += 1;
       continue;
     }
 
-    // Approved row (or legacy row with no applicationStatus): reset in
-    // place to baseline. Delete its events first.
+    // Approved row (or legacy row with no applicationStatus): delete its
+    // events first, then the publisher row itself.
     const deleted = await deps.eventStore.deleteAllForPublisher(row.id);
     result.eventsDeleted += deleted;
     result.rowsAffected += deleted;
 
-    await deps.registry.upsert({
-      ...row,
-      applicationStatus: 'approved',
-      enabled: true,
-      trustLevel: 'auto',
-      paused: false,
-      // Clear self-pause / self-disable / email-change-lock markers. We
-      // keep tokenVersion as-is because bumping it would invalidate any
-      // legitimate session (not relevant to smoke, but cheap to preserve).
-      selfPausedAt: undefined,
-      selfDisabledAt: undefined,
-      emailChangeLockedUntil: undefined,
-      pendingThresholdHalt: undefined,
-      lastFetchStatus: undefined,
-      lastFetchMessage: undefined,
-    });
-    result.publishersResetInPlace += 1;
+    await deps.registry.delete(row.id);
+    result.publishersDeleted += 1;
     result.rowsAffected += 1;
   }
 

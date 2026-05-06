@@ -18,14 +18,21 @@ function makeRegistryFake(rowsByEmail: PublisherRecord[]): {
   registryCalls: { upsert: PublisherRecord[]; delete: string[] };
 } {
   const calls = { upsert: [] as PublisherRecord[], delete: [] as string[] };
+  // Local copy so delete() actually mutates the result of subsequent
+  // getByEmail calls — needed for the post-reset requestApply assertion.
+  const rows = [...rowsByEmail];
   return {
     registryCalls: calls,
     registry: {
       getByEmail: jest.fn(async (e: string) => {
         // Mirror the real service's normalize-on-read.
-        return rowsByEmail.filter(r => r.contactEmail === e.toLowerCase().trim());
+        return rows.filter(r => r.contactEmail === e.toLowerCase().trim());
       }),
-      delete: jest.fn(async (id: string) => { calls.delete.push(id); }),
+      delete: jest.fn(async (id: string) => {
+        calls.delete.push(id);
+        const idx = rows.findIndex(r => r.id === id);
+        if (idx >= 0) rows.splice(idx, 1);
+      }),
       upsert: jest.fn(async (rec: PublisherRecord) => { calls.upsert.push(rec); }),
     } as unknown as jest.Mocked<Pick<PublisherRegistryService, 'getByEmail' | 'delete' | 'upsert'>>,
   };
@@ -112,7 +119,7 @@ describe('resetBbtest', () => {
     expect(r).toEqual({
       rowsAffected: 0,
       applicationsDeleted: 0,
-      publishersResetInPlace: 0,
+      publishersDeleted: 0,
       eventsDeleted: 0,
       magicTokensDeleted: 0,
     });
@@ -124,7 +131,12 @@ describe('resetBbtest', () => {
     expect(dbCalls.scans).toBe(1);
   });
 
-  it('resets an approved publisher in place to baseline state', async () => {
+  it('hard-deletes approved publisher rows (so requestApply can re-issue)', async () => {
+    // The contract enforced here: after reset, no publisher row maps to
+    // bbtest's email. requestApply refuses any email that maps to ANY
+    // publisher row regardless of applicationStatus, so a row left in
+    // place — even a pristinely-baseline-state one — would break the
+    // smoke's step 1 on the next run.
     const dirty: PublisherRecord = {
       ...baselinePublisher,
       paused: true,
@@ -140,19 +152,11 @@ describe('resetBbtest', () => {
     const r = await resetBbtest(deps, BBTEST_EMAIL);
 
     expect(eventStoreCalls.deleteAllForPublisher).toEqual(['pub-bbtest']);
-    expect(registryCalls.upsert).toHaveLength(1);
-    const reset = registryCalls.upsert[0];
-    expect(reset.id).toBe('pub-bbtest');
-    expect(reset.enabled).toBe(true);
-    expect(reset.paused).toBe(false);
-    expect(reset.applicationStatus).toBe('approved');
-    expect(reset.trustLevel).toBe('auto');
-    expect(reset.selfPausedAt).toBeUndefined();
-    expect(reset.selfDisabledAt).toBeUndefined();
-    expect(reset.pendingThresholdHalt).toBeUndefined();
-    expect(registryCalls.delete).toEqual([]);
+    // Approved row is hard-deleted, NOT reset-in-place.
+    expect(registryCalls.delete).toEqual(['pub-bbtest']);
+    expect(registryCalls.upsert).toEqual([]);
     expect(r.rowsAffected).toBe(6); // 5 events + 1 publisher
-    expect(r.publishersResetInPlace).toBe(1);
+    expect(r.publishersDeleted).toBe(1);
     expect(r.eventsDeleted).toBe(5);
   });
 
@@ -228,8 +232,8 @@ describe('resetBbtest', () => {
     // Pass a mixed-case version of the email — the reset must lowercase
     // before scanning so the match still hits.
     const r = await resetBbtest(deps, '  BBTest@CHQCAL.ORG  ');
-    expect(registryCalls.upsert).toHaveLength(1);
-    expect(r.publishersResetInPlace).toBe(1);
+    expect(registryCalls.delete).toEqual(['pub-bbtest']);
+    expect(r.publishersDeleted).toBe(1);
   });
 
   it('rejects an empty email outright (would otherwise scan-delete everything)', async () => {
@@ -243,22 +247,48 @@ describe('resetBbtest', () => {
       ...baselinePublisher,
       paused: true,
     };
-    // After the first reset upserts the cleaned row, a re-fetch via getByEmail
-    // would return the cleaned row — which is idempotent (the upsert is
-    // exactly the same shape) but still touches 1 row and any of its events.
-    // In the smoke runtime, the second call (afterAll) typically sees a
-    // baseline-state row + no events, which yields rowsAffected = 1
-    // (re-upsert). To assert true 0-row idempotency we test the empty case,
-    // which the first test above already covers.
     const { deps } = commonDeps({
       publishers: [dirty],
       eventsPerPublisher: { 'pub-bbtest': 0 },
     });
     const first = await resetBbtest(deps, BBTEST_EMAIL);
-    expect(first.publishersResetInPlace).toBe(1);
+    expect(first.publishersDeleted).toBe(1);
 
-    const { deps: deps2 } = commonDeps({}); // post-first-reset world: row was reset, so subsequent getByEmail returns []
+    // Post-first-reset world: row was deleted, so subsequent getByEmail returns [].
+    const { deps: deps2 } = commonDeps({});
     const second = await resetBbtest(deps2, BBTEST_EMAIL);
     expect(second.rowsAffected).toBe(0);
+  });
+
+  it('after reset, requestApply (PublisherApplicationService) succeeds for the bbtest email', async () => {
+    // Integration-style assertion: the contract that motivates "delete the
+    // approved row, don't reset-in-place" is that
+    // PublisherApplicationService.requestApply must succeed on the next
+    // smoke run. We exercise that contract directly here against an
+    // in-memory registry.
+    const reg = makeRegistryFake([baselinePublisher]).registry;
+    // Wire the fake into the resetBbtest deps. The eventStore and db can
+    // be the same shared fakes — they don't matter for the post-reset
+    // requestApply call.
+    const dbFake = makeDbFake([]);
+    const eventStoreFake = makeEventStoreFake({ 'pub-bbtest': 0 });
+    const deps = {
+      registry: reg as unknown as PublisherRegistryService,
+      eventStore: eventStoreFake.eventStore as unknown as PublisherEventStore,
+      db: dbFake.db as never,
+      magicTokensTableName: TOKENS_TABLE,
+    };
+
+    // Pre-reset: getByEmail returns the approved row, so any logical
+    // requestApply call would refuse.
+    const before = await reg.getByEmail(BBTEST_EMAIL);
+    expect(before).toHaveLength(1);
+
+    await resetBbtest(deps, BBTEST_EMAIL);
+
+    // Post-reset: getByEmail returns [], so the requestApply uniqueness
+    // gate (registry.getByEmail(email).length > 0) does NOT fire.
+    const after = await reg.getByEmail(BBTEST_EMAIL);
+    expect(after).toEqual([]);
   });
 });
