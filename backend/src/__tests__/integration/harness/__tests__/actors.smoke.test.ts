@@ -8,6 +8,7 @@ jest.unmock('@aws-sdk/client-dynamodb');
 process.env.AWS_REGION = process.env.AWS_REGION ?? 'us-east-1';
 
 import { createHarness, feedOk } from '../harness';
+import { tokenFromMagicLink } from '../testHelpers';
 
 describe('actors', () => {
   it('publisher and admin methods route through handlers without throwing', async () => {
@@ -25,7 +26,7 @@ describe('actors', () => {
       const applyMail = h.mail.lastTo('x@example.com');
       expect(applyMail).toBeDefined();
       const applyUrl = applyMail!.data.magicLinkUrl as string;
-      const token = new URL(applyUrl).searchParams.get('token')!;
+      const token = tokenFromMagicLink(applyUrl);
       const verified = await h.actors.publisher.verifyApplyMagicLink(token);
       expect(verified.publisherId).toMatch(/^pub-/);
 

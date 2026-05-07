@@ -7,6 +7,7 @@ jest.unmock('@aws-sdk/lib-dynamodb');
 jest.unmock('@aws-sdk/client-dynamodb');
 
 import { createHarness, feedOk, type Harness } from './harness/harness';
+import { tokenFromMagicLink } from './harness/testHelpers';
 
 async function applyApproveAndSession(
   h: Harness,
@@ -16,7 +17,7 @@ async function applyApproveAndSession(
 ): Promise<{ publisherId: string; session: string }> {
   await h.actors.publisher.apply({ name, email, sourceUrl, sourceType: 'json' });
   const url = h.mail.lastTo(email)!.data.magicLinkUrl as string;
-  const token = new URL(url).searchParams.get('token')!;
+  const token = tokenFromMagicLink(url);
   const v = await h.actors.publisher.verifyApplyMagicLink(token);
   await h.actors.admin.approveApplication(v.publisherId);
   const session = await h.signSession(v.publisherId);
@@ -81,7 +82,7 @@ describe('publisher self-service portal', () => {
     const verifyMail = h.mail.lastTo('new@example.com');
     expect(verifyMail?.kind).toBe('email_change_verify');
     const verifyUrl = verifyMail!.data.verifyUrl as string;
-    const verifyToken = new URL(verifyUrl).searchParams.get('token')!;
+    const verifyToken = tokenFromMagicLink(verifyUrl);
 
     const result = await h.actors.publisher.confirmEmailChange(verifyToken);
     expect(result.kind).toBe('ok');
@@ -96,8 +97,8 @@ describe('publisher self-service portal', () => {
     const { session } = await applyApproveAndSession(h, 'old@example.com');
     h.mail.clear();
     await h.actors.publisher.requestEmailChange(session, 'new@example.com');
-    const verifyToken = new URL((h.mail.lastTo('new@example.com')!.data.verifyUrl as string)).searchParams.get('token')!;
-    const cancelToken = new URL((h.mail.lastTo('old@example.com')!.data.cancelUrl as string)).searchParams.get('token')!;
+    const verifyToken = tokenFromMagicLink(h.mail.lastTo('new@example.com')!.data.verifyUrl as string);
+    const cancelToken = tokenFromMagicLink(h.mail.lastTo('old@example.com')!.data.cancelUrl as string);
 
     const cancelResult = await h.actors.publisher.cancelEmailChangeByOld(cancelToken);
     expect(cancelResult.kind).toBe('ok');

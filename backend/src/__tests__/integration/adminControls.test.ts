@@ -4,6 +4,7 @@ jest.unmock('@aws-sdk/lib-dynamodb');
 jest.unmock('@aws-sdk/client-dynamodb');
 
 import { createHarness, feedOk, type Harness } from './harness/harness';
+import { tokenFromMagicLink } from './harness/testHelpers';
 
 async function applyApprove(
   h: Harness,
@@ -17,7 +18,7 @@ async function applyApprove(
     sourceType: 'json',
   });
   const url = h.mail.lastTo(email)!.data.magicLinkUrl as string;
-  const token = new URL(url).searchParams.get('token')!;
+  const token = tokenFromMagicLink(url);
   const v = await h.actors.publisher.verifyApplyMagicLink(token);
   await h.actors.admin.approveApplication(v.publisherId);
   if (trustLevel === 'auto') {

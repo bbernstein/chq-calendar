@@ -36,7 +36,6 @@ import { PublisherEmailChangeService } from '../../../services/publisherEmailCha
 import { PublisherAdminService } from '../../../services/publisherAdminService';
 import { MagicTokenService } from '../../../services/magicTokenService';
 import { runIngest, type IngestDeps } from '../../../handlers/publisherIngestHandler';
-import { selfDisable } from '../../../services/publisherSelfActionService';
 import * as portal from '../../../handlers/publisherPortalHandler';
 import * as admin from '../../../handlers/adminHandler';
 import * as captchaModule from '../../../services/captchaService';
@@ -284,11 +283,6 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
   };
   harness.actors = buildActors(harness);
   _harnessSingleton = harness;
-
-  // Re-export for selfDisable callers — the handler picks deps from
-  // `_setSelfDisableDepsForTests`, but the `selfDisable` action import is
-  // a free function so just import-and-use is fine.
-  void selfDisable;
 
   return harness;
 }

@@ -4,6 +4,7 @@ jest.unmock('@aws-sdk/lib-dynamodb');
 jest.unmock('@aws-sdk/client-dynamodb');
 
 import { createHarness, type Harness } from './harness/harness';
+import { tokenFromMagicLink } from './harness/testHelpers';
 
 describe('auth and limits', () => {
   let h: Harness;
@@ -48,7 +49,7 @@ describe('auth and limits', () => {
       sourceType: 'json',
     });
     const url = h.mail.lastTo('magic@example.com')!.data.magicLinkUrl as string;
-    const token = new URL(url).searchParams.get('token')!;
+    const token = tokenFromMagicLink(url);
     // Valid one-shot succeeds.
     await h.actors.publisher.verifyApplyMagicLink(token);
     // Replay → 400.
@@ -63,7 +64,7 @@ describe('auth and limits', () => {
       sourceType: 'json',
     });
     const url2 = h.mail.lastTo('expire@example.com')!.data.magicLinkUrl as string;
-    const token2 = new URL(url2).searchParams.get('token')!;
+    const token2 = tokenFromMagicLink(url2);
     h.now.advance(20 * 60 * 1000); // 20 min > 15 min TTL
     await expect(h.actors.publisher.verifyApplyMagicLink(token2))
       .rejects.toMatchObject({ statusCode: 400 });

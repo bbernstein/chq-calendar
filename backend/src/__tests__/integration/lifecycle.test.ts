@@ -7,12 +7,13 @@ jest.unmock('@aws-sdk/lib-dynamodb');
 jest.unmock('@aws-sdk/client-dynamodb');
 
 import { createHarness, feedOk, type Harness } from './harness/harness';
+import { tokenFromMagicLink } from './harness/testHelpers';
 
 function getApplyToken(h: Harness, email: string): string {
   const sent = h.mail.lastTo(email);
   if (!sent) throw new Error(`no mail captured to ${email}`);
   const url = sent.data.magicLinkUrl as string;
-  return new URL(url).searchParams.get('token')!;
+  return tokenFromMagicLink(url);
 }
 
 describe('publisher lifecycle', () => {
