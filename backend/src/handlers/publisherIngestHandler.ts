@@ -275,7 +275,10 @@ export async function scheduledHandler(
       runStore: new PublisherIngestRunStore(ddb, process.env.PUBLISHER_INGEST_RUNS_TABLE_NAME!),
       notifier: new PublisherNotificationService({
         mail: new SesMailService(),
-        portalUrl: `${process.env.SITE_BASE_URL ?? 'https://www.chqcal.org'}/publish/status/`,
+        // Strip a trailing slash from SITE_BASE_URL before joining so the
+        // resulting URL doesn't double-slash if the env var is set with a
+        // trailing slash. Matches the pattern in publisherAdminService.ts.
+        portalUrl: `${(process.env.SITE_BASE_URL ?? 'https://www.chqcal.org').replace(/\/$/, '')}/publish/status/`,
       }),
     },
     { singlePublisherId: evt?.singlePublisherId },

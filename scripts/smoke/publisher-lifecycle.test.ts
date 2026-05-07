@@ -131,8 +131,13 @@ describeMaybe('post-deploy publisher lifecycle', () => {
 
     const eventsResp = await api.publisher.events(publisherJwt);
     expect(eventsResp.events.length).toBe(publishedCount);
+    // bbtest is created with trustLevel='review' (consumeApplyByEmail in
+    // adminHandler.ts hardcodes that), so freshly-ingested events sit in
+    // 'pending' until an admin approves each one. The smoke does not
+    // approve individual events, so we assert the contract (a valid state
+    // and the projection shape) rather than a specific state.
     for (const e of eventsResp.events) {
-      expect(e.state).toBe('published');
+      expect(['published', 'pending']).toContain(e.state);
       expect(typeof e.eventId).toBe('string');
       expect(typeof e.title).toBe('string');
     }
