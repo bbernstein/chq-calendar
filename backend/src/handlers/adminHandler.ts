@@ -928,6 +928,10 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
         // override fails fast and doesn't burn read capacity. Allowlist is a
         // single hardcoded value — never accept arbitrary ids even from an
         // authenticated smoke caller.
+        //
+        // Keep this string in sync with:
+        //   - scripts/smoke/publisher-lifecycle.test.ts (consumeApplyByEmail call)
+        //   - infrastructure/smoke-publisher-feed.json   (publisher.id field)
         const ALLOWED_PUBLISHER_ID_OVERRIDE = 'smoke-bbtest';
         const overridePublisherId = typeof requestBody?.publisherId === 'string'
           ? requestBody.publisherId

@@ -3,7 +3,7 @@
   "publisher": {
     "id": "smoke-bbtest",
     "name": "[SMOKE] bbtest publisher-lifecycle fixture",
-    "contactEmail": "bernard+bbtest-smoke@thebernsteins.com"
+    "contactEmail": "smoke-bbtest@example.org"
   },
   "events": [
     {

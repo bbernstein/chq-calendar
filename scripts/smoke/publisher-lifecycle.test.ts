@@ -88,10 +88,11 @@ describeMaybe('post-deploy publisher lifecycle', () => {
     //
     // sourceUrl points at a static fixture feed at
     // s3://${frontend}/cache/smoke/bbtest-feed.json (provisioned via TF in
-    // ci-e2e-publisher.tf — colocated with the other deploy-test fixtures).
-    // The feed declares publisher.id = "smoke-bbtest"; the smoke route
-    // creates the publisher row with that exact id (see consumeApplyByEmail
-    // call below) so the fetcher's id-match check passes during ingest.
+    // ci-e2e-publisher.tf as `local.smoke_bbtest_feed_s3_key` — keep this
+    // path in sync with that local. The feed declares publisher.id =
+    // "smoke-bbtest"; the smoke route creates the publisher row with that
+    // exact id (see consumeApplyByEmail below) so the fetcher's id-match
+    // check passes during ingest.
     const apply = await api.publisher.applyRequest({
       email: SMOKE_BBTEST_EMAIL,
       name: 'bbtest smoke',
