@@ -87,11 +87,15 @@ describe('auth and limits', () => {
       sourceType: 'json',
     }, { ip: '203.0.113.50' })).rejects.toMatchObject({ statusCode: 429 });
 
-    // Advance past the 1h window → succeeds again.
+    // Advance past the 1h window → succeeds again. Use a fresh email
+    // (burst12, not burst11) so the post-advance assertion only depends on
+    // the rate limiter resetting; reusing burst11 would conflate "rate-limit
+    // window expired" with "duplicate-email rejection happens after rate check"
+    // and mask handler-order regressions.
     h.now.advance(61 * 60 * 1000);
     await h.actors.publisher.apply({
-      name: 'P11',
-      email: 'burst11@example.com',
+      name: 'P12',
+      email: 'burst12@example.com',
       sourceUrl: 'https://example.com/feed.json',
       sourceType: 'json',
     }, { ip: '203.0.113.50' });
