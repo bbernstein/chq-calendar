@@ -88,6 +88,13 @@ locals {
 }
 
 resource "aws_s3_object" "smoke_bbtest_feed" {
+  # Mirror the count gate on `aws_s3_object.ci_e2e_feed`: in environments
+  # where the CI/smoke infrastructure is deliberately disabled (preview
+  # accounts), don't upload the smoke fixture either. The smoke route in
+  # adminHandler.ts is unreachable in those environments anyway, so the S3
+  # object would be unused dead weight.
+  count = var.enable_ci_e2e_publisher ? 1 : 0
+
   bucket        = aws_s3_bucket.frontend_bucket.id
   key           = local.smoke_bbtest_feed_s3_key
   source        = "${path.module}/smoke-publisher-feed.json"

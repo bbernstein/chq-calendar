@@ -93,10 +93,14 @@ describeMaybe('post-deploy publisher lifecycle', () => {
     // "smoke-bbtest"; the smoke route creates the publisher row with that
     // exact id (see consumeApplyByEmail below) so the fetcher's id-match
     // check passes during ingest.
+    // URL constructor (instead of string concat) so a trailing slash on
+    // SMOKE_API_BASE doesn't produce a double-slash path that 404s under
+    // CloudFront's path normalization.
+    const fixtureFeedUrl = new URL('/cache/smoke/bbtest-feed.json', SMOKE_API_BASE).toString();
     const apply = await api.publisher.applyRequest({
       email: SMOKE_BBTEST_EMAIL,
       name: 'bbtest smoke',
-      sourceUrl: `${SMOKE_API_BASE}/cache/smoke/bbtest-feed.json`,
+      sourceUrl: fixtureFeedUrl,
       sourceType: 'json',
       organization: 'CI smoke run',
       notes: `smoke run @ ${new Date().toISOString()}`,
