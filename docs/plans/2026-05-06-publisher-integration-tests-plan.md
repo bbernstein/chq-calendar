@@ -453,3 +453,17 @@ EOF
   ```
 
 - [ ] **Step 2: Wait for CI to pass and request review**
+
+---
+
+## Post-merge
+
+After this PR merges, the repo owner must update branch protection on `main`:
+
+- Settings → Branches → Branch protection rules → `main` → Edit
+- Under "Require status checks to pass before merging", add: `test-backend (24)`, `test-backend (25)`, `test-frontend (24)`, `test-frontend (25)`.
+- Save.
+
+This cannot be done from a workflow file — it requires repo-settings access in the GitHub UI.
+
+The CI `push:` trigger broadening (Task 10) is achieved automatically by PR #103 (`chore/ci-concurrency-dedupe`), which adds `push: { branches: ['**'] }` plus `concurrency:`. No workflow file changes are made in this PR.
