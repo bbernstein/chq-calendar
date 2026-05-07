@@ -230,4 +230,16 @@ describe('POST /smoke-magic-token-by-email — bbtest email gate', () => {
     expect(r.statusCode).toBe(400);
     expect(JSON.parse(r.body).error).toMatch(/publisherId override must equal "smoke-bbtest"/);
   });
+
+  // Happy-path coverage gap: a unit test that asserts the accepted override
+  // ('smoke-bbtest') flows through to registry.upsert is not covered here
+  // because the handler reads from a module-level `docClient` directly (the
+  // ScanCommand for the apply-token row), not through the
+  // _setSmokeRouteDepsForTests injection seam. Mocking docClient cleanly
+  // would require either exporting a test setter (production code change for
+  // one test) or jest.mock'ing @aws-sdk/lib-dynamodb (which would break the
+  // sibling tests in this file). The live post-deploy smoke run is the
+  // happy-path coverage; a regression of the override path produces a
+  // mismatched publisher.id at ingest, which the smoke surfaces within the
+  // same minute as a deploy.
 });
