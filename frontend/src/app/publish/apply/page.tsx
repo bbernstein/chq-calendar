@@ -46,7 +46,11 @@ type Status =
   | { kind: 'error'; message: string; field?: string };
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
-const RECAPTCHA_SITE_KEY = (import.meta as any).env?.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+// Read directly via `import.meta.env.VITE_RECAPTCHA_SITE_KEY` (no cast or
+// optional chain) so vitest.config.ts's compile-time `define` for that exact
+// expression substitutes deterministically. Empty string is treated as
+// "captcha disabled" by the falsy checks below.
+const RECAPTCHA_SITE_KEY: string = import.meta.env.VITE_RECAPTCHA_SITE_KEY ?? '';
 
 // If the reCAPTCHA script doesn't report ready within this many ms (ad
 // blocker, network problem, Google blip), give up waiting and let the user

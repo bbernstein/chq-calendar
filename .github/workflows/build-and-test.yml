@@ -71,18 +71,16 @@ jobs:
       - name: Build frontend (includes type checking and linting)
         run: npm run build --workspace=frontend
         env:
-          # Mirror the deploy-production.yml frontend-build env so PR checks
+          # Mirror deploy-production.yml's frontend-build env so PR checks
           # reproduce the same vitest run conditions as the deploy build.
-          # Without VITE_RECAPTCHA_SITE_KEY set here, the apply-page integration
-          # tests pass on the PR check but fail post-merge during deploy
-          # (vitest's `import.meta.env` reads VITE_* from process.env at
-          # transform time; the apply page tries to load grecaptcha which
-          # jsdom can't execute). vitest.config.ts has a `define` override
-          # that forces the value to '' for tests — so this env var is
-          # consumed only by `vite build`, but mirroring it here ensures any
-          # future regression of that override surfaces pre-merge.
+          # Falls back to a non-secret placeholder so fork PRs (where GitHub
+          # withholds repo secrets) still exercise the "non-empty key" path
+          # — that's the path that previously broke vitest in CI.
+          # vitest.config.ts has a `define` override forcing this value to '
+          # ' for tests; mirroring it here ensures any future regression of
+          # that override surfaces pre-merge instead of crashing the deploy.
           VITE_API_URL: ""
-          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY || 'ci-placeholder-key' }}
           VITE_ENABLE_PUBLISHER_FEEDS: "true"
 
       - name: Upload frontend build artifacts
