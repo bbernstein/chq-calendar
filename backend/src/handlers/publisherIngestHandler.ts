@@ -7,6 +7,11 @@ import { PublisherEventStore, PublisherDeletedDuringApplyError } from '../servic
 import { PublisherSidecarPublisher } from '../services/publisherSidecarPublisher';
 import { fetchAndParseFeed } from '../services/publisherFeedFetcher';
 import { reconcile } from '../services/publisherReconciler';
+import { PublisherIngestRunStore } from '../services/publisherIngestRunStore';
+import { PublisherNotificationService } from '../services/publisherNotificationService';
+import { SesMailService } from '../services/mailService';
+import type { PublisherRecord } from '../types/publisher';
+import type { IngestRunRow, IngestRunCounts, IngestRunTrigger } from '../types/publisherIngestRun';
 
 export interface IngestDeps {
   registry: PublisherRegistryService;
@@ -18,6 +23,12 @@ export interface IngestDeps {
   // ConditionCheck to atomically refuse the diff if the publisher row was
   // deleted between snapshot and commit.
   publishersTableName: string;
+  // Persists per-iteration run rows. Used for the publisher-portal history
+  // panel and for streak-detection feeding the notifier.
+  runStore: PublisherIngestRunStore;
+  // Sends ingest-failure / ingest-recovery / event-rejected emails.
+  // Internally bounded by a 2s mail timeout; never propagates failures.
+  notifier: PublisherNotificationService;
 }
 
 export interface RunIngestOpts {
@@ -28,6 +39,30 @@ export interface RunIngestOpts {
   // disabled publishers in single-publisher mode behave the same as in a
   // full scan (paused → skipped, disabled → retracted).
   singlePublisherId?: string;
+  // Defaults to 'schedule' on the EventBridge cron path. /publisher-fetch-now
+  // passes 'publisher-fetch-now'; the admin "Run ingest now" button passes
+  // 'admin'. Recorded onto each run row.
+  trigger?: IngestRunTrigger;
+}
+
+async function recordRunAndNotify(
+  deps: IngestDeps,
+  p: PublisherRecord,
+  opts: RunIngestOpts,
+  newRun: IngestRunRow,
+): Promise<void> {
+  let prevRun: IngestRunRow | undefined;
+  try {
+    prevRun = await deps.runStore.getMostRecentRun(p.id);
+  } catch (err) {
+    console.error(`[publisher-ingest] failed to read most-recent run for ${p.id}:`, err);
+  }
+  try {
+    await deps.runStore.recordRun(newRun);
+  } catch (err) {
+    console.error(`[publisher-ingest] failed to record run for ${p.id}:`, err);
+  }
+  await deps.notifier.notifyIngestRunRecorded({ publisher: p, prevRun, newRun });
 }
 
 export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Promise<void> {
@@ -78,6 +113,13 @@ export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Pro
           .join('; ')
           .slice(0, 500);
         await deps.registry.recordFetchOutcome(p.id, { status: f.fetchStatus, message });
+        await recordRunAndNotify(deps, p, opts, {
+          publisherId: p.id,
+          runAt: deps.now.toISOString(),
+          status: f.fetchStatus,
+          message,
+          triggeredBy: opts.trigger ?? 'schedule',
+        });
         continue;
       }
       const stored = await deps.store.listForPublisher(p.id);
@@ -93,6 +135,13 @@ export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Pro
         await deps.registry.recordFetchOutcome(p.id, {
           status: 'threshold_halt',
           message: result.haltedByThreshold!.reason,
+        });
+        await recordRunAndNotify(deps, p, opts, {
+          publisherId: p.id,
+          runAt: deps.now.toISOString(),
+          status: 'threshold_halt',
+          message: result.haltedByThreshold!.reason.slice(0, 500),
+          triggeredBy: opts.trigger ?? 'schedule',
         });
         continue;
       }
@@ -128,8 +177,22 @@ export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Pro
         await deps.registry.setThresholdHalt(p.id, undefined);
       }
       await deps.registry.recordFetchOutcome(p.id, { status: 'ok' });
+      const counts: IngestRunCounts = {
+        added: result.diff.inserts.length,
+        updated: result.diff.updates.length,
+        retracted: result.diff.removals.length,
+        unchanged: result.diff.unchanged,
+      };
+      await recordRunAndNotify(deps, p, opts, {
+        publisherId: p.id,
+        runAt: deps.now.toISOString(),
+        status: 'ok',
+        counts,
+        triggeredBy: opts.trigger ?? 'schedule',
+      });
     } catch (err) {
       console.error(`[publisher-ingest] publisher ${p.id} failed:`, err);
+      const message = `unhandled error: ${(err as Error).message ?? String(err)}`.slice(0, 500);
       try {
         // This catch fires for unhandled throws from the loop body — DDB
         // errors, reconcile assertion failures, etc. fetchAndParseFeed
@@ -138,11 +201,18 @@ export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Pro
         // raw error message.
         await deps.registry.recordFetchOutcome(p.id, {
           status: 'network_error',
-          message: `unhandled error: ${(err as Error).message ?? String(err)}`.slice(0, 500),
+          message,
         });
       } catch (recordErr) {
         console.error(`[publisher-ingest] failed to record outcome for ${p.id}:`, recordErr);
       }
+      await recordRunAndNotify(deps, p, opts, {
+        publisherId: p.id,
+        runAt: deps.now.toISOString(),
+        status: 'network_error',
+        message,
+        triggeredBy: opts.trigger ?? 'schedule',
+      });
     }
   }
   // Retract events for disabled publishers. Disabling a publisher (enabled=false)
@@ -192,6 +262,11 @@ export async function scheduledHandler(
       fetcher: fetchAndParseFeed,
       now: new Date(),
       publishersTableName: process.env.PUBLISHERS_TABLE_NAME!,
+      runStore: new PublisherIngestRunStore(ddb, process.env.PUBLISHER_INGEST_RUNS_TABLE_NAME!),
+      notifier: new PublisherNotificationService({
+        mail: new SesMailService(),
+        portalUrl: `${process.env.SITE_BASE_URL ?? 'https://www.chqcal.org'}/publish/status/`,
+      }),
     },
     { singlePublisherId: evt?.singlePublisherId },
   );
