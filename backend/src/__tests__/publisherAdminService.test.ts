@@ -317,7 +317,7 @@ describe('PublisherAdminService', () => {
 
     it('calls notifier.notifyEventRejected with publisher, event, and reason when event is found', async () => {
       (store as any).getEvent.mockResolvedValue(event);
-      store.rejectEvent.mockResolvedValue(undefined);
+      store.rejectEvent.mockResolvedValue(true);
       registry.get.mockResolvedValue(publisher);
 
       await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'duplicate');
@@ -330,7 +330,7 @@ describe('PublisherAdminService', () => {
 
     it('does NOT call notifier when getEvent returns undefined (event already gone)', async () => {
       (store as any).getEvent.mockResolvedValue(undefined);
-      store.rejectEvent.mockResolvedValue(undefined);
+      store.rejectEvent.mockResolvedValue(true);
 
       await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'reason');
 
@@ -340,7 +340,7 @@ describe('PublisherAdminService', () => {
 
     it('does NOT call notifier when publisher registry returns null', async () => {
       (store as any).getEvent.mockResolvedValue(event);
-      store.rejectEvent.mockResolvedValue(undefined);
+      store.rejectEvent.mockResolvedValue(true);
       registry.get.mockResolvedValue(null);
 
       await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'reason');
@@ -350,12 +350,27 @@ describe('PublisherAdminService', () => {
 
     it('forwards undefined reason to the notifier when no reason given', async () => {
       (store as any).getEvent.mockResolvedValue(event);
-      store.rejectEvent.mockResolvedValue(undefined);
+      store.rejectEvent.mockResolvedValue(true);
       registry.get.mockResolvedValue(publisher);
 
       await svcWithNotifier.rejectEvent('pub-1', 'evt-1');
 
       expect(notifier.notifyEventRejected).toHaveBeenCalledWith({ publisher, event, reason: undefined });
+    });
+
+    it('does NOT call notifier when store.rejectEvent returns false (no-op transition)', async () => {
+      // Already non-pending row (rejected/published/deleted): store swallows
+      // the ConditionalCheckFailedException and returns false. No state change
+      // happened, so no email should be sent — even though getEvent succeeded
+      // pre-check.
+      (store as any).getEvent.mockResolvedValue(event);
+      store.rejectEvent.mockResolvedValue(false);
+      registry.get.mockResolvedValue(publisher);
+
+      await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'reason');
+
+      expect(notifier.notifyEventRejected).not.toHaveBeenCalled();
+      expect(registry.get).not.toHaveBeenCalled();
     });
   });
 

@@ -181,7 +181,7 @@ export function _resetPublisherAuthRateLimitForTests(): void {
 const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   // Authorization is included for Phase C authenticated publisher endpoints
   // (status page, feed management). The Phase A/B routes here don't read it,
   // but the header is shared and CORS preflight is per-resource — better to

@@ -51,18 +51,28 @@ async function recordRunAndNotify(
   opts: RunIngestOpts,
   newRun: IngestRunRow,
 ): Promise<void> {
+  // We need prevRun to detect streak transitions. If the read throws, we
+  // can't tell whether this run is a transition — and a fall-through to
+  // `prevRun=undefined` would be interpreted as "first ever run" by the
+  // notifier (treats prevRun=undefined as OK), producing a spurious
+  // "feed broke" email on every flaky-DDB ingest. Skip the notification
+  // entirely on read failure; the run row is still recorded for history.
   let prevRun: IngestRunRow | undefined;
+  let prevRunReadOk = true;
   try {
     prevRun = await deps.runStore.getMostRecentRun(p.id);
   } catch (err) {
-    console.error(`[publisher-ingest] failed to read most-recent run for ${p.id}:`, err);
+    console.error(`[publisher-ingest] failed to read most-recent run for ${p.id}; skipping notification:`, err);
+    prevRunReadOk = false;
   }
   try {
     await deps.runStore.recordRun(newRun);
   } catch (err) {
     console.error(`[publisher-ingest] failed to record run for ${p.id}:`, err);
   }
-  await deps.notifier.notifyIngestRunRecorded({ publisher: p, prevRun, newRun });
+  if (prevRunReadOk) {
+    await deps.notifier.notifyIngestRunRecorded({ publisher: p, prevRun, newRun });
+  }
 }
 
 export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Promise<void> {

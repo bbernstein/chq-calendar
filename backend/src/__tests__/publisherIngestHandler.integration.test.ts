@@ -1052,6 +1052,41 @@ describe('runIngest records run rows and triggers notifications', () => {
     expect(runStore.recordRun.mock.calls[0][0].triggeredBy).toBe('publisher-fetch-now');
   });
 
+  it('runStore.getMostRecentRun failure skips notifier (prevents spurious failure email on flaky DDB)', async () => {
+    const p = { id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x', sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([p]),
+      get: jest.fn().mockResolvedValue(p),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'parse_error', feed: null,
+      report: { ok: false, errors: [{ path: '/', message: 'boom' }], warnings: [] },
+    });
+    const store = {
+      listForPublisher: jest.fn(), applyDiff: jest.fn(),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+    const runStore = makeFakeRunStore();
+    runStore.getMostRecentRun.mockRejectedValueOnce(new Error('DDB read failed'));
+    const notifier = makeFakeNotifier();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(runIngest({
+      registry: registry as any, store: store as any, sidecar: sidecar as any,
+      fetcher: fetcher as any, now: new Date(), publishersTableName: 'chq-publishers',
+      runStore: runStore as any, notifier: notifier as any,
+    })).resolves.toBeUndefined();
+    // The run row is still recorded (best-effort audit) but the notification
+    // is skipped — the streak signal is unknowable without prevRun.
+    expect(runStore.recordRun).toHaveBeenCalledTimes(1);
+    expect(notifier.notifyIngestRunRecorded).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
   it('runStore.recordRun failure does not break ingest', async () => {
     const p = { id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x', sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
     const registry = {

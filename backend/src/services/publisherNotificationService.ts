@@ -80,18 +80,26 @@ export class PublisherNotificationService {
   // Bounded swallow-on-failure wrapper. Email is best-effort; a failed/late
   // mail call must NOT cause the caller (ingest loop, admin handler) to fail.
   // Errors and 2s+ timeouts are logged and swallowed.
+  //
+  // Important: when the timeout wins Promise.race, fn() keeps running as a
+  // floating promise. If it rejects later (AWS SDK retry-then-fail), Node 15+
+  // raises an unhandledRejection that defaults to crashing the Lambda.
+  // Attach a no-op .catch BEFORE racing so a late rejection is logged and
+  // swallowed instead.
   private async guarded(fn: () => Promise<unknown>): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const inner = fn().catch(err => {
+      console.error('[notification] mail send failed (late):', err);
+      return '__failed__' as const;
+    });
     try {
       const timeout = new Promise<'__timeout__'>(resolve => {
         timer = setTimeout(() => resolve('__timeout__'), MAIL_TIMEOUT_MS);
       });
-      const result = await Promise.race([fn(), timeout]);
+      const result = await Promise.race([inner, timeout]);
       if (result === '__timeout__') {
         console.error('[notification] mail send timed out after 2s');
       }
-    } catch (err) {
-      console.error('[notification] mail send failed:', err);
     } finally {
       if (timer) clearTimeout(timer);
     }

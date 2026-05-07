@@ -161,6 +161,16 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
             "s3:prefix" = ["cache/calendar-cache/publisher-events-*"]
           }
         }
+      },
+      {
+        # PublisherNotificationService (constructed in scheduledHandler) calls
+        # SES via SesMailService for ingest-failure / ingest-recovery emails.
+        # Without this grant the SDK call AccessDeniedExceptions and is
+        # silently swallowed by guarded(), so emails would never deliver.
+        # Same scope/shape as the portal Lambda's SES grant in publisher-portal.tf.
+        Effect   = "Allow",
+        Action   = ["ses:SendEmail"],
+        Resource = "arn:aws:ses:${var.aws_region}:*:identity/${var.domain_name}"
       }
     ]
   })

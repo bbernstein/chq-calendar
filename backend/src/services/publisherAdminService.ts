@@ -131,11 +131,15 @@ export class PublisherAdminService {
     reason?: string,
   ): Promise<void> {
     // Read the event BEFORE rejecting so we have its title/startDate for the
-    // notification email. If the row is gone (never existed or already deleted),
-    // store.rejectEvent's ConditionExpression will be a no-op — don't notify.
+    // notification email. store.rejectEvent returns a transitioned boolean —
+    // false when the row was already non-pending (already-rejected, already-
+    // published, gone). We notify ONLY when the row actually transitioned to
+    // 'rejected', so admin double-clicks or races against approve don't
+    // produce a misleading "your event was rejected" email for an event that
+    // is in fact still published.
     const event = await this.store.getEvent(publisherId, eventId);
-    await this.store.rejectEvent(publisherId, eventId, reason);
-    if (event && this.reviewDeps.notifier) {
+    const transitioned = await this.store.rejectEvent(publisherId, eventId, reason);
+    if (transitioned && event && this.reviewDeps.notifier) {
       const publisher = await this.registry.get(publisherId);
       if (publisher) {
         await this.reviewDeps.notifier.notifyEventRejected({ publisher, event, reason });

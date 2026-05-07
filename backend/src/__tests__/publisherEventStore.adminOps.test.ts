@@ -57,9 +57,10 @@ describe('PublisherEventStore admin ops', () => {
     await expect(store.approveEvent('p', 'e')).rejects.toThrow('boom');
   });
 
-  it('rejectEvent updates state to rejected with reason and rejectedAt', async () => {
+  it('rejectEvent updates state to rejected with reason and rejectedAt and returns true', async () => {
     mockClient.send.mockResolvedValue({});
-    await store.rejectEvent('p', 'e', 'duplicate of upstream feed');
+    const transitioned = await store.rejectEvent('p', 'e', 'duplicate of upstream feed');
+    expect(transitioned).toBe(true);
     const cmd: any = mockClient.send.mock.calls[0][0];
     expect(cmd.constructor.name).toBe('UpdateCommand');
     expect(cmd.input.UpdateExpression).toContain('#s = :rejected');
@@ -94,10 +95,10 @@ describe('PublisherEventStore admin ops', () => {
     expect((cmd.input.ExpressionAttributeValues[':reason'] as string).length).toBe(500);
   });
 
-  it('rejectEvent treats ConditionalCheckFailedException as a no-op success (state !== pending)', async () => {
+  it('rejectEvent treats ConditionalCheckFailedException as a no-op and returns false (state !== pending)', async () => {
     const err = Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' });
     mockClient.send.mockRejectedValue(err);
-    await expect(store.rejectEvent('p', 'e', 'r')).resolves.toBeUndefined();
+    await expect(store.rejectEvent('p', 'e', 'r')).resolves.toBe(false);
   });
 
   it('rejectEvent re-throws other errors', async () => {

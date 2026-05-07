@@ -129,11 +129,15 @@ export class PublisherEventStore {
     }
   }
 
+  // Returns true iff the row transitioned from 'pending' to 'rejected' on this
+  // call. Returns false on the conditional-no-op path (row already non-pending
+  // or already deleted) so callers can decide whether to fire side-effects
+  // like notification emails.
   async rejectEvent(
     publisherId: string,
     eventId: string,
     reason?: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Soft-delete: rows transition to state='rejected' (terminal) instead of
     // being deleted. Re-ingest preserves them via publisherReconciler.toStored.
     // The condition `#s = :pending` keeps approve/reject races atomic — same
@@ -161,8 +165,9 @@ export class PublisherEventStore {
         ExpressionAttributeNames: { '#s': 'state' },
         ExpressionAttributeValues: exprValues,
       }));
+      return true;
     } catch (err) {
-      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return;
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return false;
       throw err;
     }
   }
