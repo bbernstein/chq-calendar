@@ -13,6 +13,10 @@ function statusLabel(s: IngestRunSummary['status']): string {
     case 'validation_error': return 'Validation error';
     case 'network_error': return 'Network error';
     case 'threshold_halt': return 'Threshold halt';
+    // Fallback for forward-compat: if a future backend deploy ships a new
+    // status string before the frontend deploy catches up, render the raw
+    // value rather than blanking the cell.
+    default: return s;
   }
 }
 
