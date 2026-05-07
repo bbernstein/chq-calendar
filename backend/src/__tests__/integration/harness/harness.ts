@@ -35,6 +35,7 @@ import { PublisherApplicationService } from '../../../services/publisherApplicat
 import { PublisherEmailChangeService } from '../../../services/publisherEmailChangeService';
 import { PublisherAdminService } from '../../../services/publisherAdminService';
 import { MagicTokenService } from '../../../services/magicTokenService';
+import type { StoredPublisherEvent } from '../../../types/publisher';
 import { runIngest, type IngestDeps } from '../../../handlers/publisherIngestHandler';
 import * as portal from '../../../handlers/publisherPortalHandler';
 import * as admin from '../../../handlers/adminHandler';
@@ -85,7 +86,7 @@ export interface Harness {
   signSession: (publisherId: string, opts?: { tokenVersion?: number; email?: string }) => Promise<string>;
   /** Returns event states for a publisher: { [eventId]: state }. */
   events: {
-    statesOf: (publisherId: string) => Promise<Record<string, 'published' | 'pending'>>;
+    statesOf: (publisherId: string) => Promise<Record<string, StoredPublisherEvent['state']>>;
     count: (publisherId: string) => Promise<number>;
   };
   /** Lazily-imported actor wrappers. Set after createHarness completes. */
@@ -227,7 +228,7 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
   const events = {
     statesOf: async (publisherId: string) => {
       const all = await store.listForPublisher(publisherId);
-      const out: Record<string, 'published' | 'pending'> = {};
+      const out: Record<string, StoredPublisherEvent['state']> = {};
       for (const e of all) out[e.eventId] = e.state;
       return out;
     },

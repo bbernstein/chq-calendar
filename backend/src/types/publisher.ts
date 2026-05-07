@@ -18,6 +18,11 @@ export interface PublisherRecord {
   // from `enabled = false`, which retracts (hard-deletes) all events on the
   // next ingest run. Optional/defaulted-undefined; absence means "not paused".
   paused?: boolean;
+  // Single opt-out switch for the publisher-observability email notifications
+  // (ingest-failure, ingest-recovery, event-rejected). Operational emails
+  // (magic link, email-change verify, self-disable confirmation) are unaffected.
+  // Absent → treated as true (default-on for legacy rows).
+  notificationsEnabled?: boolean;
   // Identity-version counter. Bumped on email change verify and self-disable.
   // Issued JWTs include this; mismatch with the row's current value → 401.
   // Defaults to 0 for legacy rows that were created before this field existed.
@@ -74,7 +79,13 @@ export interface StoredPublisherEvent {
   endDate: string;
   lastModified: string;
   payload: FeedEvent & { sourcePublisherId: string; sourcePublisherName: string };
-  state: 'published' | 'pending';
+  state: 'published' | 'pending' | 'rejected';
+  // Set when admin rejects. Optional so blank reasons are simply absent.
+  // Cap at 500 chars in the handler that sets it.
+  rejectionReason?: string;
+  // ISO 8601 timestamp at which admin rejected. Sidecar/UI uses this to
+  // sort rejected items and to show "Rejected on …" in the publisher portal.
+  rejectedAt?: string;
   updatedAt: string;
 }
 
