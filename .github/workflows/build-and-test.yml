@@ -71,7 +71,17 @@ jobs:
       - name: Build frontend (includes type checking and linting)
         run: npm run build --workspace=frontend
         env:
+          # Mirror deploy-production.yml's frontend-build env so PR checks
+          # reproduce the same vitest run conditions as the deploy build.
+          # Falls back to a non-secret placeholder so fork PRs (where GitHub
+          # withholds repo secrets) still exercise the "non-empty key" path
+          # — that's the path that previously broke vitest in CI.
+          # vitest.config.ts has a `define` override forcing this value to ''
+          # for tests; mirroring it here ensures any future regression of
+          # that override surfaces pre-merge instead of crashing the deploy.
           VITE_API_URL: ""
+          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY || 'ci-placeholder-key' }}
+          VITE_ENABLE_PUBLISHER_FEEDS: "true"
 
       - name: Upload frontend build artifacts
         uses: actions/upload-artifact@v4
