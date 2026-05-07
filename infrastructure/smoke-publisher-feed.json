@@ -1,0 +1,30 @@
+{
+  "formatVersion": "1.0",
+  "publisher": {
+    "id": "smoke-bbtest",
+    "name": "[SMOKE] bbtest publisher-lifecycle fixture",
+    "contactEmail": "bernard+bbtest-smoke@thebernsteins.com"
+  },
+  "events": [
+    {
+      "id": "smoke-event-keynote",
+      "title": "[SMOKE] Keynote (do not display)",
+      "startDate": "2030-07-04T18:00:00-04:00",
+      "endDate": "2030-07-04T19:30:00-04:00",
+      "category": "Special Lectures",
+      "venueId": "hall-of-philosophy",
+      "presenter": "Smoke Bot",
+      "description": "Synthetic event used by the post-deploy publisher-lifecycle smoke to validate apply→approve→publish→pause→resume→self-disable end-to-end. Far-future date keeps it safely past the reconciler's past-event filter; smoke afterAll resets to baseline (events deleted) so this never reaches the public calendar.",
+      "lastModified": "2026-05-07T00:00:00-04:00"
+    },
+    {
+      "id": "smoke-event-panel",
+      "title": "[SMOKE] Panel (do not display)",
+      "startDate": "2030-07-05T10:30:00-04:00",
+      "endDate": "2030-07-05T12:00:00-04:00",
+      "category": "Special Lectures",
+      "venueId": "hall-of-philosophy",
+      "lastModified": "2026-05-07T00:00:00-04:00"
+    }
+  ]
+}

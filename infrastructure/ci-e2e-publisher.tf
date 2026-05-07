@@ -90,8 +90,8 @@ locals {
 resource "aws_s3_object" "smoke_bbtest_feed" {
   bucket        = aws_s3_bucket.frontend_bucket.id
   key           = local.smoke_bbtest_feed_s3_key
-  source        = "${path.module}/smoke-bbtest-feed.json"
-  etag          = filemd5("${path.module}/smoke-bbtest-feed.json")
+  source        = "${path.module}/smoke-publisher-feed.json"
+  etag          = filemd5("${path.module}/smoke-publisher-feed.json")
   content_type  = "application/json"
   cache_control = "public, max-age=60"
 }
