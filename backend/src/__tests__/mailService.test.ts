@@ -217,6 +217,140 @@ describe('SesMailService', () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
+  // ─── Observability emails (Task 6) ───────────────────────────────────
+
+  it('sendIngestFailureEmail subject mentions the feed broke; body includes publisher name, status, error, and portal link', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-fail-1' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    const out = await svc.sendIngestFailureEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme Concerts',
+      status: 'parse_error',
+      message: 'Unexpected token } at position 142',
+      portalUrl: 'https://x.test/publish/status/',
+    });
+    expect(out.messageId).toBe('mid-fail-1');
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Destination.ToAddresses).toEqual(['pub@example.com']);
+    expect(cmd.input.Content.Simple.Subject.Data).toMatch(/feed.*(broke|broken)/i);
+    const text = cmd.input.Content.Simple.Body.Text.Data;
+    expect(text).toContain('Acme Concerts');
+    expect(text).toContain('Unexpected token');
+    expect(text).toContain('https://x.test/publish/status/');
+    const html = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).toContain('Acme Concerts');
+    expect(html).toContain('Unexpected token');
+    expect(html).toContain('<pre');
+    expect(html).toContain('https://x.test/publish/status/');
+  });
+
+  it('sendIngestFailureEmail HTML-escapes publisher name and error message', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-fail-2' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendIngestFailureEmail({
+      to: 'p@x.com',
+      publisherName: '<script>x</script>',
+      status: 'validation_error',
+      message: '<img src=y onerror=z>',
+      portalUrl: 'https://x.test/publish/status/',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    const html: string = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<img src=y');
+    expect(html).toContain('&lt;img');
+  });
+
+  it('sendIngestRecoveryEmail subject signals success; body shows counts and portal link', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-rec-1' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    const out = await svc.sendIngestRecoveryEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme',
+      counts: { added: 12, updated: 3, retracted: 1, unchanged: 5 },
+      portalUrl: 'https://x.test/publish/status/',
+    });
+    expect(out.messageId).toBe('mid-rec-1');
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Content.Simple.Subject.Data).toMatch(/working again|recovered|back/i);
+    const text = cmd.input.Content.Simple.Body.Text.Data;
+    expect(text).toContain('Acme');
+    expect(text).toMatch(/12/);
+    expect(text).toMatch(/3/);
+    expect(text).toContain('https://x.test/publish/status/');
+  });
+
+  it('sendEventRejectedEmail with reason includes the reason verbatim and event details', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-evrej-1' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    const out = await svc.sendEventRejectedEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme',
+      eventTitle: 'Symphony Gala',
+      eventStartDate: '2026-07-01T18:00:00.000Z',
+      reason: 'Duplicate of upstream feed event',
+      portalUrl: 'https://x.test/publish/status/',
+    });
+    expect(out.messageId).toBe('mid-evrej-1');
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Content.Simple.Subject.Data).toMatch(/removed|rejected/i);
+    expect(cmd.input.Content.Simple.Subject.Data).toContain('Symphony Gala');
+    const text = cmd.input.Content.Simple.Body.Text.Data;
+    expect(text).toContain('Symphony Gala');
+    expect(text).toContain('Duplicate of upstream feed event');
+    expect(text).toContain('https://x.test/publish/status/');
+  });
+
+  it('sendEventRejectedEmail without reason shows a generic line', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-evrej-2' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendEventRejectedEmail({
+      to: 'pub@example.com',
+      publisherName: 'Acme',
+      eventTitle: 'Lecture',
+      eventStartDate: '2026-07-01T18:00:00.000Z',
+      portalUrl: 'https://x.test/publish/status/',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    const text = cmd.input.Content.Simple.Body.Text.Data;
+    // No "Reason:" header line when reason is omitted; instead a generic admin line.
+    expect(text).not.toMatch(/^Reason:/m);
+    expect(text).toMatch(/admin removed|removed by/i);
+  });
+
+  it('sendEventRejectedEmail HTML-escapes the event title and reason', async () => {
+    mockSend.mockResolvedValue({ MessageId: 'mid-evrej-3' });
+    const svc = new SesMailService(mockClient, 'no-reply@chqcal.org');
+    await svc.sendEventRejectedEmail({
+      to: 'p@x.com',
+      publisherName: 'Acme',
+      eventTitle: '<b>Concert</b>',
+      eventStartDate: '2026-07-01T18:00:00.000Z',
+      reason: '<img src=y>',
+      portalUrl: 'https://x.test/publish/status/',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    const html: string = cmd.input.Content.Simple.Body.Html.Data;
+    expect(html).not.toContain('<b>Concert</b>');
+    expect(html).toContain('&lt;b&gt;Concert&lt;/b&gt;');
+    expect(html).not.toContain('<img src=y');
+  });
+
+  it('observability emails throw if SES_FROM_ADDRESS is empty', async () => {
+    const svc = new SesMailService(mockClient, '');
+    await expect(svc.sendIngestFailureEmail({
+      to: 'a@b', publisherName: 'X', status: 'network_error', message: 'm', portalUrl: 'u',
+    })).rejects.toThrow(/SES_FROM_ADDRESS/);
+    await expect(svc.sendIngestRecoveryEmail({
+      to: 'a@b', publisherName: 'X', counts: { added: 0, updated: 0, retracted: 0, unchanged: 0 }, portalUrl: 'u',
+    })).rejects.toThrow(/SES_FROM_ADDRESS/);
+    await expect(svc.sendEventRejectedEmail({
+      to: 'a@b', publisherName: 'X', eventTitle: 't', eventStartDate: '2026-07-01T18:00:00Z', portalUrl: 'u',
+    })).rejects.toThrow(/SES_FROM_ADDRESS/);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
   it('approval/rejection emails throw if SES_FROM_ADDRESS is empty', async () => {
     const svc = new SesMailService(mockClient, '');
     await expect(

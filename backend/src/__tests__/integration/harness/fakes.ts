@@ -18,6 +18,9 @@ import type {
   EmailChangeCommittedOpts,
   EmailChangeCancelledOpts,
   SelfDisabledConfirmationOpts,
+  IngestFailureEmailOpts,
+  IngestRecoveryEmailOpts,
+  EventRejectedEmailOpts,
 } from '../../../services/mailService';
 import type {
   RateLimiter,
@@ -59,7 +62,10 @@ export type SentMailKind =
   | 'email_change_warning'
   | 'email_change_committed'
   | 'email_change_cancelled'
-  | 'self_disabled_confirmation';
+  | 'self_disabled_confirmation'
+  | 'ingest_failure'
+  | 'ingest_recovery'
+  | 'event_rejected';
 
 export interface SentMail {
   kind: SentMailKind;
@@ -104,6 +110,18 @@ export class MailCapture implements MailService {
   }
   async sendSelfDisabledConfirmation(opts: SelfDisabledConfirmationOpts) {
     this.sent.push({ kind: 'self_disabled_confirmation', to: opts.to, data: { ...opts } });
+    return { messageId: `mid-${this.sent.length}` };
+  }
+  async sendIngestFailureEmail(opts: IngestFailureEmailOpts) {
+    this.sent.push({ kind: 'ingest_failure', to: opts.to, data: { ...opts } });
+    return { messageId: `mid-${this.sent.length}` };
+  }
+  async sendIngestRecoveryEmail(opts: IngestRecoveryEmailOpts) {
+    this.sent.push({ kind: 'ingest_recovery', to: opts.to, data: { ...opts } });
+    return { messageId: `mid-${this.sent.length}` };
+  }
+  async sendEventRejectedEmail(opts: EventRejectedEmailOpts) {
+    this.sent.push({ kind: 'event_rejected', to: opts.to, data: { ...opts } });
     return { messageId: `mid-${this.sent.length}` };
   }
 
