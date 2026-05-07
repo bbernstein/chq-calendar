@@ -15,6 +15,7 @@ import { ApplicationStateError, PublisherAdminService } from '../services/publis
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
 import { SesMailService } from '../services/mailService';
+import { PublisherNotificationService } from '../services/publisherNotificationService';
 import { signPublisherJwt } from '../services/publisherAuthService';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -59,12 +60,15 @@ export const _setLambdaClientForTests = _setIngestLambdaClientForTests;
 let _publisherAdmin: PublisherAdminService | null = null;
 function publisherAdmin(): PublisherAdminService {
   if (!_publisherAdmin) {
+    const mail = new SesMailService();
+    const portalUrl = `${(process.env.SITE_BASE_URL ?? 'https://www.chqcal.org').replace(/\/$/, '')}/publish/status/`;
     _publisherAdmin = new PublisherAdminService(
       new PublisherRegistryService(docClient, process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers'),
       new PublisherEventStore(docClient, process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chautauqua-calendar-publisher-events'),
       {
-        mail: new SesMailService(),
+        mail,
         siteBaseUrl: process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
+        notifier: new PublisherNotificationService({ mail, portalUrl }),
       },
     );
   }
@@ -765,7 +769,14 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     const matchReject = path.match(/^\/publisher-events\/([^/]+)\/([^/]+)\/reject$/);
     if (matchReject && httpMethod === 'POST') {
       try {
-        await publisherAdmin().rejectEvent(decodeURIComponent(matchReject[1]), decodeURIComponent(matchReject[2]));
+        const publisherId = decodeURIComponent(matchReject[1]);
+        const eventId = decodeURIComponent(matchReject[2]);
+        // requestBody is already parsed by the global parser above; any
+        // malformed JSON was rejected with 400 before we got here.
+        const rawReason = typeof requestBody?.reason === 'string' ? requestBody.reason : undefined;
+        const trimmed = rawReason?.trim();
+        const reason = trimmed && trimmed.length > 0 ? trimmed.slice(0, 500) : undefined;
+        await publisherAdmin().rejectEvent(publisherId, eventId, reason);
         return createResponse(204, {});
       } catch (error) {
         console.error('Error rejecting publisher event:', error);

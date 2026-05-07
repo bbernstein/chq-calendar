@@ -263,3 +263,131 @@ describe('POST /publishers/run-ingest', () => {
     errSpy.mockRestore();
   });
 });
+
+describe('POST /publisher-events/:pid/:eid/reject', () => {
+  it('passes reason from body to rejectEvent and returns 204', async () => {
+    const stub = mkAdmin();
+    stub.rejectEvent.mockResolvedValue(undefined);
+    _setPublisherAdminForTests(stub as any);
+
+    const r = await handler(
+      evt({
+        path: '/publisher-events/pub-1/evt-1/reject',
+        httpMethod: 'POST',
+        body: JSON.stringify({ reason: 'duplicate' }),
+      }),
+      ctx,
+    );
+
+    expect(r.statusCode).toBe(204);
+    expect(stub.rejectEvent).toHaveBeenCalledWith('pub-1', 'evt-1', 'duplicate');
+  });
+
+  it('passes reason=undefined when body is empty', async () => {
+    const stub = mkAdmin();
+    stub.rejectEvent.mockResolvedValue(undefined);
+    _setPublisherAdminForTests(stub as any);
+
+    const r = await handler(
+      evt({ path: '/publisher-events/pub-1/evt-1/reject', httpMethod: 'POST', body: null }),
+      ctx,
+    );
+
+    expect(r.statusCode).toBe(204);
+    expect(stub.rejectEvent).toHaveBeenCalledWith('pub-1', 'evt-1', undefined);
+  });
+
+  it('normalizes whitespace-only reason to undefined', async () => {
+    const stub = mkAdmin();
+    stub.rejectEvent.mockResolvedValue(undefined);
+    _setPublisherAdminForTests(stub as any);
+
+    const r = await handler(
+      evt({
+        path: '/publisher-events/pub-1/evt-1/reject',
+        httpMethod: 'POST',
+        body: JSON.stringify({ reason: '   ' }),
+      }),
+      ctx,
+    );
+
+    expect(r.statusCode).toBe(204);
+    expect(stub.rejectEvent).toHaveBeenCalledWith('pub-1', 'evt-1', undefined);
+  });
+
+  it('slices reason longer than 500 chars to 500', async () => {
+    const stub = mkAdmin();
+    stub.rejectEvent.mockResolvedValue(undefined);
+    _setPublisherAdminForTests(stub as any);
+
+    const longReason = 'x'.repeat(600);
+    const r = await handler(
+      evt({
+        path: '/publisher-events/pub-1/evt-1/reject',
+        httpMethod: 'POST',
+        body: JSON.stringify({ reason: longReason }),
+      }),
+      ctx,
+    );
+
+    expect(r.statusCode).toBe(204);
+    const calledWith = stub.rejectEvent.mock.calls[0][2] as string;
+    expect(calledWith.length).toBe(500);
+  });
+
+  it('returns 400 when body is present but malformed JSON (global early-exit before route handler)', async () => {
+    const stub = mkAdmin();
+    stub.rejectEvent.mockResolvedValue(undefined);
+    _setPublisherAdminForTests(stub as any);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const r = await handler(
+      evt({
+        path: '/publisher-events/pub-1/evt-1/reject',
+        httpMethod: 'POST',
+        body: 'not-json{{{',
+      }),
+      ctx,
+    );
+
+    // The adminHandler parses the body at the top level and short-circuits
+    // with 400 before reaching the reject route logic.
+    expect(r.statusCode).toBe(400);
+    expect(stub.rejectEvent).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('decodes URL-encoded ids before passing them to rejectEvent', async () => {
+    const stub = mkAdmin();
+    stub.rejectEvent.mockResolvedValue(undefined);
+    _setPublisherAdminForTests(stub as any);
+
+    const r = await handler(
+      evt({
+        path: '/publisher-events/pub%2F1/evt%201/reject',
+        httpMethod: 'POST',
+        body: null,
+      }),
+      ctx,
+    );
+
+    expect(r.statusCode).toBe(204);
+    expect(stub.rejectEvent).toHaveBeenCalledWith('pub/1', 'evt 1', undefined);
+  });
+
+  it('returns 500 when rejectEvent throws', async () => {
+    const stub = mkAdmin();
+    stub.rejectEvent.mockRejectedValue(new Error('DDB exploded'));
+    _setPublisherAdminForTests(stub as any);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const r = await handler(
+      evt({ path: '/publisher-events/pub-1/evt-1/reject', httpMethod: 'POST', body: null }),
+      ctx,
+    );
+
+    expect(r.statusCode).toBe(500);
+    expect(JSON.parse(r.body).error).toMatch(/Failed to reject event/);
+    errSpy.mockRestore();
+  });
+});

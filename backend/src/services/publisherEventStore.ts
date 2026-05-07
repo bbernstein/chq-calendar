@@ -1,4 +1,5 @@
 import {
+  GetCommand,
   QueryCommand,
   TransactWriteCommand,
   UpdateCommand,
@@ -52,6 +53,17 @@ export class PublisherEventStore {
       last = r.LastEvaluatedKey;
     } while (last);
     return total;
+  }
+
+  async getEvent(
+    publisherId: string,
+    eventId: string,
+  ): Promise<StoredPublisherEvent | undefined> {
+    const r = await this.db.send(new GetCommand({
+      TableName: this.tableName,
+      Key: { publisherId, eventId },
+    }));
+    return r.Item as StoredPublisherEvent | undefined;
   }
 
   async listAllPublished(): Promise<StoredPublisherEvent[]> {

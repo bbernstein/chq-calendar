@@ -11,6 +11,23 @@ describe('PublisherEventStore admin ops', () => {
     store = new PublisherEventStore(mockClient as any, 'chq-publisher-events');
   });
 
+  it('getEvent issues a GetCommand with the correct table, publisherId, and eventId', async () => {
+    const item = { publisherId: 'p', eventId: 'e', state: 'pending' };
+    mockClient.send.mockResolvedValue({ Item: item });
+    const result = await store.getEvent('p', 'e');
+    const cmd: any = mockClient.send.mock.calls[0][0];
+    expect(cmd.constructor.name).toBe('GetCommand');
+    expect(cmd.input.TableName).toBe('chq-publisher-events');
+    expect(cmd.input.Key).toEqual({ publisherId: 'p', eventId: 'e' });
+    expect(result).toEqual(item);
+  });
+
+  it('getEvent returns undefined when the item does not exist', async () => {
+    mockClient.send.mockResolvedValue({ Item: undefined });
+    const result = await store.getEvent('p', 'missing');
+    expect(result).toBeUndefined();
+  });
+
   it('listPending uses the by-state GSI with state=pending', async () => {
     mockClient.send.mockResolvedValue({ Items: [] });
     await store.listPending();
