@@ -76,8 +76,8 @@ jobs:
           # Falls back to a non-secret placeholder so fork PRs (where GitHub
           # withholds repo secrets) still exercise the "non-empty key" path
           # — that's the path that previously broke vitest in CI.
-          # vitest.config.ts has a `define` override forcing this value to '
-          # ' for tests; mirroring it here ensures any future regression of
+          # vitest.config.ts has a `define` override forcing this value to ''
+          # for tests; mirroring it here ensures any future regression of
           # that override surfaces pre-merge instead of crashing the deploy.
           VITE_API_URL: ""
           VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY || 'ci-placeholder-key' }}
