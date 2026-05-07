@@ -179,11 +179,6 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
     siteBaseUrl: 'https://test.chqcal.local',
     now: nowFn,
   });
-  const adminService = new PublisherAdminService(registry, store, {
-    mail,
-    siteBaseUrl: 'https://test.chqcal.local',
-  });
-
   // Set up ingest. The Lambda invoker (used by both /publisher-fetch-now and
   // /publishers/run-ingest) routes back to runIngest in-process so a single
   // harness run can drive both the API call and the resulting ingest.
@@ -191,6 +186,12 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
   const notifier = new PublisherNotificationService({
     mail,
     portalUrl: 'https://test.chqcal.local/publish/status/',
+  });
+
+  const adminService = new PublisherAdminService(registry, store, {
+    mail,
+    siteBaseUrl: 'https://test.chqcal.local',
+    notifier,
   });
   const ingestDeps: IngestDeps = {
     registry,
@@ -216,6 +217,8 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
   // previously-captured value). This is safe because every test file
   // builds a new harness in beforeEach and tears it down in afterEach.
   portal._setStatusRegistryForTests(registry);
+  portal._setRunStoreForTests(runStore);
+  portal._setEventStoreForTests(store);
   portal._setAppServiceForTests(appService);
   portal._setEmailChangeServiceForTests(emailChangeService);
   portal._setSelfDisableDepsForTests({
@@ -290,6 +293,8 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
     jwtSecret: TEST_JWT_SECRET,
     dispose: () => {
       portal._setStatusRegistryForTests(null);
+      portal._setRunStoreForTests(null);
+      portal._setEventStoreForTests(null);
       portal._setAppServiceForTests(null);
       portal._setEmailChangeServiceForTests(null);
       portal._setSelfDisableDepsForTests(null);
