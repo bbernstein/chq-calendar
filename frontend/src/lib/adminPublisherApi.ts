@@ -175,11 +175,20 @@ export const approveEvent = (publisherId: string, eventId: string): Promise<void
     { method: 'POST' }
   );
 
-export const rejectEvent = (publisherId: string, eventId: string): Promise<void> =>
-  req<void>(
+export const rejectEvent = (
+  publisherId: string,
+  eventId: string,
+  reason?: string,
+): Promise<void> => {
+  const trimmed = reason?.trim();
+  return req<void>(
     `/publisher-events/${encodeURIComponent(publisherId)}/${encodeURIComponent(eventId)}/reject`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      ...(trimmed ? { body: JSON.stringify({ reason: trimmed }) } : {}),
+    },
   );
+};
 
 // ---------------------------------------------------------------------------
 // Threshold halts
