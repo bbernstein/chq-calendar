@@ -1,5 +1,20 @@
 import { runIngest } from '../handlers/publisherIngestHandler';
 
+function makeFakeRunStore() {
+  return {
+    recordRun: jest.fn().mockResolvedValue(undefined),
+    getMostRecentRun: jest.fn().mockResolvedValue(undefined),
+    listRecentRuns: jest.fn().mockResolvedValue([]),
+  };
+}
+
+function makeFakeNotifier() {
+  return {
+    notifyIngestRunRecorded: jest.fn().mockResolvedValue(undefined),
+    notifyEventRejected: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 describe('runIngest (integration)', () => {
   it('processes one auto publisher end to end', async () => {
     const testPub = {
@@ -57,6 +72,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(store.applyDiff).toHaveBeenCalledTimes(1);
@@ -93,6 +110,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(store.listForPublisher).not.toHaveBeenCalled();
@@ -142,6 +161,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(registry.setThresholdHalt).toHaveBeenCalledWith('p1', undefined);
@@ -181,6 +202,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(registry.setThresholdHalt).not.toHaveBeenCalled();
@@ -234,6 +257,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(store.applyDiff).not.toHaveBeenCalled();
@@ -287,6 +312,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(registry.setThresholdHalt).toHaveBeenCalledTimes(1);
@@ -342,6 +369,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(store.applyDiff).toHaveBeenCalledTimes(2);
@@ -378,6 +407,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(sidecar.publish).toHaveBeenCalledTimes(1);
@@ -409,6 +440,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(fetcher).not.toHaveBeenCalled();
@@ -446,6 +479,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(store.deleteAllForPublisher).toHaveBeenCalledTimes(2);
@@ -507,6 +542,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(callOrder).toEqual([
@@ -543,6 +580,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     // Paused publishers are intentionally invisible to the active and
@@ -602,6 +641,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     // The fetch went out (it's already in flight before we know about the
@@ -663,6 +704,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     // The transaction was attempted but rolled back atomically — no events
@@ -704,6 +747,8 @@ describe('runIngest (integration)', () => {
       fetcher: fetcher as any,
       now: new Date('2026-06-01T00:00:00Z'),
       publishersTableName: 'chq-publishers',
+      runStore: makeFakeRunStore() as any,
+      notifier: makeFakeNotifier() as any,
     });
 
     expect(fetcher).not.toHaveBeenCalled();
@@ -758,6 +803,8 @@ describe('runIngest (integration)', () => {
           fetcher: fetcher as any,
           now: new Date('2026-06-01T00:00:00Z'),
           publishersTableName: 'chq-publishers',
+          runStore: makeFakeRunStore() as any,
+          notifier: makeFakeNotifier() as any,
         },
         { singlePublisherId: 'target' },
       );
@@ -807,6 +854,8 @@ describe('runIngest (integration)', () => {
           fetcher: fetcher as any,
           now: new Date('2026-06-01T00:00:00Z'),
           publishersTableName: 'chq-publishers',
+          runStore: makeFakeRunStore() as any,
+          notifier: makeFakeNotifier() as any,
         },
         { singlePublisherId: 'paused-pub' },
       );
@@ -845,6 +894,8 @@ describe('runIngest (integration)', () => {
           fetcher: fetcher as any,
           now: new Date('2026-06-01T00:00:00Z'),
           publishersTableName: 'chq-publishers',
+          runStore: makeFakeRunStore() as any,
+          notifier: makeFakeNotifier() as any,
         },
         { singlePublisherId: 'disabled-pub' },
       );
@@ -880,6 +931,8 @@ describe('runIngest (integration)', () => {
             fetcher: fetcher as any,
             now: new Date('2026-06-01T00:00:00Z'),
             publishersTableName: 'chq-publishers',
+            runStore: makeFakeRunStore() as any,
+            notifier: makeFakeNotifier() as any,
           },
           { singlePublisherId: 'no-such-pub' },
         );
@@ -892,5 +945,179 @@ describe('runIngest (integration)', () => {
       expect(store.deleteAllForPublisher).not.toHaveBeenCalled();
       expect(sidecar.publish).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('runIngest records run rows and triggers notifications', () => {
+  it('records an OK run row with counts', async () => {
+    const p = { id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x', sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([p]),
+      get: jest.fn().mockResolvedValue(p),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok',
+      report: { ok: true, errors: [], warnings: [] },
+      feed: { formatVersion: '1.0', publisher: { id: 'p1', name: 'X', contactEmail: 'a@b' }, events: [{
+        id: 'e1', title: 'E', startDate: '2026-07-04T18:00:00-04:00', endDate: '2026-07-04T19:00:00-04:00', category: 'Lecture', lastModified: '2026-05-01T00:00:00-04:00',
+      }] },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockResolvedValue(undefined),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+    const runStore = makeFakeRunStore();
+    const notifier = makeFakeNotifier();
+
+    await runIngest({
+      registry: registry as any, store: store as any, sidecar: sidecar as any,
+      fetcher: fetcher as any, now: new Date('2026-06-01T00:00:00Z'),
+      publishersTableName: 'chq-publishers',
+      runStore: runStore as any, notifier: notifier as any,
+    });
+
+    expect(runStore.recordRun).toHaveBeenCalledTimes(1);
+    const row = runStore.recordRun.mock.calls[0][0];
+    expect(row.status).toBe('ok');
+    expect(row.counts).toEqual({ added: 1, updated: 0, retracted: 0, unchanged: 0 });
+    expect(row.triggeredBy).toBe('schedule');
+    expect(notifier.notifyIngestRunRecorded).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a fetch-failure run row and routes through notifier', async () => {
+    const p = { id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x', sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([p]),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'parse_error', feed: null,
+      report: { ok: false, errors: [{ path: '/events/0/title', message: 'must be string' }], warnings: [] },
+    });
+    const store = {
+      listForPublisher: jest.fn(), applyDiff: jest.fn(),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+    const runStore = makeFakeRunStore();
+    const notifier = makeFakeNotifier();
+
+    await runIngest({
+      registry: registry as any, store: store as any, sidecar: sidecar as any,
+      fetcher: fetcher as any, now: new Date(), publishersTableName: 'chq-publishers',
+      runStore: runStore as any, notifier: notifier as any,
+    });
+
+    expect(runStore.recordRun).toHaveBeenCalledWith(expect.objectContaining({
+      publisherId: 'p1', status: 'parse_error',
+    }));
+    expect(notifier.notifyIngestRunRecorded).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes opts.trigger through to the run row', async () => {
+    const p = { id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x', sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([p]),
+      get: jest.fn().mockResolvedValue(p),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok', report: { ok: true, errors: [], warnings: [] },
+      feed: { formatVersion: '1.0', publisher: { id: 'p1', name: 'X', contactEmail: 'a@b' }, events: [] },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockResolvedValue(undefined),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+    const runStore = makeFakeRunStore();
+    const notifier = makeFakeNotifier();
+
+    await runIngest({
+      registry: registry as any, store: store as any, sidecar: sidecar as any,
+      fetcher: fetcher as any, now: new Date(), publishersTableName: 'chq-publishers',
+      runStore: runStore as any, notifier: notifier as any,
+    }, { trigger: 'publisher-fetch-now' });
+
+    expect(runStore.recordRun.mock.calls[0][0].triggeredBy).toBe('publisher-fetch-now');
+  });
+
+  it('runStore.getMostRecentRun failure skips notifier (prevents spurious failure email on flaky DDB)', async () => {
+    const p = { id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x', sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([p]),
+      get: jest.fn().mockResolvedValue(p),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'parse_error', feed: null,
+      report: { ok: false, errors: [{ path: '/', message: 'boom' }], warnings: [] },
+    });
+    const store = {
+      listForPublisher: jest.fn(), applyDiff: jest.fn(),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+    const runStore = makeFakeRunStore();
+    runStore.getMostRecentRun.mockRejectedValueOnce(new Error('DDB read failed'));
+    const notifier = makeFakeNotifier();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(runIngest({
+      registry: registry as any, store: store as any, sidecar: sidecar as any,
+      fetcher: fetcher as any, now: new Date(), publishersTableName: 'chq-publishers',
+      runStore: runStore as any, notifier: notifier as any,
+    })).resolves.toBeUndefined();
+    // The run row is still recorded (best-effort audit) but the notification
+    // is skipped — the streak signal is unknowable without prevRun.
+    expect(runStore.recordRun).toHaveBeenCalledTimes(1);
+    expect(notifier.notifyIngestRunRecorded).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('runStore.recordRun failure does not break ingest', async () => {
+    const p = { id: 'p1', name: 'X', contactEmail: 'a@b', sourceUrl: 'https://x', sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't' };
+    const registry = {
+      listAll: jest.fn().mockResolvedValue([p]),
+      get: jest.fn().mockResolvedValue(p),
+      recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+      setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+    };
+    const fetcher = jest.fn().mockResolvedValue({
+      fetchStatus: 'ok', report: { ok: true, errors: [], warnings: [] },
+      feed: { formatVersion: '1.0', publisher: { id: 'p1', name: 'X', contactEmail: 'a@b' }, events: [] },
+    });
+    const store = {
+      listForPublisher: jest.fn().mockResolvedValue([]),
+      applyDiff: jest.fn().mockResolvedValue(undefined),
+      listAllPublished: jest.fn().mockResolvedValue([]),
+      deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+    };
+    const sidecar = { publish: jest.fn().mockResolvedValue(undefined) };
+    const runStore = makeFakeRunStore();
+    runStore.recordRun.mockRejectedValueOnce(new Error('DDB down'));
+    const notifier = makeFakeNotifier();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(runIngest({
+      registry: registry as any, store: store as any, sidecar: sidecar as any,
+      fetcher: fetcher as any, now: new Date(), publishersTableName: 'chq-publishers',
+      runStore: runStore as any, notifier: notifier as any,
+    })).resolves.toBeUndefined();
+    expect(errSpy).toHaveBeenCalled();
+    expect(notifier.notifyIngestRunRecorded).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
   });
 });

@@ -35,6 +35,9 @@ import { PublisherApplicationService } from '../../../services/publisherApplicat
 import { PublisherEmailChangeService } from '../../../services/publisherEmailChangeService';
 import { PublisherAdminService } from '../../../services/publisherAdminService';
 import { MagicTokenService } from '../../../services/magicTokenService';
+import { PublisherIngestRunStore } from '../../../services/publisherIngestRunStore';
+import { PublisherNotificationService } from '../../../services/publisherNotificationService';
+import type { StoredPublisherEvent } from '../../../types/publisher';
 import { runIngest, type IngestDeps } from '../../../handlers/publisherIngestHandler';
 import * as portal from '../../../handlers/publisherPortalHandler';
 import * as admin from '../../../handlers/adminHandler';
@@ -52,6 +55,7 @@ const PUBLISHERS_TABLE = 'publishers';
 const PUBLISHER_EVENTS_TABLE = 'publisher-events';
 const MAGIC_TOKENS_TABLE = 'magic-tokens';
 const RATE_LIMIT_TABLE = 'rate-limit';
+const PUBLISHER_INGEST_RUNS_TABLE = 'publisher-ingest-runs';
 
 const TABLE_SPECS: TableSpec[] = [
   { name: PUBLISHERS_TABLE, hashKey: 'id' },
@@ -63,6 +67,7 @@ const TABLE_SPECS: TableSpec[] = [
   },
   { name: MAGIC_TOKENS_TABLE, hashKey: 'tokenHash' },
   { name: RATE_LIMIT_TABLE, hashKey: 'id' },
+  { name: PUBLISHER_INGEST_RUNS_TABLE, hashKey: 'publisherId', sortKey: 'runAt' },
 ];
 
 export interface Harness {
@@ -85,7 +90,7 @@ export interface Harness {
   signSession: (publisherId: string, opts?: { tokenVersion?: number; email?: string }) => Promise<string>;
   /** Returns event states for a publisher: { [eventId]: state }. */
   events: {
-    statesOf: (publisherId: string) => Promise<Record<string, 'published' | 'pending'>>;
+    statesOf: (publisherId: string) => Promise<Record<string, StoredPublisherEvent['state']>>;
     count: (publisherId: string) => Promise<number>;
   };
   /** Lazily-imported actor wrappers. Set after createHarness completes. */
@@ -174,14 +179,20 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
     siteBaseUrl: 'https://test.chqcal.local',
     now: nowFn,
   });
-  const adminService = new PublisherAdminService(registry, store, {
-    mail,
-    siteBaseUrl: 'https://test.chqcal.local',
-  });
-
   // Set up ingest. The Lambda invoker (used by both /publisher-fetch-now and
   // /publishers/run-ingest) routes back to runIngest in-process so a single
   // harness run can drive both the API call and the resulting ingest.
+  const runStore = new PublisherIngestRunStore(docClient, PUBLISHER_INGEST_RUNS_TABLE);
+  const notifier = new PublisherNotificationService({
+    mail,
+    portalUrl: 'https://test.chqcal.local/publish/status/',
+  });
+
+  const adminService = new PublisherAdminService(registry, store, {
+    mail,
+    siteBaseUrl: 'https://test.chqcal.local',
+    notifier,
+  });
   const ingestDeps: IngestDeps = {
     registry,
     store,
@@ -189,6 +200,8 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
     fetcher: feeds.fetchFn,
     now: nowFn(),
     publishersTableName: PUBLISHERS_TABLE,
+    runStore,
+    notifier,
   };
   const runIngestInProcess = async (payload: { singlePublisherId?: string } = {}) => {
     // Refresh deps.now to reflect the current clock.
@@ -204,6 +217,8 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
   // previously-captured value). This is safe because every test file
   // builds a new harness in beforeEach and tears it down in afterEach.
   portal._setStatusRegistryForTests(registry);
+  portal._setRunStoreForTests(runStore);
+  portal._setEventStoreForTests(store);
   portal._setAppServiceForTests(appService);
   portal._setEmailChangeServiceForTests(emailChangeService);
   portal._setSelfDisableDepsForTests({
@@ -227,7 +242,7 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
   const events = {
     statesOf: async (publisherId: string) => {
       const all = await store.listForPublisher(publisherId);
-      const out: Record<string, 'published' | 'pending'> = {};
+      const out: Record<string, StoredPublisherEvent['state']> = {};
       for (const e of all) out[e.eventId] = e.state;
       return out;
     },
@@ -278,6 +293,8 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
     jwtSecret: TEST_JWT_SECRET,
     dispose: () => {
       portal._setStatusRegistryForTests(null);
+      portal._setRunStoreForTests(null);
+      portal._setEventStoreForTests(null);
       portal._setAppServiceForTests(null);
       portal._setEmailChangeServiceForTests(null);
       portal._setSelfDisableDepsForTests(null);

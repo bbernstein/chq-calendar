@@ -24,6 +24,8 @@ import {
   handlePublisherPause,
   handlePublisherResume,
   handlePublisherDisable,
+  handlePublisherRuns,
+  handlePublisherEvents,
 } from '../../../handlers/publisherPortalHandler';
 import { handler as adminHandler } from '../../../handlers/adminHandler';
 import type { ApplyFormPayload } from '../../../types/publisher';
@@ -104,6 +106,8 @@ export interface PublisherActor {
   resume(jwtToken: string): Promise<{ publisher: any }>;
   fetchNow(jwtToken: string): Promise<{ acceptedAt: string }>;
   selfDisable(jwtToken: string, confirmSlug: string): Promise<{ ok: true; emailedTo: string }>;
+  runs(jwtToken: string): Promise<{ runs: Array<any> }>;
+  events(jwtToken: string): Promise<{ events: Array<any> }>;
 }
 
 // ─── Admin actor (routed through adminHandler with bypass) ─────────────
@@ -116,7 +120,7 @@ export interface AdminActor {
   resume(publisherId: string): Promise<{ publisher: any }>;
   disable(publisherId: string): Promise<{ publisher: any }>;
   approveEvent(publisherId: string, eventId: string): Promise<void>;
-  rejectEvent(publisherId: string, eventId: string): Promise<void>;
+  rejectEvent(publisherId: string, eventId: string, reason?: string): Promise<void>;
   runIngest(reviewerEmail?: string): Promise<{ triggeredAt: string }>;
 }
 
@@ -266,6 +270,20 @@ export function buildActors(h: Harness): Actors {
       );
       return unwrap(r);
     },
+    async runs(jwtToken) {
+      const r = await handlePublisherRuns(
+        buildEvent({ method: 'GET', path: '/publisher-runs', headers: { Authorization: `Bearer ${jwtToken}` } }),
+        {},
+      );
+      return unwrap(r);
+    },
+    async events(jwtToken) {
+      const r = await handlePublisherEvents(
+        buildEvent({ method: 'GET', path: '/publisher-events', headers: { Authorization: `Bearer ${jwtToken}` } }),
+        {},
+      );
+      return unwrap(r);
+    },
   };
 
   const admin: AdminActor = {
@@ -322,10 +340,11 @@ export function buildActors(h: Harness): Actors {
       });
       if (r.statusCode !== 204) unwrap(r);
     },
-    async rejectEvent(publisherId, eventId) {
+    async rejectEvent(publisherId, eventId, reason) {
       const r = await callAdmin({
         method: 'POST',
         path: `/publisher-events/${encodeURIComponent(publisherId)}/${encodeURIComponent(eventId)}/reject`,
+        body: reason !== undefined ? { reason } : {},
       });
       if (r.statusCode !== 204) unwrap(r);
     },

@@ -409,5 +409,15 @@ describe('PublisherRegistryService', () => {
       mockSend.mockRejectedValue(condErr);
       await expect(svc.updateProfile('deleted', { name: 'X' })).rejects.toBeInstanceOf(PublisherNotFoundError);
     });
+
+    it('updateProfile accepts notificationsEnabled boolean', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.updateProfile('p1', { notificationsEnabled: false });
+      const cmd: any = mockSend.mock.calls[0][0];
+      // The field name lives in ExpressionAttributeNames (placeholder like #k0 → 'notificationsEnabled')
+      const fieldNames = Object.values(cmd.input.ExpressionAttributeNames as Record<string, string>);
+      expect(fieldNames).toContain('notificationsEnabled');
+      expect(Object.values(cmd.input.ExpressionAttributeValues as Record<string, unknown>)).toContain(false);
+    });
   });
 });

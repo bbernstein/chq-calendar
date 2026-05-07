@@ -122,6 +122,26 @@ describeMaybe('post-deploy publisher lifecycle', () => {
     );
     expect(publishedCount).toBeGreaterThan(0);
 
+    // 4b. Assert the new observability endpoints reflect the publish.
+    const runsResp = await api.publisher.runs(publisherJwt);
+    expect(runsResp.runs.length).toBeGreaterThan(0);
+    const mostRecent = runsResp.runs[0];
+    expect(mostRecent.status).toBe('ok');
+    expect(mostRecent.counts?.added).toBeGreaterThan(0);
+
+    const eventsResp = await api.publisher.events(publisherJwt);
+    expect(eventsResp.events.length).toBe(publishedCount);
+    // bbtest is created with trustLevel='review' (consumeApplyByEmail in
+    // adminHandler.ts hardcodes that), so freshly-ingested events sit in
+    // 'pending' until an admin approves each one. The smoke does not
+    // approve individual events, so we assert the contract (a valid state
+    // and the projection shape) rather than a specific state.
+    for (const e of eventsResp.events) {
+      expect(['published', 'pending']).toContain(e.state);
+      expect(typeof e.eventId).toBe('string');
+      expect(typeof e.title).toBe('string');
+    }
+
     // 5. Pause + ingest. Event count should remain unchanged (paused
     //    publishers are skipped in the ingest loop; existing events stay).
     await api.publisher.pause(publisherJwt);
@@ -153,5 +173,14 @@ describeMaybe('post-deploy publisher lifecycle', () => {
       { timeoutMs: 90_000, description: 'retract after self-disable' },
     );
     expect(afterDisable).toBe(0);
+
+    // 7b. After self-disable + retract, both observability endpoints should
+    //     still return 200 (publisher row exists, just disabled), but events
+    //     will be empty and the most-recent run will reflect the retraction.
+    const runsAfterDisable = await api.publisher.runs(publisherJwt);
+    expect(runsAfterDisable.runs.length).toBeGreaterThan(0);
+
+    const eventsAfterDisable = await api.publisher.events(publisherJwt);
+    expect(eventsAfterDisable.events.length).toBe(0);
   }, 5 * 60 * 1000);
 });

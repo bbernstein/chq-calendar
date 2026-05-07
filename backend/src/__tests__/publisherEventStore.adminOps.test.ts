@@ -11,6 +11,23 @@ describe('PublisherEventStore admin ops', () => {
     store = new PublisherEventStore(mockClient as any, 'chq-publisher-events');
   });
 
+  it('getEvent issues a GetCommand with the correct table, publisherId, and eventId', async () => {
+    const item = { publisherId: 'p', eventId: 'e', state: 'pending' };
+    mockClient.send.mockResolvedValue({ Item: item });
+    const result = await store.getEvent('p', 'e');
+    const cmd: any = mockClient.send.mock.calls[0][0];
+    expect(cmd.constructor.name).toBe('GetCommand');
+    expect(cmd.input.TableName).toBe('chq-publisher-events');
+    expect(cmd.input.Key).toEqual({ publisherId: 'p', eventId: 'e' });
+    expect(result).toEqual(item);
+  });
+
+  it('getEvent returns undefined when the item does not exist', async () => {
+    mockClient.send.mockResolvedValue({ Item: undefined });
+    const result = await store.getEvent('p', 'missing');
+    expect(result).toBeUndefined();
+  });
+
   it('listPending uses the by-state GSI with state=pending', async () => {
     mockClient.send.mockResolvedValue({ Items: [] });
     await store.listPending();
@@ -40,24 +57,58 @@ describe('PublisherEventStore admin ops', () => {
     await expect(store.approveEvent('p', 'e')).rejects.toThrow('boom');
   });
 
-  it('rejectEvent deletes the row guarded by state=pending', async () => {
+  it('rejectEvent updates state to rejected with reason and rejectedAt and returns true', async () => {
+    mockClient.send.mockResolvedValue({});
+    const transitioned = await store.rejectEvent('p', 'e', 'duplicate of upstream feed');
+    expect(transitioned).toBe(true);
+    const cmd: any = mockClient.send.mock.calls[0][0];
+    expect(cmd.constructor.name).toBe('UpdateCommand');
+    expect(cmd.input.UpdateExpression).toContain('#s = :rejected');
+    expect(cmd.input.UpdateExpression).toContain('rejectedAt = :now');
+    expect(cmd.input.UpdateExpression).toContain('rejectionReason = :reason');
+    expect(cmd.input.ExpressionAttributeValues[':reason']).toBe('duplicate of upstream feed');
+    expect(cmd.input.ExpressionAttributeValues[':rejected']).toBe('rejected');
+    expect(cmd.input.ExpressionAttributeValues[':pending']).toBe('pending');
+    expect(cmd.input.ConditionExpression).toBe('attribute_exists(publisherId) AND #s = :pending');
+    expect(cmd.input.ExpressionAttributeNames['#s']).toBe('state');
+  });
+
+  it('rejectEvent omits rejectionReason when reason is undefined', async () => {
     mockClient.send.mockResolvedValue({});
     await store.rejectEvent('p', 'e');
     const cmd: any = mockClient.send.mock.calls[0][0];
-    expect(cmd.constructor.name).toBe('DeleteCommand');
-    expect(cmd.input.ConditionExpression).toBe('#s = :pending');
-    expect(cmd.input.ExpressionAttributeNames['#s']).toBe('state');
-    expect(cmd.input.ExpressionAttributeValues[':pending']).toBe('pending');
+    expect(cmd.input.UpdateExpression).not.toContain('rejectionReason');
+    expect(cmd.input.ExpressionAttributeValues[':reason']).toBeUndefined();
   });
 
-  it('rejectEvent treats ConditionalCheckFailedException as a no-op success', async () => {
+  it('rejectEvent omits rejectionReason when reason is whitespace-only', async () => {
+    mockClient.send.mockResolvedValue({});
+    await store.rejectEvent('p', 'e', '   ');
+    const cmd: any = mockClient.send.mock.calls[0][0];
+    expect(cmd.input.UpdateExpression).not.toContain('rejectionReason');
+  });
+
+  it('rejectEvent caps reason at 500 chars defensively', async () => {
+    mockClient.send.mockResolvedValue({});
+    await store.rejectEvent('p', 'e', 'x'.repeat(600));
+    const cmd: any = mockClient.send.mock.calls[0][0];
+    expect((cmd.input.ExpressionAttributeValues[':reason'] as string).length).toBe(500);
+  });
+
+  it('rejectEvent treats ConditionalCheckFailedException as a no-op and returns false (state !== pending)', async () => {
     const err = Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' });
     mockClient.send.mockRejectedValue(err);
-    await expect(store.rejectEvent('p', 'e')).resolves.toBeUndefined();
+    await expect(store.rejectEvent('p', 'e', 'r')).resolves.toBe(false);
   });
 
   it('rejectEvent re-throws other errors', async () => {
     mockClient.send.mockRejectedValue(new Error('boom'));
-    await expect(store.rejectEvent('p', 'e')).rejects.toThrow('boom');
+    await expect(store.rejectEvent('p', 'e', 'r')).rejects.toThrow('boom');
+  });
+
+  it('approve-after-reject still fails (existing approve ConditionExpression rejects state=rejected)', async () => {
+    const err = Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' });
+    mockClient.send.mockRejectedValue(err);
+    await expect(store.approveEvent('p', 'e')).rejects.toThrow(/cannot approve/);
   });
 });

@@ -15,7 +15,7 @@ import { useEffect, useState } from 'preact/hooks';
 // `react-jsx` runtime + the project's @types/react alias mean the children
 // slot expects React.ReactNode. Importing the type only keeps the runtime
 // alignment with preact (the `preact/compat` alias handles the actual JSX).
-import type { ReactNode } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import {
   clearPublisherSession,
   getPublisherSession,
@@ -32,6 +32,8 @@ import { SourceEditPanel } from './SourceEditPanel';
 import { EmailChangePanel } from './EmailChangePanel';
 import { IngestControls } from './IngestControls';
 import { DangerZone } from './DangerZone';
+import { IngestHistoryPanel } from './IngestHistoryPanel';
+import { PublisherEventsPanel } from './PublisherEventsPanel';
 
 type Status =
   | { kind: 'loading' }
@@ -235,6 +237,24 @@ function StatusView({
       {applicationStatus === 'approved' && <LastFetchPanel rec={rec} />}
 
       {applicationStatus === 'approved' && (
+        <section className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Ingest history</h2>
+          <IngestHistoryPanel />
+        </section>
+      )}
+
+      {applicationStatus === 'approved' && (
+        <section className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Your events</h2>
+          <PublisherEventsPanel />
+        </section>
+      )}
+
+      {applicationStatus === 'approved' && (
+        <NotificationsPanel rec={rec} onUpdated={onUpdated} />
+      )}
+
+      {applicationStatus === 'approved' && (
         <IngestControls publisher={rec} onChanged={handleEmailChanged} />
       )}
 
@@ -432,6 +452,56 @@ function LastFetchPanel({ rec }: { rec: PublisherStatusRecord }) {
         )}
       </dl>
     </div>
+  );
+}
+
+function NotificationsPanel({
+  rec,
+  onUpdated,
+}: {
+  rec: PublisherStatusRecord;
+  onUpdated: (rec: PublisherStatusRecord) => void;
+}) {
+  // Default-treated-as-true so legacy rows opt in.
+  const enabled = rec.notificationsEnabled !== false;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleToggle(e: FormEvent<HTMLInputElement>) {
+    const next = (e.currentTarget as HTMLInputElement).checked;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await patchPublisherProfile({ notificationsEnabled: next });
+      onUpdated(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+        Email notifications
+      </h2>
+      <label className="flex items-start gap-3 text-sm text-gray-700 dark:text-gray-200">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={busy}
+          onInput={handleToggle}
+          className="mt-1"
+        />
+        <span>
+          Email me when my feed breaks or an event is rejected.
+        </span>
+      </label>
+      {error && (
+        <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+      )}
+    </section>
   );
 }
 

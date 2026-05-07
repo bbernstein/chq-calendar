@@ -19,7 +19,7 @@ function mockListReturns(...years: number[]): void {
   });
 }
 
-const ev = (id: string, year = 2026, state: 'published' | 'pending' = 'published'): StoredPublisherEvent => ({
+const ev = (id: string, year = 2026, state: 'published' | 'pending' | 'rejected' = 'published'): StoredPublisherEvent => ({
   publisherId: 'p',
   eventId: id,
   startDate: `${year}-07-04T18:00:00-04:00`,
@@ -89,6 +89,21 @@ describe('PublisherSidecarPublisher', () => {
     mockListReturns();
     const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
     await pub.publish([ev('a', 2026, 'published'), ev('b', 2026, 'pending')]);
+    const putCall = mockSend.mock.calls.find(c => c[0] instanceof PutObjectCommand);
+    const cmd: any = putCall![0];
+    const body = JSON.parse(cmd.input.Body as string);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].id).toBe('a');
+  });
+
+  it('excludes both pending and rejected events, keeping only published', async () => {
+    mockListReturns();
+    const pub = new PublisherSidecarPublisher(mockS3, 'bucket', 'cache/calendar-cache');
+    await pub.publish([
+      ev('a', 2026, 'published'),
+      ev('b', 2026, 'pending'),
+      ev('c', 2026, 'rejected'),
+    ]);
     const putCall = mockSend.mock.calls.find(c => c[0] instanceof PutObjectCommand);
     const cmd: any = putCall![0];
     const body = JSON.parse(cmd.input.Body as string);

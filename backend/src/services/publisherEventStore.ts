@@ -1,5 +1,5 @@
 import {
-  DeleteCommand,
+  GetCommand,
   QueryCommand,
   TransactWriteCommand,
   UpdateCommand,
@@ -53,6 +53,17 @@ export class PublisherEventStore {
       last = r.LastEvaluatedKey;
     } while (last);
     return total;
+  }
+
+  async getEvent(
+    publisherId: string,
+    eventId: string,
+  ): Promise<StoredPublisherEvent | undefined> {
+    const r = await this.db.send(new GetCommand({
+      TableName: this.tableName,
+      Key: { publisherId, eventId },
+    }));
+    return r.Item as StoredPublisherEvent | undefined;
   }
 
   async listAllPublished(): Promise<StoredPublisherEvent[]> {
@@ -118,20 +129,45 @@ export class PublisherEventStore {
     }
   }
 
-  async rejectEvent(publisherId: string, eventId: string): Promise<void> {
-    // Guard against deleting an already-published event if /reject races a
-    // /approve or arrives after publication. ConditionalCheckFailedException
-    // is treated as a no-op — the row exists in a state we cannot reject from.
+  // Returns true iff the row transitioned from 'pending' to 'rejected' on this
+  // call. Returns false on the conditional-no-op path (row already non-pending
+  // or already deleted) so callers can decide whether to fire side-effects
+  // like notification emails.
+  async rejectEvent(
+    publisherId: string,
+    eventId: string,
+    reason?: string,
+  ): Promise<boolean> {
+    // Soft-delete: rows transition to state='rejected' (terminal) instead of
+    // being deleted. Re-ingest preserves them via publisherReconciler.toStored.
+    // The condition `#s = :pending` keeps approve/reject races atomic — same
+    // semantics as the previous DeleteCommand. ConditionalCheckFailedException
+    // is treated as a no-op (the row is in a state we can't reject from, e.g.
+    // already-rejected, already-published, or already-deleted).
+    const trimmed = reason?.trim();
+    const setParts = ['#s = :rejected', 'rejectedAt = :now', 'updatedAt = :now'];
+    const exprValues: Record<string, unknown> = {
+      ':rejected': 'rejected',
+      ':pending': 'pending',
+      ':now': new Date().toISOString(),
+    };
+    if (trimmed && trimmed.length > 0) {
+      setParts.push('rejectionReason = :reason');
+      // Caller is responsible for the 500-char cap; defense in depth here.
+      exprValues[':reason'] = trimmed.slice(0, 500);
+    }
     try {
-      await this.db.send(new DeleteCommand({
+      await this.db.send(new UpdateCommand({
         TableName: this.tableName,
         Key: { publisherId, eventId },
-        ConditionExpression: '#s = :pending',
+        UpdateExpression: `SET ${setParts.join(', ')}`,
+        ConditionExpression: 'attribute_exists(publisherId) AND #s = :pending',
         ExpressionAttributeNames: { '#s': 'state' },
-        ExpressionAttributeValues: { ':pending': 'pending' },
+        ExpressionAttributeValues: exprValues,
       }));
+      return true;
     } catch (err) {
-      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return;
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return false;
       throw err;
     }
   }

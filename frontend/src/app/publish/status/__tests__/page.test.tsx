@@ -13,6 +13,8 @@ vi.mock('@/lib/publisherStatusApi', () => ({
   getPublisherStatus: vi.fn(),
   patchPublisherProfile: vi.fn(),
   previewPublisherFeed: vi.fn(),
+  getPublisherRuns: vi.fn(),
+  getPublisherEvents: vi.fn(),
 }));
 vi.mock('@/lib/publisherAuthClient', () => ({
   isPublisherAuthenticated: () => true,
@@ -46,6 +48,9 @@ function makeRecord(overrides: Partial<PublisherStatusRecord> = {}): PublisherSt
 describe('PublishStatusPage — Phase 2 profile wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default empty arrays for the new panels so they don't cause unhandled promise rejections
+    (api.getPublisherRuns as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (api.getPublisherEvents as ReturnType<typeof vi.fn>).mockResolvedValue([]);
   });
 
   it('renders the EditableField for Name on an approved publisher', async () => {
@@ -129,5 +134,49 @@ describe('PublishStatusPage — Phase 2 profile wiring', () => {
         sourceType: 'html',
       }),
     );
+  });
+});
+
+describe('PublishStatusPage — observability panels', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.getPublisherRuns as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (api.getPublisherEvents as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  });
+
+  it('approved publisher sees Ingest history, Your events, and Email notifications headings', async () => {
+    (api.getPublisherStatus as ReturnType<typeof vi.fn>).mockResolvedValue(makeRecord());
+    render(<PublishStatusPage />);
+    await waitFor(() => expect(screen.getByText('Ingest history')).toBeTruthy());
+    expect(screen.getByText('Your events')).toBeTruthy();
+    expect(screen.getByText('Email notifications')).toBeTruthy();
+  });
+
+  it('toggling notifications calls patchPublisherProfile with the inverted value', async () => {
+    (api.getPublisherStatus as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeRecord({ notificationsEnabled: true }),
+    );
+    (api.patchPublisherProfile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeRecord({ notificationsEnabled: false }),
+    );
+    render(<PublishStatusPage />);
+    await waitFor(() => expect(screen.getByText('Email notifications')).toBeTruthy());
+    const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.input(checkbox, { target: { checked: false } });
+    await waitFor(() =>
+      expect(api.patchPublisherProfile).toHaveBeenCalledWith({ notificationsEnabled: false }),
+    );
+  });
+
+  it('pending applicants do NOT see the new panels', async () => {
+    (api.getPublisherStatus as ReturnType<typeof vi.fn>).mockResolvedValue(
+      makeRecord({ applicationStatus: 'pending' }),
+    );
+    render(<PublishStatusPage />);
+    await waitFor(() => expect(screen.getByText('Old Name')).toBeTruthy());
+    expect(screen.queryByText('Ingest history')).toBeNull();
+    expect(screen.queryByText('Your events')).toBeNull();
+    expect(screen.queryByText('Email notifications')).toBeNull();
   });
 });

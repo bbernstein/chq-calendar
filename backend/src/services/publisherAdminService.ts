@@ -3,6 +3,7 @@ import { ConcurrentApplicationUpdateError } from './publisherRegistryService';
 import type { PublisherRegistryService } from './publisherRegistryService';
 import type { PublisherEventStore } from './publisherEventStore';
 import type { MailService } from './mailService';
+import type { PublisherNotificationService } from './publisherNotificationService';
 
 export interface CreatePublisherInput {
   id: string;
@@ -33,6 +34,10 @@ export interface ApplicationReviewDeps {
   // Used to build the magic-link login URL embedded in the approval email.
   // Falls back to https://www.chqcal.org if not set.
   siteBaseUrl?: string;
+  // Optional so callers (smoke harness, tests) that don't need event-rejection
+  // emails don't have to wire the notifier. The admin reject path will skip
+  // the notification step if this is missing.
+  notifier?: PublisherNotificationService;
 }
 
 const MAX_REJECTION_REASON_LEN = 500;
@@ -120,8 +125,26 @@ export class PublisherAdminService {
     return this.store.approveEvent(publisherId, eventId);
   }
 
-  rejectEvent(publisherId: string, eventId: string): Promise<void> {
-    return this.store.rejectEvent(publisherId, eventId);
+  async rejectEvent(
+    publisherId: string,
+    eventId: string,
+    reason?: string,
+  ): Promise<void> {
+    // Read the event BEFORE rejecting so we have its title/startDate for the
+    // notification email. store.rejectEvent returns a transitioned boolean —
+    // false when the row was already non-pending (already-rejected, already-
+    // published, gone). We notify ONLY when the row actually transitioned to
+    // 'rejected', so admin double-clicks or races against approve don't
+    // produce a misleading "your event was rejected" email for an event that
+    // is in fact still published.
+    const event = await this.store.getEvent(publisherId, eventId);
+    const transitioned = await this.store.rejectEvent(publisherId, eventId, reason);
+    if (transitioned && event && this.reviewDeps.notifier) {
+      const publisher = await this.registry.get(publisherId);
+      if (publisher) {
+        await this.reviewDeps.notifier.notifyEventRejected({ publisher, event, reason });
+      }
+    }
   }
 
   async listThresholdHalts(): Promise<PublisherRecord[]> {

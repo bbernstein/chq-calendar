@@ -87,11 +87,11 @@ export default function PublisherEventsPage() {
   );
 
   const handleReject = useCallback(
-    async (publisherId: string, eventId: string) => {
+    async (publisherId: string, eventId: string, reason?: string) => {
       const key = `evt:${publisherId}:${eventId}`;
       setInFlight(prev => new Set(prev).add(key));
       try {
-        await rejectEvent(publisherId, eventId);
+        await rejectEvent(publisherId, eventId, reason);
         await fetchPending();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to reject event.');

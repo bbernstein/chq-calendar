@@ -32,6 +32,7 @@ export interface PublisherStatusRecord {
   // unset the publisher is considered active.
   paused?: boolean;
   selfPausedAt?: string;
+  notificationsEnabled?: boolean;
 }
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
@@ -101,6 +102,7 @@ export interface PublisherProfilePatch {
   organization?: string;
   sourceUrl?: string;
   sourceType?: 'json' | 'html';
+  notificationsEnabled?: boolean;
 }
 
 export class PublisherProfileError extends PublisherStatusError {
@@ -436,4 +438,91 @@ export async function cancelEmailChangeBySelf(): Promise<void> {
       r.status,
     );
   }
+}
+
+// ─── Observability (Phase 7 — ingest history + per-event status) ─────────
+
+export type IngestRunStatus = 'ok' | 'parse_error' | 'validation_error' | 'network_error' | 'threshold_halt';
+
+export interface IngestRunCounts {
+  added: number;
+  updated: number;
+  retracted: number;
+  unchanged: number;
+}
+
+export interface IngestRunSummary {
+  publisherId: string;
+  runAt: string;
+  status: IngestRunStatus;
+  message?: string;
+  counts?: IngestRunCounts;
+  triggeredBy: 'schedule' | 'admin' | 'publisher-fetch-now';
+}
+
+export interface PublisherEventSummary {
+  eventId: string;
+  title: string;
+  startDate: string;
+  endDate: string;
+  state: 'published' | 'pending' | 'rejected';
+  rejectionReason?: string;
+  rejectedAt?: string;
+  updatedAt: string;
+}
+
+export async function getPublisherRuns(): Promise<IngestRunSummary[]> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/publisher-runs`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+  });
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new PublisherStatusError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+    );
+  }
+  if (!body || !Array.isArray(body.runs)) {
+    throw new PublisherStatusError('Malformed response.', 500);
+  }
+  return body.runs as IngestRunSummary[];
+}
+
+export async function getPublisherEvents(): Promise<PublisherEventSummary[]> {
+  const jwt = getPublisherJwt();
+  if (!jwt) {
+    redirectToLogin();
+    throw new PublisherStatusError('No publisher session.', 401);
+  }
+  const r = await fetch(`${API_BASE}/api/publisher-events`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+  });
+  if (r.status === 401) {
+    clearPublisherSession();
+    redirectToLogin();
+    throw new PublisherStatusError('Session expired.', 401);
+  }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new PublisherStatusError(
+      typeof body?.error === 'string' ? body.error : `Request failed (${r.status}).`,
+      r.status,
+    );
+  }
+  if (!body || !Array.isArray(body.events)) {
+    throw new PublisherStatusError('Malformed response.', 500);
+  }
+  return body.events as PublisherEventSummary[];
 }

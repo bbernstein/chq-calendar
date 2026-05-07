@@ -404,7 +404,7 @@ export class PublisherRegistryService {
   // contactEmail here would let a caller skip that flow with a single typo.
   async updateProfile(
     id: string,
-    patch: Partial<Pick<PublisherRecord, 'name' | 'organization' | 'sourceUrl' | 'sourceType'>>,
+    patch: Partial<Pick<PublisherRecord, 'name' | 'organization' | 'sourceUrl' | 'sourceType' | 'notificationsEnabled'>>,
   ): Promise<void> {
     if (Object.keys(patch).length === 0) return;
     const setParts: string[] = [];

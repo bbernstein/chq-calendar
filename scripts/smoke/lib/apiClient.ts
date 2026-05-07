@@ -114,6 +114,20 @@ export class SmokeApiClient {
         body,
         headers: { Authorization: `Bearer ${jwt}` },
       }),
+
+    runs: (jwt: string) =>
+      this.request<{ runs: Array<{ publisherId: string; runAt: string; status: string; message?: string; counts?: { added: number; updated: number; retracted: number; unchanged: number }; triggeredBy: string }> }>({
+        method: 'GET',
+        path: '/api/publisher-runs',
+        headers: { Authorization: `Bearer ${jwt}` },
+      }),
+
+    events: (jwt: string) =>
+      this.request<{ events: Array<{ eventId: string; title: string; startDate: string; endDate: string; state: 'published' | 'pending' | 'rejected'; rejectionReason?: string; rejectedAt?: string; updatedAt: string }> }>({
+        method: 'GET',
+        path: '/api/publisher-events',
+        headers: { Authorization: `Bearer ${jwt}` },
+      }),
   };
 
   // ─── Admin endpoints (smoke-bot Bearer token) ─────────────────────────

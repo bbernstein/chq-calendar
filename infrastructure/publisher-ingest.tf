@@ -70,6 +70,41 @@ resource "aws_dynamodb_table" "publisher_events" {
   }
 }
 
+resource "aws_dynamodb_table" "publisher_ingest_runs" {
+  name         = "${var.app_name}-publisher-ingest-runs"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "publisherId"
+  range_key    = "runAt"
+
+  attribute {
+    name = "publisherId"
+    type = "S"
+  }
+
+  attribute {
+    name = "runAt"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = {
+    Name        = "${var.app_name}-publisher-ingest-runs"
+    Environment = var.environment
+  }
+}
+
 resource "aws_iam_role" "publisher_ingest_role" {
   name = "${var.app_name}-publisher-ingest-role"
   assume_role_policy = jsonencode({
@@ -108,7 +143,8 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
         Resource = [
           aws_dynamodb_table.publishers.arn,
           aws_dynamodb_table.publisher_events.arn,
-          "${aws_dynamodb_table.publisher_events.arn}/index/by-state"
+          "${aws_dynamodb_table.publisher_events.arn}/index/by-state",
+          aws_dynamodb_table.publisher_ingest_runs.arn
         ]
       },
       {
@@ -125,6 +161,16 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
             "s3:prefix" = ["cache/calendar-cache/publisher-events-*"]
           }
         }
+      },
+      {
+        # PublisherNotificationService (constructed in scheduledHandler) calls
+        # SES via SesMailService for ingest-failure / ingest-recovery emails.
+        # Without this grant the SDK call AccessDeniedExceptions and is
+        # silently swallowed by guarded(), so emails would never deliver.
+        # Same scope/shape as the portal Lambda's SES grant in publisher-portal.tf.
+        Effect   = "Allow",
+        Action   = ["ses:SendEmail"],
+        Resource = "arn:aws:ses:${var.aws_region}:*:identity/${var.domain_name}"
       }
     ]
   })
@@ -146,10 +192,13 @@ resource "aws_lambda_function" "publisher_ingest" {
 
   environment {
     variables = {
-      PUBLISHERS_TABLE_NAME       = aws_dynamodb_table.publishers.name
-      PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
-      CACHE_S3_BUCKET             = aws_s3_bucket.frontend_bucket.bucket
-      CACHE_S3_KEY_PREFIX         = "cache/calendar-cache"
+      PUBLISHERS_TABLE_NAME            = aws_dynamodb_table.publishers.name
+      PUBLISHER_EVENTS_TABLE_NAME      = aws_dynamodb_table.publisher_events.name
+      PUBLISHER_INGEST_RUNS_TABLE_NAME = aws_dynamodb_table.publisher_ingest_runs.name
+      CACHE_S3_BUCKET                  = aws_s3_bucket.frontend_bucket.bucket
+      CACHE_S3_KEY_PREFIX              = "cache/calendar-cache"
+      SES_FROM_ADDRESS                 = "no-reply@${var.domain_name}"
+      SITE_BASE_URL                    = "https://www.${var.domain_name}"
     }
   }
 
@@ -207,7 +256,8 @@ resource "aws_iam_role_policy" "admin_publisher_access" {
       Resource = [
         aws_dynamodb_table.publishers.arn,
         aws_dynamodb_table.publisher_events.arn,
-        "${aws_dynamodb_table.publisher_events.arn}/index/by-state"
+        "${aws_dynamodb_table.publisher_events.arn}/index/by-state",
+        aws_dynamodb_table.publisher_ingest_runs.arn
       ]
     }]
   })

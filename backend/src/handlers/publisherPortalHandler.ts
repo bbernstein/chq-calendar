@@ -50,7 +50,9 @@ import {
   InMemoryRateLimiter,
   type RateLimiter,
 } from '../services/rateLimitService';
-import type { ApplyFormPayload, PublisherRecord, SourceType } from '../types/publisher';
+import type { ApplyFormPayload, PublisherRecord, StoredPublisherEvent, SourceType } from '../types/publisher';
+import { PublisherIngestRunStore } from '../services/publisherIngestRunStore';
+import { PublisherEventStore } from '../services/publisherEventStore';
 
 // ─── Doc-client helper ───────────────────────────────────────────────────
 //
@@ -179,7 +181,7 @@ export function _resetPublisherAuthRateLimitForTests(): void {
 const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   // Authorization is included for Phase C authenticated publisher endpoints
   // (status page, feed management). The Phase A/B routes here don't read it,
   // but the header is shared and CORS preflight is per-resource — better to
@@ -499,6 +501,48 @@ export function _setStatusRegistryForTests(r: PublisherRegistryService | null): 
   _statusRegistry = r;
 }
 
+// ─── PublisherIngestRunStore singleton ───────────────────────────────────
+//
+// Used by /publisher-runs to fetch a publisher's own ingest-run history.
+// Lazy factory mirrors the statusRegistry() pattern above.
+
+let _runStore: PublisherIngestRunStore | null = null;
+
+function runStore(): PublisherIngestRunStore {
+  if (!_runStore) {
+    _runStore = new PublisherIngestRunStore(
+      buildDocClient(),
+      process.env.PUBLISHER_INGEST_RUNS_TABLE_NAME ?? 'chautauqua-calendar-publisher-ingest-runs',
+    );
+  }
+  return _runStore;
+}
+
+export function _setRunStoreForTests(s: PublisherIngestRunStore | null): void {
+  _runStore = s;
+}
+
+// ─── PublisherEventStore singleton ────────────────────────────────────────
+//
+// Used by /publisher-events to fetch a publisher's own event summaries.
+// Lazy factory mirrors the statusRegistry() pattern above.
+
+let _eventStore: PublisherEventStore | null = null;
+
+function eventStore(): PublisherEventStore {
+  if (!_eventStore) {
+    _eventStore = new PublisherEventStore(
+      buildDocClient(),
+      process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chautauqua-calendar-publisher-events',
+    );
+  }
+  return _eventStore;
+}
+
+export function _setEventStoreForTests(s: PublisherEventStore | null): void {
+  _eventStore = s;
+}
+
 // ─── /publisher-status (publisher JWT only) ──────────────────────────────
 //
 // Returns the caller's own publisher record, sanitized:
@@ -531,6 +575,76 @@ export async function handlePublisherStatus(
     });
   } catch (err) {
     console.error('Error in /publisher-status:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// ─── GET /publisher-runs (publisher JWT only) ────────────────────────────
+//
+// Returns the caller's own ingest-run history (last 30, newest-first). Used
+// by the IngestHistoryPanel on /publish/status/. Pending/rejected applicants
+// fall through the same auth path as /publisher-status (auth is checked but
+// applicationStatus is NOT gated — any publisher can view their run history).
+export async function handlePublisherRuns(
+  event: APIGatewayProxyEvent,
+  _requestBody: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const sess = await requirePublisherSession(event, statusRegistry());
+    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
+    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
+    const runs = await runStore().listRecentRuns(sess.publisher.id, 30);
+    return json(200, { runs });
+  } catch (err) {
+    console.error('Error in /publisher-runs:', err);
+    return json(500, { error: 'Internal server error' });
+  }
+}
+
+// ─── GET /publisher-events (publisher JWT only) ──────────────────────────
+//
+// Returns the caller's own events (all states — published, pending, rejected),
+// projected to a small summary shape that omits the full feed payload. Used
+// by the PublisherEventsPanel on /publish/status/. Exact path match (no
+// startsWith) so the admin-only /publisher-events/pending route is unaffected.
+
+export interface PublisherEventSummary {
+  eventId: string;
+  title: string;
+  startDate: string;
+  endDate: string;
+  state: 'published' | 'pending' | 'rejected';
+  rejectionReason?: string;
+  rejectedAt?: string;
+  updatedAt: string;
+}
+
+function toSummary(e: StoredPublisherEvent): PublisherEventSummary {
+  const out: PublisherEventSummary = {
+    eventId: e.eventId,
+    title: (e.payload as { title?: string }).title ?? '(untitled)',
+    startDate: e.startDate,
+    endDate: e.endDate,
+    state: e.state,
+    updatedAt: e.updatedAt,
+  };
+  if (e.rejectionReason) out.rejectionReason = e.rejectionReason;
+  if (e.rejectedAt) out.rejectedAt = e.rejectedAt;
+  return out;
+}
+
+export async function handlePublisherEvents(
+  event: APIGatewayProxyEvent,
+  _requestBody: Record<string, unknown>,
+): Promise<APIGatewayProxyResult> {
+  try {
+    const sess = await requirePublisherSession(event, statusRegistry());
+    if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
+    if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
+    const rows = await eventStore().listForPublisher(sess.publisher.id);
+    return json(200, { events: rows.map(toSummary) });
+  } catch (err) {
+    console.error('Error in /publisher-events:', err);
     return json(500, { error: 'Internal server error' });
   }
 }

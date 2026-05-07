@@ -339,4 +339,56 @@ describe('handlePublisherProfilePatch', () => {
     expect(r.statusCode).toBe(500);
     errSpy.mockRestore();
   });
+
+  it('PATCH /publisher-profile { notificationsEnabled: false } persists and returns updated record', async () => {
+    (verifyPublisherJwt as jest.Mock).mockResolvedValue({
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
+    });
+    registry.get
+      .mockResolvedValueOnce(makeRecord()) // session check
+      .mockResolvedValueOnce(makeRecord({ notificationsEnabled: false })); // post-write read
+    registry.updateProfile.mockResolvedValue(undefined);
+    const r = await handlePublisherProfilePatch(
+      evt({ headers: { Authorization: 'Bearer good.jwt' } }),
+      { notificationsEnabled: false },
+    );
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.body);
+    expect(body.publisher.notificationsEnabled).toBe(false);
+    expect(registry.updateProfile).toHaveBeenCalledWith('pub-1', { notificationsEnabled: false });
+    expect(testPublisherFeed).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /publisher-profile { notificationsEnabled: true } persists and returns updated record', async () => {
+    (verifyPublisherJwt as jest.Mock).mockResolvedValue({
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
+    });
+    registry.get
+      .mockResolvedValueOnce(makeRecord({ notificationsEnabled: false })) // session check
+      .mockResolvedValueOnce(makeRecord({ notificationsEnabled: true })); // post-write read
+    registry.updateProfile.mockResolvedValue(undefined);
+    const r = await handlePublisherProfilePatch(
+      evt({ headers: { Authorization: 'Bearer good.jwt' } }),
+      { notificationsEnabled: true },
+    );
+    expect(r.statusCode).toBe(200);
+    const body = JSON.parse(r.body);
+    expect(body.publisher.notificationsEnabled).toBe(true);
+    expect(registry.updateProfile).toHaveBeenCalledWith('pub-1', { notificationsEnabled: true });
+    expect(testPublisherFeed).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 with code=invalid_notifications_enabled for non-boolean notificationsEnabled', async () => {
+    (verifyPublisherJwt as jest.Mock).mockResolvedValue({
+      sub: 'pub-1', role: 'publisher', email: 'p@x.com', tokenVersion: 0,
+    });
+    registry.get.mockResolvedValueOnce(makeRecord());
+    const r = await handlePublisherProfilePatch(
+      evt({ headers: { Authorization: 'Bearer good.jwt' } }),
+      { notificationsEnabled: 'yes' as any },
+    );
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.body).code).toBe('invalid_notifications_enabled');
+    expect(registry.updateProfile).not.toHaveBeenCalled();
+  });
 });

@@ -964,15 +964,16 @@ resource "aws_lambda_function" "admin_handler" {
 
   environment {
     variables = {
-      FEEDBACK_TABLE_NAME         = aws_dynamodb_table.feedback.name
-      ENVIRONMENT                 = var.environment
-      JWT_SECRET                  = var.jwt_secret
-      GOOGLE_CLIENT_ID            = var.google_client_id
-      GOOGLE_CLIENT_SECRET        = var.google_client_secret
-      ADMIN_EMAIL_WHITELIST       = var.admin_email_whitelist
-      ADMIN_API_URL               = "https://admin-api.${var.domain_name}"
-      PUBLISHERS_TABLE_NAME       = aws_dynamodb_table.publishers.name
-      PUBLISHER_EVENTS_TABLE_NAME = aws_dynamodb_table.publisher_events.name
+      FEEDBACK_TABLE_NAME              = aws_dynamodb_table.feedback.name
+      ENVIRONMENT                      = var.environment
+      JWT_SECRET                       = var.jwt_secret
+      GOOGLE_CLIENT_ID                 = var.google_client_id
+      GOOGLE_CLIENT_SECRET             = var.google_client_secret
+      ADMIN_EMAIL_WHITELIST            = var.admin_email_whitelist
+      ADMIN_API_URL                    = "https://admin-api.${var.domain_name}"
+      PUBLISHERS_TABLE_NAME            = aws_dynamodb_table.publishers.name
+      PUBLISHER_EVENTS_TABLE_NAME      = aws_dynamodb_table.publisher_events.name
+      PUBLISHER_INGEST_RUNS_TABLE_NAME = aws_dynamodb_table.publisher_ingest_runs.name
       # Admin "Run ingest now" button on /admin/publishers/ async-invokes
       # this function via lambda:InvokeFunction.
       PUBLISHER_INGEST_FUNCTION_NAME = aws_lambda_function.publisher_ingest.function_name

@@ -30,6 +30,10 @@ export interface MailService {
   // after a successful self-disable confirmation. Records the slug so the
   // publisher has a written reference for re-enable conversations.
   sendSelfDisabledConfirmation(opts: SelfDisabledConfirmationOpts): Promise<{ messageId: string }>;
+  // Task 6 (publisher observability).
+  sendIngestFailureEmail(opts: IngestFailureEmailOpts): Promise<{ messageId: string }>;
+  sendIngestRecoveryEmail(opts: IngestRecoveryEmailOpts): Promise<{ messageId: string }>;
+  sendEventRejectedEmail(opts: EventRejectedEmailOpts): Promise<{ messageId: string }>;
 }
 
 export interface EmailChangeVerifyOpts {
@@ -80,6 +84,30 @@ export interface RejectionEmailOpts {
   publisherName: string;
   reason?: string;
   applyAgainUrl: string;
+}
+
+export interface IngestFailureEmailOpts {
+  to: string;
+  publisherName: string;
+  status: 'parse_error' | 'validation_error' | 'network_error' | 'threshold_halt';
+  message: string;
+  portalUrl: string; // absolute URL to /publish/status/
+}
+
+export interface IngestRecoveryEmailOpts {
+  to: string;
+  publisherName: string;
+  counts: { added: number; updated: number; retracted: number; unchanged: number };
+  portalUrl: string;
+}
+
+export interface EventRejectedEmailOpts {
+  to: string;
+  publisherName: string;
+  eventTitle: string;
+  eventStartDate: string; // ISO 8601
+  reason?: string;        // undefined/empty → generic line
+  portalUrl: string;
 }
 
 export class SesMailService implements MailService {
@@ -175,6 +203,39 @@ export class SesMailService implements MailService {
     const subject = 'Your Chautauqua Calendar publisher is disabled';
     const text = selfDisabledConfirmationText(opts);
     const html = selfDisabledConfirmationHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendIngestFailureEmail(opts: IngestFailureEmailOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Your Chautauqua Calendar feed broke';
+    const text = ingestFailureText(opts);
+    const html = ingestFailureHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendIngestRecoveryEmail(opts: IngestRecoveryEmailOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const subject = 'Your Chautauqua Calendar feed is working again';
+    const text = ingestRecoveryText(opts);
+    const html = ingestRecoveryHtml(opts);
+    return this._send(opts.to, subject, text, html);
+  }
+
+  async sendEventRejectedEmail(opts: EventRejectedEmailOpts) {
+    if (!this.fromAddress) {
+      throw new Error('SES_FROM_ADDRESS env var not set');
+    }
+    const truncatedTitle = opts.eventTitle.length > 80
+      ? opts.eventTitle.slice(0, 80) + '…'
+      : opts.eventTitle;
+    const subject = `Event removed: ${truncatedTitle}`;
+    const text = eventRejectedText(opts);
+    const html = eventRejectedHtml(opts);
     return this._send(opts.to, subject, text, html);
   }
 
@@ -524,6 +585,164 @@ function selfDisabledConfirmationHtml(o: SelfDisabledConfirmationOpts): string {
     `<pre style="margin:0.5em 0 0.5em 1em;font-size:1.05em">${safeSlug}</pre>`,
     '<p>Re-enabling a disabled publisher is an admin action — reply to this email or contact us at <a href="mailto:hello@chqcal.org">hello@chqcal.org</a> if you change your mind. Your previously-published events will need to be re-fetched from your feed, so make sure the feed is still serving them when you ask to re-enable.</p>',
     '<p>If you did <strong>not</strong> request this, contact us right away.</p>',
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+// ─── Observability email templates (Task 6) ──────────────────────────────
+
+const OBSERVABILITY_FOOTER = "If you don't want these notifications, sign in and turn off email alerts.";
+
+function humanizeStatus(status: IngestFailureEmailOpts['status']): string {
+  switch (status) {
+    case 'parse_error': return 'Parse error';
+    case 'validation_error': return 'Validation error';
+    case 'network_error': return 'Network error';
+    case 'threshold_halt': return 'Threshold halt';
+  }
+}
+
+function ingestFailureText(o: IngestFailureEmailOpts): string {
+  return [
+    `Hi ${o.publisherName || 'there'},`,
+    '',
+    'The last ingest run for your Chautauqua Calendar feed encountered an error.',
+    '',
+    `Status: ${humanizeStatus(o.status)}`,
+    'Error:',
+    `    ${o.message}`,
+    '',
+    `View details: ${o.portalUrl}`,
+    '',
+    OBSERVABILITY_FOOTER,
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function ingestFailureHtml(o: IngestFailureEmailOpts): string {
+  const safeName = escapeHtml(o.publisherName || 'there');
+  const safeStatus = escapeHtml(humanizeStatus(o.status));
+  const safeMessage = escapeHtml(o.message);
+  const safeUrl = encodeURI(o.portalUrl);
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    `<p>Hi ${safeName},</p>`,
+    '<p>The last ingest run for your Chautauqua Calendar feed encountered an error.</p>',
+    `<p><strong>Status:</strong> ${safeStatus}</p>`,
+    '<p><strong>Error:</strong></p>',
+    `<pre style="margin:0.5em 0 0.5em 1em;font-size:1.05em">${safeMessage}</pre>`,
+    `<p>View details: <a href="${safeUrl}">${escapeHtml(safeUrl)}</a></p>`,
+    `<p><em>${escapeHtml(OBSERVABILITY_FOOTER)}</em></p>`,
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+function ingestRecoveryText(o: IngestRecoveryEmailOpts): string {
+  const { added, updated, retracted, unchanged } = o.counts;
+  return [
+    `Hi ${o.publisherName || 'there'},`,
+    '',
+    'Good news — your Chautauqua Calendar feed is working again.',
+    '',
+    'Latest ingest counts:',
+    `  +${added} added   ~${updated} updated   -${retracted} retracted   ${unchanged} unchanged`,
+    '',
+    `View details: ${o.portalUrl}`,
+    '',
+    OBSERVABILITY_FOOTER,
+    '',
+    '— Chautauqua Calendar',
+  ].join('\n');
+}
+
+function ingestRecoveryHtml(o: IngestRecoveryEmailOpts): string {
+  const safeName = escapeHtml(o.publisherName || 'there');
+  const safeUrl = encodeURI(o.portalUrl);
+  const { added, updated, retracted, unchanged } = o.counts;
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    `<p>Hi ${safeName},</p>`,
+    '<p>Good news — your Chautauqua Calendar feed is <strong>working again</strong>.</p>',
+    '<p><strong>Latest ingest counts:</strong></p>',
+    `<pre style="margin:0.5em 0 0.5em 1em;font-size:1.05em">+${added} added   ~${updated} updated   -${retracted} retracted   ${unchanged} unchanged</pre>`,
+    `<p>View details: <a href="${safeUrl}">${escapeHtml(safeUrl)}</a></p>`,
+    `<p><em>${escapeHtml(OBSERVABILITY_FOOTER)}</em></p>`,
+    '<p>— Chautauqua Calendar</p>',
+    '</body></html>',
+  ].join('');
+}
+
+function eventRejectedText(o: EventRejectedEmailOpts): string {
+  const startDisplay = (() => {
+    try {
+      return new Date(o.eventStartDate).toLocaleString('en-US', {
+        timeZone: 'UTC',
+        month: 'long', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+      });
+    } catch {
+      return o.eventStartDate;
+    }
+  })();
+
+  const lines = [
+    `Hi ${o.publisherName || 'there'},`,
+    '',
+    `An event from your Chautauqua Calendar feed has been removed:`,
+    '',
+    `  Title:  ${o.eventTitle}`,
+    `  Starts: ${startDisplay}`,
+  ];
+
+  if (o.reason && o.reason.trim().length > 0) {
+    lines.push('', `Reason: ${o.reason.trim()}`);
+  } else {
+    lines.push('', 'An admin removed this event from the calendar.');
+  }
+
+  lines.push(
+    '',
+    `View your feed status: ${o.portalUrl}`,
+    '',
+    OBSERVABILITY_FOOTER,
+    '',
+    '— Chautauqua Calendar',
+  );
+  return lines.join('\n');
+}
+
+function eventRejectedHtml(o: EventRejectedEmailOpts): string {
+  const safeName = escapeHtml(o.publisherName || 'there');
+  const safeTitle = escapeHtml(o.eventTitle);
+  const safeUrl = encodeURI(o.portalUrl);
+
+  const startDisplay = (() => {
+    try {
+      return new Date(o.eventStartDate).toLocaleString('en-US', {
+        timeZone: 'UTC',
+        month: 'long', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+      });
+    } catch {
+      return escapeHtml(o.eventStartDate);
+    }
+  })();
+
+  const reasonBlock = o.reason && o.reason.trim().length > 0
+    ? `<p><strong>Reason:</strong></p><blockquote style="margin:0 0 0 1em;padding-left:1em;border-left:3px solid #ccc;color:#444">${escapeHtml(o.reason.trim())}</blockquote>`
+    : '<p>An admin removed this event from the calendar.</p>';
+
+  return [
+    '<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5">',
+    `<p>Hi ${safeName},</p>`,
+    '<p>An event from your Chautauqua Calendar feed has been removed:</p>',
+    `<p><strong>${safeTitle}</strong><br/>${escapeHtml(startDisplay)}</p>`,
+    reasonBlock,
+    `<p>View your feed status: <a href="${safeUrl}">${escapeHtml(safeUrl)}</a></p>`,
+    `<p><em>${escapeHtml(OBSERVABILITY_FOOTER)}</em></p>`,
     '<p>— Chautauqua Calendar</p>',
     '</body></html>',
   ].join('');

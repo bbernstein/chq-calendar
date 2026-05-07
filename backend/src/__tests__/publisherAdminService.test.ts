@@ -1,6 +1,7 @@
 import { ApplicationStateError, PublisherAdminService } from '../services/publisherAdminService';
 import { ConcurrentApplicationUpdateError } from '../services/publisherRegistryService';
 import type { PublisherRecord, StoredPublisherEvent } from '../types/publisher';
+import type { PublisherNotificationService } from '../services/publisherNotificationService';
 
 function makeRecord(overrides: Partial<PublisherRecord> = {}): PublisherRecord {
   return {
@@ -68,6 +69,7 @@ describe('PublisherAdminService', () => {
     } as any;
     store = {
       listPending: jest.fn(),
+      getEvent: jest.fn(),
       approveEvent: jest.fn(),
       rejectEvent: jest.fn(),
       deleteAllForPublisher: jest.fn(),
@@ -288,12 +290,88 @@ describe('PublisherAdminService', () => {
     expect(store.approveEvent).toHaveBeenCalledWith('pub-1', 'evt-1');
   });
 
-  it('rejectEvent delegates to store.rejectEvent with same args', async () => {
+  it('rejectEvent delegates to store.rejectEvent with same args (no reason, no notifier)', async () => {
+    (store as any).getEvent.mockResolvedValue(undefined);
     store.rejectEvent.mockResolvedValue(undefined);
 
     await svc.rejectEvent('pub-1', 'evt-1');
 
-    expect(store.rejectEvent).toHaveBeenCalledWith('pub-1', 'evt-1');
+    expect((store as any).getEvent).toHaveBeenCalledWith('pub-1', 'evt-1');
+    expect(store.rejectEvent).toHaveBeenCalledWith('pub-1', 'evt-1', undefined);
+  });
+
+  describe('rejectEvent with notifier', () => {
+    let notifier: { notifyEventRejected: jest.Mock };
+    let svcWithNotifier: PublisherAdminService;
+    const event = makePendingEvent();
+    const publisher = makeRecord();
+
+    beforeEach(() => {
+      notifier = { notifyEventRejected: jest.fn().mockResolvedValue(undefined) };
+      svcWithNotifier = new PublisherAdminService(
+        registry as any,
+        store as any,
+        { notifier: notifier as unknown as PublisherNotificationService },
+      );
+    });
+
+    it('calls notifier.notifyEventRejected with publisher, event, and reason when event is found', async () => {
+      (store as any).getEvent.mockResolvedValue(event);
+      store.rejectEvent.mockResolvedValue(true);
+      registry.get.mockResolvedValue(publisher);
+
+      await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'duplicate');
+
+      expect((store as any).getEvent).toHaveBeenCalledWith('pub-1', 'evt-1');
+      expect(store.rejectEvent).toHaveBeenCalledWith('pub-1', 'evt-1', 'duplicate');
+      expect(registry.get).toHaveBeenCalledWith('pub-1');
+      expect(notifier.notifyEventRejected).toHaveBeenCalledWith({ publisher, event, reason: 'duplicate' });
+    });
+
+    it('does NOT call notifier when getEvent returns undefined (event already gone)', async () => {
+      (store as any).getEvent.mockResolvedValue(undefined);
+      store.rejectEvent.mockResolvedValue(true);
+
+      await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'reason');
+
+      expect(notifier.notifyEventRejected).not.toHaveBeenCalled();
+      expect(registry.get).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call notifier when publisher registry returns null', async () => {
+      (store as any).getEvent.mockResolvedValue(event);
+      store.rejectEvent.mockResolvedValue(true);
+      registry.get.mockResolvedValue(null);
+
+      await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'reason');
+
+      expect(notifier.notifyEventRejected).not.toHaveBeenCalled();
+    });
+
+    it('forwards undefined reason to the notifier when no reason given', async () => {
+      (store as any).getEvent.mockResolvedValue(event);
+      store.rejectEvent.mockResolvedValue(true);
+      registry.get.mockResolvedValue(publisher);
+
+      await svcWithNotifier.rejectEvent('pub-1', 'evt-1');
+
+      expect(notifier.notifyEventRejected).toHaveBeenCalledWith({ publisher, event, reason: undefined });
+    });
+
+    it('does NOT call notifier when store.rejectEvent returns false (no-op transition)', async () => {
+      // Already non-pending row (rejected/published/deleted): store swallows
+      // the ConditionalCheckFailedException and returns false. No state change
+      // happened, so no email should be sent — even though getEvent succeeded
+      // pre-check.
+      (store as any).getEvent.mockResolvedValue(event);
+      store.rejectEvent.mockResolvedValue(false);
+      registry.get.mockResolvedValue(publisher);
+
+      await svcWithNotifier.rejectEvent('pub-1', 'evt-1', 'reason');
+
+      expect(notifier.notifyEventRejected).not.toHaveBeenCalled();
+      expect(registry.get).not.toHaveBeenCalled();
+    });
   });
 
   // ── listThresholdHalts ─────────────────────────────────────────────────────
