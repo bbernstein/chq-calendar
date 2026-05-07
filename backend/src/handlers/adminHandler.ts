@@ -34,6 +34,8 @@ import {
   handlePublisherPause,
   handlePublisherResume,
   handlePublisherDisable,
+  handlePublisherRuns,
+  handlePublisherEvents,
 } from './publisherPortalHandler';
 
 // DynamoDB client
@@ -554,6 +556,21 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     // sits BEFORE the admin auth gate.
     if (path === '/publisher-disable' && httpMethod === 'POST') {
       return await handlePublisherDisable(event, requestBody);
+    }
+
+    // Task 10 (publisher observability): publisher sees their own ingest-run
+    // history. Publisher-JWT-auth'd; handler enforces auth itself, so it sits
+    // BEFORE the admin auth gate. Exact match avoids shadowing admin sub-routes.
+    if (path === '/publisher-runs' && httpMethod === 'GET') {
+      return await handlePublisherRuns(event, requestBody);
+    }
+
+    // Task 11 (publisher observability): publisher sees their own event
+    // summaries (all states). Publisher-JWT-auth'd. Exact match on
+    // '/publisher-events' so the admin-only '/publisher-events/pending' and
+    // approve/reject sub-routes below are unaffected.
+    if (path === '/publisher-events' && httpMethod === 'GET') {
+      return await handlePublisherEvents(event, requestBody);
     }
 
     // All remaining endpoints require authentication, except in local development
