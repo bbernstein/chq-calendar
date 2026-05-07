@@ -4,6 +4,11 @@
 
 jest.mock('../services/captchaService', () => ({
   verifyCaptcha: jest.fn(),
+  // The apply route now calls the bypass-aware wrapper so it can short-circuit
+  // the Google round-trip when CAPTCHA_BYPASS_TOKEN + X-Smoke-Bypass match.
+  // We mock both — most tests drive verifyCaptchaWithBypass directly; one
+  // test below pins the wrapper's call signature.
+  verifyCaptchaWithBypass: jest.fn(),
 }));
 
 import type { APIGatewayProxyEvent } from 'aws-lambda';
@@ -16,9 +21,9 @@ import {
   _resetPublisherAuthRateLimitForTests,
 } from '../handlers/publisherPortalHandler';
 import { EmailAlreadyInUseError } from '../services/publisherApplicationService';
-import { verifyCaptcha } from '../services/captchaService';
+import { verifyCaptchaWithBypass } from '../services/captchaService';
 
-const mockVerifyCaptcha = verifyCaptcha as jest.MockedFunction<typeof verifyCaptcha>;
+const mockVerifyCaptcha = verifyCaptchaWithBypass as jest.MockedFunction<typeof verifyCaptchaWithBypass>;
 
 const evt = (overrides: Partial<APIGatewayProxyEvent> = {}): APIGatewayProxyEvent => ({
   body: '',
@@ -71,7 +76,11 @@ describe('handlePublisherApplyRequest', () => {
     expect(r.statusCode).toBe(200);
     expect(JSON.parse(r.body)).toEqual({ ok: true });
     expect(stub.requestApply).toHaveBeenCalled();
-    expect(mockVerifyCaptcha).toHaveBeenCalledWith('test-captcha-token', 'publisher_apply');
+    expect(mockVerifyCaptcha).toHaveBeenCalledWith(
+      'test-captcha-token',
+      'publisher_apply',
+      expect.any(Object),
+    );
   });
 
   it('passes empty token through to verifyCaptcha when captchaToken is missing', async () => {
@@ -86,7 +95,7 @@ describe('handlePublisherApplyRequest', () => {
     const { captchaToken: _drop, ...withoutToken } = validBody;
     const r = await handlePublisherApplyRequest(evt(), withoutToken);
     expect(r.statusCode).toBe(200);
-    expect(mockVerifyCaptcha).toHaveBeenCalledWith('', 'publisher_apply');
+    expect(mockVerifyCaptcha).toHaveBeenCalledWith('', 'publisher_apply', expect.any(Object));
   });
 
   it('returns 400 with captcha field when verifyCaptcha returns false', async () => {

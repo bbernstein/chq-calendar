@@ -10,10 +10,13 @@ import {
 } from '../services/publisherIngestInvoker';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
+import { verifySmokeAdminToken } from '../services/smokeAdminAuth';
 import { ApplicationStateError, PublisherAdminService } from '../services/publisherAdminService';
 import { PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherEventStore } from '../services/publisherEventStore';
 import { SesMailService } from '../services/mailService';
+import { signPublisherJwt } from '../services/publisherAuthService';
+import { v4 as uuidv4 } from 'uuid';
 import {
   handlePublisherTest,
   handlePublisherApplyRequest,
@@ -73,6 +76,58 @@ function publisherAdmin(): PublisherAdminService {
 // to the lazily-constructed real instance.
 export function _setPublisherAdminForTests(svc: PublisherAdminService | null): void {
   _publisherAdmin = svc;
+}
+
+// Smoke-bot route plumbing. Lazy singletons + an injection point so the
+// adminHandler tests can drive the smoke routes without standing up real
+// DDB connections. The smoke endpoints share the underlying registry +
+// event-store with publisherAdmin(), but it's cleaner to construct them
+// independently than to expose private members of PublisherAdminService.
+import type { SmokeResetResult } from '../services/smokeReset';
+import { resetBbtest as _resetBbtestImpl } from '../services/smokeReset';
+
+interface SmokeRouteDeps {
+  registry: PublisherRegistryService;
+  eventStore: PublisherEventStore;
+  magicTokensTableName: string;
+  // Override hook for tests — defaults to the production resetBbtest
+  // implementation. We re-bind through this seam so a unit test can
+  // assert "the route called resetBbtest with these args" without having
+  // to spin up a fake DDB.
+  resetImpl?: (
+    deps: {
+      registry: PublisherRegistryService;
+      eventStore: PublisherEventStore;
+      db: DynamoDBDocumentClient;
+      magicTokensTableName: string;
+    },
+    bbtestEmail: string,
+  ) => Promise<SmokeResetResult>;
+}
+
+let _smokeRouteDeps: SmokeRouteDeps | null = null;
+function smokeRouteDeps(): SmokeRouteDeps {
+  if (!_smokeRouteDeps) {
+    _smokeRouteDeps = {
+      registry: new PublisherRegistryService(
+        docClient,
+        process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
+      ),
+      eventStore: new PublisherEventStore(
+        docClient,
+        process.env.PUBLISHER_EVENTS_TABLE_NAME ?? 'chautauqua-calendar-publisher-events',
+      ),
+      magicTokensTableName:
+        process.env.PUBLISHER_MAGIC_TOKEN_TABLE_NAME
+          ?? 'chautauqua-calendar-publisher-magic-tokens',
+    };
+  }
+  return _smokeRouteDeps;
+}
+
+// Test-only: inject smoke-route plumbing. Pass null to revert.
+export function _setSmokeRouteDepsForTests(deps: SmokeRouteDeps | null): void {
+  _smokeRouteDeps = deps;
 }
 
 // Environment variables
@@ -196,6 +251,51 @@ const isAuthorizedEmail = (email: string): boolean => {
   const whitelist = ADMIN_EMAIL_WHITELIST.split(',').map(e => e.trim());
   return whitelist.includes(email);
 };
+
+// ─── Smoke-bot allowlist ──────────────────────────────────────────────
+//
+// Routes the post-deploy publisher-lifecycle smoke is allowed to call when
+// authenticated as `smoke-bot` via verifySmokeAdminToken (a separate signing
+// key from the Google OAuth path — see services/smokeAdminAuth.ts).
+//
+// Format: `${HTTP_METHOD} ${path-template}`. Path templates use `{id}` for
+// dynamic segments and are matched against the actual path via the regex
+// helpers below — keep this in sync with routeMatchesSmokeAllowlist.
+//
+// The smoke MUST NOT be able to call any route outside this set, even with
+// a valid signing-key JWT — leaking the key should not let an attacker
+// drive arbitrary admin actions. Every existing admin-only route stays
+// gated to Google-OAuth admins.
+const SMOKE_ADMIN_ROUTE_ALLOWLIST: ReadonlyArray<{ method: string; pattern: RegExp }> = [
+  // Approve a pending publisher application.
+  { method: 'POST',  pattern: /^\/publisher-applications\/[^/]+\/approve$/ },
+  // Trigger an immediate publisher-ingest run (async invoke).
+  { method: 'POST',  pattern: /^\/publishers\/run-ingest$/ },
+  // List all publishers — the smoke asserts the just-approved bbtest row
+  // appears in the list with enabled=true. This route exposes contact
+  // emails, so the value of "smoke-bot can read it" is weighed against
+  // "leaked smoke key + this route = email list dump" — we accept that
+  // tradeoff because (a) the same data is already reachable via real
+  // admin auth, and (b) the smoke needs a way to confirm the approve
+  // step actually persisted.
+  { method: 'GET',   pattern: /^\/publishers$/ },
+  // Smoke-only endpoints (defined in this handler below).
+  { method: 'POST',  pattern: /^\/smoke-reset-bbtest$/ },
+  { method: 'POST',  pattern: /^\/smoke-magic-token-by-email$/ },
+  { method: 'POST',  pattern: /^\/publishers\/[^/]+\/events\/count$/ },
+  // NOTE: PATCH /publishers/{id} is intentionally NOT on this allowlist.
+  // Pause/resume/self-disable transitions in the smoke go through the
+  // publisher-JWT routes (/publisher-pause, /publisher-resume,
+  // /publisher-disable), not the admin PATCH. Keeping PATCH off the
+  // allowlist means a leaked smoke key cannot mutate arbitrary publisher
+  // rows (e.g. flip another publisher's trustLevel or contactEmail).
+];
+
+function routeMatchesSmokeAllowlist(method: string, path: string): boolean {
+  return SMOKE_ADMIN_ROUTE_ALLOWLIST.some(
+    ({ method: m, pattern }) => m === method && pattern.test(path),
+  );
+}
 
 // Authentication middleware for Lambda
 const authenticateRequest = (event: APIGatewayProxyEvent): { email: string; name: string } | null => {
@@ -456,7 +556,7 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
     let user = authenticateRequest(event);
     console.log('Authentication result:', user ? `authenticated as "${user.name}"` : 'unauthenticated');
     console.log('Request path:', path);
-    
+
     // In local development, bypass authentication and use dummy user.
     // Requires explicit opt-in via DEV_AUTH_BYPASS=true to prevent accidental bypass in staging.
     const isDevelopment = !isProduction && process.env.DEV_AUTH_BYPASS === 'true';
@@ -464,7 +564,42 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       console.log('Local development mode: bypassing authentication with dummy user');
       user = { email: 'dev@localhost.local', name: 'Local Dev User' };
     }
-    
+
+    // Smoke-bot fallback for the post-deploy publisher-lifecycle smoke test.
+    // Falls through to a smoke-signing-key JWT only when the regular admin
+    // auth produced no user. Even with a valid smoke token, we 403 routes
+    // outside SMOKE_ADMIN_ROUTE_ALLOWLIST — a leaked key cannot drive
+    // arbitrary admin actions. CloudWatch logs include `adminSubject:
+    // 'smoke-bot'` so smoke-driven mutations are auditable.
+    if (!user) {
+      const smokeAuthHeader =
+        event.headers.Authorization
+        || event.headers.authorization
+        || event.headers['X-Auth-Token']
+        || event.headers['x-auth-token'];
+      const smokePrincipal = verifySmokeAdminToken(smokeAuthHeader);
+      if (smokePrincipal) {
+        if (!routeMatchesSmokeAllowlist(httpMethod, path)) {
+          console.log('[admin] smoke-bot token rejected for non-allowlisted route', {
+            adminSubject: 'smoke-bot',
+            method: httpMethod,
+            path,
+          });
+          return createResponse(403, { error: 'Smoke route not permitted' });
+        }
+        console.log('[admin] smoke-bot authenticated', {
+          adminSubject: 'smoke-bot',
+          method: httpMethod,
+          path,
+        });
+        // Surface a synthetic email so downstream code that audits
+        // `user.email` (e.g. approveApplication's reviewerEmail) records
+        // the smoke run rather than crashing. The email is a non-routable
+        // sentinel — receiving mail to it is not possible.
+        user = { email: 'smoke-bot@chqcal.invalid', name: 'smoke-bot' };
+      }
+    }
+
     if (!user) {
       return createResponse(401, { error: 'Authentication required' });
     }
@@ -668,6 +803,186 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
       } catch (error) {
         console.error('Error cancelling threshold halt:', error);
         return createResponse(500, { error: 'Failed to cancel threshold halt' });
+      }
+    }
+
+    // ─── Smoke-bot endpoints ───────────────────────────────────────────
+    //
+    // Three test-only routes used exclusively by the post-deploy
+    // publisher-lifecycle smoke. All three are also gated by
+    // SMOKE_ADMIN_ROUTE_ALLOWLIST above — Google-OAuth admins are NOT
+    // expected to hit these (they have richer dashboards), but the
+    // allowlist + signing-key check is what blocks an attacker with a
+    // forged smoke token from driving anything outside the smoke's needs.
+    //
+    // Defense-in-depth: the email-keyed routes (smoke-reset-bbtest and
+    // smoke-magic-token-by-email) ALSO hard-gate the supplied email
+    // against process.env.SMOKE_BBTEST_EMAIL. A leaked signing key would
+    // otherwise let an attacker mint reset/JWT actions for arbitrary
+    // emails. With this gate, the blast radius is limited to the single
+    // configured bbtest mailbox even on key compromise. If
+    // SMOKE_BBTEST_EMAIL is unset (e.g. in environments where the smoke
+    // is intentionally not provisioned), both routes return 403.
+    if (path === '/smoke-reset-bbtest' && httpMethod === 'POST') {
+      try {
+        const expectedEmail = (process.env.SMOKE_BBTEST_EMAIL ?? '').trim().toLowerCase();
+        if (!expectedEmail) {
+          console.log('[admin] smoke-reset-bbtest rejected: SMOKE_BBTEST_EMAIL not configured');
+          return createResponse(403, { error: 'Smoke bbtest email is not configured on this Lambda' });
+        }
+        const email = typeof requestBody?.email === 'string' ? requestBody.email.trim().toLowerCase() : '';
+        if (!email) {
+          return createResponse(400, { error: 'email is required' });
+        }
+        if (email !== expectedEmail) {
+          console.log('[admin] smoke-reset-bbtest rejected: email does not match SMOKE_BBTEST_EMAIL', {
+            adminSubject: 'smoke-bot',
+          });
+          return createResponse(403, { error: 'Email does not match the configured smoke bbtest email' });
+        }
+        const deps = smokeRouteDeps();
+        const reset = deps.resetImpl ?? _resetBbtestImpl;
+        const result = await reset(
+          {
+            registry: deps.registry,
+            eventStore: deps.eventStore,
+            db: docClient,
+            magicTokensTableName: deps.magicTokensTableName,
+          },
+          email,
+        );
+        console.log('[smoke] reset complete', { adminSubject: 'smoke-bot', email, result });
+        return createResponse(200, result);
+      } catch (error) {
+        console.error('Error in smoke-reset-bbtest:', error);
+        const message = error instanceof Error ? error.message : 'unknown error';
+        return createResponse(500, { error: `smoke reset failed: ${message}` });
+      }
+    }
+
+    if (path === '/smoke-magic-token-by-email' && httpMethod === 'POST') {
+      // Smoke-only "consume the apply magic-link by email lookup" path.
+      //
+      // The real magic-token store only persists the SHA-256 hash of the
+      // raw token (raw tokens go out via SES, never written to DDB), so
+      // an email-keyed lookup CANNOT recover the raw token to feed
+      // /publisher-apply/verify. Instead, this endpoint replays the
+      // verifyApply effects directly: find the most-recent apply row for
+      // the email, materialize the publisher row from its applyPayload,
+      // delete the token row, and return the publisher id + JWT.
+      //
+      // The production SES delivery still happens upstream — apply mail
+      // is sent every smoke run, exercising real SES — but the smoke
+      // reads no mailbox.
+      //
+      // Allowlisted to smoke-bot only (SMOKE_ADMIN_ROUTE_ALLOWLIST). NEVER
+      // reachable without a valid smoke-bot signed token. ALSO hard-gated
+      // to process.env.SMOKE_BBTEST_EMAIL so a leaked signing key cannot
+      // mint a JWT for an arbitrary email.
+      try {
+        const expectedEmail = (process.env.SMOKE_BBTEST_EMAIL ?? '').trim().toLowerCase();
+        if (!expectedEmail) {
+          console.log('[admin] smoke-magic-token-by-email rejected: SMOKE_BBTEST_EMAIL not configured');
+          return createResponse(403, { error: 'Smoke bbtest email is not configured on this Lambda' });
+        }
+        const email = typeof requestBody?.email === 'string' ? requestBody.email : '';
+        if (!email) {
+          return createResponse(400, { error: 'email is required' });
+        }
+        const normalized = email.trim().toLowerCase();
+        if (normalized !== expectedEmail) {
+          console.log('[admin] smoke-magic-token-by-email rejected: email does not match SMOKE_BBTEST_EMAIL', {
+            adminSubject: 'smoke-bot',
+          });
+          return createResponse(403, { error: 'Email does not match the configured smoke bbtest email' });
+        }
+        const deps = smokeRouteDeps();
+        type SmokeTokenRow = {
+          tokenHash: string;
+          createdAt: string;
+          purpose: string;
+          email: string;
+          applyPayload?: {
+            name: string;
+            email: string;
+            sourceUrl: string;
+            sourceType: 'json' | 'html';
+            organization?: string;
+            notes?: string;
+          };
+        };
+        let last: Record<string, unknown> | undefined;
+        let latest: SmokeTokenRow | null = null;
+        do {
+          const r = await docClient.send(new ScanCommand({
+            TableName: deps.magicTokensTableName,
+            FilterExpression: 'email = :e AND purpose = :p',
+            ExpressionAttributeValues: { ':e': normalized, ':p': 'apply' },
+            ExclusiveStartKey: last,
+          }));
+          for (const item of (r.Items ?? []) as SmokeTokenRow[]) {
+            if (!latest || item.createdAt > latest.createdAt) {
+              latest = item;
+            }
+          }
+          last = r.LastEvaluatedKey;
+        } while (last);
+        if (!latest || !latest.applyPayload) {
+          return createResponse(404, { error: 'no apply token found' });
+        }
+
+        // Materialize the publisher row from the apply payload (mirrors
+        // PublisherApplicationService.verifyApply) and delete the magic-
+        // token row so it can't be reused.
+        const publisherId = `pub-${uuidv4()}`;
+        const nowIso = new Date().toISOString();
+        await deps.registry.upsert({
+          id: publisherId,
+          name: latest.applyPayload.name,
+          contactEmail: normalized,
+          sourceUrl: latest.applyPayload.sourceUrl,
+          sourceType: latest.applyPayload.sourceType,
+          trustLevel: 'review',
+          enabled: false,
+          createdAt: nowIso,
+          applicationStatus: 'pending',
+          appliedAt: nowIso,
+          organization: latest.applyPayload.organization,
+          applicantNotes: latest.applyPayload.notes,
+        });
+        await docClient.send(new DeleteCommand({
+          TableName: deps.magicTokensTableName,
+          Key: { tokenHash: latest.tokenHash },
+        }));
+
+        const publisherJwt = await signPublisherJwt({
+          publisherId,
+          email: normalized,
+          tokenVersion: 0,
+        });
+        return createResponse(200, { jwt: publisherJwt, publisherId, email: normalized });
+      } catch (error) {
+        console.error('Error in smoke-magic-token-by-email:', error);
+        return createResponse(500, { error: 'smoke token lookup failed' });
+      }
+    }
+
+    const matchEventCount = path.match(/^\/publishers\/([^/]+)\/events\/count$/);
+    if (matchEventCount && httpMethod === 'POST') {
+      // Smoke uses this to count published events between ingest runs.
+      // Could be GET, but we use POST to keep symmetry with the other
+      // smoke endpoints (all of which are POST) and to leave room for
+      // optional filter args in the body without breaking caching rules.
+      try {
+        const publisherId = decodeURIComponent(matchEventCount[1]);
+        const deps = smokeRouteDeps();
+        // Use a DDB Query with Select=COUNT so we never hydrate event
+        // payloads into Lambda memory — see PublisherEventStore.countForPublisher.
+        const count = await deps.eventStore.countForPublisher(publisherId);
+        return createResponse(200, { count });
+      } catch (error) {
+        console.error('Error in smoke event count:', error);
+        return createResponse(500, { error: 'smoke event count failed' });
       }
     }
 

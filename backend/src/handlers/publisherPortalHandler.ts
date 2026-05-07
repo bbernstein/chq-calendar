@@ -30,7 +30,7 @@ import { SesMailService } from '../services/mailService';
 import { PublisherNotFoundError, PublisherRegistryService } from '../services/publisherRegistryService';
 import { PublisherApplicationService, EmailAlreadyInUseError } from '../services/publisherApplicationService';
 import { requirePublisherSession } from '../services/publisherSession';
-import { verifyCaptcha } from '../services/captchaService';
+import { verifyCaptchaWithBypass } from '../services/captchaService';
 import {
   updatePublisherProfile,
   ProfileValidationError,
@@ -374,7 +374,13 @@ export async function handlePublisherApplyRequest(
   // request proceeds. In production the secret is set and an empty or
   // bad token is rejected.
   const captchaToken = typeof requestBody?.captchaToken === 'string' ? requestBody.captchaToken : '';
-  const captchaOk = await verifyCaptcha(captchaToken, 'publisher_apply');
+  // Use the bypass-aware wrapper here — the post-deploy smoke test sets
+  // X-Smoke-Bypass with a high-entropy secret so it can drive the apply
+  // flow against the real production stack without needing a real reCAPTCHA
+  // round-trip. Other captcha callsites (calendarHandler feedback) remain
+  // on plain verifyCaptcha — the apply route is the only one the smoke
+  // exercises.
+  const captchaOk = await verifyCaptchaWithBypass(captchaToken, 'publisher_apply', event.headers);
   if (!captchaOk) {
     return json(400, { error: 'CAPTCHA verification failed. Please refresh and try again.', field: 'captcha' });
   }

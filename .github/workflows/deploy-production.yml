@@ -806,6 +806,43 @@ jobs:
 
           echo "✅ Publisher single-publisher mode E2E test passed"
 
+      - name: Reinstall dev dependencies for smoke step
+        # The earlier "Deploy admin/calendar/sync/publisher-ingest Lambda"
+        # steps each run `npm ci --omit=dev` inside ./backend. In a
+        # workspaces monorepo that prunes hoisted devDependencies from
+        # the top-level node_modules — including jest and ts-jest, which
+        # the smoke step (npm run smoke:publisher) needs. Re-run the full
+        # install at the repo root to restore them. This is faster than
+        # rearranging the deploy steps and keeps each step's contract
+        # local: deploy steps assume a pruned tree, the smoke step assumes
+        # a full tree.
+        run: npm ci
+
+      - name: Post-deploy publisher-lifecycle smoke
+        # Runs scripts/smoke/publisher-lifecycle.test.ts against the
+        # just-deployed prod stack. Walks bbtest through apply → approve →
+        # publish → pause → resume → self-disable → retract end-to-end,
+        # exercising real DDB / SES / API Gateway / Lambda / sidecar.
+        #
+        # If this fails, the deploy job is marked red. Rollback is a
+        # separate decision — the deploy itself succeeded; what's red is
+        # the post-deploy verification. See
+        # docs/runbooks/publisher-smoke-failed.md for triage.
+        #
+        # Required GitHub repo secrets (set in repo Settings → Secrets and
+        # variables → Actions):
+        #   - SMOKE_BBTEST_EMAIL
+        #   - SMOKE_ADMIN_SIGNING_KEY     (matches Lambda env ADMIN_SMOKE_SIGNING_KEY)
+        #   - SMOKE_CAPTCHA_BYPASS_TOKEN  (matches Lambda env CAPTCHA_BYPASS_TOKEN)
+        # Until those are populated this step skips loudly (the test
+        # describe() returns describe.skip and the job stays green).
+        run: npm run smoke:publisher
+        env:
+          SMOKE_API_BASE: https://www.chqcal.org
+          SMOKE_BBTEST_EMAIL: ${{ secrets.SMOKE_BBTEST_EMAIL }}
+          SMOKE_ADMIN_SIGNING_KEY: ${{ secrets.SMOKE_ADMIN_SIGNING_KEY }}
+          SMOKE_CAPTCHA_BYPASS_TOKEN: ${{ secrets.SMOKE_CAPTCHA_BYPASS_TOKEN }}
+
       - name: Trigger calendar data sync
         continue-on-error: true
         run: |
