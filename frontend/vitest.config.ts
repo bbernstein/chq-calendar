@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import preact from '@preact/preset-vite';
 import { resolve } from 'path';
+import floor from '../.coverage-floor.json';
 
 export default defineConfig({
   plugins: [preact()],
@@ -20,6 +21,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov', 'json-summary'],
       exclude: ['out/**', 'src/**/__tests__/**', '**/*.test.{ts,tsx}'],
+      thresholds: { lines: floor.frontend.lines },
     },
   },
 });
