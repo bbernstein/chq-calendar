@@ -283,14 +283,38 @@ function compare(a: unknown, b: unknown, op: string): boolean {
   throw new Error(`Unsupported comparison ${op} between ${typeof a} and ${typeof b}`);
 }
 
+// Structural deep-equality. Key order independent (an earlier JSON.stringify
+// version was order-dependent which made attribute_exists/`=` ConditionExpression
+// comparisons false-negative whenever two objects had the same keys in
+// different insertion orders).
 function deepEq(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (typeof a !== typeof b) return false;
+  // Handle NaN === NaN (Number.isNaN true on both sides).
+  if (typeof a === 'number' && typeof b === 'number'
+    && Number.isNaN(a) && Number.isNaN(b)) return true;
   if (a === null || b === null) return false;
-  if (typeof a === 'object') {
-    return JSON.stringify(a) === JSON.stringify(b);
+  if (a === undefined || b === undefined) return false;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== 'object') return false; // primitives already handled by ===
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b)) return false;
+    if (a.length !== (b as unknown[]).length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEq(a[i], (b as unknown[])[i])) return false;
+    }
+    return true;
   }
-  return false;
+  if (Array.isArray(b)) return false;
+  const ao = a as Record<string, unknown>;
+  const bo = b as Record<string, unknown>;
+  const aKeys = Object.keys(ao);
+  const bKeys = Object.keys(bo);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(bo, k)) return false;
+    if (!deepEq(ao[k], bo[k])) return false;
+  }
+  return true;
 }
 
 function evalCondition(expr: string, ctx: ExprCtx): boolean {

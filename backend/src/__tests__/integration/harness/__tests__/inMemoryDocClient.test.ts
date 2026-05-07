@@ -321,6 +321,30 @@ describe('InMemoryDocClient', () => {
     expect(r.LastEvaluatedKey).toBeUndefined();
   });
 
+  it("ConditionExpression '=' compares objects structurally (key order independent)", async () => {
+    // Construct two objects with the same key set but different insertion
+    // orders. With the old JSON.stringify-based deepEq these would compare
+    // unequal; structural deepEq must treat them as equal.
+    const c = makeClient();
+    const stored = { a: 1, b: 'two', c: { x: 1, y: 2 } };
+    await c.send(new PutCommand({
+      TableName: 'simple',
+      Item: { id: 'a', payload: stored },
+    }));
+    // Same keys, opposite insertion order on both the outer and nested object.
+    const compareTo: Record<string, unknown> = {};
+    compareTo.c = { y: 2, x: 1 };
+    compareTo.b = 'two';
+    compareTo.a = 1;
+    const r = await c.send(new ScanCommand({
+      TableName: 'simple',
+      FilterExpression: 'payload = :p',
+      ExpressionAttributeValues: { ':p': compareTo },
+    })) as { Items: any[] };
+    expect(r.Items).toHaveLength(1);
+    expect(r.Items[0].id).toBe('a');
+  });
+
   it('Scan with Limit + ExclusiveStartKey paginates over hash-only table', async () => {
     const c = makeClient();
     for (let i = 0; i < 4; i++) {
