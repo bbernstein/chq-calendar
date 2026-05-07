@@ -71,3 +71,34 @@ resource "aws_dynamodb_table_item" "ci_e2e_publisher" {
     ignore_changes = [item]
   }
 }
+
+# ─── Post-deploy publisher-lifecycle smoke fixture ─────────────────────────
+#
+# Static feed used by scripts/smoke/publisher-lifecycle.test.ts. Unlike the
+# ci-e2e publisher above, the smoke creates+deletes its publisher row each
+# run (it's an apply→approve→...→disable lifecycle test, not a toggle test).
+# What's static is just the feed itself + the publisher.id baked into it.
+# The smoke route in adminHandler.ts honors a `publisherId` override field
+# scoped to this exact id ("smoke-bbtest") so the row gets created with the
+# id that matches the feed's publisher.id (otherwise the fetcher rejects on
+# id mismatch).
+
+locals {
+  smoke_bbtest_feed_s3_key = "cache/smoke/bbtest-feed.json"
+}
+
+resource "aws_s3_object" "smoke_bbtest_feed" {
+  # Mirror the count gate on `aws_s3_object.ci_e2e_feed`: in environments
+  # where the CI/smoke infrastructure is deliberately disabled (preview
+  # accounts), don't upload the smoke fixture either. The smoke route in
+  # adminHandler.ts is unreachable in those environments anyway, so the S3
+  # object would be unused dead weight.
+  count = var.enable_ci_e2e_publisher ? 1 : 0
+
+  bucket        = aws_s3_bucket.frontend_bucket.id
+  key           = local.smoke_bbtest_feed_s3_key
+  source        = "${path.module}/smoke-publisher-feed.json"
+  etag          = filemd5("${path.module}/smoke-publisher-feed.json")
+  content_type  = "application/json"
+  cache_control = "public, max-age=60"
+}

@@ -173,11 +173,16 @@ export class SmokeApiClient {
     // row for `email` and returns the resulting publisher JWT + id. See
     // backend/src/handlers/adminHandler.ts for the rationale (raw tokens
     // aren't recoverable from DDB so the smoke can't replay verifyApply).
-    consumeApplyByEmail: (email: string) =>
+    consumeApplyByEmail: (email: string, opts: { publisherId?: string } = {}) =>
       this.request<{ jwt: string; publisherId: string; email: string }>({
         method: 'POST',
         path: '/admin/api/smoke-magic-token-by-email',
-        body: { email },
+        // The optional publisherId override is gated to a single allowlisted
+        // value ('smoke-bbtest') by the handler; the smoke uses it to make
+        // the materialized publisher row's id match the static smoke feed's
+        // publisher.id, so the publisher-ingest fetcher's id-match check
+        // passes during the run-ingest step.
+        body: opts.publisherId ? { email, publisherId: opts.publisherId } : { email },
         adminAuth: true,
       }),
   };
