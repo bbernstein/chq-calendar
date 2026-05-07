@@ -1,5 +1,4 @@
 import {
-  DeleteCommand,
   QueryCommand,
   TransactWriteCommand,
   UpdateCommand,
@@ -118,17 +117,37 @@ export class PublisherEventStore {
     }
   }
 
-  async rejectEvent(publisherId: string, eventId: string): Promise<void> {
-    // Guard against deleting an already-published event if /reject races a
-    // /approve or arrives after publication. ConditionalCheckFailedException
-    // is treated as a no-op — the row exists in a state we cannot reject from.
+  async rejectEvent(
+    publisherId: string,
+    eventId: string,
+    reason?: string,
+  ): Promise<void> {
+    // Soft-delete: rows transition to state='rejected' (terminal) instead of
+    // being deleted. Re-ingest preserves them via publisherReconciler.toStored.
+    // The condition `#s = :pending` keeps approve/reject races atomic — same
+    // semantics as the previous DeleteCommand. ConditionalCheckFailedException
+    // is treated as a no-op (the row is in a state we can't reject from, e.g.
+    // already-rejected, already-published, or already-deleted).
+    const trimmed = reason?.trim();
+    const setParts = ['#s = :rejected', 'rejectedAt = :now', 'updatedAt = :now'];
+    const exprValues: Record<string, unknown> = {
+      ':rejected': 'rejected',
+      ':pending': 'pending',
+      ':now': new Date().toISOString(),
+    };
+    if (trimmed && trimmed.length > 0) {
+      setParts.push('rejectionReason = :reason');
+      // Caller is responsible for the 500-char cap; defense in depth here.
+      exprValues[':reason'] = trimmed.slice(0, 500);
+    }
     try {
-      await this.db.send(new DeleteCommand({
+      await this.db.send(new UpdateCommand({
         TableName: this.tableName,
         Key: { publisherId, eventId },
-        ConditionExpression: '#s = :pending',
+        UpdateExpression: `SET ${setParts.join(', ')}`,
+        ConditionExpression: 'attribute_exists(publisherId) AND #s = :pending',
         ExpressionAttributeNames: { '#s': 'state' },
-        ExpressionAttributeValues: { ':pending': 'pending' },
+        ExpressionAttributeValues: exprValues,
       }));
     } catch (err) {
       if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return;

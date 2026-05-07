@@ -76,17 +76,18 @@ describe('admin controls', () => {
     expect(await h.events.statesOf(publisherId)).toEqual({ 'evt-bad': 'pending' });
 
     await h.actors.admin.rejectEvent(publisherId, 'evt-bad');
-    expect(await h.events.count(publisherId)).toBe(0);
+    // Soft-delete: event is now marked state='rejected' (not hard-deleted).
+    expect(await h.events.statesOf(publisherId)).toEqual({ 'evt-bad': 'rejected' });
 
-    // Re-ingest with bumped lastModified — re-emerges as pending (no automatic
-    // suppression yet; reject is a delete and the next feed pull recreates it).
+    // Re-ingest with bumped lastModified — rejected state is preserved (no clobber).
+    // The event stays rejected even when the feed is refreshed.
     h.feeds.set(publisherId, feedOk(publisherId, 'X', [
       { id: 'evt-bad', startDate: '2026-08-01T10:00:00Z', endDate: '2026-08-01T11:00:00Z', lastModified: '2026-06-02T00:00:00Z' },
     ]));
     await h.actors.ingest.run();
-    // It DOES come back as pending — but is NOT auto-published, which is the
-    // important guarantee. (A future enhancement could persist a tombstone.)
-    expect(await h.events.statesOf(publisherId)).toEqual({ 'evt-bad': 'pending' });
+    // Rejected state is sticky — re-ingest preserves it, which is the important
+    // guarantee: once an event is rejected, re-ingestion will not resurrect it.
+    expect(await h.events.statesOf(publisherId)).toEqual({ 'evt-bad': 'rejected' });
   });
 
   it('admin approve event idempotent: approving an already-published event throws 409', async () => {

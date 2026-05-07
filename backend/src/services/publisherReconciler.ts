@@ -23,18 +23,20 @@ function toStored(
   nowIso: string,
   existing?: StoredPublisherEvent,
 ): StoredPublisherEvent {
-  // Once an event reaches state='published' it is terminal. Re-ingest never
-  // demotes — admin approvals (state='published' under trustLevel='review')
-  // and trust-level changes never push a published row back to pending.
-  // The only ways out of 'published' are admin reject (delete) or removal
-  // due to feed-absence, both handled outside toStored.
-  const state: 'published' | 'pending' =
+  // Once an event reaches state='published' or state='rejected' it is terminal.
+  // Re-ingest never demotes — admin approvals (state='published' under
+  // trustLevel='review') and admin rejections (state='rejected') are sticky.
+  // The only ways out are removal due to feed-absence, both handled outside toStored.
+  // When preserving 'rejected', also preserve rejectionReason and rejectedAt.
+  const state: 'published' | 'pending' | 'rejected' =
     existing?.state === 'published'
       ? 'published'
-      : trustLevel === 'auto'
-        ? 'published'
-        : 'pending';
-  return {
+      : existing?.state === 'rejected'
+        ? 'rejected'
+        : trustLevel === 'auto'
+          ? 'published'
+          : 'pending';
+  const result: StoredPublisherEvent = {
     publisherId: publisher.id,
     eventId: ev.id,
     startDate: ev.startDate,
@@ -44,6 +46,12 @@ function toStored(
     state,
     updatedAt: nowIso,
   };
+  // Preserve rejection metadata (reason and timestamp) when persisting rejected state.
+  if (state === 'rejected' && existing) {
+    if (existing.rejectionReason) result.rejectionReason = existing.rejectionReason;
+    if (existing.rejectedAt) result.rejectedAt = existing.rejectedAt;
+  }
+  return result;
 }
 
 export function reconcile(input: ReconcileInput): ReconcileResult {
