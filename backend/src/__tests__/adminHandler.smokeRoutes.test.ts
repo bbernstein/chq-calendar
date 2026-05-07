@@ -211,4 +211,23 @@ describe('POST /smoke-magic-token-by-email — bbtest email gate', () => {
       if (prior !== undefined) process.env.SMOKE_BBTEST_EMAIL = prior;
     }
   });
+
+  it('rejects publisherId override that is not the allowlisted value', async () => {
+    // The smoke route accepts an optional publisherId override so the
+    // materialized row's id matches the static smoke-fixture feed's
+    // declared publisher.id. The override is allowlisted to a single value
+    // ('smoke-bbtest') — any other value (even from an authenticated smoke
+    // caller) is a 400 so a leaked smoke key can't mint arbitrary ids.
+    const r = await handler(
+      evt({
+        path: '/smoke-magic-token-by-email',
+        httpMethod: 'POST',
+        headers: { Authorization: `Bearer ${makeSmokeBotToken()}` },
+        body: JSON.stringify({ email: BBTEST_EMAIL, publisherId: 'attacker-chosen' }),
+      }),
+      ctx,
+    );
+    expect(r.statusCode).toBe(400);
+    expect(JSON.parse(r.body).error).toMatch(/publisherId override must equal "smoke-bbtest"/);
+  });
 });

@@ -924,6 +924,19 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
           });
           return createResponse(403, { error: 'Email does not match the configured smoke bbtest email' });
         }
+        // Validate publisherId override BEFORE the DDB scan so a malformed
+        // override fails fast and doesn't burn read capacity. Allowlist is a
+        // single hardcoded value — never accept arbitrary ids even from an
+        // authenticated smoke caller.
+        const SMOKE_PUBLISHER_ID_ALLOWED_EARLY = 'smoke-bbtest';
+        const requestedPublisherIdEarly = typeof requestBody?.publisherId === 'string'
+          ? requestBody.publisherId
+          : '';
+        if (requestedPublisherIdEarly.length > 0 && requestedPublisherIdEarly !== SMOKE_PUBLISHER_ID_ALLOWED_EARLY) {
+          return createResponse(400, {
+            error: `publisherId override must equal "${SMOKE_PUBLISHER_ID_ALLOWED_EARLY}"`,
+          });
+        }
         const deps = smokeRouteDeps();
         type SmokeTokenRow = {
           tokenHash: string;
@@ -961,8 +974,11 @@ export const handler = async (event: APIGatewayProxyEvent, context: Context): Pr
 
         // Materialize the publisher row from the apply payload (mirrors
         // PublisherApplicationService.verifyApply) and delete the magic-
-        // token row so it can't be reused.
-        const publisherId = `pub-${uuidv4()}`;
+        // token row so it can't be reused. The publisherId override (when
+        // present) was already allowlisted above; default to a fresh uuid.
+        const publisherId: string = requestedPublisherIdEarly.length > 0
+          ? requestedPublisherIdEarly
+          : `pub-${uuidv4()}`;
         const nowIso = new Date().toISOString();
         await deps.registry.upsert({
           id: publisherId,

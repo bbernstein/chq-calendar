@@ -85,10 +85,17 @@ describeMaybe('post-deploy publisher lifecycle', () => {
 
   it('walks bbtest through apply → approve → publish → pause → resume → self-disable', async () => {
     // 1. Apply (with CAPTCHA bypass header).
+    //
+    // sourceUrl points at a static fixture feed at
+    // s3://${frontend}/cache/smoke/bbtest-feed.json (provisioned via TF in
+    // ci-e2e-publisher.tf — colocated with the other deploy-test fixtures).
+    // The feed declares publisher.id = "smoke-bbtest"; the smoke route
+    // creates the publisher row with that exact id (see consumeApplyByEmail
+    // call below) so the fetcher's id-match check passes during ingest.
     const apply = await api.publisher.applyRequest({
       email: SMOKE_BBTEST_EMAIL,
       name: 'bbtest smoke',
-      sourceUrl: 'https://example.com/bbtest.json',
+      sourceUrl: `${SMOKE_API_BASE}/cache/smoke/bbtest-feed.json`,
       sourceType: 'json',
       organization: 'CI smoke run',
       notes: `smoke run @ ${new Date().toISOString()}`,
@@ -98,8 +105,12 @@ describeMaybe('post-deploy publisher lifecycle', () => {
     // 2. Consume the apply token by email (smoke shortcut: replays the
     //    /publisher-apply/verify side-effects without needing the raw token,
     //    since raw tokens are SES-only and not recoverable from DDB).
-    const consumed = await api.admin.consumeApplyByEmail(SMOKE_BBTEST_EMAIL);
-    expect(consumed.publisherId).toMatch(/^pub-/);
+    //    Pass the fixed publisherId so the row matches the static feed's
+    //    declared publisher.id.
+    const consumed = await api.admin.consumeApplyByEmail(SMOKE_BBTEST_EMAIL, {
+      publisherId: 'smoke-bbtest',
+    });
+    expect(consumed.publisherId).toBe('smoke-bbtest');
     const publisherId = consumed.publisherId;
     const publisherJwt = consumed.jwt;
 
@@ -174,13 +185,11 @@ describeMaybe('post-deploy publisher lifecycle', () => {
     );
     expect(afterDisable).toBe(0);
 
-    // 7b. After self-disable + retract, both observability endpoints should
-    //     still return 200 (publisher row exists, just disabled), but events
-    //     will be empty and the most-recent run will reflect the retraction.
-    const runsAfterDisable = await api.publisher.runs(publisherJwt);
-    expect(runsAfterDisable.runs.length).toBeGreaterThan(0);
-
-    const eventsAfterDisable = await api.publisher.events(publisherJwt);
-    expect(eventsAfterDisable.events.length).toBe(0);
+    // No post-disable observability assertions: self-disable bumps the
+    // publisher's tokenVersion, so the publisherJwt captured at apply-time
+    // is now stale and any call to /publisher-runs or /publisher-events
+    // would 401. The 4b block above already covers the happy-path shape;
+    // re-issuing a fresh post-disable JWT just to assert the disabled-row
+    // case isn't worth the smoke-route surface it would require.
   }, 5 * 60 * 1000);
 });
