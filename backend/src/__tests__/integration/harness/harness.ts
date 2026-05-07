@@ -113,14 +113,21 @@ function installSecretMock() {
 }
 
 // Mock the captcha verifier to always go through our toggle.
+// publisherPortalHandler calls verifyCaptchaWithBypass (the smoke-bypass wrapper added in PR #105),
+// so we intercept that entry point too — otherwise the wrapper's internal call to verifyCaptcha
+// uses the imported reference and bypasses jest.spyOn on the module export.
 let _captchaMockInstalled = false;
 let _captchaToggleRef: CaptchaToggle | null = null;
 function installCaptchaMock() {
   if (_captchaMockInstalled) return;
-  jest.spyOn(captchaModule, 'verifyCaptcha').mockImplementation(async (token, action) => {
+  const toggleVerify = async (token: string, action: string | undefined) => {
     if (!_captchaToggleRef) return true;
     return _captchaToggleRef.verify(token, action);
-  });
+  };
+  jest.spyOn(captchaModule, 'verifyCaptcha').mockImplementation(toggleVerify);
+  jest
+    .spyOn(captchaModule, 'verifyCaptchaWithBypass')
+    .mockImplementation(async (token, action, _headers) => toggleVerify(token, action));
   _captchaMockInstalled = true;
 }
 
