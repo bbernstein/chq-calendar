@@ -40,14 +40,15 @@ describe('PublisherIngestRunStore', () => {
     expect(item.ttl).toBeLessThanOrEqual(expectedTtlBase + 7_776_000 + 60);
   });
 
-  test('recordRun preserves caller-supplied ttl if present (defense in depth)', async () => {
+  test('recordRun overwrites caller-supplied ttl with the computed 90-day value', async () => {
     mockSend.mockResolvedValue({});
-    await store.recordRun(row({ ttl: 1234567890 }));
+    const r = row({ ttl: 1234567890 });
+    await store.recordRun(r);
     const item: IngestRunRow = (mockSend.mock.calls[0][0] as any).input.Item;
-    // Implementation choice: overwrite caller-supplied ttl with the computed one.
-    // Either behaviour is acceptable; pin the actual behaviour. Adjust the
-    // expected value below to match what the implementation does.
-    expect(typeof item.ttl).toBe('number');
+    expect(item.ttl).not.toBe(1234567890);
+    const expectedBase = Math.floor(Date.parse(r.runAt) / 1000) + 7_776_000;
+    expect(item.ttl).toBeGreaterThanOrEqual(expectedBase - 60);
+    expect(item.ttl).toBeLessThanOrEqual(expectedBase + 60);
   });
 
   test('getMostRecentRun queries with Limit=1, ScanIndexForward=false', async () => {
