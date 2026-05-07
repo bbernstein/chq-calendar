@@ -221,4 +221,35 @@ describe('updatePublisherProfile', () => {
       sourceUrl: 'https://other.example/feed.json',
     });
   });
+
+  it('accepts notificationsEnabled: true and persists it', async () => {
+    const registry = { updateProfile: jest.fn().mockResolvedValue(undefined) };
+    const runFeedTest = jest.fn();
+    await updatePublisherProfile('p1', { notificationsEnabled: true }, { registry: registry as any, runFeedTest });
+    expect(registry.updateProfile).toHaveBeenCalledWith('p1', { notificationsEnabled: true });
+    expect(runFeedTest).not.toHaveBeenCalled();
+  });
+
+  it('accepts notificationsEnabled: false', async () => {
+    const registry = { updateProfile: jest.fn().mockResolvedValue(undefined) };
+    await updatePublisherProfile('p1', { notificationsEnabled: false }, { registry: registry as any, runFeedTest: jest.fn() });
+    expect(registry.updateProfile).toHaveBeenCalledWith('p1', { notificationsEnabled: false });
+  });
+
+  it('rejects non-boolean notificationsEnabled with validation error', async () => {
+    const registry = { updateProfile: jest.fn() };
+    await expect(updatePublisherProfile('p1', { notificationsEnabled: 'yes' as any }, { registry: registry as any, runFeedTest: jest.fn() }))
+      .rejects.toThrow(/notificationsEnabled.*boolean/);
+    expect(registry.updateProfile).not.toHaveBeenCalled();
+  });
+
+  it('combines notificationsEnabled with other patch fields', async () => {
+    const registry = { updateProfile: jest.fn().mockResolvedValue(undefined) };
+    await updatePublisherProfile(
+      'p1',
+      { name: 'New Name', notificationsEnabled: false },
+      { registry: registry as any, runFeedTest: jest.fn() },
+    );
+    expect(registry.updateProfile).toHaveBeenCalledWith('p1', { name: 'New Name', notificationsEnabled: false });
+  });
 });

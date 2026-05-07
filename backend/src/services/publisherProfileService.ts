@@ -29,6 +29,7 @@ export interface ProfilePatch {
   organization?: string;
   sourceUrl?: string;
   sourceType?: SourceType;
+  notificationsEnabled?: boolean;
 }
 
 const ALLOWED_FIELDS = new Set<keyof ProfilePatch>([
@@ -36,6 +37,7 @@ const ALLOWED_FIELDS = new Set<keyof ProfilePatch>([
   'organization',
   'sourceUrl',
   'sourceType',
+  'notificationsEnabled',
 ]);
 // SourceType is 'json' | 'html' in this codebase (see types/publisher.ts);
 // the values that match the existing /publisher-test endpoint.
@@ -124,6 +126,17 @@ export async function updatePublisherProfile(
       );
     }
     patch.sourceType = v as SourceType;
+  }
+
+  if ('notificationsEnabled' in rawPatch) {
+    const v = rawPatch.notificationsEnabled;
+    if (typeof v !== 'boolean') {
+      throw new ProfileValidationError(
+        'invalid_notifications_enabled',
+        '"notificationsEnabled" must be a boolean.',
+      );
+    }
+    patch.notificationsEnabled = v;
   }
 
   if (Object.keys(patch).length === 0) {
