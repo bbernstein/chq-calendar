@@ -711,8 +711,15 @@ export class InMemoryDocClient {
   //     filtered queries — we don't model the page-before-filter behaviour
   //     because production code paginates with `while (LastEvaluatedKey)` loops
   //     that drain all pages, and what matters there is total convergence.
-  //   - LastEvaluatedKey is built from the table's hash+sort attributes of the
-  //     last returned item, but only when there are more items beyond it.
+  //   - LastEvaluatedKey is built from the BASE TABLE's hash+sort attributes
+  //     of the last returned item, but only when there are more items beyond
+  //     it. NOTE: real DDB also includes the GSI's hash+sort key attributes
+  //     in LEK when paginating a Query against a GSI; we do not. That's safe
+  //     for this harness because no production query path paginates over a
+  //     GSI — every `while (LastEvaluatedKey)` loop in `backend/src/services/`
+  //     and `backend/src/handlers/` runs against the base table. If a future
+  //     code path starts paginating GSI queries, extend this to merge the
+  //     index's keys into LEK.
   private applyPagination(
     candidates: Item[],
     spec: TableSpec,
