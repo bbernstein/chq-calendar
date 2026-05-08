@@ -1,4 +1,5 @@
 import { getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
+import type { DateFilter } from '@/hooks/useFilterState';
 
 export interface ActiveChip {
   key: string;
@@ -7,8 +8,6 @@ export interface ActiveChip {
   label: string;
   onRemove: () => void;
 }
-
-type DateFilter = 'all' | 'today' | 'next' | 'this-week';
 
 const DATE_LABELS: Record<Exclude<DateFilter, 'all'>, string> = {
   next: 'Now',

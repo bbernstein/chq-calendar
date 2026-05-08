@@ -1,7 +1,7 @@
 import { useReducer, useCallback, useEffect, useMemo } from 'react';
 import { USER_STATE_EXPIRY_MS } from '@/lib/constants';
 
-type DateFilter = 'all' | 'today' | 'next' | 'this-week';
+export type DateFilter = 'all' | 'today' | 'next' | 'this-week';
 
 interface FilterState {
   searchTerm: string;
@@ -16,7 +16,6 @@ interface FilterState {
   availableLocations: string[];
   showFavoritesOnly: boolean;
   extraDays: number;
-  stateInitialized: boolean;
 }
 
 type FilterAction =
@@ -118,7 +117,6 @@ const initialState: FilterState = {
   availableLocations: [],
   showFavoritesOnly: false,
   extraDays: 0,
-  stateInitialized: false,
 };
 
 function loadInitialState(): FilterState {
@@ -138,12 +136,11 @@ function loadInitialState(): FilterState {
           recentLocations: parsed.recentLocations || [],
           recentCategories: parsed.recentCategories || [],
           showFavoritesOnly: parsed.showFavoritesOnly || false,
-          stateInitialized: true,
         };
       }
     }
   } catch (e) { console.warn('Failed to load user state:', e); }
-  return { ...initialState, stateInitialized: true };
+  return initialState;
 }
 
 export function useFilterState() {
@@ -183,27 +180,25 @@ export function useFilterState() {
     state.selectedTags.filter(t => state.availableCategories.includes(t) && !t.startsWith('Week ')).length,
     [state.selectedTags, state.availableCategories]
   );
-  const hasFilters = state.searchTerm || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.dateFilter !== 'all' || state.selectedWeeks.length > 0 || state.showFavoritesOnly;
+  const hasFilters: boolean = !!(state.searchTerm || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.dateFilter !== 'all' || state.selectedWeeks.length > 0 || state.showFavoritesOnly);
 
   // localStorage persistence
   useEffect(() => {
-    if (state.stateInitialized) {
-      try {
-        localStorage.setItem('chq-calendar-user-state', JSON.stringify({
-          searchTerm: state.searchTerm, selectedTags: state.selectedTags,
-          selectedLocations: state.selectedLocations, dateFilter: state.dateFilter,
-          selectedWeeks: state.selectedWeeks, expandedDescriptions: Array.from(state.expandedDescriptions),
-          recentLocations: state.recentLocations, recentCategories: state.recentCategories,
-          showFavoritesOnly: state.showFavoritesOnly,
-          lastSaved: Date.now(),
-        }));
-      } catch (e) { console.warn('Failed to save user state:', e); }
-    }
+    try {
+      localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+        searchTerm: state.searchTerm, selectedTags: state.selectedTags,
+        selectedLocations: state.selectedLocations, dateFilter: state.dateFilter,
+        selectedWeeks: state.selectedWeeks, expandedDescriptions: Array.from(state.expandedDescriptions),
+        recentLocations: state.recentLocations, recentCategories: state.recentCategories,
+        showFavoritesOnly: state.showFavoritesOnly,
+        lastSaved: Date.now(),
+      }));
+    } catch (e) { console.warn('Failed to save user state:', e); }
   }, [state]);
 
   // Reset extra days when date filter changes
   useEffect(() => {
-    if (state.stateInitialized && state.extraDays > 0) {
+    if (state.extraDays > 0) {
       dispatch({ type: 'CLEAR_EXTRA_DAYS' });
     }
   }, [state.dateFilter]); // intentionally only depends on dateFilter

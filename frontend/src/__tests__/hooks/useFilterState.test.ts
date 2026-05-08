@@ -12,6 +12,53 @@ describe('useFilterState', () => {
     expect(result.current.dateFilter).toBe('next');
   });
 
+  it('loads saved dateFilter from localStorage on the very first render (no flicker)', () => {
+    localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+      searchTerm: '', selectedTags: [], selectedLocations: [],
+      dateFilter: 'today', selectedWeeks: [],
+      expandedDescriptions: [], recentLocations: [], recentCategories: [],
+      showFavoritesOnly: false,
+      lastSaved: Date.now(),
+    }));
+    const { result } = renderHook(() => useFilterState());
+    // No act() / no second render — the synchronous lazy initializer must
+    // produce the loaded state on the first render, otherwise the "Now"
+    // button would briefly highlight before the loaded state replaces it.
+    expect(result.current.dateFilter).toBe('today');
+  });
+
+  it('loads saved searchTerm and selections synchronously', () => {
+    localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+      searchTerm: 'symphony',
+      selectedTags: ['Music'], selectedLocations: ['Hall A'],
+      dateFilter: 'all', selectedWeeks: [3, 4],
+      expandedDescriptions: [], recentLocations: [], recentCategories: [],
+      showFavoritesOnly: true,
+      lastSaved: Date.now(),
+    }));
+    const { result } = renderHook(() => useFilterState());
+    expect(result.current.searchTerm).toBe('symphony');
+    expect(result.current.selectedTags).toEqual(['Music']);
+    expect(result.current.selectedLocations).toEqual(['Hall A']);
+    expect(result.current.selectedWeeks).toEqual([3, 4]);
+    expect(result.current.showFavoritesOnly).toBe(true);
+    expect(result.current.dateFilter).toBe('all');
+  });
+
+  it('ignores expired saved state and falls back to defaults', () => {
+    const longAgo = Date.now() - (40 * 24 * 60 * 60 * 1000); // 40 days, expiry is 30
+    localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+      searchTerm: 'stale', selectedTags: [], selectedLocations: [],
+      dateFilter: 'today', selectedWeeks: [],
+      expandedDescriptions: [], recentLocations: [], recentCategories: [],
+      showFavoritesOnly: false,
+      lastSaved: longAgo,
+    }));
+    const { result } = renderHook(() => useFilterState());
+    expect(result.current.searchTerm).toBe('');
+    expect(result.current.dateFilter).toBe('next');
+  });
+
   describe('reconcileFilters', () => {
     it('sets dateFilter to next when reconciling for the current year', () => {
       const { result } = renderHook(() => useFilterState());
