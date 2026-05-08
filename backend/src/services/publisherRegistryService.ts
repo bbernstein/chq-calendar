@@ -375,6 +375,30 @@ export class PublisherRegistryService {
     }
   }
 
+  // Toggles `enabled` only — no tokenVersion bump, no selfDisabledAt stamp.
+  // Used by the publisher-ingest safety net to auto-disable the ci-e2e-test
+  // row when a CI runner died mid-test and left it enabled. Distinct from
+  // setSelfDisabled (which is the publisher-driven flow with session
+  // invalidation) and setApplicationStatus (which sets enabled in the
+  // approve/reject paths). attribute_exists(id) guard — see
+  // PublisherNotFoundError.
+  async setEnabledFlag(id: string, enabled: boolean): Promise<void> {
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'SET enabled = :e',
+        ExpressionAttributeValues: { ':e': enabled },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'setEnabledFlag');
+      }
+      throw err;
+    }
+  }
+
   // Phase 4 (email change). Sets the email-change lock to the given ISO
   // timestamp. The lock is consulted at initiate time to bounce repeated
   // email-change attempts from a publisher whose old address just clicked

@@ -338,6 +338,31 @@ describe('PublisherRegistryService', () => {
     });
   });
 
+  describe('setEnabledFlag', () => {
+    it('writes only the enabled field, with attribute_exists guard', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.setEnabledFlag('pub-1', false);
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.Key).toEqual({ id: 'pub-1' });
+      expect(cmd.input.UpdateExpression).toBe('SET enabled = :e');
+      expect(cmd.input.ExpressionAttributeValues[':e']).toBe(false);
+      expect(cmd.input.ConditionExpression).toBe('attribute_exists(id)');
+    });
+
+    it('passes through enabled=true unchanged', async () => {
+      mockSend.mockResolvedValue({});
+      await svc.setEnabledFlag('pub-1', true);
+      const cmd: any = mockSend.mock.calls[0][0];
+      expect(cmd.input.ExpressionAttributeValues[':e']).toBe(true);
+    });
+
+    it('translates ConditionalCheckFailedException to PublisherNotFoundError', async () => {
+      const condErr = Object.assign(new Error('cond fail'), { name: 'ConditionalCheckFailedException' });
+      mockSend.mockRejectedValue(condErr);
+      await expect(svc.setEnabledFlag('deleted', false)).rejects.toBeInstanceOf(PublisherNotFoundError);
+    });
+  });
+
   describe('setEmailChangeLock', () => {
     it('emits attribute_exists guard and writes the lock timestamp', async () => {
       mockSend.mockResolvedValue({});
