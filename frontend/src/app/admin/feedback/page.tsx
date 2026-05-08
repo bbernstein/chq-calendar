@@ -113,7 +113,10 @@ export default function FeedbackManagementPage() {
     }
   };
 
-  const handleArchive = async (id: string, archived: boolean) => {
+  // Returns true when the archive/unarchive flip was persisted — symmetric
+  // with handleDelete so detail-modal callers can leave the user on the
+  // record if the request fails.
+  const handleArchive = async (id: string, archived: boolean): Promise<boolean> => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}/admin/api/feedback`, {
         method: 'PATCH',
@@ -126,9 +129,11 @@ export default function FeedbackManagementPage() {
 
       await fetchFeedbacks();
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
+      return true;
     } catch (err) {
       console.error('Error updating feedback:', err);
       setError('Failed to update feedback. Please try again.');
+      return false;
     }
   };
 
@@ -528,9 +533,9 @@ export default function FeedbackManagementPage() {
 
           <div className="mt-6 flex justify-end space-x-3">
             <button
-              onClick={() => {
-                handleArchive(selectedFeedback.id, !selectedFeedback.archived);
-                setSelectedFeedback(null);
+              onClick={async () => {
+                const ok = await handleArchive(selectedFeedback.id, !selectedFeedback.archived);
+                if (ok) setSelectedFeedback(null);
               }}
               className={`px-4 py-2 rounded-md text-sm font-medium ${
                 selectedFeedback.archived
