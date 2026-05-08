@@ -193,7 +193,7 @@ function ChangeEmailModal({
   }
 
   return (
-    <Modal onClose={onClose} titleId="change-email-title">
+    <Modal onClose={onClose} titleId="change-email-title" closeOnEsc={!busy}>
       <h3 id="change-email-title" className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
         Change contact email
       </h3>

@@ -104,13 +104,19 @@ export function Modal({
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
       const active = document.activeElement as HTMLElement | null;
+      // Treat "focus is somewhere outside the modal" the same as being at
+      // the boundary in either direction. Otherwise a programmatic focus
+      // change that pushes activeElement behind the modal would let the
+      // very next Tab move into background DOM instead of cycling within
+      // the dialog.
+      const outside = !c.contains(active);
       if (e.shiftKey) {
-        if (active === first || !c.contains(active)) {
+        if (active === first || outside) {
           e.preventDefault();
           last.focus();
         }
       } else {
-        if (active === last) {
+        if (active === last || outside) {
           e.preventDefault();
           first.focus();
         }

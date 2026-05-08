@@ -507,7 +507,7 @@ function NotificationsPanel({
         </span>
       </label>
       {error && (
-        <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+        <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>
       )}
     </section>
   );

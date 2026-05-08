@@ -69,16 +69,16 @@ The two files (one backend, one frontend) deliberately avoid a shared module —
 The three publisher-portal modals (DangerZone, PauseConfirm, ChangeEmail) hand-roll the same dialog scaffolding. None implement Esc-to-close or focus trap. Same gap exists on apply/SourceEdit, but those weren't in PR #98's scope.
 
 **Files:**
-- Create: `frontend/src/components/Modal.tsx` — reusable `<Modal title onClose isOpen>` with:
-  - `role="dialog" aria-modal="true"` wrapper.
-  - Esc key handler attached on mount, removed on unmount, calling `onClose`.
-  - Focus trap: on open, focus the first focusable child; on Tab/Shift-Tab at boundaries, wrap focus.
-  - Backdrop click → `onClose` (existing modals don't do this; opt-in via prop `closeOnBackdrop` default true; **DangerZone passes false** because the typed-confirmation gate is meant to deter accidental dismissal).
+- Create: `frontend/src/components/Modal.tsx` — reusable `<Modal onClose titleId closeOnEsc? className?>` (caller controls mount via conditional render — no `open` prop) with:
+  - `role="dialog" aria-modal="true" aria-labelledby={titleId}` on the inner card (the focused element), with a plain backdrop overlay that has no role.
+  - Esc key handler attached on mount, removed on unmount, calling `onClose`. Disable via `closeOnEsc={false}` for typed-confirmation gates (DangerZone) or `closeOnEsc={!busy}` to guard against in-flight dismissal (Pause / EmailChange).
+  - Focus trap: on open, focus the first focusable child; on Tab/Shift-Tab at boundaries (or when focus has escaped the modal), wrap focus.
   - Restore focus to the previously focused element on close.
-- Create: `frontend/src/components/__tests__/Modal.test.tsx` — Esc closes, Tab cycles, focus restored.
-- Modify: `frontend/src/app/publish/status/DangerZone.tsx` — wrap `DisableConfirmModal` body in `<Modal>`, remove hand-rolled `fixed inset-0 z-50 ...` wrapper.
-- Modify: `frontend/src/app/publish/status/IngestControls.tsx` — same for `PauseConfirmModal`.
-- Modify: `frontend/src/app/publish/status/EmailChangePanel.tsx` — same for `ChangeEmailModal`.
+  - **Backdrop-click-to-close: not implemented** in this PR. Existing modals didn't do this; adding it is net-new UX worth a separate decision. Tracked as a follow-up.
+- Create: `frontend/src/components/__tests__/Modal.test.tsx` — Esc closes, closeOnEsc=false suppresses, Tab cycles, focus restored.
+- Modify: `frontend/src/app/publish/status/DangerZone.tsx` — wrap `DisableConfirmModal` body in `<Modal>` with `closeOnEsc={false}`.
+- Modify: `frontend/src/app/publish/status/IngestControls.tsx` — wrap `PauseConfirmModal` with `closeOnEsc={!busy}`.
+- Modify: `frontend/src/app/publish/status/EmailChangePanel.tsx` — wrap `ChangeEmailModal` with `closeOnEsc={!busy}`.
 - Update tests: `DangerZone.test.tsx`, `IngestControls.test.tsx`, `EmailChangePanel.test.tsx` if they assert on the dropped wrapper structure.
 
 **Steps:**

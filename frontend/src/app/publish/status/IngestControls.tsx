@@ -214,7 +214,7 @@ function PauseConfirmModal({
   onCancel: () => void;
 }) {
   return (
-    <Modal onClose={onCancel} titleId="pause-confirm-title">
+    <Modal onClose={onCancel} titleId="pause-confirm-title" closeOnEsc={!busy}>
       <h3
         id="pause-confirm-title"
         className="text-lg font-semibold text-gray-900 dark:text-white mb-2"
