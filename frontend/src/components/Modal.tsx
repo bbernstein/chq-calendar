@@ -31,7 +31,11 @@ const FOCUSABLE_SELECTOR = [
   'input:not([disabled])',
   'textarea:not([disabled])',
   'select:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
+  // Custom-tabindex elements: still skip if disabled (e.g. a disabled
+  // button with an explicit tabindex). Without the :not([disabled])
+  // guard a disabled element could receive initial focus or be a
+  // focus-trap boundary, which the trap should not allow.
+  '[tabindex]:not([tabindex="-1"]):not([disabled])',
 ].join(', ');
 
 export interface ModalProps {

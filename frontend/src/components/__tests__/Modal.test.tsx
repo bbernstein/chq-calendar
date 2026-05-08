@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/preact';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/preact';
 import { Modal } from '../Modal';
 
-afterEach(cleanup);
+// Global cleanup runs from frontend/src/__tests__/setup.ts (afterEach hook).
 
 describe('Modal', () => {
   it('renders content with role=dialog and aria-labelledby', () => {
