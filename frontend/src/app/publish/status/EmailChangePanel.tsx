@@ -112,7 +112,7 @@ export function EmailChangePanel(props: EmailChangePanelProps) {
           {busy ? 'Cancelling…' : 'Cancel change'}
         </button>
         {error && (
-          <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>
         )}
       </div>
     );
@@ -221,7 +221,7 @@ function ChangeEmailModal({
         </label>
 
         {error && (
-          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+          <p className="text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>
         )}
 
         <div className="flex gap-2 justify-end pt-2">

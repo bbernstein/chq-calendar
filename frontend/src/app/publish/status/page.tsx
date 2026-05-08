@@ -190,14 +190,19 @@ function StatusView({
   // (email-change submit/cancel, pause/resume, fetch-now, etc.) so the panels
   // reflect freshly-mutated state. Originally introduced for email-change;
   // generalized when pause/resume/disable started reusing the same pattern.
+  //
+  // Errors are swallowed (the banner stays put rather than showing a
+  // refresh-failure UI) but logged to console so that failures aren't
+  // invisible during development. A 401 inside getPublisherStatus already
+  // triggers its own auth-redirect, so the most-impactful failure mode is
+  // already handled at the API-client layer; what we're swallowing here is
+  // genuinely transient (e.g. network blip mid-render).
   async function handleStatusRefresh() {
     try {
       const fresh = await getPublisherStatus();
       onUpdated(fresh);
-    } catch {
-      // Failure here is rare (status fetch already worked once); if it does
-      // happen, the next mount will catch up. No need to surface the error
-      // through the banner state.
+    } catch (err) {
+      console.error('[publish/status] post-mutation refresh failed; UI may show stale data until next mount', err);
     }
   }
 

@@ -134,13 +134,18 @@ export function Modal({
   }, [onClose, closeOnEsc]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-    >
-      <div ref={containerRef} tabIndex={-1} className={className}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      {/* role/aria/tabIndex live on the focused element (the card), not the
+          backdrop, so screen readers announce the dialog title at the same
+          time keyboard focus enters the dialog content. */}
+      <div
+        ref={containerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={className}
+      >
         {children}
       </div>
     </div>

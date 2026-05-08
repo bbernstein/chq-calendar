@@ -34,16 +34,21 @@ export class PublisherNotFoundError extends Error {
   }
 }
 
-// DDB throws ValidationException with a message containing
-// "specified index" or "Index not found" when a Query targets a GSI that
-// does not exist on the table. Match by name and message rather than the
-// SDK's error class so the recovery doesn't couple to the Dynamo SDK
-// internals.
+// DDB throws ValidationException with a message mentioning the missing
+// index name when a Query targets a GSI that does not exist on the table.
+// We require the message to mention CONTACT_EMAIL_INDEX specifically so a
+// typo in the constant doesn't produce a permanent silent fall-back to
+// Scan: a misspelled index name would Validation-fail with a different
+// message that doesn't match this guard, so the error propagates as a
+// proper failure instead of degrading getByEmail to O(n) scans forever.
+// Match by name + message string rather than the SDK's error class so the
+// recovery doesn't couple to the Dynamo SDK internals.
 function isMissingIndexError(err: unknown): boolean {
   const e = err as { name?: string; message?: string } | undefined;
   if (!e) return false;
   if (e.name !== 'ValidationException') return false;
   const msg = e.message ?? '';
+  if (!msg.includes(CONTACT_EMAIL_INDEX)) return false;
   return /specified index|index .* not (?:found|exist)/i.test(msg);
 }
 
@@ -408,15 +413,23 @@ export class PublisherRegistryService {
   // consistent but the publisher's already-issued JWT is now mismatched
   // against contactEmail rather than tokenVersion, causing them to fail
   // requirePublisherSession with the wrong reason.
+  //
+  // The email is normalized (trim + lowercase) before the write so the
+  // value stored on the row matches the normalization performed by
+  // getByEmail. Callers (PublisherEmailChangeService) already normalize
+  // before invocation; this is defense-in-depth so a stray un-normalized
+  // call site can't quietly desync the GSI lookup from the row state.
+  //
   // attribute_exists(id) guard — see PublisherNotFoundError.
   async commitEmailChange(id: string, newEmail: string): Promise<void> {
+    const normalized = newEmail.trim().toLowerCase();
     try {
       await this.db.send(new UpdateCommand({
         TableName: this.tableName,
         Key: { id },
         ConditionExpression: 'attribute_exists(id)',
         UpdateExpression: 'SET contactEmail = :e ADD tokenVersion :one',
-        ExpressionAttributeValues: { ':e': newEmail, ':one': 1 },
+        ExpressionAttributeValues: { ':e': normalized, ':one': 1 },
       }));
     } catch (err) {
       if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {

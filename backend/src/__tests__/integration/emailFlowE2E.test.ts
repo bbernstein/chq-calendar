@@ -118,7 +118,10 @@ describe('publisher email-flow happy path', () => {
 
     // ── 7. Forced re-login ──────────────────────────────────────────────
     // Old JWT no longer authenticates because tokenVersion was bumped.
-    await expect(h.actors.publisher.status(oldJwt)).rejects.toThrow();
+    // Match the actor's HandlerError shape — assert on the 401 status code
+    // so a regression to a generic 500 (or worse, a silent 200) wouldn't
+    // make this assertion accidentally pass.
+    await expect(h.actors.publisher.status(oldJwt)).rejects.toMatchObject({ statusCode: 401 });
 
     // Old email no longer issues a login magic link (the address is no
     // longer associated with any publisher row).
