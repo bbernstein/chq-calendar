@@ -19,7 +19,7 @@ export class ConcurrentApplicationUpdateError extends Error {
 }
 
 // Thrown by self-service mutation helpers (setPausedFlag, setSelfDisabled,
-// bumpTokenVersion, updateProfile, commitEmailChange, setEmailChangeLock,
+// updateProfile, commitEmailChange, setEmailChangeLock,
 // clearEmailChangeLock) when the underlying UpdateItem fails its
 // `attribute_exists(id)` guard — i.e. the publisher row was deleted between
 // the caller's earlier read (typically requirePublisherSession) and this
@@ -420,11 +420,10 @@ export class PublisherRegistryService {
   // Email-change verify commits the new contactEmail and bumps tokenVersion
   // in a SINGLE write. Doing both atomically prevents the case where the
   // contactEmail flips but the JWT keeps validating against the old version
-  // (or vice versa). The two-write alternative — updateProfile then
-  // bumpTokenVersion — opens a window where the registry is internally
-  // consistent but the publisher's already-issued JWT is now mismatched
-  // against contactEmail rather than tokenVersion, causing them to fail
-  // requirePublisherSession with the wrong reason.
+  // (or vice versa). A two-write alternative would open a window where the
+  // registry is internally consistent but the publisher's already-issued
+  // JWT is now mismatched against contactEmail rather than tokenVersion,
+  // causing them to fail requirePublisherSession with the wrong reason.
   //
   // The email is normalized (trim + lowercase) before the write so the
   // value stored on the row matches the normalization performed by
@@ -446,26 +445,6 @@ export class PublisherRegistryService {
     } catch (err) {
       if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
         throw new PublisherNotFoundError(id, 'commitEmailChange');
-      }
-      throw err;
-    }
-  }
-
-  // Increments tokenVersion by 1 — used by email-change verify to invalidate
-  // the old session's JWT once the new email is confirmed.
-  // attribute_exists(id) guard — see PublisherNotFoundError.
-  async bumpTokenVersion(id: string): Promise<void> {
-    try {
-      await this.db.send(new UpdateCommand({
-        TableName: this.tableName,
-        Key: { id },
-        ConditionExpression: 'attribute_exists(id)',
-        UpdateExpression: 'ADD tokenVersion :one',
-        ExpressionAttributeValues: { ':one': 1 },
-      }));
-    } catch (err) {
-      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
-        throw new PublisherNotFoundError(id, 'bumpTokenVersion');
       }
       throw err;
     }
