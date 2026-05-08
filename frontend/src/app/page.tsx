@@ -157,8 +157,11 @@ function HomeContent() {
               filteredCount={filteredEvents.length}
               totalCount={events.length}
               hasFilters={filters.hasFilters}
+              hasDateFilters={filters.hasDateFilters}
+              hasNonDateFilters={filters.hasNonDateFilters}
               chips={activeChips}
               onClear={filters.clearFilters}
+              onClearNonDateFilters={filters.clearNonDateFilters}
             />
           </div>
         </div>

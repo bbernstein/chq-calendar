@@ -31,7 +31,8 @@ type FilterAction =
   | { type: 'ADD_EXTRA_DAY' }
   | { type: 'CLEAR_EXTRA_DAYS' }
   | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[]; isCurrentYear: boolean } }
-  | { type: 'CLEAR_FILTERS' };
+  | { type: 'CLEAR_FILTERS' }
+  | { type: 'CLEAR_NON_DATE_FILTERS' };
 
 function addToRecent(item: string, items: string[], max: number = 10): string[] {
   return [item, ...items.filter(i => i !== item)].slice(0, max);
@@ -99,6 +100,8 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
     }
     case 'CLEAR_FILTERS':
       return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [], showFavoritesOnly: false, extraDays: 0 };
+    case 'CLEAR_NON_DATE_FILTERS':
+      return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], showFavoritesOnly: false };
     default:
       return state;
   }
@@ -158,6 +161,7 @@ export function useFilterState() {
   const toggleFavoritesOnly = useCallback(() => dispatch({ type: 'TOGGLE_FAVORITES_ONLY' }), []);
   const addExtraDay = useCallback(() => dispatch({ type: 'ADD_EXTRA_DAY' }), []);
   const clearFilters = useCallback(() => dispatch({ type: 'CLEAR_FILTERS' }), []);
+  const clearNonDateFilters = useCallback(() => dispatch({ type: 'CLEAR_NON_DATE_FILTERS' }), []);
   const reconcileFilters = useCallback(
     (availableCategories: string[], availableLocations: string[], isCurrentYear: boolean) =>
       dispatch({ type: 'RECONCILE_FILTERS', payload: { availableCategories, availableLocations, isCurrentYear } }),
@@ -180,7 +184,12 @@ export function useFilterState() {
     state.selectedTags.filter(t => state.availableCategories.includes(t) && !t.startsWith('Week ')).length,
     [state.selectedTags, state.availableCategories]
   );
-  const hasFilters: boolean = !!(state.searchTerm || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.dateFilter !== 'all' || state.selectedWeeks.length > 0 || state.showFavoritesOnly);
+  const hasDateFilters: boolean = state.dateFilter !== 'all' || state.selectedWeeks.length > 0;
+  // Trim searchTerm to stay consistent with buildActiveChips (which only emits a
+  // search chip when the trimmed value is non-empty). Otherwise a whitespace-only
+  // search would set hasNonDateFilters=true with no chip to represent it.
+  const hasNonDateFilters: boolean = !!(state.searchTerm.trim() || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.showFavoritesOnly);
+  const hasFilters: boolean = hasDateFilters || hasNonDateFilters;
 
   // localStorage persistence
   useEffect(() => {
@@ -214,8 +223,10 @@ export function useFilterState() {
     availableLocations: state.availableLocations, setAvailableLocations,
     recentLocations: state.recentLocations,
     recentCategories: state.recentCategories,
-    selectedTagsLowerSet, selectedLocationsLowerSet, selectedCategoriesCount, hasFilters,
-    toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected, clearFilters,
+    selectedTagsLowerSet, selectedLocationsLowerSet, selectedCategoriesCount,
+    hasFilters, hasDateFilters, hasNonDateFilters,
+    toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected,
+    clearFilters, clearNonDateFilters,
     showFavoritesOnly: state.showFavoritesOnly, toggleFavoritesOnly,
     extraDays: state.extraDays, addExtraDay,
     reconcileFilters,

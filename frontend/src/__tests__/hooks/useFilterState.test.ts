@@ -59,6 +59,78 @@ describe('useFilterState', () => {
     expect(result.current.dateFilter).toBe('next');
   });
 
+  describe('clearNonDateFilters', () => {
+    it('clears search, tags, locations, and favorites but keeps dateFilter and selectedWeeks', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => {
+        result.current.setSearchTerm('symphony');
+        result.current.toggleTag('Music');
+        result.current.toggleLocation('Hall A');
+        result.current.toggleFavoritesOnly();
+        result.current.setDateFilter('today');
+        result.current.setSelectedWeeks([2, 3]);
+      });
+      expect(result.current.hasDateFilters).toBe(true);
+      expect(result.current.hasNonDateFilters).toBe(true);
+
+      act(() => { result.current.clearNonDateFilters(); });
+
+      expect(result.current.searchTerm).toBe('');
+      expect(result.current.selectedTags).toEqual([]);
+      expect(result.current.selectedLocations).toEqual([]);
+      expect(result.current.showFavoritesOnly).toBe(false);
+      expect(result.current.dateFilter).toBe('today');
+      expect(result.current.selectedWeeks).toEqual([2, 3]);
+      expect(result.current.hasDateFilters).toBe(true);
+      expect(result.current.hasNonDateFilters).toBe(false);
+      // hasFilters stays true because date filters remain
+      expect(result.current.hasFilters).toBe(true);
+    });
+  });
+
+  describe('hasDateFilters / hasNonDateFilters', () => {
+    it('hasDateFilters is true when dateFilter is non-all', () => {
+      const { result } = renderHook(() => useFilterState());
+      expect(result.current.hasDateFilters).toBe(true); // 'next' is the default
+      act(() => { result.current.setDateFilter('all'); });
+      expect(result.current.hasDateFilters).toBe(false);
+      act(() => { result.current.setDateFilter('today'); });
+      expect(result.current.hasDateFilters).toBe(true);
+    });
+
+    it('hasDateFilters is true when any week is selected, even with dateFilter=all', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.setDateFilter('all'); });
+      expect(result.current.hasDateFilters).toBe(false);
+      act(() => { result.current.setSelectedWeeks([1]); });
+      expect(result.current.hasDateFilters).toBe(true);
+    });
+
+    it('hasNonDateFilters reflects only non-date filters', () => {
+      const { result } = renderHook(() => useFilterState());
+      expect(result.current.hasNonDateFilters).toBe(false);
+      act(() => { result.current.setSearchTerm('q'); });
+      expect(result.current.hasNonDateFilters).toBe(true);
+      act(() => { result.current.setSearchTerm(''); });
+      expect(result.current.hasNonDateFilters).toBe(false);
+      act(() => { result.current.toggleLocation('Hall'); });
+      expect(result.current.hasNonDateFilters).toBe(true);
+      act(() => { result.current.toggleLocation('Hall'); }); // toggle off
+      expect(result.current.hasNonDateFilters).toBe(false);
+      act(() => { result.current.toggleFavoritesOnly(); });
+      expect(result.current.hasNonDateFilters).toBe(true);
+    });
+
+    it('hasNonDateFilters ignores whitespace-only searchTerm to match chip rendering', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.setSearchTerm('   '); });
+      // buildActiveChips trims before deciding to emit a chip; the boolean
+      // must agree, otherwise the "Keep dates, show all" button can appear
+      // for a filter that has no visible chip.
+      expect(result.current.hasNonDateFilters).toBe(false);
+    });
+  });
+
   describe('reconcileFilters', () => {
     it('sets dateFilter to next when reconciling for the current year', () => {
       const { result } = renderHook(() => useFilterState());
