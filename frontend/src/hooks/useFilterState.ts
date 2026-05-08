@@ -185,7 +185,10 @@ export function useFilterState() {
     [state.selectedTags, state.availableCategories]
   );
   const hasDateFilters: boolean = state.dateFilter !== 'all' || state.selectedWeeks.length > 0;
-  const hasNonDateFilters: boolean = !!(state.searchTerm || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.showFavoritesOnly);
+  // Trim searchTerm to stay consistent with buildActiveChips (which only emits a
+  // search chip when the trimmed value is non-empty). Otherwise a whitespace-only
+  // search would set hasNonDateFilters=true with no chip to represent it.
+  const hasNonDateFilters: boolean = !!(state.searchTerm.trim() || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.showFavoritesOnly);
   const hasFilters: boolean = hasDateFilters || hasNonDateFilters;
 
   // localStorage persistence

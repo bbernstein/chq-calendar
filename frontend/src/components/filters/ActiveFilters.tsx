@@ -135,6 +135,7 @@ export function ActiveFilters({
             type="button"
             onClick={onClear}
             aria-label="Clear all filters and show all events"
+            title="Clear all filters and show all events"
             className="text-sm font-medium text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 underline underline-offset-2 whitespace-nowrap"
           >
             <span className="hidden sm:inline">Show all events</span>
@@ -146,6 +147,7 @@ export function ActiveFilters({
             type="button"
             onClick={onClearNonDateFilters}
             aria-label="Keep date and week filters but clear all other filters"
+            title="Keep date and week filters but clear all other filters"
             className="text-sm font-medium text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 underline underline-offset-2 whitespace-nowrap"
           >
             <span className="hidden sm:inline">Keep dates, show all</span>

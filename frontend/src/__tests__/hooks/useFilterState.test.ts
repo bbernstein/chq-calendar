@@ -83,6 +83,8 @@ describe('useFilterState', () => {
       expect(result.current.selectedWeeks).toEqual([2, 3]);
       expect(result.current.hasDateFilters).toBe(true);
       expect(result.current.hasNonDateFilters).toBe(false);
+      // hasFilters stays true because date filters remain
+      expect(result.current.hasFilters).toBe(true);
     });
   });
 
@@ -113,6 +115,19 @@ describe('useFilterState', () => {
       expect(result.current.hasNonDateFilters).toBe(false);
       act(() => { result.current.toggleLocation('Hall'); });
       expect(result.current.hasNonDateFilters).toBe(true);
+      act(() => { result.current.toggleLocation('Hall'); }); // toggle off
+      expect(result.current.hasNonDateFilters).toBe(false);
+      act(() => { result.current.toggleFavoritesOnly(); });
+      expect(result.current.hasNonDateFilters).toBe(true);
+    });
+
+    it('hasNonDateFilters ignores whitespace-only searchTerm to match chip rendering', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.setSearchTerm('   '); });
+      // buildActiveChips trims before deciding to emit a chip; the boolean
+      // must agree, otherwise the "Keep dates, show all" button can appear
+      // for a filter that has no visible chip.
+      expect(result.current.hasNonDateFilters).toBe(false);
     });
   });
 
