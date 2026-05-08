@@ -53,6 +53,7 @@ import {
 import type { ApplyFormPayload, PublisherRecord, StoredPublisherEvent, SourceType } from '../types/publisher';
 import { PublisherIngestRunStore } from '../services/publisherIngestRunStore';
 import { PublisherEventStore } from '../services/publisherEventStore';
+import { isApprovedPublisher } from '../utils/publisherApproval';
 
 // ─── Doc-client helper ───────────────────────────────────────────────────
 //
@@ -950,8 +951,7 @@ async function gateApprovedPublisher(
   const sess = await requirePublisherSession(event, statusRegistry());
   if (sess.kind === 'unauthorized') return json(401, { error: sess.message });
   if (sess.kind === 'publisher_missing') return json(404, { error: 'Publisher not found' });
-  if (sess.publisher.applicationStatus !== undefined &&
-      sess.publisher.applicationStatus !== 'approved') {
+  if (!isApprovedPublisher(sess.publisher)) {
     return json(403, {
       error: 'This action is only available to approved publishers.',
     });

@@ -27,6 +27,7 @@ import {
   previewPublisherFeed,
   type PublisherStatusRecord,
 } from '@/lib/publisherStatusApi';
+import { isApprovedPublisher } from '@/lib/publisherApproval';
 import { EditableField } from './EditableField';
 import { SourceEditPanel } from './SourceEditPanel';
 import { EmailChangePanel } from './EmailChangePanel';
@@ -160,11 +161,11 @@ function StatusView({
   rec: PublisherStatusRecord;
   onUpdated: (rec: PublisherStatusRecord) => void;
 }) {
-  // Treat a missing applicationStatus as approved — that's how the backend
-  // treats admin-created rows for ingest, and the same logic should apply
-  // to the publisher-facing view.
+  // Treat a missing applicationStatus as approved — legacy admin-created
+  // rows pre-date the application flow. Shared rule via isApprovedPublisher
+  // so the backend handler and frontend view stay in lockstep.
   const applicationStatus = rec.applicationStatus ?? 'approved';
-  const editable = applicationStatus === 'approved';
+  const editable = isApprovedPublisher(rec);
 
   // The source-edit panel is rendered inline below the card when toggled,
   // not in a modal — keeps the read-only context (current URL, last-fetch
