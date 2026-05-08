@@ -750,27 +750,26 @@ function sanitizePublisher(rec: PublisherRecord) {
 
 // ─── Email-change service singleton (Phase 4) ────────────────────────────
 //
-// Distinct from `appService` because the email-change service composes the
-// same registry + magic-token + mail collaborators but with different
-// orchestration. Sharing wouldn't reduce cold-start work meaningfully and
-// would couple the two flows together unnecessarily.
+// Distinct from `appService` because the email-change service composes a
+// different orchestration over the same collaborators. Reuses the
+// statusRegistry singleton — registry has no per-flow state and a single
+// shared instance trims one PublisherRegistryService allocation per cold
+// start. (magic-tokens and mail still have their own instances; the
+// application service keeps its own registry because it constructs SES +
+// Secrets Manager clients eagerly that the status path explicitly avoids.)
 
 let _emailChangeService: PublisherEmailChangeService | null = null;
 
 function emailChangeService(): PublisherEmailChangeService {
   if (!_emailChangeService) {
     const docClient = buildDocClient();
-    const registry = new PublisherRegistryService(
-      docClient,
-      process.env.PUBLISHERS_TABLE_NAME ?? 'chautauqua-calendar-publishers',
-    );
     const tokens = new MagicTokenService(
       docClient,
       process.env.PUBLISHER_MAGIC_TOKEN_TABLE_NAME ?? 'chautauqua-calendar-publisher-magic-tokens',
     );
     const mail = new SesMailService();
     _emailChangeService = new PublisherEmailChangeService({
-      registry,
+      registry: statusRegistry(),
       tokens,
       mail,
       siteBaseUrl: process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
