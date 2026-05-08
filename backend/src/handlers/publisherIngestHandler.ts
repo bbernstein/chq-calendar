@@ -91,11 +91,22 @@ async function autoDisableStaleCiE2e(
   publishers: PublisherRecord[],
 ): Promise<void> {
   const ciE2e = publishers.find(p => p.id === CI_E2E_PUBLISHER_ID);
-  if (!ciE2e || !ciE2e.enabled || !ciE2e.lastFetchedAt) return;
-  const ageMs = deps.now.getTime() - new Date(ciE2e.lastFetchedAt).getTime();
+  if (!ciE2e || !ciE2e.enabled) return;
+  // Fall back to createdAt when lastFetchedAt is absent — the only path that
+  // produces enabled=true with no lastFetchedAt is "row was just enabled but
+  // ingest hasn't run yet OR ran but failed to record." Comparing against
+  // createdAt means an old row enabled by a runner that died still gets
+  // auto-disabled, while a freshly-created row gets a grace period.
+  const referenceIso = ciE2e.lastFetchedAt ?? ciE2e.createdAt;
+  if (!referenceIso) return;
+  const ageMs = deps.now.getTime() - new Date(referenceIso).getTime();
   if (ageMs <= CI_E2E_STALE_THRESHOLD_MS) return;
+  const ageMin = Math.round(ageMs / 60_000);
+  const reason = ciE2e.lastFetchedAt
+    ? `lastFetchedAt is ${ageMin}m old`
+    : `lastFetchedAt unset and createdAt is ${ageMin}m old`;
   console.warn(
-    `[publisher-ingest] ci-e2e-safety: disabling ${CI_E2E_PUBLISHER_ID}: enabled=true and lastFetchedAt is ${Math.round(ageMs / 60_000)}m old`,
+    `[publisher-ingest] ci-e2e-safety: disabling ${CI_E2E_PUBLISHER_ID}: enabled=true and ${reason}`,
   );
   try {
     await deps.registry.setEnabledFlag(CI_E2E_PUBLISHER_ID, false);

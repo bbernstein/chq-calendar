@@ -132,9 +132,13 @@ export default function FeedbackManagementPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  // Returns true when a delete actually happened — callers (e.g. the detail
+  // modal) use this to decide whether to dismiss UI tied to the deleted
+  // record. Cancelled native confirms or failed requests return false so
+  // the user keeps their place.
+  const handleDelete = async (id: string): Promise<boolean> => {
     if (!confirm('Are you sure you want to permanently delete this feedback?')) {
-      return;
+      return false;
     }
 
     try {
@@ -149,9 +153,11 @@ export default function FeedbackManagementPage() {
 
       await fetchFeedbacks();
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
+      return true;
     } catch (err) {
       console.error('Error deleting feedback:', err);
       setError('Failed to delete feedback. Please try again.');
+      return false;
     }
   };
 
@@ -535,9 +541,9 @@ export default function FeedbackManagementPage() {
               {selectedFeedback.archived ? 'Unarchive' : 'Archive'}
             </button>
             <button
-              onClick={() => {
-                handleDelete(selectedFeedback.id);
-                setSelectedFeedback(null);
+              onClick={async () => {
+                const deleted = await handleDelete(selectedFeedback.id);
+                if (deleted) setSelectedFeedback(null);
               }}
               className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
             >

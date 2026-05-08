@@ -304,7 +304,6 @@ describe('AdminPublishersPage (integration)', () => {
     mock.on('GET', /\/admin\/api\/publisher-applications\/pending$/, { applications: [] });
     // Never-resolving DELETE — locks the modal in the in-flight state.
     mock.on('DELETE', /\/admin\/api\/publishers\/pub-1$/, () =>
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
       new Promise<Response>(() => {}),
     );
 
