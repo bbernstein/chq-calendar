@@ -19,6 +19,7 @@ import { DateFilter } from '@/components/filters/DateFilter';
 import { LocationFilter } from '@/components/filters/LocationFilter';
 import { CategoryFilter } from '@/components/filters/CategoryFilter';
 import { ActiveFilters } from '@/components/filters/ActiveFilters';
+import { buildActiveChips } from '@/components/filters/buildActiveChips';
 import { EventList } from '@/components/calendar/EventList';
 
 function HomeContent() {
@@ -96,6 +97,21 @@ function HomeContent() {
     if (filters.dateFilter !== 'next' || !adaptiveEndDate || !events.length) return false;
     return events.some(e => new Date(e.startDate) > adaptiveEndDate);
   }, [filters.dateFilter, adaptiveEndDate, events]);
+  const activeChips = useMemo(() => buildActiveChips({
+    searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
+    dateFilter: filters.dateFilter, setDateFilter: filters.setDateFilter,
+    selectedWeeks: filters.selectedWeeks, setSelectedWeeks: filters.setSelectedWeeks,
+    selectedLocations: filters.selectedLocations, toggleLocation: filters.toggleLocation,
+    selectedTags: filters.selectedTags, toggleTag: filters.toggleTag,
+    showFavoritesOnly: filters.showFavoritesOnly, toggleFavoritesOnly: filters.toggleFavoritesOnly,
+  }), [
+    filters.searchTerm, filters.setSearchTerm,
+    filters.dateFilter, filters.setDateFilter,
+    filters.selectedWeeks, filters.setSelectedWeeks,
+    filters.selectedLocations, filters.toggleLocation,
+    filters.selectedTags, filters.toggleTag,
+    filters.showFavoritesOnly, filters.toggleFavoritesOnly,
+  ]);
   const isThisWeekActive = filters.dateFilter === 'this-week' || (currentWeekNumber !== null && filters.selectedWeeks.length === 1 && filters.selectedWeeks[0] === currentWeekNumber);
   const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => isSelected || (filters.dateFilter === 'this-week' && currentWeekNumber === weekNumber);
 
@@ -137,7 +153,13 @@ function HomeContent() {
                 pillScroll={categoryScroll} listScroll={categoryListScroll}
               />
             </div>
-            <ActiveFilters filteredCount={filteredEvents.length} totalCount={events.length} hasFilters={!!filters.hasFilters} onClear={filters.clearFilters} />
+            <ActiveFilters
+              filteredCount={filteredEvents.length}
+              totalCount={events.length}
+              hasFilters={filters.hasFilters}
+              chips={activeChips}
+              onClear={filters.clearFilters}
+            />
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
