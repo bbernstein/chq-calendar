@@ -109,4 +109,42 @@ describe('Modal', () => {
     rerender(<Wrapper open={false} />);
     expect(document.activeElement).toBe(outside);
   });
+
+  it('does NOT close on backdrop click by default', () => {
+    const onClose = vi.fn();
+    render(
+      <Modal onClose={onClose} titleId="t-bd-default">
+        <h3 id="t-bd-default">Heading</h3>
+        <button>OK</button>
+      </Modal>,
+    );
+    const backdrop = screen.getByRole('dialog').parentElement!;
+    fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes on backdrop click when closeOnBackdropClick=true', () => {
+    const onClose = vi.fn();
+    render(
+      <Modal onClose={onClose} titleId="t-bd-on" closeOnBackdropClick>
+        <h3 id="t-bd-on">Heading</h3>
+        <button>OK</button>
+      </Modal>,
+    );
+    const backdrop = screen.getByRole('dialog').parentElement!;
+    fireEvent.click(backdrop);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT close when click originates inside the dialog card with closeOnBackdropClick=true', () => {
+    const onClose = vi.fn();
+    render(
+      <Modal onClose={onClose} titleId="t-bd-inside" closeOnBackdropClick>
+        <h3 id="t-bd-inside">Heading</h3>
+        <button data-testid="inside">OK</button>
+      </Modal>,
+    );
+    fireEvent.click(screen.getByTestId('inside'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
