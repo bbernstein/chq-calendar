@@ -185,9 +185,11 @@ function StatusView({
     setSourceEditOpen(false);
   }
 
-  // After an email-change submit/cancel, refetch the status so the banner
-  // (or its absence) reflects the freshly-mutated state.
-  async function handleEmailChanged() {
+  // Refetch the status after any self-service mutation that changes the row
+  // (email-change submit/cancel, pause/resume, fetch-now, etc.) so the panels
+  // reflect freshly-mutated state. Originally introduced for email-change;
+  // generalized when pause/resume/disable started reusing the same pattern.
+  async function handleStatusRefresh() {
     try {
       const fresh = await getPublisherStatus();
       onUpdated(fresh);
@@ -230,7 +232,7 @@ function StatusView({
         <EmailChangePanel
           contactEmail={rec.contactEmail}
           pendingEmailChange={rec.pendingEmailChange ?? null}
-          onChanged={handleEmailChanged}
+          onChanged={handleStatusRefresh}
         />
       )}
 
@@ -255,7 +257,7 @@ function StatusView({
       )}
 
       {applicationStatus === 'approved' && (
-        <IngestControls publisher={rec} onChanged={handleEmailChanged} />
+        <IngestControls publisher={rec} onChanged={handleStatusRefresh} />
       )}
 
       {applicationStatus === 'approved' && <DangerZone publisher={rec} />}
