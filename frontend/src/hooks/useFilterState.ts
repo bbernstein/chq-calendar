@@ -32,9 +32,7 @@ type FilterAction =
   | { type: 'ADD_EXTRA_DAY' }
   | { type: 'CLEAR_EXTRA_DAYS' }
   | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[]; isCurrentYear: boolean } }
-  | { type: 'CLEAR_FILTERS' }
-  | { type: 'LOAD_STATE'; payload: Partial<FilterState> }
-  | { type: 'INIT' };
+  | { type: 'CLEAR_FILTERS' };
 
 function addToRecent(item: string, items: string[], max: number = 10): string[] {
   return [item, ...items.filter(i => i !== item)].slice(0, max);
@@ -102,10 +100,6 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
     }
     case 'CLEAR_FILTERS':
       return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [], showFavoritesOnly: false, extraDays: 0 };
-    case 'LOAD_STATE':
-      return { ...state, ...action.payload, stateInitialized: true };
-    case 'INIT':
-      return { ...state, stateInitialized: true };
     default:
       return state;
   }
@@ -127,8 +121,33 @@ const initialState: FilterState = {
   stateInitialized: false,
 };
 
+function loadInitialState(): FilterState {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('chq-calendar-user-state') : null;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.lastSaved && Date.now() - parsed.lastSaved < USER_STATE_EXPIRY_MS) {
+        return {
+          ...initialState,
+          searchTerm: parsed.searchTerm || '',
+          selectedTags: parsed.selectedTags || [],
+          selectedLocations: parsed.selectedLocations || [],
+          dateFilter: parsed.dateFilter || 'next',
+          selectedWeeks: parsed.selectedWeeks || [],
+          expandedDescriptions: new Set<string>(parsed.expandedDescriptions || []),
+          recentLocations: parsed.recentLocations || [],
+          recentCategories: parsed.recentCategories || [],
+          showFavoritesOnly: parsed.showFavoritesOnly || false,
+          stateInitialized: true,
+        };
+      }
+    }
+  } catch (e) { console.warn('Failed to load user state:', e); }
+  return { ...initialState, stateInitialized: true };
+}
+
 export function useFilterState() {
-  const [state, dispatch] = useReducer(filterReducer, initialState);
+  const [state, dispatch] = useReducer(filterReducer, undefined, loadInitialState);
 
   // Actions
   const setSearchTerm = useCallback((term: string) => dispatch({ type: 'SET_SEARCH', payload: term }), []);
@@ -181,31 +200,6 @@ export function useFilterState() {
       } catch (e) { console.warn('Failed to save user state:', e); }
     }
   }, [state]);
-
-  // Restore on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('chq-calendar-user-state');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.lastSaved && Date.now() - parsed.lastSaved < USER_STATE_EXPIRY_MS) {
-          dispatch({ type: 'LOAD_STATE', payload: {
-            searchTerm: parsed.searchTerm || '',
-            selectedTags: parsed.selectedTags || [],
-            selectedLocations: parsed.selectedLocations || [],
-            dateFilter: parsed.dateFilter || 'next',
-            selectedWeeks: parsed.selectedWeeks || [],
-            expandedDescriptions: new Set<string>(parsed.expandedDescriptions || []),
-            recentLocations: parsed.recentLocations || [],
-            recentCategories: parsed.recentCategories || [],
-            showFavoritesOnly: parsed.showFavoritesOnly || false,
-          }});
-          return;
-        }
-      }
-    } catch (e) { console.warn('Failed to load user state:', e); }
-    dispatch({ type: 'INIT' });
-  }, []);
 
   // Reset extra days when date filter changes
   useEffect(() => {

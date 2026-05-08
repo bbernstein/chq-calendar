@@ -19,6 +19,7 @@ import { DateFilter } from '@/components/filters/DateFilter';
 import { LocationFilter } from '@/components/filters/LocationFilter';
 import { CategoryFilter } from '@/components/filters/CategoryFilter';
 import { ActiveFilters } from '@/components/filters/ActiveFilters';
+import { buildActiveChips } from '@/components/filters/buildActiveChips';
 import { EventList } from '@/components/calendar/EventList';
 
 function HomeContent() {
@@ -137,7 +138,20 @@ function HomeContent() {
                 pillScroll={categoryScroll} listScroll={categoryListScroll}
               />
             </div>
-            <ActiveFilters filteredCount={filteredEvents.length} totalCount={events.length} hasFilters={!!filters.hasFilters} onClear={filters.clearFilters} />
+            <ActiveFilters
+              filteredCount={filteredEvents.length}
+              totalCount={events.length}
+              hasFilters={!!filters.hasFilters}
+              chips={buildActiveChips({
+                searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
+                dateFilter: filters.dateFilter, setDateFilter: filters.setDateFilter,
+                selectedWeeks: filters.selectedWeeks, setSelectedWeeks: filters.setSelectedWeeks,
+                selectedLocations: filters.selectedLocations, toggleLocation: filters.toggleLocation,
+                selectedTags: filters.selectedTags, toggleTag: filters.toggleTag,
+                showFavoritesOnly: filters.showFavoritesOnly, toggleFavoritesOnly: filters.toggleFavoritesOnly,
+              })}
+              onClear={filters.clearFilters}
+            />
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
