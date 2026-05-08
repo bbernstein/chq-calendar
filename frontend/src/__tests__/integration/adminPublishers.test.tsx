@@ -273,4 +273,59 @@ describe('AdminPublishersPage (integration)', () => {
       expect(deletes).toHaveLength(1);
     });
   });
+
+  it('Esc closes the delete-confirm modal when idle', async () => {
+    nav = installNavigationStub();
+    mock = installFetchMock();
+    loginAsAdmin();
+    mock.on('GET', /\/admin\/api\/publishers$/, { publishers: [SAMPLE_PUBLISHER] });
+    mock.on('GET', /\/admin\/api\/publisher-applications\/pending$/, { applications: [] });
+
+    renderPage(<AdminPublishersPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Active Publisher')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Delete Active Publisher$/i }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  it('Esc does NOT close the delete-confirm modal while a delete is in flight', async () => {
+    nav = installNavigationStub();
+    mock = installFetchMock();
+    loginAsAdmin();
+    mock.on('GET', /\/admin\/api\/publishers$/, { publishers: [SAMPLE_PUBLISHER] });
+    mock.on('GET', /\/admin\/api\/publisher-applications\/pending$/, { applications: [] });
+    // Never-resolving DELETE — locks the modal in the in-flight state.
+    mock.on('DELETE', /\/admin\/api\/publishers\/pub-1$/, () =>
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      new Promise<Response>(() => {}),
+    );
+
+    renderPage(<AdminPublishersPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Active Publisher')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Delete Active Publisher$/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    // Start the in-flight delete.
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Delete$/i }));
+
+    // Wait for the in-flight UI ("Deleting…") to appear, then press Esc.
+    await waitFor(() => {
+      expect(within(dialog).getByText(/Deleting…/i)).toBeInTheDocument();
+    });
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    // Dialog should still be present.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
 });
