@@ -1,6 +1,12 @@
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { DeleteCommand, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { ApplicationStatus, FetchStatus, PublisherRecord } from '../types/publisher';
+
+// Name of the GSI defined in infrastructure/publisher-ingest.tf on the
+// publishers table. Hash-only on contactEmail (lowercase + trimmed at write
+// time). Used by getByEmail to avoid a full-table Scan once the publishers
+// table grows past a few hundred rows.
+const CONTACT_EMAIL_INDEX = 'by-contactEmail';
 
 // Thrown by setApplicationStatus when the optional `expectedFromStatus` does
 // not match the current row state. Caller should treat as "another writer
@@ -26,6 +32,19 @@ export class PublisherNotFoundError extends Error {
     super(`publisher ${publisherId} not found during ${operation}`);
     this.name = 'PublisherNotFoundError';
   }
+}
+
+// DDB throws ValidationException with a message containing
+// "specified index" or "Index not found" when a Query targets a GSI that
+// does not exist on the table. Match by name and message rather than the
+// SDK's error class so the recovery doesn't couple to the Dynamo SDK
+// internals.
+function isMissingIndexError(err: unknown): boolean {
+  const e = err as { name?: string; message?: string } | undefined;
+  if (!e) return false;
+  if (e.name !== 'ValidationException') return false;
+  const msg = e.message ?? '';
+  return /specified index|index .* not (?:found|exist)/i.test(msg);
 }
 
 // Profile fields the publisher portal is allowed to clear (REMOVE) by passing
@@ -128,13 +147,49 @@ export class PublisherRegistryService {
 
   // ─── Phase B (publisher portal apply flow) ─────────────────────────────
   //
-  // Email lookup uses Scan because there is no GSI on contactEmail and the
-  // publishers table is small (low double-digits expected). If the table
-  // grows past a few hundred rows, add `by-contactEmail` GSI and switch.
-  // Email comparison is case-insensitive (we store lowercase, but defensively
-  // normalize the query too).
+  // Email lookup queries the by-contactEmail GSI. Email comparison is
+  // case-insensitive — we store lowercase + trimmed at write time, but
+  // defensively normalize the query input here too so a caller passing a
+  // mixed-case address still hits the right index entry.
+  //
+  // Fallback: if the index is not yet present (deploy-window race where the
+  // Lambda code lands before the Terraform GSI apply completes), the SDK
+  // throws ValidationException. Fall back to Scan once and log a warning so
+  // the deploy doesn't fail user-facing flows. This branch can be removed
+  // after the GSI has been live in production for one full release cycle.
   async getByEmail(email: string): Promise<PublisherRecord[]> {
     const normalized = email.trim().toLowerCase();
+    try {
+      const out: PublisherRecord[] = [];
+      let last: Record<string, unknown> | undefined;
+      do {
+        const r = await this.db.send(new QueryCommand({
+          TableName: this.tableName,
+          IndexName: CONTACT_EMAIL_INDEX,
+          KeyConditionExpression: 'contactEmail = :e',
+          ExpressionAttributeValues: { ':e': normalized },
+          ExclusiveStartKey: last,
+        }));
+        out.push(...((r.Items ?? []) as PublisherRecord[]));
+        last = r.LastEvaluatedKey;
+      } while (last);
+      return out;
+    } catch (err) {
+      if (isMissingIndexError(err)) {
+        console.warn(
+          `[publishers] ${CONTACT_EMAIL_INDEX} GSI not yet live — falling back to Scan. ` +
+          `Remove this branch after the GSI is live in production.`,
+        );
+        return this.getByEmailScan(normalized);
+      }
+      throw err;
+    }
+  }
+
+  // Fallback path for getByEmail when the GSI is missing. Identical
+  // semantics to the pre-GSI implementation — kept private so callers
+  // don't accidentally take this slower path.
+  private async getByEmailScan(normalized: string): Promise<PublisherRecord[]> {
     const out: PublisherRecord[] = [];
     let last: Record<string, unknown> | undefined;
     do {

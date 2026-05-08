@@ -58,7 +58,11 @@ const RATE_LIMIT_TABLE = 'rate-limit';
 const PUBLISHER_INGEST_RUNS_TABLE = 'publisher-ingest-runs';
 
 const TABLE_SPECS: TableSpec[] = [
-  { name: PUBLISHERS_TABLE, hashKey: 'id' },
+  {
+    name: PUBLISHERS_TABLE,
+    hashKey: 'id',
+    gsis: [{ name: 'by-contactEmail', hashKey: 'contactEmail' }],
+  },
   {
     name: PUBLISHER_EVENTS_TABLE,
     hashKey: 'publisherId',
