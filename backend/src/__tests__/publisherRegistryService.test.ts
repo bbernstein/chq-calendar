@@ -162,6 +162,29 @@ describe('PublisherRegistryService', () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
+  it('upsert normalizes contactEmail before persisting (lowercase + trim)', async () => {
+    // Without write-side normalization, an admin who entered 'Foo@Bar.COM '
+    // would write a row that getByEmail('foo@bar.com') misses on the GSI.
+    // The registry enforces this at the boundary so callers don't have to
+    // remember.
+    mockSend.mockResolvedValue({});
+    await svc.upsert({
+      id: 'pub-1',
+      name: 'Mixed',
+      contactEmail: '  Foo@Bar.COM  ',
+      sourceUrl: 'https://example.com/feed.json',
+      sourceType: 'json',
+      trustLevel: 'review',
+      enabled: true,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Item.contactEmail).toBe('foo@bar.com');
+    // Other fields untouched.
+    expect(cmd.input.Item.id).toBe('pub-1');
+    expect(cmd.input.Item.name).toBe('Mixed');
+  });
+
   it('listPending filters on applicationStatus = pending', async () => {
     mockSend.mockResolvedValue({
       Items: [{ id: 'p1', applicationStatus: 'pending' }],

@@ -101,7 +101,19 @@ export class PublisherRegistryService {
   }
 
   async upsert(rec: PublisherRecord): Promise<void> {
-    await this.db.send(new PutCommand({ TableName: this.tableName, Item: rec }));
+    // Normalize contactEmail at the registry boundary so every write path —
+    // apply, admin create/update, smoke test, anything else that builds a
+    // PublisherRecord — produces rows that match getByEmail's normalized
+    // GSI Query. Previously each caller had to remember to normalize; the
+    // admin POST/PATCH /publishers paths did not, so an admin who entered
+    // 'Foo@Bar.COM' would write a row that getByEmail('foo@bar.com') would
+    // miss. trim() handles paste-with-trailing-spaces; toLowerCase folds
+    // casing variations.
+    const normalized: PublisherRecord = {
+      ...rec,
+      contactEmail: rec.contactEmail.trim().toLowerCase(),
+    };
+    await this.db.send(new PutCommand({ TableName: this.tableName, Item: normalized }));
   }
 
   async delete(id: string): Promise<void> {

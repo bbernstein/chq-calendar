@@ -8,9 +8,14 @@ resource "aws_dynamodb_table" "publishers" {
     type = "S"
   }
 
-  # GSI key. Email is stored lowercase + trimmed (PublisherApplicationService
-  # normalizes), so the index supports an exact-match Query without a
-  # case-fold step.
+  # GSI key. Email is stored lowercase + trimmed — normalization is
+  # enforced at the registry write boundary (PublisherRegistryService.upsert
+  # and commitEmailChange both normalize), so the index supports an
+  # exact-match Query without a case-fold step. Backfill: any rows
+  # pre-existing this PR with non-normalized contactEmail values (admin
+  # created with mixed-case input under prior code) should be updated
+  # in place via a one-time DDB scan + UpdateItem before relying on the
+  # GSI for uniqueness checks.
   attribute {
     name = "contactEmail"
     type = "S"
