@@ -27,6 +27,7 @@ import {
   previewPublisherFeed,
   type PublisherStatusRecord,
 } from '@/lib/publisherStatusApi';
+import { isApprovedPublisher } from '@/lib/publisherApproval';
 import { EditableField } from './EditableField';
 import { SourceEditPanel } from './SourceEditPanel';
 import { EmailChangePanel } from './EmailChangePanel';
@@ -160,11 +161,11 @@ function StatusView({
   rec: PublisherStatusRecord;
   onUpdated: (rec: PublisherStatusRecord) => void;
 }) {
-  // Treat a missing applicationStatus as approved — that's how the backend
-  // treats admin-created rows for ingest, and the same logic should apply
-  // to the publisher-facing view.
+  // Treat a missing applicationStatus as approved — legacy admin-created
+  // rows pre-date the application flow. Shared rule via isApprovedPublisher
+  // so the backend handler and frontend view stay in lockstep.
   const applicationStatus = rec.applicationStatus ?? 'approved';
-  const editable = applicationStatus === 'approved';
+  const editable = isApprovedPublisher(rec);
 
   // The source-edit panel is rendered inline below the card when toggled,
   // not in a modal — keeps the read-only context (current URL, last-fetch
@@ -185,16 +186,23 @@ function StatusView({
     setSourceEditOpen(false);
   }
 
-  // After an email-change submit/cancel, refetch the status so the banner
-  // (or its absence) reflects the freshly-mutated state.
-  async function handleEmailChanged() {
+  // Refetch the status after any self-service mutation that changes the row
+  // (email-change submit/cancel, pause/resume, fetch-now, etc.) so the panels
+  // reflect freshly-mutated state. Originally introduced for email-change;
+  // generalized when pause/resume/disable started reusing the same pattern.
+  //
+  // Errors are swallowed (the banner stays put rather than showing a
+  // refresh-failure UI) but logged to console so that failures aren't
+  // invisible during development. A 401 inside getPublisherStatus already
+  // triggers its own auth-redirect, so the most-impactful failure mode is
+  // already handled at the API-client layer; what we're swallowing here is
+  // genuinely transient (e.g. network blip mid-render).
+  async function handleStatusRefresh() {
     try {
       const fresh = await getPublisherStatus();
       onUpdated(fresh);
-    } catch {
-      // Failure here is rare (status fetch already worked once); if it does
-      // happen, the next mount will catch up. No need to surface the error
-      // through the banner state.
+    } catch (err) {
+      console.error('[publish/status] post-mutation refresh failed; UI may show stale data until next mount', err);
     }
   }
 
@@ -230,7 +238,7 @@ function StatusView({
         <EmailChangePanel
           contactEmail={rec.contactEmail}
           pendingEmailChange={rec.pendingEmailChange ?? null}
-          onChanged={handleEmailChanged}
+          onChanged={handleStatusRefresh}
         />
       )}
 
@@ -255,7 +263,7 @@ function StatusView({
       )}
 
       {applicationStatus === 'approved' && (
-        <IngestControls publisher={rec} onChanged={handleEmailChanged} />
+        <IngestControls publisher={rec} onChanged={handleStatusRefresh} />
       )}
 
       {applicationStatus === 'approved' && <DangerZone publisher={rec} />}
@@ -499,7 +507,7 @@ function NotificationsPanel({
         </span>
       </label>
       {error && (
-        <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+        <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>
       )}
     </section>
   );

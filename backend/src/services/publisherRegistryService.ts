@@ -1,6 +1,12 @@
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { DeleteCommand, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { ApplicationStatus, FetchStatus, PublisherRecord } from '../types/publisher';
+
+// Name of the GSI defined in infrastructure/publisher-ingest.tf on the
+// publishers table. Hash-only on contactEmail (lowercase + trimmed at write
+// time). Used by getByEmail to avoid a full-table Scan once the publishers
+// table grows past a few hundred rows.
+const CONTACT_EMAIL_INDEX = 'by-contactEmail';
 
 // Thrown by setApplicationStatus when the optional `expectedFromStatus` does
 // not match the current row state. Caller should treat as "another writer
@@ -26,6 +32,24 @@ export class PublisherNotFoundError extends Error {
     super(`publisher ${publisherId} not found during ${operation}`);
     this.name = 'PublisherNotFoundError';
   }
+}
+
+// DDB throws ValidationException with a message mentioning the missing
+// index name when a Query targets a GSI that does not exist on the table.
+// We require the message to mention CONTACT_EMAIL_INDEX specifically so a
+// typo in the constant doesn't produce a permanent silent fall-back to
+// Scan: a misspelled index name would Validation-fail with a different
+// message that doesn't match this guard, so the error propagates as a
+// proper failure instead of degrading getByEmail to O(n) scans forever.
+// Match by name + message string rather than the SDK's error class so the
+// recovery doesn't couple to the Dynamo SDK internals.
+function isMissingIndexError(err: unknown): boolean {
+  const e = err as { name?: string; message?: string } | undefined;
+  if (!e) return false;
+  if (e.name !== 'ValidationException') return false;
+  const msg = e.message ?? '';
+  if (!msg.includes(CONTACT_EMAIL_INDEX)) return false;
+  return /specified index|index .* not (?:found|exist)/i.test(msg);
 }
 
 // Profile fields the publisher portal is allowed to clear (REMOVE) by passing
@@ -77,7 +101,19 @@ export class PublisherRegistryService {
   }
 
   async upsert(rec: PublisherRecord): Promise<void> {
-    await this.db.send(new PutCommand({ TableName: this.tableName, Item: rec }));
+    // Normalize contactEmail at the registry boundary so every write path —
+    // apply, admin create/update, smoke test, anything else that builds a
+    // PublisherRecord — produces rows that match getByEmail's normalized
+    // GSI Query. Previously each caller had to remember to normalize; the
+    // admin POST/PATCH /publishers paths did not, so an admin who entered
+    // 'Foo@Bar.COM' would write a row that getByEmail('foo@bar.com') would
+    // miss. trim() handles paste-with-trailing-spaces; toLowerCase folds
+    // casing variations.
+    const normalized: PublisherRecord = {
+      ...rec,
+      contactEmail: rec.contactEmail.trim().toLowerCase(),
+    };
+    await this.db.send(new PutCommand({ TableName: this.tableName, Item: normalized }));
   }
 
   async delete(id: string): Promise<void> {
@@ -128,13 +164,49 @@ export class PublisherRegistryService {
 
   // ─── Phase B (publisher portal apply flow) ─────────────────────────────
   //
-  // Email lookup uses Scan because there is no GSI on contactEmail and the
-  // publishers table is small (low double-digits expected). If the table
-  // grows past a few hundred rows, add `by-contactEmail` GSI and switch.
-  // Email comparison is case-insensitive (we store lowercase, but defensively
-  // normalize the query too).
+  // Email lookup queries the by-contactEmail GSI. Email comparison is
+  // case-insensitive — we store lowercase + trimmed at write time, but
+  // defensively normalize the query input here too so a caller passing a
+  // mixed-case address still hits the right index entry.
+  //
+  // Fallback: if the index is not yet present (deploy-window race where the
+  // Lambda code lands before the Terraform GSI apply completes), the SDK
+  // throws ValidationException. Fall back to Scan once and log a warning so
+  // the deploy doesn't fail user-facing flows. This branch can be removed
+  // after the GSI has been live in production for one full release cycle.
   async getByEmail(email: string): Promise<PublisherRecord[]> {
     const normalized = email.trim().toLowerCase();
+    try {
+      const out: PublisherRecord[] = [];
+      let last: Record<string, unknown> | undefined;
+      do {
+        const r = await this.db.send(new QueryCommand({
+          TableName: this.tableName,
+          IndexName: CONTACT_EMAIL_INDEX,
+          KeyConditionExpression: 'contactEmail = :e',
+          ExpressionAttributeValues: { ':e': normalized },
+          ExclusiveStartKey: last,
+        }));
+        out.push(...((r.Items ?? []) as PublisherRecord[]));
+        last = r.LastEvaluatedKey;
+      } while (last);
+      return out;
+    } catch (err) {
+      if (isMissingIndexError(err)) {
+        console.warn(
+          `[publishers] ${CONTACT_EMAIL_INDEX} GSI not yet live — falling back to Scan. ` +
+          `Remove this branch after the GSI is live in production.`,
+        );
+        return this.getByEmailScan(normalized);
+      }
+      throw err;
+    }
+  }
+
+  // Fallback path for getByEmail when the GSI is missing. Identical
+  // semantics to the pre-GSI implementation — kept private so callers
+  // don't accidentally take this slower path.
+  private async getByEmailScan(normalized: string): Promise<PublisherRecord[]> {
     const out: PublisherRecord[] = [];
     let last: Record<string, unknown> | undefined;
     do {
@@ -353,15 +425,23 @@ export class PublisherRegistryService {
   // consistent but the publisher's already-issued JWT is now mismatched
   // against contactEmail rather than tokenVersion, causing them to fail
   // requirePublisherSession with the wrong reason.
+  //
+  // The email is normalized (trim + lowercase) before the write so the
+  // value stored on the row matches the normalization performed by
+  // getByEmail. Callers (PublisherEmailChangeService) already normalize
+  // before invocation; this is defense-in-depth so a stray un-normalized
+  // call site can't quietly desync the GSI lookup from the row state.
+  //
   // attribute_exists(id) guard — see PublisherNotFoundError.
   async commitEmailChange(id: string, newEmail: string): Promise<void> {
+    const normalized = newEmail.trim().toLowerCase();
     try {
       await this.db.send(new UpdateCommand({
         TableName: this.tableName,
         Key: { id },
         ConditionExpression: 'attribute_exists(id)',
         UpdateExpression: 'SET contactEmail = :e ADD tokenVersion :one',
-        ExpressionAttributeValues: { ':e': newEmail, ':one': 1 },
+        ExpressionAttributeValues: { ':e': normalized, ':one': 1 },
       }));
     } catch (err) {
       if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {

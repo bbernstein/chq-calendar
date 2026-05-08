@@ -18,6 +18,7 @@
 
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { Modal } from '@/components/Modal';
 import {
   requestEmailChange,
   cancelEmailChangeBySelf,
@@ -111,7 +112,7 @@ export function EmailChangePanel(props: EmailChangePanelProps) {
           {busy ? 'Cancelling…' : 'Cancel change'}
         </button>
         {error && (
-          <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>
         )}
       </div>
     );
@@ -192,62 +193,55 @@ function ChangeEmailModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="change-email-title"
-    >
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3 id="change-email-title" className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-          Change contact email
-        </h3>
-        <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
-          We&apos;ll send a confirmation link to the new address. The change
-          only takes effect once that link is clicked. We&apos;ll also notify
-          your current address ({' '}
-          <span className="font-mono text-xs">{contactEmail}</span>
-          ) so they can cancel if it wasn&apos;t you.
-        </p>
-        <form onSubmit={onSubmit} className="space-y-3">
-          <label className="block">
-            <span className="block text-sm font-medium text-gray-900 dark:text-white mb-1">
-              New email
-            </span>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={newEmail}
-              onInput={e => setNewEmail((e.target as HTMLInputElement).value)}
-              className="block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="you@example.com"
-            />
-          </label>
+    <Modal onClose={onClose} titleId="change-email-title" closeOnEsc={!busy}>
+      <h3 id="change-email-title" className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Change contact email
+      </h3>
+      <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+        We&apos;ll send a confirmation link to the new address. The change
+        only takes effect once that link is clicked. We&apos;ll also notify
+        your current address ({' '}
+        <span className="font-mono text-xs">{contactEmail}</span>
+        ) so they can cancel if it wasn&apos;t you.
+      </p>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-900 dark:text-white mb-1">
+            New email
+          </span>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            value={newEmail}
+            onInput={e => setNewEmail((e.target as HTMLInputElement).value)}
+            className="block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="you@example.com"
+          />
+        </label>
 
-          {error && (
-            <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
-          )}
+        {error && (
+          <p className="text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>
+        )}
 
-          <div className="flex gap-2 justify-end pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-60"
-            >
-              {busy ? 'Sending…' : 'Send confirmation link'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="flex gap-2 justify-end pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-60"
+          >
+            {busy ? 'Sending…' : 'Send confirmation link'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

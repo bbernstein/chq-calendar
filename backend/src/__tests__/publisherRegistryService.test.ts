@@ -102,12 +102,15 @@ describe('PublisherRegistryService', () => {
 
   // ─── Phase B (publisher portal apply flow) ─────────────────────────────
 
-  it('getByEmail normalizes to lowercase before scanning', async () => {
+  it('getByEmail queries the by-contactEmail GSI with normalized lowercase input', async () => {
     mockSend.mockResolvedValue({ Items: [] });
     await svc.getByEmail('  Foo@Bar.COM  ');
     const cmd: any = mockSend.mock.calls[0][0];
-    expect(cmd.input.FilterExpression).toBe('contactEmail = :e');
+    expect(cmd.input.IndexName).toBe('by-contactEmail');
+    expect(cmd.input.KeyConditionExpression).toBe('contactEmail = :e');
     expect(cmd.input.ExpressionAttributeValues[':e']).toBe('foo@bar.com');
+    // It's a Query, not a Scan — so no FilterExpression.
+    expect(cmd.input.FilterExpression).toBeUndefined();
   });
 
   it('getByEmail returns matched publishers with pagination', async () => {
@@ -122,6 +125,64 @@ describe('PublisherRegistryService', () => {
     const r = await svc.getByEmail('x@y.com');
     expect(r.map(p => p.id)).toEqual(['a', 'b']);
     expect(mockSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('getByEmail falls back to Scan when the GSI is missing (deploy-window race)', async () => {
+    // Simulate the ValidationException DDB throws before the Terraform apply
+    // has propagated the new index. The fallback path Scans and logs a warn
+    // — caller still gets a correct result rather than a 500.
+    const missingIndexErr = Object.assign(new Error('The table does not have the specified index: by-contactEmail'), {
+      name: 'ValidationException',
+    });
+    mockSend
+      .mockRejectedValueOnce(missingIndexErr)
+      .mockResolvedValueOnce({ Items: [{ id: 'a', contactEmail: 'x@y.com' }] });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const r = await svc.getByEmail('x@y.com');
+      expect(r.map(p => p.id)).toEqual(['a']);
+      // First call was the Query, second call was the Scan fallback.
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      const fallbackCmd: any = mockSend.mock.calls[1][0];
+      expect(fallbackCmd.input.FilterExpression).toBe('contactEmail = :e');
+      expect(fallbackCmd.input.IndexName).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('getByEmail surfaces non-validation DDB errors unchanged (no fallback)', async () => {
+    const throttle = Object.assign(new Error('throttled'), {
+      name: 'ProvisionedThroughputExceededException',
+    });
+    mockSend.mockRejectedValueOnce(throttle);
+    await expect(svc.getByEmail('x@y.com')).rejects.toBe(throttle);
+    // Did NOT fall back to Scan.
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('upsert normalizes contactEmail before persisting (lowercase + trim)', async () => {
+    // Without write-side normalization, an admin who entered 'Foo@Bar.COM '
+    // would write a row that getByEmail('foo@bar.com') misses on the GSI.
+    // The registry enforces this at the boundary so callers don't have to
+    // remember.
+    mockSend.mockResolvedValue({});
+    await svc.upsert({
+      id: 'pub-1',
+      name: 'Mixed',
+      contactEmail: '  Foo@Bar.COM  ',
+      sourceUrl: 'https://example.com/feed.json',
+      sourceType: 'json',
+      trustLevel: 'review',
+      enabled: true,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const cmd: any = mockSend.mock.calls[0][0];
+    expect(cmd.input.Item.contactEmail).toBe('foo@bar.com');
+    // Other fields untouched.
+    expect(cmd.input.Item.id).toBe('pub-1');
+    expect(cmd.input.Item.name).toBe('Mixed');
   });
 
   it('listPending filters on applicationStatus = pending', async () => {

@@ -17,6 +17,7 @@ import {
   PublisherFetchNowError,
   type PublisherStatusRecord,
 } from '@/lib/publisherStatusApi';
+import { Modal } from '@/components/Modal';
 
 export interface IngestControlsProps {
   publisher: PublisherStatusRecord;
@@ -213,43 +214,36 @@ function PauseConfirmModal({
   onCancel: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="pause-confirm-title"
-    >
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3
-          id="pause-confirm-title"
-          className="text-lg font-semibold text-gray-900 dark:text-white mb-2"
+    <Modal onClose={onCancel} titleId="pause-confirm-title" closeOnEsc={!busy}>
+      <h3
+        id="pause-confirm-title"
+        className="text-lg font-semibold text-gray-900 dark:text-white mb-2"
+      >
+        Pause fetches?
+      </h3>
+      <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+        Pausing stops new fetches of your feed. Your previously-published
+        events stay live on the calendar until you Resume or Disable.
+        Pause anyway?
+      </p>
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60"
         >
-          Pause fetches?
-        </h3>
-        <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
-          Pausing stops new fetches of your feed. Your previously-published
-          events stay live on the calendar until you Resume or Disable.
-          Pause anyway?
-        </p>
-        <div className="flex gap-2 justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-60"
-          >
-            {busy ? 'Pausing…' : 'Pause anyway'}
-          </button>
-        </div>
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={busy}
+          className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-60"
+        >
+          {busy ? 'Pausing…' : 'Pause anyway'}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

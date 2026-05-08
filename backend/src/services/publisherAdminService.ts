@@ -63,7 +63,13 @@ export class PublisherAdminService {
     const rec: PublisherRecord = {
       id: input.id,
       name: input.name,
-      contactEmail: input.contactEmail,
+      // Pre-normalize contactEmail so the returned record matches what the
+      // registry will persist. registry.upsert also normalizes (the load-
+      // bearing enforcement), but doing it here too keeps the in-memory
+      // value handed back to the admin API response self-consistent —
+      // otherwise an admin who entered 'Foo@Bar.COM' would see the mixed
+      // case on the create response and the lowercase on the next refresh.
+      contactEmail: input.contactEmail.trim().toLowerCase(),
       sourceUrl: input.sourceUrl,
       sourceType: input.sourceType,
       trustLevel: input.trustLevel ?? 'review',
@@ -80,6 +86,11 @@ export class PublisherAdminService {
       throw new Error(`unknown publisher ${id}`);
     }
     const merged: PublisherRecord = { ...existing, ...patch, id };
+    // Pre-normalize so the returned record matches what registry.upsert
+    // will persist — see createPublisher comment for the rationale.
+    if (typeof merged.contactEmail === 'string') {
+      merged.contactEmail = merged.contactEmail.trim().toLowerCase();
+    }
     await this.registry.upsert(merged);
     return merged;
   }

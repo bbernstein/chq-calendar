@@ -17,6 +17,7 @@ import {
   type PublisherStatusRecord,
 } from '@/lib/publisherStatusApi';
 import { clearPublisherSession } from '@/lib/publisherAuthClient';
+import { Modal } from '@/components/Modal';
 
 export interface DangerZoneProps {
   publisher: PublisherStatusRecord;
@@ -96,68 +97,64 @@ function DisableConfirmModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="disable-confirm-title"
-    >
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3
-          id="disable-confirm-title"
-          className="text-lg font-semibold text-red-800 dark:text-red-300 mb-2"
-        >
-          Disable your publisher?
-        </h3>
-        <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-          This will retract your events on the next ingest run. Re-enabling
-          requires an admin.
+    // closeOnEsc=false: the typed-confirmation gate is meant to make the
+    // user commit deliberately. A stray Escape from the input field
+    // shouldn't undo that commitment.
+    <Modal onClose={onCancel} titleId="disable-confirm-title" closeOnEsc={false}>
+      <h3
+        id="disable-confirm-title"
+        className="text-lg font-semibold text-red-800 dark:text-red-300 mb-2"
+      >
+        Disable your publisher?
+      </h3>
+      <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+        This will retract your events on the next ingest run. Re-enabling
+        requires an admin.
+      </p>
+      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+        To confirm, type the publisher slug{' '}
+        <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">
+          {slug}
+        </code>{' '}
+        exactly:
+      </p>
+      <input
+        type="text"
+        value={typed}
+        onInput={(e) => setTyped((e.target as HTMLInputElement).value)}
+        aria-label="Confirmation slug"
+        autoComplete="off"
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 mb-3 font-mono"
+        disabled={busy}
+      />
+
+      {error && (
+        <p className="mb-3 text-sm text-red-700 dark:text-red-300" role="alert">
+          {error}
         </p>
-        <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-          To confirm, type the publisher slug{' '}
-          <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">
-            {slug}
-          </code>{' '}
-          exactly:
-        </p>
-        <input
-          type="text"
-          value={typed}
-          onInput={(e) => setTyped((e.target as HTMLInputElement).value)}
-          aria-label="Confirmation slug"
-          autoComplete="off"
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 mb-3 font-mono"
+      )}
+
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
           disabled={busy}
-        />
-
-        {error && (
-          <p className="mb-3 text-sm text-red-700 dark:text-red-300" role="alert">
-            {error}
-          </p>
-        )}
-
-        <div className="flex gap-2 justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={!matches || busy}
-            className="px-3 py-1.5 text-sm rounded-md bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {busy ? 'Disabling…' : 'Disable my publisher'}
-          </button>
-        </div>
+          className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleConfirm}
+          disabled={!matches || busy}
+          className="px-3 py-1.5 text-sm rounded-md bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {busy ? 'Disabling…' : 'Disable my publisher'}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

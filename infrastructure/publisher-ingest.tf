@@ -8,6 +8,33 @@ resource "aws_dynamodb_table" "publishers" {
     type = "S"
   }
 
+  # GSI key. Email is stored lowercase + trimmed — normalization is
+  # enforced at the registry write boundary (PublisherRegistryService.upsert
+  # and commitEmailChange both normalize), so the index supports an
+  # exact-match Query without a case-fold step. Backfill: any rows
+  # pre-existing this PR with non-normalized contactEmail values (admin
+  # created with mixed-case input under prior code) should be updated
+  # in place via a one-time DDB scan + UpdateItem before relying on the
+  # GSI for uniqueness checks.
+  attribute {
+    name = "contactEmail"
+    type = "S"
+  }
+
+  # by-contactEmail powers PublisherRegistryService.getByEmail without a
+  # full-table Scan. Used by the apply uniqueness gate and the email-change
+  # flow's "is the new address already claimed?" check. PROJECTION = ALL
+  # because callers consume the full publisher row to decide approve/reject
+  # branching (see publisherApplicationService.ts requestApply).
+  global_secondary_index {
+    name            = "by-contactEmail"
+    projection_type = "ALL"
+    key_schema {
+      attribute_name = "contactEmail"
+      key_type       = "HASH"
+    }
+  }
+
   point_in_time_recovery {
     enabled = true
   }
@@ -142,6 +169,7 @@ resource "aws_iam_role_policy" "publisher_ingest_scoped" {
         ],
         Resource = [
           aws_dynamodb_table.publishers.arn,
+          "${aws_dynamodb_table.publishers.arn}/index/by-contactEmail",
           aws_dynamodb_table.publisher_events.arn,
           "${aws_dynamodb_table.publisher_events.arn}/index/by-state",
           aws_dynamodb_table.publisher_ingest_runs.arn
@@ -255,6 +283,7 @@ resource "aws_iam_role_policy" "admin_publisher_access" {
       ],
       Resource = [
         aws_dynamodb_table.publishers.arn,
+        "${aws_dynamodb_table.publishers.arn}/index/by-contactEmail",
         aws_dynamodb_table.publisher_events.arn,
         "${aws_dynamodb_table.publisher_events.arn}/index/by-state",
         aws_dynamodb_table.publisher_ingest_runs.arn
