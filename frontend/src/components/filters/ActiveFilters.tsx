@@ -51,7 +51,7 @@ export function ActiveFilters({ filteredCount, totalCount, hasFilters, chips, on
         <div className="mb-2 flex items-start gap-2 flex-wrap">
           <span className="flex-shrink-0 inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 pt-1">
             <FilterIcon className="w-4 h-4" />
-            <span className="hidden sm:inline">Filtering by:</span>
+            <span className="sr-only sm:not-sr-only">Filtering by:</span>
           </span>
           <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
             {chips.map(chip => (

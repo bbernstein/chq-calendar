@@ -38,6 +38,12 @@ describe('buildActiveChips', () => {
     expect(buildActiveChips(makeArgs({ searchTerm: '   ' }))).toEqual([]);
   });
 
+  it('trims surrounding whitespace from the search chip label', () => {
+    const chips = buildActiveChips(makeArgs({ searchTerm: '  symphony  ' }));
+    expect(chips).toHaveLength(1);
+    expect(chips[0].label).toBe('"symphony"');
+  });
+
   it('emits a date chip with a friendly label and a remove that resets to "all"', () => {
     const setDateFilter = vi.fn();
     const chips = buildActiveChips(makeArgs({ dateFilter: 'next', setDateFilter }));

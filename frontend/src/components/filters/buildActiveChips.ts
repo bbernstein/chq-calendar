@@ -33,12 +33,13 @@ interface BuildArgs {
 export function buildActiveChips(args: BuildArgs): ActiveChip[] {
   const chips: ActiveChip[] = [];
 
-  if (args.searchTerm.trim()) {
+  const trimmedSearch = args.searchTerm.trim();
+  if (trimmedSearch) {
     chips.push({
       key: 'search',
       category: 'search',
       prefix: 'Search',
-      label: `"${args.searchTerm}"`,
+      label: `"${trimmedSearch}"`,
       onRemove: () => args.setSearchTerm(''),
     });
   }
