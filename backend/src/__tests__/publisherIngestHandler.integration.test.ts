@@ -1261,6 +1261,42 @@ describe('runIngest records run rows and triggers notifications', () => {
       expect(registry.setEnabledFlag).not.toHaveBeenCalled();
     });
 
+    it('does NOT auto-disable when enabledAt is unparseable garbage', async () => {
+      // Defensive: a malformed enabledAt (manual edit, schema drift) yields
+      // NaN from Date.parse. Without an explicit NaN guard, NaN <= threshold
+      // is false → the function would proceed to disable on garbage input.
+      const now = new Date('2026-06-01T12:00:00Z');
+      const ciE2e = {
+        id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+        enabledAt: 'not-a-real-timestamp',
+      };
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([ciE2e]),
+        get: jest.fn().mockResolvedValue(ciE2e),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = fetcherForCiE2e();
+      const { store, sidecar } = makeStoreAndSidecar();
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now,
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      });
+
+      expect(registry.setEnabledFlag).not.toHaveBeenCalled();
+      expect(fetcher).toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/unparseable enabledAt/),
+      );
+      warnSpy.mockRestore();
+    });
+
     it('does NOT auto-disable when enabledAt is missing entirely (legacy/unknown row state)', async () => {
       // Defensive: if enabledAt was never stamped (e.g. someone enabled the
       // row outside the workflow), the safety net deliberately does nothing

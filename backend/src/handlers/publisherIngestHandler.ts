@@ -79,8 +79,10 @@ async function recordRunAndNotify(
 // enable step and its cleanup step, the ci-e2e-test publisher could still be
 // enabled with [CI-E2E] events live on the public sidecar. This threshold is
 // the cutoff after which the next ingest run auto-disables it. Set well above
-// the workflow's expected runtime (~5min) and well below the hourly cadence
-// so a stuck runner is recovered within one ingest cycle.
+// the workflow's expected runtime (~5min); the EventBridge ingest rule fires
+// hourly so worst-case recovery is ~2h (a runner that dies just after one
+// ingest run won't trip the threshold for the next one — the run after that
+// catches it).
 //
 // We compare against `enabledAt` (the timestamp the workflow writes
 // alongside enabled=true), NOT lastFetchedAt — lastFetchedAt persists
@@ -93,7 +95,10 @@ async function recordRunAndNotify(
 // If enabledAt is missing entirely (legacy rows enabled before the
 // workflow started writing it) we deliberately do nothing — better to
 // leak a row across one safety-net cycle than to disable a publisher
-// that's actively being tested by an in-flight runner.
+// that's actively being tested by an in-flight runner. Same policy
+// applies if enabledAt is present but unparseable: NaN compares as
+// false against the threshold, so without an explicit guard the function
+// would proceed to disable on garbage input.
 export const CI_E2E_PUBLISHER_ID = 'ci-e2e-test';
 export const CI_E2E_STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 
@@ -103,7 +108,14 @@ async function autoDisableStaleCiE2e(
 ): Promise<void> {
   const ciE2e = publishers.find(p => p.id === CI_E2E_PUBLISHER_ID);
   if (!ciE2e || !ciE2e.enabled || !ciE2e.enabledAt) return;
-  const ageMs = deps.now.getTime() - new Date(ciE2e.enabledAt).getTime();
+  const enabledAtMs = new Date(ciE2e.enabledAt).getTime();
+  if (Number.isNaN(enabledAtMs)) {
+    console.warn(
+      `[publisher-ingest] ci-e2e-safety: ignoring unparseable enabledAt=${JSON.stringify(ciE2e.enabledAt)} on ${CI_E2E_PUBLISHER_ID}`,
+    );
+    return;
+  }
+  const ageMs = deps.now.getTime() - enabledAtMs;
   if (ageMs <= CI_E2E_STALE_THRESHOLD_MS) return;
   const ageMin = Math.round(ageMs / 60_000);
   console.warn(
