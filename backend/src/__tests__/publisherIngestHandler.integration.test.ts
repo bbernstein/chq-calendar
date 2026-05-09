@@ -1120,4 +1120,244 @@ describe('runIngest records run rows and triggers notifications', () => {
     expect(notifier.notifyIngestRunRecorded).toHaveBeenCalledTimes(1);
     errSpy.mockRestore();
   });
+
+  describe('ci-e2e-test stale-enabled safety net', () => {
+    function makeStoreAndSidecar() {
+      return {
+        store: {
+          listForPublisher: jest.fn().mockResolvedValue([]),
+          applyDiff: jest.fn().mockResolvedValue(undefined),
+          listAllPublished: jest.fn().mockResolvedValue([]),
+          deleteAllForPublisher: jest.fn().mockResolvedValue(0),
+        },
+        sidecar: { publish: jest.fn().mockResolvedValue(undefined) },
+      };
+    }
+
+    it('disables ci-e2e-test when enabled=true and lastFetchedAt is older than 1h', async () => {
+      const now = new Date('2026-06-01T12:00:00Z');
+      const stale = new Date(now.getTime() - 90 * 60 * 1000).toISOString(); // 90 min old
+      const ciE2e = {
+        id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+        lastFetchedAt: stale,
+      };
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([ciE2e]),
+        get: jest.fn().mockResolvedValue(ciE2e),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn();
+      const { store, sidecar } = makeStoreAndSidecar();
+
+      await runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now,
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      });
+
+      expect(registry.setEnabledFlag).toHaveBeenCalledWith('ci-e2e-test', false);
+      // Mirror in-memory: should be treated as disabled — no fetch, instead
+      // it goes through the disabled-retract bucket.
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(store.deleteAllForPublisher).toHaveBeenCalledWith('ci-e2e-test');
+    });
+
+    it('leaves ci-e2e-test alone when lastFetchedAt is fresh (<1h)', async () => {
+      const now = new Date('2026-06-01T12:00:00Z');
+      const fresh = new Date(now.getTime() - 5 * 60 * 1000).toISOString(); // 5 min old
+      const ciE2e = {
+        id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+        lastFetchedAt: fresh,
+      };
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([ciE2e]),
+        get: jest.fn().mockResolvedValue(ciE2e),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn().mockResolvedValue({
+        fetchStatus: 'ok', report: { ok: true, errors: [], warnings: [] },
+        feed: {
+          formatVersion: '1.0',
+          publisher: { id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x' },
+          events: [],
+        },
+      });
+      const { store, sidecar } = makeStoreAndSidecar();
+
+      await runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now,
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      });
+
+      expect(registry.setEnabledFlag).not.toHaveBeenCalled();
+      // Still gets fetched as a normal active publisher.
+      expect(fetcher).toHaveBeenCalled();
+    });
+
+    it('leaves ci-e2e-test alone when enabled=false (the baseline)', async () => {
+      const now = new Date('2026-06-01T12:00:00Z');
+      const stale = new Date(now.getTime() - 90 * 60 * 1000).toISOString();
+      const ciE2e = {
+        id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: false, createdAt: 't',
+        lastFetchedAt: stale,
+      };
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([ciE2e]),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn();
+      const { store, sidecar } = makeStoreAndSidecar();
+
+      await runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now,
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      });
+
+      expect(registry.setEnabledFlag).not.toHaveBeenCalled();
+    });
+
+    it('runs cleanly when ci-e2e-test does not exist (preview accounts)', async () => {
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([]),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn();
+      const { store, sidecar } = makeStoreAndSidecar();
+
+      await expect(runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now: new Date('2026-06-01T12:00:00Z'),
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      })).resolves.toBeUndefined();
+
+      expect(registry.setEnabledFlag).not.toHaveBeenCalled();
+    });
+
+    it('disables ci-e2e-test when enabled=true and lastFetchedAt is unset but createdAt is stale', async () => {
+      // Edge case: row was just enabled but ingest never recorded a fetch
+      // before the runner died. lastFetchedAt is absent. Fall back to
+      // createdAt for the staleness compare.
+      const now = new Date('2026-06-01T12:00:00Z');
+      const staleCreatedAt = new Date(now.getTime() - 90 * 60 * 1000).toISOString();
+      const ciE2e = {
+        id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true,
+        createdAt: staleCreatedAt,
+        // lastFetchedAt deliberately absent
+      };
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([ciE2e]),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn();
+      const { store, sidecar } = makeStoreAndSidecar();
+
+      await runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now,
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      });
+
+      expect(registry.setEnabledFlag).toHaveBeenCalledWith('ci-e2e-test', false);
+      // Should retract via the disabled bucket since we mirrored enabled=false.
+      expect(store.deleteAllForPublisher).toHaveBeenCalledWith('ci-e2e-test');
+    });
+
+    it('leaves ci-e2e-test alone when enabled=true and createdAt is fresh (grace period)', async () => {
+      // A row that was JUST created with enabled=true (e.g. terraform-apply
+      // gave a baseline state of true by mistake, or a runner enabled it
+      // moments before this run) shouldn't be auto-disabled — give the next
+      // ingest run a chance to populate lastFetchedAt.
+      const now = new Date('2026-06-01T12:00:00Z');
+      const freshCreatedAt = new Date(now.getTime() - 5 * 60 * 1000).toISOString();
+      const ciE2e = {
+        id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true,
+        createdAt: freshCreatedAt,
+      };
+      const registry = {
+        listAll: jest.fn().mockResolvedValue([ciE2e]),
+        get: jest.fn().mockResolvedValue(ciE2e),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn().mockResolvedValue({
+        fetchStatus: 'ok', report: { ok: true, errors: [], warnings: [] },
+        feed: {
+          formatVersion: '1.0',
+          publisher: { id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x' },
+          events: [],
+        },
+      });
+      const { store, sidecar } = makeStoreAndSidecar();
+
+      await runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now,
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      });
+
+      expect(registry.setEnabledFlag).not.toHaveBeenCalled();
+    });
+
+    it('does NOT auto-disable on single-publisher runs (singlePublisherId path)', async () => {
+      const now = new Date('2026-06-01T12:00:00Z');
+      const stale = new Date(now.getTime() - 90 * 60 * 1000).toISOString();
+      const ciE2e = {
+        id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x', sourceUrl: 'https://x',
+        sourceType: 'json' as const, trustLevel: 'auto' as const, enabled: true, createdAt: 't',
+        lastFetchedAt: stale,
+      };
+      const registry = {
+        listAll: jest.fn(),
+        get: jest.fn().mockResolvedValue(ciE2e),
+        recordFetchOutcome: jest.fn().mockResolvedValue(undefined),
+        setThresholdHalt: jest.fn().mockResolvedValue(undefined),
+        setEnabledFlag: jest.fn().mockResolvedValue(undefined),
+      };
+      const fetcher = jest.fn().mockResolvedValue({
+        fetchStatus: 'ok', report: { ok: true, errors: [], warnings: [] },
+        feed: {
+          formatVersion: '1.0',
+          publisher: { id: 'ci-e2e-test', name: 'CI', contactEmail: 'ci@x' },
+          events: [],
+        },
+      });
+      const { store, sidecar } = makeStoreAndSidecar();
+
+      await runIngest({
+        registry: registry as any, store: store as any, sidecar: sidecar as any,
+        fetcher: fetcher as any, now,
+        publishersTableName: 'chq-publishers',
+        runStore: makeFakeRunStore() as any, notifier: makeFakeNotifier() as any,
+      }, { singlePublisherId: 'ci-e2e-test' });
+
+      // Single-publisher mode shouldn't auto-disable; the caller asked
+      // explicitly to fetch this row.
+      expect(registry.setEnabledFlag).not.toHaveBeenCalled();
+      expect(registry.listAll).not.toHaveBeenCalled();
+    });
+  });
 });

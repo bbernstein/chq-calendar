@@ -57,6 +57,13 @@ export interface ModalProps {
   // Optional override for the inner card classes. Defaults to a max-w-md
   // panel — matches all current portal modals.
   className?: string;
+
+  // Default false. When true, clicking the backdrop (the area outside the
+  // dialog card) calls onClose. Off by default because typed-confirmation
+  // gates and forms with unsaved input would lose user work to a stray
+  // backdrop click. Opt in only when the modal is showing read-only or
+  // already-cancelable content.
+  closeOnBackdropClick?: boolean;
 }
 
 export function Modal({
@@ -65,6 +72,7 @@ export function Modal({
   children,
   closeOnEsc = true,
   className = 'bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6',
+  closeOnBackdropClick = false,
 }: ModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Captured at mount; restored on unmount. Stored in a ref so the cleanup
@@ -144,7 +152,10 @@ export function Modal({
   }, [onClose, closeOnEsc]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={closeOnBackdropClick ? onClose : undefined}
+    >
       {/* role/aria/tabIndex live on the focused element (the card), not the
           backdrop, so screen readers announce the dialog title at the same
           time keyboard focus enters the dialog content. */}
@@ -155,6 +166,7 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={className}
+        onClick={(e) => e.stopPropagation()}
       >
         {children}
       </div>

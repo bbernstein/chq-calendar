@@ -19,7 +19,7 @@ export class ConcurrentApplicationUpdateError extends Error {
 }
 
 // Thrown by self-service mutation helpers (setPausedFlag, setSelfDisabled,
-// bumpTokenVersion, updateProfile, commitEmailChange, setEmailChangeLock,
+// updateProfile, commitEmailChange, setEmailChangeLock,
 // clearEmailChangeLock) when the underlying UpdateItem fails its
 // `attribute_exists(id)` guard — i.e. the publisher row was deleted between
 // the caller's earlier read (typically requirePublisherSession) and this
@@ -375,6 +375,30 @@ export class PublisherRegistryService {
     }
   }
 
+  // Toggles `enabled` only — no tokenVersion bump, no selfDisabledAt stamp.
+  // Used by the publisher-ingest safety net to auto-disable the ci-e2e-test
+  // row when a CI runner died mid-test and left it enabled. Distinct from
+  // setSelfDisabled (which is the publisher-driven flow with session
+  // invalidation) and setApplicationStatus (which sets enabled in the
+  // approve/reject paths). attribute_exists(id) guard — see
+  // PublisherNotFoundError.
+  async setEnabledFlag(id: string, enabled: boolean): Promise<void> {
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.tableName,
+        Key: { id },
+        ConditionExpression: 'attribute_exists(id)',
+        UpdateExpression: 'SET enabled = :e',
+        ExpressionAttributeValues: { ':e': enabled },
+      }));
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
+        throw new PublisherNotFoundError(id, 'setEnabledFlag');
+      }
+      throw err;
+    }
+  }
+
   // Phase 4 (email change). Sets the email-change lock to the given ISO
   // timestamp. The lock is consulted at initiate time to bounce repeated
   // email-change attempts from a publisher whose old address just clicked
@@ -420,11 +444,10 @@ export class PublisherRegistryService {
   // Email-change verify commits the new contactEmail and bumps tokenVersion
   // in a SINGLE write. Doing both atomically prevents the case where the
   // contactEmail flips but the JWT keeps validating against the old version
-  // (or vice versa). The two-write alternative — updateProfile then
-  // bumpTokenVersion — opens a window where the registry is internally
-  // consistent but the publisher's already-issued JWT is now mismatched
-  // against contactEmail rather than tokenVersion, causing them to fail
-  // requirePublisherSession with the wrong reason.
+  // (or vice versa). A two-write alternative would open a window where the
+  // registry is internally consistent but the publisher's already-issued
+  // JWT is now mismatched against contactEmail rather than tokenVersion,
+  // causing them to fail requirePublisherSession with the wrong reason.
   //
   // The email is normalized (trim + lowercase) before the write so the
   // value stored on the row matches the normalization performed by
@@ -446,26 +469,6 @@ export class PublisherRegistryService {
     } catch (err) {
       if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
         throw new PublisherNotFoundError(id, 'commitEmailChange');
-      }
-      throw err;
-    }
-  }
-
-  // Increments tokenVersion by 1 — used by email-change verify to invalidate
-  // the old session's JWT once the new email is confirmed.
-  // attribute_exists(id) guard — see PublisherNotFoundError.
-  async bumpTokenVersion(id: string): Promise<void> {
-    try {
-      await this.db.send(new UpdateCommand({
-        TableName: this.tableName,
-        Key: { id },
-        ConditionExpression: 'attribute_exists(id)',
-        UpdateExpression: 'ADD tokenVersion :one',
-        ExpressionAttributeValues: { ':one': 1 },
-      }));
-    } catch (err) {
-      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') {
-        throw new PublisherNotFoundError(id, 'bumpTokenVersion');
       }
       throw err;
     }

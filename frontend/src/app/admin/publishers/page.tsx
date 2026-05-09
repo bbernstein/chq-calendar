@@ -11,6 +11,7 @@ import {
 } from '@/lib/adminPublisherApi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { logout } from '@/lib/auth';
+import { Modal } from '@/components/Modal';
 import { PublisherForm } from './PublisherForm';
 import { PendingApplications } from './PendingApplications';
 
@@ -98,13 +99,11 @@ export default function PublishersPage() {
   // Pause/play and delete share the same in-flight tracker.
   const [pausingIds, setPausingIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  // Delete confirmation modal — null when closed.
+  // Delete confirmation modal — null when closed. The shared <Modal>
+  // component handles focus trap, Esc, and focus restore; the in-flight
+  // guard against accidental dismissal is wired via closeOnEsc /
+  // closeOnBackdropClick props at render time.
   const [deleteTarget, setDeleteTarget] = useState<PublisherRecord | null>(null);
-  // Refs used to implement the modal's focus trap (Tab cycles within the
-  // dialog, Escape closes) and to restore focus to the originating button
-  // when the dialog closes.
-  const deleteModalRef = useRef<HTMLDivElement | null>(null);
-  const lastFocusBeforeModalRef = useRef<HTMLElement | null>(null);
 
   // Manual "Run ingest now" state. The admin endpoint async-invokes the
   // ingest Lambda and returns 202 immediately, so the UI then polls
@@ -246,89 +245,6 @@ export default function PublishersPage() {
       });
     }
   }, [deleteTarget, fetchPublishers]);
-
-  // -------------------------------------------------------------------------
-  // Focus-trap + Escape handling for the delete confirmation modal.
-  //
-  // Without this, Tab leaks focus to the page behind the modal — breaking the
-  // aria-modal contract and making the destructive confirmation unreliable
-  // for keyboard / screen-reader users. The trap is intentionally minimal:
-  //
-  //   - When the modal opens, snapshot the previously-focused element so we
-  //     can restore focus on close.
-  //   - On Tab / Shift+Tab, cycle focus within the modal. The Cancel button
-  //     already has autoFocus so first paint lands on the safe action.
-  //   - Escape closes the modal (mirrors backdrop-click) but only if a
-  //     delete isn't already in flight.
-  //   - On close, restore focus to the originating row's Delete button so
-  //     the user's keyboard position is preserved.
-  //
-  // The effect intentionally depends ONLY on deleteTarget. Re-running on
-  // deletingIds would cause the cleanup (which restores focus to the
-  // background row) to fire while the modal is still open during an
-  // in-flight delete — letting focus escape outside the dialog and
-  // breaking the aria-modal contract. The Escape handler reads
-  // deletingIds via the ref-stable setter pattern (the predicate only
-  // checks the latest deleteTarget against the latest deletingIds at
-  // event time, so we don't need re-binding).
-  // -------------------------------------------------------------------------
-  // Live ref so the keydown handler always sees the current deletingIds
-  // without forcing the focus-trap effect to re-run (and prematurely fire
-  // its focus-restore cleanup) every time a delete starts/finishes.
-  const deletingIdsRef = useRef(deletingIds);
-  useEffect(() => {
-    deletingIdsRef.current = deletingIds;
-  }, [deletingIds]);
-
-  useEffect(() => {
-    if (!deleteTarget) return;
-    lastFocusBeforeModalRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        // Read the latest deletingIds via the ref so we don't have to
-        // re-bind this effect when in-flight state changes.
-        if (!deletingIdsRef.current.has(deleteTarget.id)) {
-          e.preventDefault();
-          setDeleteTarget(null);
-        }
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const root = deleteModalRef.current;
-      if (!root) return;
-      const focusable = root.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      // Cycle: Shift+Tab from first → last; Tab from last → first.
-      if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      // Restore focus when the modal unmounts (deleteTarget → null).
-      // Wrapped in a try/catch because the originating element may have
-      // been removed from the DOM (e.g. publisher row gone after a
-      // successful delete).
-      try {
-        lastFocusBeforeModalRef.current?.focus();
-      } catch {
-        // ignore — element gone, browser will pick a sensible default.
-      }
-    };
-  }, [deleteTarget]);
 
   // -------------------------------------------------------------------------
   // Run ingest now
@@ -830,56 +746,45 @@ export default function PublishersPage() {
         </div>
       </main>
 
-      {/* Delete confirmation modal */}
       {deleteTarget && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-publisher-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => {
-            if (!deletingIds.has(deleteTarget.id)) setDeleteTarget(null);
-          }}
+        <Modal
+          onClose={() => setDeleteTarget(null)}
+          titleId="delete-publisher-title"
+          // Suppress dismissal while the delete is in flight — the user
+          // committed to it; tearing the dialog down mid-request would
+          // leave them with no feedback when it resolves.
+          closeOnEsc={!deletingIds.has(deleteTarget.id)}
+          closeOnBackdropClick={!deletingIds.has(deleteTarget.id)}
         >
-          <div
-            ref={deleteModalRef}
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 id="delete-publisher-title" className="text-lg font-semibold text-gray-900 dark:text-white">
-              Delete publisher?
-            </h3>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-              This will permanently delete the publisher record and all of their stored events.
-              The next sidecar publish will remove these events from the public site.
-              This action cannot be undone.
-            </p>
-            <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-900/40 rounded text-sm">
-              <div className="font-medium text-gray-900 dark:text-gray-100">{deleteTarget.name}</div>
-              <div className="font-mono text-xs text-gray-500 dark:text-gray-400">{deleteTarget.id}</div>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                disabled={deletingIds.has(deleteTarget.id)}
-                // autoFocus moves keyboard focus to the safe action when the
-                // modal opens — Enter / Space then cancels rather than
-                // confirming the destructive operation.
-                autoFocus
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                disabled={deletingIds.has(deleteTarget.id)}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {deletingIds.has(deleteTarget.id) ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
+          <h3 id="delete-publisher-title" className="text-lg font-semibold text-gray-900 dark:text-white">
+            Delete publisher?
+          </h3>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            This will permanently delete the publisher record and all of their stored events.
+            The next sidecar publish will remove these events from the public site.
+            This action cannot be undone.
+          </p>
+          <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-900/40 rounded text-sm">
+            <div className="font-medium text-gray-900 dark:text-gray-100">{deleteTarget.name}</div>
+            <div className="font-mono text-xs text-gray-500 dark:text-gray-400">{deleteTarget.id}</div>
           </div>
-        </div>
+          <div className="mt-6 flex justify-end gap-2">
+            <button
+              onClick={() => setDeleteTarget(null)}
+              disabled={deletingIds.has(deleteTarget.id)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmDelete}
+              disabled={deletingIds.has(deleteTarget.id)}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {deletingIds.has(deleteTarget.id) ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

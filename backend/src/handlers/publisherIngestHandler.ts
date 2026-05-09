@@ -75,6 +75,49 @@ async function recordRunAndNotify(
   }
 }
 
+// Belt-and-suspenders: if a CI runner died between the deploy workflow's
+// enable step and its cleanup step, the ci-e2e-test publisher could still be
+// enabled with [CI-E2E] events live on the public sidecar. This threshold is
+// the cutoff after which the next ingest run auto-disables it. Set well above
+// the workflow's expected runtime (~5min) and well below the hourly cadence
+// so a stuck runner is recovered within one ingest cycle.
+export const CI_E2E_PUBLISHER_ID = 'ci-e2e-test';
+export const CI_E2E_STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+
+// Used in unit tests to fix the wall clock for the threshold comparison.
+// Production code reads deps.now and the registry's lastFetchedAt.
+async function autoDisableStaleCiE2e(
+  deps: IngestDeps,
+  publishers: PublisherRecord[],
+): Promise<void> {
+  const ciE2e = publishers.find(p => p.id === CI_E2E_PUBLISHER_ID);
+  if (!ciE2e || !ciE2e.enabled) return;
+  // Fall back to createdAt when lastFetchedAt is absent — the only path that
+  // produces enabled=true with no lastFetchedAt is "row was just enabled but
+  // ingest hasn't run yet OR ran but failed to record." Comparing against
+  // createdAt means an old row enabled by a runner that died still gets
+  // auto-disabled, while a freshly-created row gets a grace period.
+  const referenceIso = ciE2e.lastFetchedAt ?? ciE2e.createdAt;
+  if (!referenceIso) return;
+  const ageMs = deps.now.getTime() - new Date(referenceIso).getTime();
+  if (ageMs <= CI_E2E_STALE_THRESHOLD_MS) return;
+  const ageMin = Math.round(ageMs / 60_000);
+  const reason = ciE2e.lastFetchedAt
+    ? `lastFetchedAt is ${ageMin}m old`
+    : `lastFetchedAt unset and createdAt is ${ageMin}m old`;
+  console.warn(
+    `[publisher-ingest] ci-e2e-safety: disabling ${CI_E2E_PUBLISHER_ID}: enabled=true and ${reason}`,
+  );
+  try {
+    await deps.registry.setEnabledFlag(CI_E2E_PUBLISHER_ID, false);
+    // Mirror onto the in-memory copy so the rest of this run treats it as
+    // disabled (retract bucket) without re-reading from DynamoDB.
+    ciE2e.enabled = false;
+  } catch (err) {
+    console.error('[publisher-ingest] ci-e2e-safety: setEnabledFlag failed:', err);
+  }
+}
+
 export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Promise<void> {
   // Single Scan: DynamoDB Scan reads every row regardless of FilterExpression,
   // so two scans (listEnabled + listDisabled) doubles RCU for no benefit. The
@@ -99,6 +142,10 @@ export async function runIngest(deps: IngestDeps, opts: RunIngestOpts = {}): Pro
     allPublishers = [one];
   } else {
     allPublishers = await deps.registry.listAll();
+    // Run the safety net only on full scans. /publisher-fetch-now and the
+    // single-publisher path explicitly target one row; auto-disabling a
+    // different publisher there would surprise the caller.
+    await autoDisableStaleCiE2e(deps, allPublishers);
   }
   // Three buckets:
   //   - active   (enabled && !paused): re-fetch and reconcile

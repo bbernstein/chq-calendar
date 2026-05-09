@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { API_BASE_URL } from '@/lib/api';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { getAuthToken, logout } from '@/lib/auth';
+import { Modal } from '@/components/Modal';
 
 interface FeedbackRecord {
   id: string;
@@ -112,7 +113,10 @@ export default function FeedbackManagementPage() {
     }
   };
 
-  const handleArchive = async (id: string, archived: boolean) => {
+  // Returns true when the archive/unarchive flip was persisted — symmetric
+  // with handleDelete so detail-modal callers can leave the user on the
+  // record if the request fails.
+  const handleArchive = async (id: string, archived: boolean): Promise<boolean> => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}/admin/api/feedback`, {
         method: 'PATCH',
@@ -125,15 +129,21 @@ export default function FeedbackManagementPage() {
 
       await fetchFeedbacks();
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
+      return true;
     } catch (err) {
       console.error('Error updating feedback:', err);
       setError('Failed to update feedback. Please try again.');
+      return false;
     }
   };
 
-  const handleDelete = async (id: string) => {
+  // Returns true when a delete actually happened — callers (e.g. the detail
+  // modal) use this to decide whether to dismiss UI tied to the deleted
+  // record. Cancelled native confirms or failed requests return false so
+  // the user keeps their place.
+  const handleDelete = async (id: string): Promise<boolean> => {
     if (!confirm('Are you sure you want to permanently delete this feedback?')) {
-      return;
+      return false;
     }
 
     try {
@@ -148,9 +158,11 @@ export default function FeedbackManagementPage() {
 
       await fetchFeedbacks();
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
+      return true;
     } catch (err) {
       console.error('Error deleting feedback:', err);
       setError('Failed to delete feedback. Please try again.');
+      return false;
     }
   };
 
@@ -439,112 +451,117 @@ export default function FeedbackManagementPage() {
         </div>
       </main>
 
-      {/* Feedback Detail Modal */}
       {selectedFeedback && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 dark:bg-gray-900 dark:bg-opacity-75 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border border-gray-200 dark:border-gray-700 w-11/12 max-w-2xl shadow-lg rounded-md bg-white dark:bg-gray-800">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Feedback Details</h3>
-              <button
-                onClick={() => setSelectedFeedback(null)}
-                className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400"
-              >
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Submitted</p>
-                <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                  {formatDate(selectedFeedback.timestamp)}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Contact Information</p>
-                <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                  {selectedFeedback.contactInfo ? (
-                    isValidEmail(selectedFeedback.contactInfo) ? (
-                      <a
-                        href={generateMailtoUrl(selectedFeedback.contactInfo, selectedFeedback.timestamp, selectedFeedback.feedback)}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
-                      >
-                        {selectedFeedback.contactInfo}
-                      </a>
-                    ) : (
-                      selectedFeedback.contactInfo
-                    )
-                  ) : (
-                    'Not provided'
-                  )}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</p>
-                <span className={`inline-flex mt-1 px-2 py-1 text-xs font-semibold rounded-full ${
-                  selectedFeedback.archived
-                    ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
-                    : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
-                }`}>
-                  {selectedFeedback.archived ? 'Archived' : 'Active'}
-                </span>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Message</p>
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                  <pre className="whitespace-pre-wrap font-sans text-sm text-gray-900 dark:text-gray-100">
-                    {selectedFeedback.feedback}
-                  </pre>
-                </div>
-              </div>
-
-              {selectedFeedback.userAgent && (
-                <div>
-                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">User Agent</p>
-                  <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 break-all">
-                    {selectedFeedback.userAgent}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 flex justify-end space-x-3">
-              <button
-                onClick={() => {
-                  handleArchive(selectedFeedback.id, !selectedFeedback.archived);
-                  setSelectedFeedback(null);
-                }}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  selectedFeedback.archived
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-yellow-600 text-white hover:bg-yellow-700'
-                }`}
-              >
-                {selectedFeedback.archived ? 'Unarchive' : 'Archive'}
-              </button>
-              <button
-                onClick={() => {
-                  handleDelete(selectedFeedback.id);
-                  setSelectedFeedback(null);
-                }}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => setSelectedFeedback(null)}
-                className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500 text-sm font-medium"
-              >
-                Close
-              </button>
-            </div>
+        <Modal
+          onClose={() => setSelectedFeedback(null)}
+          titleId="feedback-detail-title"
+          closeOnBackdropClick
+          className="bg-white dark:bg-gray-800 rounded-md shadow-lg max-w-2xl w-11/12 p-5 max-h-[90vh] overflow-y-auto"
+        >
+          <div className="flex justify-between items-start mb-4">
+            <h3 id="feedback-detail-title" className="text-lg font-semibold text-gray-900 dark:text-white">
+              Feedback Details
+            </h3>
+            <button
+              onClick={() => setSelectedFeedback(null)}
+              aria-label="Close"
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400"
+            >
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-        </div>
+
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Submitted</p>
+              <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                {formatDate(selectedFeedback.timestamp)}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Contact Information</p>
+              <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                {selectedFeedback.contactInfo ? (
+                  isValidEmail(selectedFeedback.contactInfo) ? (
+                    <a
+                      href={generateMailtoUrl(selectedFeedback.contactInfo, selectedFeedback.timestamp, selectedFeedback.feedback)}
+                      className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
+                    >
+                      {selectedFeedback.contactInfo}
+                    </a>
+                  ) : (
+                    selectedFeedback.contactInfo
+                  )
+                ) : (
+                  'Not provided'
+                )}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</p>
+              <span className={`inline-flex mt-1 px-2 py-1 text-xs font-semibold rounded-full ${
+                selectedFeedback.archived
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                  : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
+              }`}>
+                {selectedFeedback.archived ? 'Archived' : 'Active'}
+              </span>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Message</p>
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                <pre className="whitespace-pre-wrap font-sans text-sm text-gray-900 dark:text-gray-100">
+                  {selectedFeedback.feedback}
+                </pre>
+              </div>
+            </div>
+
+            {selectedFeedback.userAgent && (
+              <div>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">User Agent</p>
+                <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 break-all">
+                  {selectedFeedback.userAgent}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 flex justify-end space-x-3">
+            <button
+              onClick={async () => {
+                const ok = await handleArchive(selectedFeedback.id, !selectedFeedback.archived);
+                if (ok) setSelectedFeedback(null);
+              }}
+              className={`px-4 py-2 rounded-md text-sm font-medium ${
+                selectedFeedback.archived
+                  ? 'bg-green-600 text-white hover:bg-green-700'
+                  : 'bg-yellow-600 text-white hover:bg-yellow-700'
+              }`}
+            >
+              {selectedFeedback.archived ? 'Unarchive' : 'Archive'}
+            </button>
+            <button
+              onClick={async () => {
+                const deleted = await handleDelete(selectedFeedback.id);
+                if (deleted) setSelectedFeedback(null);
+              }}
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setSelectedFeedback(null)}
+              className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500 text-sm font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );
