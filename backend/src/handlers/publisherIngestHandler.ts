@@ -111,7 +111,7 @@ async function autoDisableStaleCiE2e(
   const enabledAtMs = new Date(ciE2e.enabledAt).getTime();
   if (Number.isNaN(enabledAtMs)) {
     console.warn(
-      `[publisher-ingest] ci-e2e-safety: ignoring unparseable enabledAt=${JSON.stringify(ciE2e.enabledAt)} on ${CI_E2E_PUBLISHER_ID}`,
+      `[publisher-ingest] ci-e2e-safety: ignoring unparseable enabledAt on ${CI_E2E_PUBLISHER_ID}`,
     );
     return;
   }
