@@ -79,34 +79,47 @@ async function recordRunAndNotify(
 // enable step and its cleanup step, the ci-e2e-test publisher could still be
 // enabled with [CI-E2E] events live on the public sidecar. This threshold is
 // the cutoff after which the next ingest run auto-disables it. Set well above
-// the workflow's expected runtime (~5min) and well below the hourly cadence
-// so a stuck runner is recovered within one ingest cycle.
+// the workflow's expected runtime (~5min); the EventBridge ingest rule fires
+// hourly so worst-case recovery is ~2h (a runner that dies just after one
+// ingest run won't trip the threshold for the next one — the run after that
+// catches it).
+//
+// We compare against `enabledAt` (the timestamp the workflow writes
+// alongside enabled=true), NOT lastFetchedAt — lastFetchedAt persists
+// across CI runs, so an enabled-true row at the start of a fresh CI test
+// always shows a stale lastFetchedAt from the previous deploy. Using
+// enabledAt makes "fresh CI run" and "abandoned runner" actually
+// distinguishable: a fresh run has enabledAt = ~now; an abandoned runner
+// has enabledAt = >threshold ago.
+//
+// If enabledAt is missing entirely (legacy rows enabled before the
+// workflow started writing it) we deliberately do nothing — better to
+// leak a row across one safety-net cycle than to disable a publisher
+// that's actively being tested by an in-flight runner. Same policy
+// applies if enabledAt is present but unparseable: NaN compares as
+// false against the threshold, so without an explicit guard the function
+// would proceed to disable on garbage input.
 export const CI_E2E_PUBLISHER_ID = 'ci-e2e-test';
 export const CI_E2E_STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 
-// Used in unit tests to fix the wall clock for the threshold comparison.
-// Production code reads deps.now and the registry's lastFetchedAt.
 async function autoDisableStaleCiE2e(
   deps: IngestDeps,
   publishers: PublisherRecord[],
 ): Promise<void> {
   const ciE2e = publishers.find(p => p.id === CI_E2E_PUBLISHER_ID);
-  if (!ciE2e || !ciE2e.enabled) return;
-  // Fall back to createdAt when lastFetchedAt is absent — the only path that
-  // produces enabled=true with no lastFetchedAt is "row was just enabled but
-  // ingest hasn't run yet OR ran but failed to record." Comparing against
-  // createdAt means an old row enabled by a runner that died still gets
-  // auto-disabled, while a freshly-created row gets a grace period.
-  const referenceIso = ciE2e.lastFetchedAt ?? ciE2e.createdAt;
-  if (!referenceIso) return;
-  const ageMs = deps.now.getTime() - new Date(referenceIso).getTime();
+  if (!ciE2e || !ciE2e.enabled || !ciE2e.enabledAt) return;
+  const enabledAtMs = new Date(ciE2e.enabledAt).getTime();
+  if (Number.isNaN(enabledAtMs)) {
+    console.warn(
+      `[publisher-ingest] ci-e2e-safety: ignoring unparseable enabledAt on ${CI_E2E_PUBLISHER_ID}`,
+    );
+    return;
+  }
+  const ageMs = deps.now.getTime() - enabledAtMs;
   if (ageMs <= CI_E2E_STALE_THRESHOLD_MS) return;
   const ageMin = Math.round(ageMs / 60_000);
-  const reason = ciE2e.lastFetchedAt
-    ? `lastFetchedAt is ${ageMin}m old`
-    : `lastFetchedAt unset and createdAt is ${ageMin}m old`;
   console.warn(
-    `[publisher-ingest] ci-e2e-safety: disabling ${CI_E2E_PUBLISHER_ID}: enabled=true and ${reason}`,
+    `[publisher-ingest] ci-e2e-safety: disabling ${CI_E2E_PUBLISHER_ID}: enabled=true and enabledAt is ${ageMin}m old`,
   );
   try {
     await deps.registry.setEnabledFlag(CI_E2E_PUBLISHER_ID, false);

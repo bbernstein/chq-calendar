@@ -11,10 +11,11 @@
 # the next `terraform apply`.
 #
 # Safety net: if a CI runner dies mid-test leaving enabled=true, the hourly
-# publisher-ingest Lambda will auto-disable this row when it's been stale
-# for more than ~1h. Staleness compares against lastFetchedAt, falling back
-# to createdAt when no fetch has been recorded yet (covers the case of a
-# runner that enabled the row but died before any successful ingest). See
+# publisher-ingest Lambda auto-disables this row once `enabledAt` is more
+# than ~1h old. The deploy workflow stamps enabledAt alongside enabled=true
+# so a fresh CI run is distinguishable from an abandoned-runner state.
+# Rows missing enabledAt entirely are left alone (defensive — better to
+# leak across one cycle than disable an actively-running test). See
 # backend/src/handlers/publisherIngestHandler.ts (CI_E2E_STALE_THRESHOLD_MS,
 # autoDisableStaleCiE2e) for the implementation.
 

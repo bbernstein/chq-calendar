@@ -38,6 +38,12 @@ export interface PublisherRecord {
   // auto-expires by passing the timestamp; no cleanup needed. ISO 8601.
   emailChangeLockedUntil?: string;
   createdAt: string;
+  // Wall-clock time at which `enabled` last transitioned from false → true.
+  // Currently written only by the deploy workflow's CI E2E enable steps so
+  // the publisher-ingest Lambda's autoDisableStaleCiE2e safety net can tell
+  // "row was just enabled by an active CI run" from "row enabled but
+  // abandoned." Optional and only consulted for the ci-e2e-test row.
+  enabledAt?: string;
   lastFetchedAt?: string;
   lastFetchStatus?: FetchStatus;
   lastFetchMessage?: string;
