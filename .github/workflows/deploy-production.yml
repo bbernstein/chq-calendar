@@ -567,11 +567,19 @@ jobs:
           #    ConditionalCheckFailedException instead of silently
           #    upserting a partial {id, enabled} row that the next hourly
           #    ingest would choke on.
+          #
+          #    enabledAt is set alongside enabled so the publisher-ingest
+          #    Lambda's auto-disable safety net can distinguish "row was
+          #    just enabled by an active CI run" from "row enabled but
+          #    abandoned for >1h" (autoDisableStaleCiE2e). Without this
+          #    timestamp the safety net would trip on every CI run that
+          #    follows >1h after the previous one.
+          NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
           aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
             --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
             --condition-expression 'attribute_exists(id)' \
-            --update-expression 'SET enabled = :t' \
-            --expression-attribute-values '{":t":{"BOOL":true}}'
+            --update-expression 'SET enabled = :t, enabledAt = :now' \
+            --expression-attribute-values "{\":t\":{\"BOOL\":true},\":now\":{\"S\":\"$NOW_ISO\"}}"
 
           # 3. Trigger ingest synchronously. Capture STDOUT metadata
           #    (StatusCode, FunctionError, ExecutedVersion) separately
@@ -753,11 +761,14 @@ jobs:
 
           # 2. Re-enable the test publisher (strict update — fails if
           #    the row is missing rather than upserting a partial row).
+          #    enabledAt also stamped — see the full-scan step above for
+          #    rationale (autoDisableStaleCiE2e safety net).
+          NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
           aws dynamodb update-item --table-name "$PUBLISHERS_TABLE" \
             --key "{\"id\":{\"S\":\"$PUBLISHER_ID\"}}" \
             --condition-expression 'attribute_exists(id)' \
-            --update-expression 'SET enabled = :t' \
-            --expression-attribute-values '{":t":{"BOOL":true}}'
+            --update-expression 'SET enabled = :t, enabledAt = :now' \
+            --expression-attribute-values "{\":t\":{\"BOOL\":true},\":now\":{\"S\":\"$NOW_ISO\"}}"
 
           # 3. Invoke the Lambda with singlePublisherId — synchronous so
           #    we can assert no FunctionError. Payload mirrors what
