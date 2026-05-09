@@ -11,9 +11,12 @@
 # the next `terraform apply`.
 #
 # Safety net: if a CI runner dies mid-test leaving enabled=true, the hourly
-# publisher-ingest Lambda will auto-disable this row when its lastFetchedAt
-# is more than ~1h stale. See backend/src/handlers/publisherIngestHandler.ts
-# (CI_E2E_STALE_THRESHOLD_MS) for the implementation.
+# publisher-ingest Lambda will auto-disable this row when it's been stale
+# for more than ~1h. Staleness compares against lastFetchedAt, falling back
+# to createdAt when no fetch has been recorded yet (covers the case of a
+# runner that enabled the row but died before any successful ingest). See
+# backend/src/handlers/publisherIngestHandler.ts (CI_E2E_STALE_THRESHOLD_MS,
+# autoDisableStaleCiE2e) for the implementation.
 
 variable "enable_ci_e2e_publisher" {
   description = "Provision the dedicated CI end-to-end test publisher and its static feed. Set to false in environments without an associated GitHub Actions workflow (e.g. preview accounts)."
