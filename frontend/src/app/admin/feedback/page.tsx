@@ -226,17 +226,26 @@ export default function FeedbackManagementPage() {
       <header className="bg-white dark:bg-gray-800 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-4">
-            <div className="flex items-center">
+            <div className="flex items-center gap-4">
               <img
                 src="/chq-calendar-icon-256.svg"
                 alt="Chautauqua Calendar Logo"
                 width={32}
                 height={32}
-                className="w-8 h-8 mr-3"
+                className="w-8 h-8"
               />
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                Feedback Management
-              </h1>
+              <div>
+                <a
+                  href="/admin/"
+                  aria-label="Back to Admin"
+                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  ← Admin
+                </a>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                  Feedback Management
+                </h1>
+              </div>
             </div>
             <div className="flex items-center gap-4">
               {/* Development Mode Indicator */}
