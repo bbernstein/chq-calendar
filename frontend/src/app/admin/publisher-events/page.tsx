@@ -174,8 +174,8 @@ export default function PublisherEventsPage() {
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-4">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <img
                 src="/chq-calendar-icon-256.svg"
                 alt="Chautauqua Calendar Logo"
@@ -203,18 +203,18 @@ export default function PublisherEventsPage() {
                 ← Publishers
               </a>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
               {isLocalhost && (
                 <div className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-md">
                   Dev Mode
                 </div>
               )}
               {user && (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">{user.email}</span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-sm text-gray-600 dark:text-gray-300 break-all">{user.email}</span>
                   <button
                     onClick={logout}
-                    className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
+                    className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm shrink-0"
                   >
                     Logout
                   </button>
