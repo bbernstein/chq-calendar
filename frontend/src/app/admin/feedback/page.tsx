@@ -234,9 +234,17 @@ export default function FeedbackManagementPage() {
                 height={32}
                 className="w-8 h-8 mr-3"
               />
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                Feedback Management
-              </h1>
+              <div>
+                <a
+                  href="/admin/"
+                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  ← Admin
+                </a>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                  Feedback Management
+                </h1>
+              </div>
             </div>
             <div className="flex items-center gap-4">
               {/* Development Mode Indicator */}

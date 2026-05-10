@@ -444,17 +444,31 @@ export default function PublishersPage() {
       <header className="bg-white dark:bg-gray-800 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-4">
-            <div className="flex items-center">
+            <div className="flex items-center gap-4">
               <img
                 src="/chq-calendar-icon-256.svg"
                 alt="Chautauqua Calendar Logo"
                 width={32}
                 height={32}
-                className="w-8 h-8 mr-3"
+                className="w-8 h-8"
               />
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                Publisher Management
-              </h1>
+              <div>
+                <a
+                  href="/admin/"
+                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  ← Admin
+                </a>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                  Publisher Management
+                </h1>
+              </div>
+              <a
+                href="/admin/publisher-events/"
+                className="hidden sm:inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md"
+              >
+                Publisher events →
+              </a>
             </div>
             <div className="flex items-center gap-4">
               {isLocalhost && (
