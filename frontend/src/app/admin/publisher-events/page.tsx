@@ -203,7 +203,7 @@ export default function PublisherEventsPage() {
                 ← Publishers
               </a>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 ml-auto">
               {isLocalhost && (
                 <div className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-md">
                   Dev Mode

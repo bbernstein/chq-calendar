@@ -247,7 +247,7 @@ export default function FeedbackManagementPage() {
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 ml-auto">
               {/* Development Mode Indicator */}
               {typeof window !== 'undefined' &&
                 (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
@@ -261,7 +261,7 @@ export default function FeedbackManagementPage() {
               {user && (
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-sm text-gray-600 dark:text-gray-300 break-all">
-                    {user?.email}
+                    {user.email}
                   </span>
                   <button
                     onClick={logout}
