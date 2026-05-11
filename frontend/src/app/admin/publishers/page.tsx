@@ -95,15 +95,17 @@ const NARROW_QUERY = '(max-width: 767px)';
 // ignores CSS) doesn't see duplicate copies of every publisher row when the
 // integration tests query by text/role.
 function useIsNarrow(): boolean {
-  const [narrow, setNarrow] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia(NARROW_QUERY).matches;
-  });
+  // Start `false` (desktop). The effect below syncs to the real value
+  // immediately after mount, which closes the tiny render→effect gap where
+  // a resize between first render and listener attach could leave state
+  // stale. One `matchMedia(...)` call total instead of two.
+  const [narrow, setNarrow] = useState<boolean>(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mq = window.matchMedia(NARROW_QUERY);
     const handler = (e: MediaQueryListEvent) => setNarrow(e.matches);
     mq.addEventListener('change', handler);
+    setNarrow(mq.matches);
     return () => mq.removeEventListener('change', handler);
   }, []);
   return narrow;
@@ -445,6 +447,66 @@ export default function PublishersPage() {
     return d.toLocaleString();
   };
 
+  // Action buttons (Edit / Enable-Disable / Pause-Resume / Delete) — shared
+  // between the card layout and the table layout. Defined inline so it can
+  // close over the in-flight state sets and handler callbacks without prop
+  // drilling. Keeping a single source of truth here means new actions or
+  // aria-label tweaks land in one place instead of diverging across layouts.
+  const renderActions = (p: PublisherRecord) => (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={() => setFormMode({ kind: 'edit', publisher: p })}
+        disabled={formMode.kind !== 'closed'}
+        title="Edit"
+        aria-label={`Edit ${p.name}`}
+        className="p-1.5 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <PencilIcon />
+      </button>
+      <button
+        onClick={() => handleToggleEnabled(p)}
+        disabled={togglingIds.has(p.id)}
+        title={p.enabled ? 'Disable (retracts events)' : 'Enable'}
+        aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
+        className={`p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed ${
+          p.enabled
+            ? 'text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/30'
+            : 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
+        }`}
+      >
+        {p.enabled ? <NoSymbolIcon /> : <CheckCircleIcon />}
+      </button>
+      <button
+        onClick={() => handleTogglePaused(p)}
+        disabled={pausingIds.has(p.id) || !p.enabled}
+        title={
+          !p.enabled
+            ? 'Pause is only available for enabled publishers'
+            : p.paused
+              ? 'Resume ingest'
+              : 'Pause ingest (keeps existing events)'
+        }
+        aria-label={p.paused ? `Resume ${p.name}` : `Pause ${p.name}`}
+        className={`p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed ${
+          p.paused
+            ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
+            : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30'
+        }`}
+      >
+        {p.paused ? <PlayIcon /> : <PauseIcon />}
+      </button>
+      <button
+        onClick={() => setDeleteTarget(p)}
+        disabled={deletingIds.has(p.id)}
+        title="Delete publisher and all their events"
+        aria-label={`Delete ${p.name}`}
+        className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
+
   // -------------------------------------------------------------------------
   // Loading / unauthenticated guard
   // -------------------------------------------------------------------------
@@ -634,8 +696,10 @@ export default function PublishersPage() {
           ) : isNarrow ? (
             // Card list for narrow screens (<768px). The 6-column table below
             // is too dense for phones, so we render the same data as cards
-            // here and only mount the table on wider viewports.
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            // here and only mount the table on wider viewports. aria-label
+            // gives screen-reader users an accessible name for the list
+            // (the desktop <table> is implicitly self-describing).
+            <ul aria-label="Publishers" className="divide-y divide-gray-200 dark:divide-gray-700">
               {nonPendingPublishers.map(p => (
                 <li key={p.id} className={`p-4 ${p.enabled ? '' : 'opacity-60'}`}>
                   <div className="flex items-start justify-between gap-3">
@@ -697,58 +761,7 @@ export default function PublishersPage() {
                     </div>
                   )}
 
-                  <div className="mt-3 flex items-center gap-1">
-                    <button
-                      onClick={() => setFormMode({ kind: 'edit', publisher: p })}
-                      disabled={formMode.kind !== 'closed'}
-                      title="Edit"
-                      aria-label={`Edit ${p.name}`}
-                      className="p-1.5 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <PencilIcon />
-                    </button>
-                    <button
-                      onClick={() => handleToggleEnabled(p)}
-                      disabled={togglingIds.has(p.id)}
-                      title={p.enabled ? 'Disable (retracts events)' : 'Enable'}
-                      aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
-                      className={`p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed ${
-                        p.enabled
-                          ? 'text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/30'
-                          : 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
-                      }`}
-                    >
-                      {p.enabled ? <NoSymbolIcon /> : <CheckCircleIcon />}
-                    </button>
-                    <button
-                      onClick={() => handleTogglePaused(p)}
-                      disabled={pausingIds.has(p.id) || !p.enabled}
-                      title={
-                        !p.enabled
-                          ? 'Pause is only available for enabled publishers'
-                          : p.paused
-                            ? 'Resume ingest'
-                            : 'Pause ingest (keeps existing events)'
-                      }
-                      aria-label={p.paused ? `Resume ${p.name}` : `Pause ${p.name}`}
-                      className={`p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed ${
-                        p.paused
-                          ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
-                          : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30'
-                      }`}
-                    >
-                      {p.paused ? <PlayIcon /> : <PauseIcon />}
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget(p)}
-                      disabled={deletingIds.has(p.id)}
-                      title="Delete publisher and all their events"
-                      aria-label={`Delete ${p.name}`}
-                      className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <TrashIcon />
-                    </button>
-                  </div>
+                  <div className="mt-3">{renderActions(p)}</div>
                 </li>
               ))}
             </ul>
@@ -844,58 +857,7 @@ export default function PublishersPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setFormMode({ kind: 'edit', publisher: p })}
-                            disabled={formMode.kind !== 'closed'}
-                            title="Edit"
-                            aria-label={`Edit ${p.name}`}
-                            className="p-1.5 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <PencilIcon />
-                          </button>
-                          <button
-                            onClick={() => handleToggleEnabled(p)}
-                            disabled={togglingIds.has(p.id)}
-                            title={p.enabled ? 'Disable (retracts events)' : 'Enable'}
-                            aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
-                            className={`p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed ${
-                              p.enabled
-                                ? 'text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/30'
-                                : 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
-                            }`}
-                          >
-                            {p.enabled ? <NoSymbolIcon /> : <CheckCircleIcon />}
-                          </button>
-                          <button
-                            onClick={() => handleTogglePaused(p)}
-                            disabled={pausingIds.has(p.id) || !p.enabled}
-                            title={
-                              !p.enabled
-                                ? 'Pause is only available for enabled publishers'
-                                : p.paused
-                                  ? 'Resume ingest'
-                                  : 'Pause ingest (keeps existing events)'
-                            }
-                            aria-label={p.paused ? `Resume ${p.name}` : `Pause ${p.name}`}
-                            className={`p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed ${
-                              p.paused
-                                ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
-                                : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30'
-                            }`}
-                          >
-                            {p.paused ? <PlayIcon /> : <PauseIcon />}
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(p)}
-                            disabled={deletingIds.has(p.id)}
-                            title="Delete publisher and all their events"
-                            aria-label={`Delete ${p.name}`}
-                            className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <TrashIcon />
-                          </button>
-                        </div>
+                        {renderActions(p)}
                       </td>
                     </tr>
                   ))}
