@@ -103,10 +103,20 @@ function useIsNarrow(): boolean {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mq = window.matchMedia(NARROW_QUERY);
-    const handler = (e: MediaQueryListEvent) => setNarrow(e.matches);
-    mq.addEventListener('change', handler);
-    setNarrow(mq.matches);
-    return () => mq.removeEventListener('change', handler);
+    const handler = () => setNarrow(mq.matches);
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', handler);
+    } else {
+      mq.addListener(handler);
+    }
+    handler();
+    return () => {
+      if (typeof mq.removeEventListener === 'function') {
+        mq.removeEventListener('change', handler);
+      } else {
+        mq.removeListener(handler);
+      }
+    };
   }, []);
   return narrow;
 }
@@ -716,7 +726,7 @@ export default function PublishersPage() {
                     <a
                       href={p.sourceUrl}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 underline break-all"
                     >
                       {p.sourceUrl}
@@ -801,7 +811,7 @@ export default function PublishersPage() {
                         <a
                           href={p.sourceUrl}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                           className="hover:text-blue-600 dark:hover:text-blue-400 underline"
                         >
                           {p.sourceUrl}
