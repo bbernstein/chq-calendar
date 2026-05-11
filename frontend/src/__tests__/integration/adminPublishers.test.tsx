@@ -327,4 +327,58 @@ describe('AdminPublishersPage (integration)', () => {
     // Dialog should still be present.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
+
+  it('renders publishers as a card list (not a table) on narrow viewports', async () => {
+    // Force matchMedia('(max-width: 767px)') to report matches: true so the
+    // page's useIsNarrow() hook returns true and the card layout mounts
+    // instead of the table. Exact-query match (rather than a substring
+    // check) keeps the override scoped to the narrow-viewport probe so a
+    // future matchMedia call on a different query isn't accidentally
+    // co-opted.
+    const NARROW_QUERY = '(max-width: 767px)';
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === NARROW_QUERY,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+
+    try {
+      nav = installNavigationStub();
+      mock = installFetchMock();
+      loginAsAdmin();
+      mock.on('GET', /\/admin\/api\/publishers$/, { publishers: [SAMPLE_PUBLISHER] });
+      mock.on('GET', /\/admin\/api\/publisher-applications\/pending$/, { applications: [] });
+
+      renderPage(<AdminPublishersPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Active Publisher')).toBeInTheDocument();
+      });
+
+      // No <table> should be rendered in the narrow layout.
+      expect(document.querySelector('table')).toBeNull();
+      // All four action buttons (identified by aria-label) still render so
+      // admins can manage publishers from the card view.
+      expect(
+        screen.getByRole('button', { name: /^Edit Active Publisher$/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /^Pause Active Publisher$/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /^Disable Active Publisher$/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /^Delete Active Publisher$/i }),
+      ).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
 });
