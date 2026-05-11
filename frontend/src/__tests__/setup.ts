@@ -17,6 +17,25 @@ const localStorageMock = (() => {
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
+// JSDOM does not implement window.matchMedia. Default to `matches: false` so
+// CSS media-query feature checks (e.g. responsive layouts in admin pages)
+// don't crash under test. Individual tests can override per-case if needed.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
 // Clean up between tests so DOM and storage don't bleed across cases.
 afterEach(() => {
   cleanup();
