@@ -29,11 +29,11 @@ export interface AdminHeaderProps {
   children?: ReactNode;
 }
 
-function isLocalhost(): boolean {
-  if (typeof window === 'undefined') return false;
-  const h = window.location.hostname;
-  return h === 'localhost' || h === '127.0.0.1';
-}
+// window.location.hostname doesn't change during a session, so resolve
+// once at module load instead of on every render.
+const IS_LOCALHOST =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 export function AdminHeader({
   title,
@@ -77,7 +77,7 @@ export function AdminHeader({
             )}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 ml-auto">
-            {isLocalhost() && (
+            {IS_LOCALHOST && (
               <div className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-md">
                 Dev Mode
               </div>
@@ -89,6 +89,7 @@ export function AdminHeader({
                   {user.email}
                 </span>
                 <button
+                  type="button"
                   onClick={onLogout}
                   className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm shrink-0"
                 >
