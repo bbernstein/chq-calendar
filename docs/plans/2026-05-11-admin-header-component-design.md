@@ -43,7 +43,7 @@ Behavior:
 - Dev-mode pill: internalized. Component checks `window.location.hostname === 'localhost' || '127.0.0.1'` (matches existing `isLocalhost` pattern). The per-page `isLocalhost` constants in `publishers/page.tsx` and `publisher-events/page.tsx` are only used for this pill (verified: 2 refs each = definition + pill), so both definitions get removed. `feedback/page.tsx` defines its own `isLocalhost` inside a callback for auth-bypass logic; that one is untouched.
 - Right-side `children` slot renders between the dev-mode pill and the email/logout pair, mirroring the current order.
 - Email span uses `break-words` (decision: nicer for typical emails; min-w-0 on the wrapper + shrink-0 on the button still prevent layout blowout for pathological tokens).
-- All Tailwind classes preserved verbatim from the post-#119 markup so no visual regression.
+- Tailwind classes preserved from the post-#119 markup with one deliberate change: the email span swaps `break-all` for `break-words` (see Risks below). All other classes are unchanged so the rest of the layout is visually identical.
 
 ## Call sites
 
@@ -91,7 +91,7 @@ Existing admin page tests (`adminFeedback.test.tsx`, `adminPublishers.test.tsx`,
 ## Risks
 
 - DOM shape might shift slightly enough to break a brittle test selector. Mitigation: keep exact class strings; if a test breaks, prefer adjusting the test selector to a more robust one rather than reshaping the component.
-- `break-words` is a behavior change vs current `break-all`. Single ugly-long token would now overflow visually instead of breaking mid-character. Mitigation: `min-w-0` on the parent and `shrink-0` on the logout button stay; pathological case is "email with no `@` and no `.`" which isn't a real email. Acceptable.
+- `break-words` is a behavior change vs current `break-all`. Both prevent overflow; the difference is *where* they break. `break-all` (word-break: break-all) splits at every character boundary, which on a long email looks like `verylongus`-newline-`er@example.com`. `break-words` (overflow-wrap: break-word) prefers natural breakpoints (`@`, `.`, `-`) and only breaks mid-word as a last resort, so a normal email like `someone@verylongdomain.example.com` wraps cleanly at the `@` or `.` instead of mid-token. `min-w-0` on the parent and `shrink-0` on the logout button stay either way.
 
 ## Out of scope (follow-ups, not this PR)
 

@@ -2,10 +2,12 @@
 // publisher-events). The /admin/ index page has a different layout and
 // does NOT use this component.
 //
-// Layout matches the post-PR #119 markup verbatim so visual output is
-// unchanged: flex-wrap rows that collapse the right-side group below
-// the left side when there isn't enough room for a long signed-in email
-// to fit on one line.
+// Layout structure and Tailwind classes come from the post-PR #119
+// markup, with one deliberate change: the email span uses `break-words`
+// instead of `break-all` (less aggressive splitting on typical emails;
+// still prevents overflow). The flex-wrap rows collapse the right-side
+// group below the left side when there isn't enough horizontal room
+// for a long signed-in email to fit on one line.
 
 import type { ReactNode } from 'react';
 
