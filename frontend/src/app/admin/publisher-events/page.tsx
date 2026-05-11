@@ -11,6 +11,7 @@ import {
 } from '@/lib/adminPublisherApi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { logout } from '@/lib/auth';
+import { AdminHeader } from '@/components/admin/AdminHeader';
 import { PendingEventCard } from './PendingEventCard';
 
 export default function PublisherEventsPage() {
@@ -152,10 +153,6 @@ export default function PublisherEventsPage() {
   // -------------------------------------------------------------------------
   // Loading / unauthenticated guard
   // -------------------------------------------------------------------------
-  const isLocalhost =
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
   if (!user || (loading && pending.length === 0 && halts.length === 0)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
@@ -171,59 +168,16 @@ export default function PublisherEventsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <img
-                src="/chq-calendar-icon-256.svg"
-                alt="Chautauqua Calendar Logo"
-                width={32}
-                height={32}
-                className="w-8 h-8"
-              />
-              <div>
-                <a
-                  href="/admin/"
-                  aria-label="Back to Admin"
-                  className="text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-                >
-                  ← Admin
-                </a>
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                  Publisher Events
-                </h1>
-              </div>
-              <a
-                href="/admin/publishers/"
-                aria-label="Go to Publisher Management"
-                className="hidden sm:inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-md"
-              >
-                ← Publishers
-              </a>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 ml-auto">
-              {isLocalhost && (
-                <div className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-md">
-                  Dev Mode
-                </div>
-              )}
-              {user && (
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-sm text-gray-600 dark:text-gray-300 break-all">{user.email}</span>
-                  <button
-                    onClick={logout}
-                    className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm shrink-0"
-                  >
-                    Logout
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+      <AdminHeader
+        title="Publisher Events"
+        siblingLink={{
+          href: '/admin/publishers/',
+          label: '← Publishers',
+          ariaLabel: 'Go to Publisher Management',
+        }}
+        user={user}
+        onLogout={logout}
+      />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
