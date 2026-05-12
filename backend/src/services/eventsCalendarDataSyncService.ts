@@ -3,7 +3,7 @@ import { EventTransformationService } from './eventTransformationService';
 import { MultiLayerCacheService } from './multiLayerCacheService';
 import { SyncStatusService } from './syncStatusService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 export class EventsCalendarDataSyncService {
@@ -445,7 +445,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
   /**
    * Process events in bulk with batch operations for better performance
    */
-  private async bulkProcessEvents(events: ChautauquaEvent[], result: SyncResult): Promise<{
+  private async bulkProcessEvents(events: ChautauquaEvent[], _result: SyncResult): Promise<{
     processed: number;
     created: number;
     updated: number;
@@ -736,7 +736,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
   /**
    * Clean up old events that are no longer in the API
    */
-  private async cleanupOldEvents(dateRange: DateRange, currentEvents: ChautauquaEvent[]): Promise<number> {
+  private async cleanupOldEvents(dateRange: DateRange, _currentEvents: ChautauquaEvent[]): Promise<number> {
     try {
       // This would typically:
       // 1. Query all events in the date range from database

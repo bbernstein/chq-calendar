@@ -1,7 +1,7 @@
 import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
-interface SyncStatusRecord {
+export interface SyncStatusRecord {
   id: string;
   type: 'manual' | 'scheduled' | 'full' | 'incremental' | 'daily' | 'hourly';
   status: 'pending' | 'in_progress' | 'completed' | 'failed';

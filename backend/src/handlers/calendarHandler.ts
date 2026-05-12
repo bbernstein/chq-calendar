@@ -1,10 +1,9 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, ScanCommand, PutCommand, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import ical from 'ical-generator';
 import { v4 as uuidv4 } from 'uuid';
-import { format, parseISO } from 'date-fns';
-import fetch from 'node-fetch';
+import { parseISO } from 'date-fns';
 import { MultiLayerCacheService, CacheConfig } from '../services/multiLayerCacheService';
 import { verifyCaptcha } from '../services/captchaService';
 
@@ -23,7 +22,6 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 // Environment variables
 const EVENTS_TABLE_NAME = process.env.EVENTS_TABLE_NAME || 'chautauqua-calendar-events';
-const DATA_SOURCES_TABLE_NAME = process.env.DATA_SOURCES_TABLE_NAME || 'chautauqua-calendar-data-sources';
 const FEEDBACK_TABLE_NAME = process.env.FEEDBACK_TABLE_NAME || 'chautauqua-calendar-feedback';
 
 // Cache configuration
@@ -219,27 +217,10 @@ const queryEventsFromDatabase = async (filters?: CalendarRequest['filters']): Pr
       }
 
       if (filters.dateRange) {
-        // Apply date filtering for all cases
-        const startDate = new Date(filters.dateRange.start);
-        const endDate = new Date(filters.dateRange.end);
-
         filteredEvents = filteredEvents.filter(event => {
-          // Parse database date format (YYYY-MM-DD HH:MM:SS or ISO format)
-          let eventStart: Date;
-          if (event.startDate.includes('T')) {
-            // ISO format
-            eventStart = new Date(event.startDate);
-          } else {
-            // Database format (YYYY-MM-DD HH:MM:SS) - assume it's in Eastern Time
-            // Add 'T' to make it parseable and treat as UTC (since times are already in ET)
-            eventStart = new Date(event.startDate.replace(' ', 'T') + '.000Z');
-          }
-
-          // For date-only comparisons, compare just the date parts
           const eventDateOnly = event.startDate.split(' ')[0];
           const startDateOnly = filters.dateRange.start.split('T')[0];
           const endDateOnly = filters.dateRange.end.split('T')[0];
-
           return eventDateOnly >= startDateOnly && eventDateOnly <= endDateOnly;
         });
       }
@@ -335,7 +316,7 @@ export const generateICalendar = (events: Event[], calendarName?: string): strin
 };
 
 // Main Lambda handler
-export const handler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
+export const handler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   console.log('Calendar handler invoked:', JSON.stringify(event, null, 2));
 
   try {

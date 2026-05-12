@@ -15,7 +15,7 @@
     "package": "npm run build:prod && zip -r lambda-function.zip dist/ package.json node_modules/",
     "package:lambda": "npm run build:prod && zip -r lambda-function.zip dist/ package.json node_modules/",
     "package:terraform": "npm run build:prod && zip -r lambda-function.zip dist/ package.json",
-    "lint": "eslint src/",
+    "lint": "eslint src/ --max-warnings=0",
     "type-check": "tsc --noEmit",
     "validate": "npm run type-check && npm run lint",
     "test": "jest --passWithNoTests",
