@@ -2,7 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { EventsCalendarDataSyncService } from '../services/eventsCalendarDataSyncService';
-import { SyncStatusService, SyncStatusRecord } from '../services/syncStatusService';
+import { SyncStatusService, SyncType, VALID_SYNC_TYPES } from '../services/syncStatusService';
 
 // Initialize DynamoDB clients
 const dynamoClient = new DynamoDBClient({
@@ -215,23 +215,22 @@ export const syncStatusHandler = async (event: APIGatewayProxyEvent, _context: C
 /**
  * Sync list handler - get list of recent syncs
  */
-const VALID_SYNC_TYPES = [
-  'manual', 'full', 'scheduled', 'incremental', 'daily', 'hourly',
-] as const satisfies readonly NonNullable<SyncStatusRecord['type']>[];
-type ValidSyncType = typeof VALID_SYNC_TYPES[number];
+const MAX_SYNC_LIST_LIMIT = 100;
 
 export const syncListHandler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   try {
     const queryParams = event.queryStringParameters || {};
     const { type, limit = '10' } = queryParams;
 
-    if (type !== undefined && !VALID_SYNC_TYPES.includes(type as ValidSyncType)) {
+    const errorHeaders = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    };
+
+    if (type !== undefined && !VALID_SYNC_TYPES.includes(type as SyncType)) {
       return {
         statusCode: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
+        headers: errorHeaders,
         body: JSON.stringify({
           error: 'Invalid sync type',
           allowed: VALID_SYNC_TYPES,
@@ -239,7 +238,19 @@ export const syncListHandler = async (event: APIGatewayProxyEvent, _context: Con
       };
     }
 
-    const syncs = await statusService.getRecentSyncStatuses(type as SyncStatusRecord['type'] | undefined, parseInt(limit));
+    const parsedLimit = Number.parseInt(limit, 10);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_SYNC_LIST_LIMIT) {
+      return {
+        statusCode: 400,
+        headers: errorHeaders,
+        body: JSON.stringify({
+          error: 'Invalid limit',
+          message: `limit must be an integer between 1 and ${MAX_SYNC_LIST_LIMIT}`,
+        }),
+      };
+    }
+
+    const syncs = await statusService.getRecentSyncStatuses(type as SyncType | undefined, parsedLimit);
 
     return {
       statusCode: 200,

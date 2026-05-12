@@ -1,9 +1,15 @@
 import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
+export const VALID_SYNC_TYPES = [
+  'manual', 'scheduled', 'full', 'incremental', 'daily', 'hourly',
+] as const;
+
+export type SyncType = typeof VALID_SYNC_TYPES[number];
+
 export interface SyncStatusRecord {
   id: string;
-  type: 'manual' | 'scheduled' | 'full' | 'incremental' | 'daily' | 'hourly';
+  type: SyncType;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   timestamp: number;
   startTime: string;
