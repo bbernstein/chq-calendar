@@ -37,6 +37,9 @@ jobs:
       - name: Build publisher-format workspace (backend dep)
         run: npm run build --workspace=@chq-calendar/publisher-format
 
+      - name: Validate backend (type-check + lint, fails on any warning)
+        run: npm run validate --workspace=backend
+
       - name: Build backend Lambda handlers (includes tests)
         run: npm run build --workspace=backend
 
