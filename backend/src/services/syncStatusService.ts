@@ -273,30 +273,40 @@ export class SyncStatusService {
   }
 
   /**
-   * Get currently running syncs
+   * Get currently running syncs across every known type. The
+   * previous implementation queried only `type='manual'` so
+   * scheduled/hourly/daily syncs that were in-flight were invisible
+   * to callers; this fans out one TypeIndex Query per known type
+   * (same shape as getRecentSyncStatuses) and merges the results.
    */
   async getActiveSyncs(): Promise<SyncStatusRecord[]> {
-    // We'll need to scan for active syncs since status isn't indexed
-    // This is not ideal for large datasets, but acceptable for sync status tracking
-    const response = await this.docClient.send(new QueryCommand({
-      TableName: this.tableName,
-      IndexName: 'TypeIndex',
-      KeyConditionExpression: '#type = :type',
-      FilterExpression: '#status = :status OR #status = :pendingStatus',
-      ExpressionAttributeNames: {
-        '#type': 'type',
-        '#status': 'status',
-      },
-      ExpressionAttributeValues: {
-        ':type': 'manual', // Check manual syncs first
-        ':status': 'in_progress',
-        ':pendingStatus': 'pending',
-      },
-      ScanIndexForward: false,
-      Limit: 50, // Reasonable limit for active syncs
-    })) as QueryCommandOutput;
-
-    return (response.Items ? response.Items as SyncStatusRecord[] : []);
+    const ACTIVE_LIMIT = 50;
+    const perTypeResults = await Promise.all(
+      VALID_SYNC_TYPES.map(async (t) => {
+        const response = await this.docClient.send(new QueryCommand({
+          TableName: this.tableName,
+          IndexName: 'TypeIndex',
+          KeyConditionExpression: '#type = :type',
+          FilterExpression: '#status = :status OR #status = :pendingStatus',
+          ExpressionAttributeNames: {
+            '#type': 'type',
+            '#status': 'status',
+          },
+          ExpressionAttributeValues: {
+            ':type': t,
+            ':status': 'in_progress',
+            ':pendingStatus': 'pending',
+          },
+          ScanIndexForward: false,
+          Limit: ACTIVE_LIMIT,
+        })) as QueryCommandOutput;
+        return (response.Items ?? []) as SyncStatusRecord[];
+      })
+    );
+    return perTypeResults
+      .flat()
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, ACTIVE_LIMIT);
   }
 
   /**

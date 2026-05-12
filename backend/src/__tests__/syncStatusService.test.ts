@@ -271,17 +271,25 @@ describe('SyncStatusService', () => {
   });
 
   describe('getActiveSyncs', () => {
-    it('should return active syncs', async () => {
-      const activeSyncs = [
-        { id: 'sync-1', status: 'in_progress', type: 'manual' },
-        { id: 'sync-2', status: 'pending', type: 'manual' }
-      ];
-      mockSend.mockResolvedValue({ Items: activeSyncs });
+    it('should fan out across all known types and merge results sorted by timestamp desc', async () => {
+      // One in-flight sync per type, with arbitrary timestamps so we
+      // can verify the merge ordering.
+      const perTypeRecord: Record<string, unknown> = {
+        manual: { id: 'm', type: 'manual', status: 'in_progress', timestamp: 300 },
+        scheduled: { id: 's', type: 'scheduled', status: 'pending', timestamp: 600 },
+        full: { id: 'f', type: 'full', status: 'in_progress', timestamp: 100 },
+        incremental: { id: 'i', type: 'incremental', status: 'in_progress', timestamp: 400 },
+        daily: { id: 'd', type: 'daily', status: 'in_progress', timestamp: 200 },
+        hourly: { id: 'h', type: 'hourly', status: 'pending', timestamp: 500 },
+      };
+      for (const t of VALID_SYNC_TYPES) {
+        mockSend.mockResolvedValueOnce({ Items: [perTypeRecord[t]] });
+      }
 
       const result = await service.getActiveSyncs();
 
-      expect(result).toEqual(activeSyncs);
-      expect(mockSend).toHaveBeenCalledTimes(1);
+      expect(result.map(r => r.id)).toEqual(['s', 'h', 'i', 'm', 'd', 'f']);
+      expect(mockSend).toHaveBeenCalledTimes(VALID_SYNC_TYPES.length);
     });
 
     it('should handle empty active syncs', async () => {
@@ -290,6 +298,7 @@ describe('SyncStatusService', () => {
       const result = await service.getActiveSyncs();
 
       expect(result).toEqual([]);
+      expect(mockSend).toHaveBeenCalledTimes(VALID_SYNC_TYPES.length);
     });
   });
 
