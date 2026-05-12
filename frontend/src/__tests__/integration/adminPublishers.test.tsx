@@ -16,7 +16,7 @@
  *  - Last-fetch detail row renders status badge + lastFetchMessage
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/preact';
 import AdminPublishersPage from '@/app/admin/publishers/page';
 import { renderPage, installNavigationStub, type NavigationStub } from './helpers/render';

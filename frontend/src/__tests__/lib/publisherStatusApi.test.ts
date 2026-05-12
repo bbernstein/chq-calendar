@@ -5,7 +5,7 @@
 // for each function — mirroring the coverage pattern used for adminPublisherApi.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getPublisherRuns, getPublisherEvents, PublisherStatusError } from '@/lib/publisherStatusApi';
+import { getPublisherRuns, getPublisherEvents } from '@/lib/publisherStatusApi';
 
 // ---------------------------------------------------------------------------
 // Auth client mock — getPublisherJwt always returns a token; clearPublisherSession
