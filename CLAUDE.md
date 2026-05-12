@@ -296,9 +296,9 @@ cd ../frontend && npm run dev
 # Verify: events load, search works, filters work, descriptions expand
 ```
 
-Both workspaces have ESLint configured with `--max-warnings=0` semantics
-(backend uses the flag explicitly; frontend's `npm run build` aborts on
-type errors and surfaces warnings). New backend code must pass
+The backend `lint` script runs with `--max-warnings=0`, so any ESLint
+warning fails the build. The frontend `lint` script does not (warnings
+are reported but do not fail). New backend code must pass
 `npm run validate --workspace=backend` before committing.
 
 Coverage floor enforced via `.coverage-floor.json`; see `docs/coverage.md`.

@@ -215,10 +215,27 @@ export const syncStatusHandler = async (event: APIGatewayProxyEvent, _context: C
 /**
  * Sync list handler - get list of recent syncs
  */
+const VALID_SYNC_TYPES = ['manual', 'full', 'scheduled', 'incremental', 'daily', 'hourly'] as const;
+type ValidSyncType = typeof VALID_SYNC_TYPES[number];
+
 export const syncListHandler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   try {
     const queryParams = event.queryStringParameters || {};
     const { type, limit = '10' } = queryParams;
+
+    if (type !== undefined && !VALID_SYNC_TYPES.includes(type as ValidSyncType)) {
+      return {
+        statusCode: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+        body: JSON.stringify({
+          error: 'Invalid sync type',
+          allowed: VALID_SYNC_TYPES,
+        }),
+      };
+    }
 
     const syncs = await statusService.getRecentSyncStatuses(type as SyncStatusRecord['type'] | undefined, parseInt(limit));
 

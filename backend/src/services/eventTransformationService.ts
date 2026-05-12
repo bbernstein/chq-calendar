@@ -8,7 +8,6 @@ export class EventTransformationService {
   static transformApiEvent(apiEvent: ApiEvent): ChautauquaEvent {
     const startDate = new Date(apiEvent.start_date);
 
-
     return {
       // Core identifiers
       id: apiEvent.id,

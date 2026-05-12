@@ -217,10 +217,13 @@ const queryEventsFromDatabase = async (filters?: CalendarRequest['filters']): Pr
       }
 
       if (filters.dateRange) {
+        // event.startDate may be ISO ("YYYY-MM-DDTHH:mm:ss…") or DB
+        // format ("YYYY-MM-DD HH:mm:ss"); the first 10 chars are the
+        // date in either case.
+        const startDateOnly = filters.dateRange.start.substring(0, 10);
+        const endDateOnly = filters.dateRange.end.substring(0, 10);
         filteredEvents = filteredEvents.filter(event => {
-          const eventDateOnly = event.startDate.split(' ')[0];
-          const startDateOnly = filters.dateRange.start.split('T')[0];
-          const endDateOnly = filters.dateRange.end.split('T')[0];
+          const eventDateOnly = event.startDate.substring(0, 10);
           return eventDateOnly >= startDateOnly && eventDateOnly <= endDateOnly;
         });
       }
