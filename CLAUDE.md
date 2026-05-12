@@ -281,8 +281,8 @@ When starting a new conversation:
 Run this after every set of changes:
 
 ```bash
-# 1. Frontend validate (type-check + lint) + build
-cd frontend && npm run validate && npm run build
+# 1. Frontend build (already runs validate + tests internally)
+cd frontend && npm run build
 
 # 2. Backend validate (type-check + lint, fails on any warning)
 cd ../backend && npm run validate

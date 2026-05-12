@@ -38,12 +38,6 @@ const eslintConfig = [
       "no-undef": "off",
     },
   },
-  {
-    files: ["src/__tests__/**/*.ts"],
-    rules: {
-      "@typescript-eslint/no-unused-vars": "off",
-    },
-  },
 ];
 
 export default eslintConfig;
