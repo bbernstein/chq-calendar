@@ -1,4 +1,4 @@
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, DeleteCommand, GetCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
 export const VALID_SYNC_TYPES = [
@@ -222,16 +222,19 @@ export class SyncStatusService {
   }
 
   /**
-   * Get recent sync statuses by type
+   * Get recent sync statuses. If `type` is provided, queries the
+   * TypeIndex GSI directly. If omitted, fans out one query per known
+   * sync type in parallel, merges the results, sorts by `timestamp`
+   * descending, and returns the first `limit` records — the table has
+   * no GSI that covers "all types sorted by timestamp", so this is the
+   * cheapest correct path without adding an index.
    */
   async getRecentSyncStatuses(
-    type?: SyncStatusRecord['type'],
+    type?: SyncType,
     limit: number = 10
   ): Promise<SyncStatusRecord[]> {
-    let command;
-    
     if (type) {
-      command = new QueryCommand({
+      const command = new QueryCommand({
         TableName: this.tableName,
         IndexName: 'TypeIndex',
         KeyConditionExpression: '#type = :type',
@@ -244,25 +247,29 @@ export class SyncStatusService {
         ScanIndexForward: false, // Sort by timestamp descending
         Limit: limit,
       });
-    } else {
-      // If no type specified, we'll need to scan (less efficient)
-      command = new QueryCommand({
-        TableName: this.tableName,
-        IndexName: 'TypeIndex',
-        KeyConditionExpression: '#type = :type',
-        ExpressionAttributeNames: {
-          '#type': 'type',
-        },
-        ExpressionAttributeValues: {
-          ':type': 'manual', // Default to manual syncs
-        },
-        ScanIndexForward: false,
-        Limit: limit,
-      });
+      const response = await this.docClient.send(command) as QueryCommandOutput;
+      return (response.Items ? response.Items as SyncStatusRecord[] : []);
     }
 
-    const response = await this.docClient.send(command) as QueryCommandOutput;
-    return (response.Items ? response.Items as SyncStatusRecord[] : []);
+    const perTypeResults = await Promise.all(
+      VALID_SYNC_TYPES.map(async (t) => {
+        const response = await this.docClient.send(new QueryCommand({
+          TableName: this.tableName,
+          IndexName: 'TypeIndex',
+          KeyConditionExpression: '#type = :type',
+          ExpressionAttributeNames: { '#type': 'type' },
+          ExpressionAttributeValues: { ':type': t },
+          ScanIndexForward: false,
+          Limit: limit,
+        })) as QueryCommandOutput;
+        return (response.Items ?? []) as SyncStatusRecord[];
+      })
+    );
+
+    return perTypeResults
+      .flat()
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, limit);
   }
 
   /**
@@ -349,13 +356,9 @@ export class SyncStatusService {
     let deletedCount = 0;
     for (const record of recordsToDelete) {
       try {
-        await this.docClient.send(new UpdateCommand({
+        await this.docClient.send(new DeleteCommand({
           TableName: this.tableName,
           Key: { id: record.id },
-          UpdateExpression: 'REMOVE #id',
-          ExpressionAttributeNames: {
-            '#id': 'id',
-          },
         }));
         deletedCount++;
       } catch (error) {

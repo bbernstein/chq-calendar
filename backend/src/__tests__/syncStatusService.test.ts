@@ -1,5 +1,5 @@
-import { SyncStatusService } from '../services/syncStatusService';
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { SyncStatusService, VALID_SYNC_TYPES } from '../services/syncStatusService';
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, DeleteCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 
 // Mock uuid
 jest.mock('uuid', () => ({
@@ -225,13 +225,40 @@ describe('SyncStatusService', () => {
       expect(mockSend.mock.calls[0][0]).toBeInstanceOf(QueryCommand);
     });
 
-    it('should get recent sync statuses without type filter', async () => {
+    it('should get recent sync statuses without type filter by fanning out across all known types', async () => {
       mockSend.mockResolvedValue({ Items: [] });
 
       const result = await service.getRecentSyncStatuses();
 
       expect(result).toEqual([]);
-      expect(mockSend).toHaveBeenCalledTimes(1);
+      // No-type path runs one Query per VALID_SYNC_TYPES entry to
+      // cover the table; the previous "manual"-only fallback masked
+      // records of other types.
+      expect(mockSend).toHaveBeenCalledTimes(VALID_SYNC_TYPES.length);
+    });
+
+    it('should merge per-type results and sort by timestamp desc when no type filter', async () => {
+      // Per-type queries are issued in VALID_SYNC_TYPES order; queue
+      // one result per type so the merge/sort can be exercised. The
+      // arbitrary timestamps below are chosen so the top-3 by
+      // timestamp (desc) is hourly → scheduled → incremental.
+      const perTypeRecord: Record<string, unknown> = {
+        manual: { id: 'm-1', type: 'manual', timestamp: 300 },
+        scheduled: { id: 's-1', type: 'scheduled', timestamp: 500 },
+        full: { id: 'f-1', type: 'full', timestamp: 100 },
+        incremental: { id: 'i-1', type: 'incremental', timestamp: 400 },
+        daily: { id: 'd-1', type: 'daily', timestamp: 200 },
+        hourly: { id: 'h-1', type: 'hourly', timestamp: 600 },
+      };
+      for (const t of VALID_SYNC_TYPES) {
+        mockSend.mockResolvedValueOnce({ Items: [perTypeRecord[t]] });
+      }
+
+      const result = await service.getRecentSyncStatuses(undefined, 3);
+
+      expect(result.map(r => r.id)).toEqual(['h-1', 's-1', 'i-1']);
+      expect(result.map(r => r.timestamp)).toEqual([600, 500, 400]);
+      expect(mockSend).toHaveBeenCalledTimes(VALID_SYNC_TYPES.length);
     });
 
     it('should handle empty result', async () => {
@@ -297,7 +324,18 @@ describe('SyncStatusService', () => {
           timestamp: now - 1000
         }
       ];
-      mockSend.mockResolvedValue({ Items: mockSyncs });
+      // Distribute the fixture across the per-type queries that
+      // getSyncStatistics now fans out to. The mockSyncs use 'manual'
+      // and 'scheduled' types, so the TypeIndex would return them
+      // from their respective queries — the other four types return
+      // empty.
+      const recordsByType: Record<string, unknown[]> = {
+        manual: mockSyncs.filter(s => s.type === 'manual'),
+        scheduled: mockSyncs.filter(s => s.type === 'scheduled'),
+      };
+      for (const t of VALID_SYNC_TYPES) {
+        mockSend.mockResolvedValueOnce({ Items: recordsByType[t] ?? [] });
+      }
 
       const stats = await service.getSyncStatistics(1);
 
@@ -348,7 +386,13 @@ describe('SyncStatusService', () => {
           duration: 2000
         }
       ];
-      mockSend.mockResolvedValue({ Items: mockSyncs });
+      // getSyncStatistics calls getRecentSyncStatuses(undefined, 100),
+      // which now fans out one Query per type. Mock the manual-type
+      // query to return the fixture; the rest return empty so the
+      // assertion stays focused on the cutoff filter.
+      for (const t of VALID_SYNC_TYPES) {
+        mockSend.mockResolvedValueOnce({ Items: t === 'manual' ? mockSyncs : [] });
+      }
 
       const stats = await service.getSyncStatistics(7); // Last 7 days
 
@@ -358,27 +402,59 @@ describe('SyncStatusService', () => {
   });
 
   describe('cleanupOldRecords', () => {
-    it('should delete old sync records', async () => {
+    // cleanupOldRecords runs getRecentSyncStatuses(undefined, 1000),
+    // which now fans out one Query per VALID_SYNC_TYPES entry. Each
+    // test below mocks Query results on the first call and lets the
+    // remaining type-queries return empty, isolating the cleanup
+    // semantics from the fan-out.
+    const TYPE_QUERIES = VALID_SYNC_TYPES.length;
+
+    // Queue Query responses in VALID_SYNC_TYPES order so the first
+    // call (manual) returns the test fixture and the rest return
+    // empty. mockResolvedValueOnce queues a single response, so
+    // call order is the contract.
+    const queueQueriesManualOnly = (manualItems: unknown[]) => {
+      for (const t of VALID_SYNC_TYPES) {
+        mockSend.mockResolvedValueOnce({ Items: t === 'manual' ? manualItems : [] });
+      }
+    };
+
+    it('should delete old sync records using DeleteCommand', async () => {
       const now = Date.now();
+      // old-newer has the more-recent timestamp; getRecentSyncStatuses
+      // sorts by timestamp DESC, so it ends up first in the delete
+      // loop.
       const oldRecords = [
-        { id: 'old-1', timestamp: now - 40 * 24 * 60 * 60 * 1000 },
-        { id: 'old-2', timestamp: now - 35 * 24 * 60 * 60 * 1000 }
+        { id: 'old-newer', type: 'manual', timestamp: now - 35 * 24 * 60 * 60 * 1000 },
+        { id: 'old-older', type: 'manual', timestamp: now - 40 * 24 * 60 * 60 * 1000 },
       ];
-      mockSend
-        .mockResolvedValueOnce({ Items: oldRecords }) // QueryCommand
-        .mockResolvedValue({}); // UpdateCommands
+      queueQueriesManualOnly(oldRecords);
+      mockSend.mockResolvedValue({}); // remaining deletes succeed
 
       const deletedCount = await service.cleanupOldRecords(30);
 
       expect(deletedCount).toBe(2);
-      expect(mockSend).toHaveBeenCalledTimes(3); // 1 query + 2 deletes
+      expect(mockSend).toHaveBeenCalledTimes(TYPE_QUERIES + 2);
+      // setup.ts auto-mocks @aws-sdk/lib-dynamodb, so DeleteCommand
+      // is a jest mock constructor — `.input` isn't preserved on the
+      // instance, but the constructor's call args are captured in
+      // `DeleteCommand.mock.calls` and that's what we assert against.
+      const DeleteMock = DeleteCommand as unknown as jest.MockedClass<typeof DeleteCommand>;
+      expect(DeleteMock.mock.calls).toHaveLength(2);
+      expect(DeleteMock.mock.calls[0][0]).toEqual({
+        TableName: 'test-sync-status-table',
+        Key: { id: 'old-newer' },
+      });
+      expect(DeleteMock.mock.calls[1][0]).toEqual({
+        TableName: 'test-sync-status-table',
+        Key: { id: 'old-older' },
+      });
     });
 
     it('should handle deletion errors gracefully', async () => {
-      const oldRecord = { id: 'old-1', timestamp: 1 };
-      mockSend
-        .mockResolvedValueOnce({ Items: [oldRecord] })
-        .mockRejectedValue(new Error('Delete failed'));
+      const oldRecord = { id: 'old-1', type: 'manual', timestamp: 1 };
+      queueQueriesManualOnly([oldRecord]);
+      mockSend.mockRejectedValue(new Error('Delete failed'));
 
       const deletedCount = await service.cleanupOldRecords(30);
 
@@ -387,13 +463,13 @@ describe('SyncStatusService', () => {
 
     it('should skip recent records', async () => {
       const now = Date.now();
-      const recentRecord = { id: 'recent-1', timestamp: now - 1000 }; // 1 second ago
-      mockSend.mockResolvedValue({ Items: [recentRecord] });
+      const recentRecord = { id: 'recent-1', type: 'manual', timestamp: now - 1000 }; // 1 second ago
+      queueQueriesManualOnly([recentRecord]);
 
       const deletedCount = await service.cleanupOldRecords(30);
 
       expect(deletedCount).toBe(0);
-      expect(mockSend).toHaveBeenCalledTimes(1); // Only query, no deletes
+      expect(mockSend).toHaveBeenCalledTimes(TYPE_QUERIES); // only queries, no deletes
     });
   });
 });
