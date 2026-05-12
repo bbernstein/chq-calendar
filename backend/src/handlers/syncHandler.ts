@@ -239,7 +239,7 @@ export const syncListHandler = async (event: APIGatewayProxyEvent, _context: Con
     }
 
     const parsedLimit = Number.parseInt(limit, 10);
-    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_SYNC_LIST_LIMIT) {
+    if (!/^\d+$/.test(limit) || parsedLimit < 1 || parsedLimit > MAX_SYNC_LIST_LIMIT) {
       return {
         statusCode: 400,
         headers: errorHeaders,
