@@ -21,7 +21,6 @@ const eslintConfig = [
       },
       globals: {
         ...globals.node,
-        ...globals.jest,
       },
     },
     rules: {
@@ -36,6 +35,17 @@ const eslintConfig = [
         },
       ],
       "no-undef": "off",
+    },
+  },
+  {
+    // Jest globals (describe, it, expect, beforeEach, ...) are only
+    // valid in test files. Scoping the globals here means a stray
+    // `describe(...)` call in a Lambda handler still trips no-undef.
+    files: ["src/__tests__/**/*.ts"],
+    languageOptions: {
+      globals: {
+        ...globals.jest,
+      },
     },
   },
 ];

@@ -251,7 +251,11 @@ export class SyncStatusService {
       return (response.Items ? response.Items as SyncStatusRecord[] : []);
     }
 
-    const perTypeResults = await Promise.all(
+    // allSettled (rather than all) so a single throttle/transient
+    // failure on one type doesn't sink the whole list endpoint —
+    // partial results are more useful than a 500. Failures are
+    // logged so they're not silent.
+    const perTypeResults = await Promise.allSettled(
       VALID_SYNC_TYPES.map(async (t) => {
         const response = await this.docClient.send(new QueryCommand({
           TableName: this.tableName,
@@ -267,7 +271,16 @@ export class SyncStatusService {
     );
 
     return perTypeResults
-      .flat()
+      .flatMap((r, i) => {
+        if (r.status === 'rejected') {
+          console.error(
+            `getRecentSyncStatuses: query for type=${VALID_SYNC_TYPES[i]} failed:`,
+            r.reason,
+          );
+          return [];
+        }
+        return r.value;
+      })
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, limit);
   }
