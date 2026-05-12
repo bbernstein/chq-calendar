@@ -40,16 +40,18 @@ DynamoDB DocumentClient. Frontend lint stack (already proven on the same repo):
 
 **Files:**
 - Modify: `backend/package.json`
-- Create: `backend/.eslintrc.cjs` (or `backend/eslint.config.mjs` if matching
-  the frontend's flat-config style — check what `frontend/` uses first and
-  match it; consistency across workspaces beats theoretical purity).
+- Create: `backend/eslint.config.mjs` (flat-config; matches the frontend's
+  `frontend/eslint.config.mjs`. Don't introduce a legacy `.eslintrc.*`
+  alongside the existing flat config — one style per repo).
 - Create: `backend/.eslintignore` (entries for `dist/`, `coverage/`,
-  `node_modules/`, and any other generated paths)
+  `node_modules/`, and any other generated paths). With flat config the
+  ignore patterns can live inside `eslint.config.mjs` instead; either
+  shape is fine, but pick one and don't have both.
 
 **Steps:**
-1. Inspect `frontend/eslint.config.*` (or `.eslintrc.*`) for the version of
-   eslint and `@typescript-eslint/*` it uses. Match the major version. The
-   goal is one ESLint version in the repo, not two.
+1. Inspect `frontend/eslint.config.mjs` for the version of eslint and
+   `@typescript-eslint/*` it uses. Match the major version. The goal is
+   one ESLint version in the repo, not two.
 2. Add eslint + typescript-eslint deps to `backend/package.json` under
    `devDependencies`. Pin to the same major as frontend.
 3. Author the backend config:
@@ -154,6 +156,17 @@ prod code — it's a losing battle and adds noise without value.
 
 **Files:**
 - Modify: `.github/workflows/build-and-test.yml`
+
+> ⚠️ **Permission note for automated agents:** GitHub blocks the default
+> `GITHUB_TOKEN` (and most installed GitHub Apps, including Claude Code)
+> from modifying files under `.github/workflows/` — this step usually
+> requires a human-authored commit, or a personal access token with the
+> `workflow` scope wired through `actions/checkout`. If the agent's commit
+> is rejected with `refusing to allow a GitHub App to create or update
+> workflow .github/workflows/build-and-test.yml`, hand off this task to a
+> human collaborator and proceed with the rest of the plan; the lint
+> script and config can ship without the CI wiring and someone can land
+> the workflow change in a follow-up commit.
 
 **Steps:**
 1. The workflow already runs frontend `npm run validate` (type-check + lint).

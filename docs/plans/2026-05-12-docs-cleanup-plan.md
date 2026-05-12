@@ -31,8 +31,10 @@ historical plans, with `CLAUDE.md` pointing at things that still exist."
 - **`docs/publisher/`** — public-facing publisher docs served at
   `/publish/docs/`. Treat as live content. Out of scope unless something is
   factually wrong, in which case fix in place.
-- **Memory files** at `~/.claude/projects/-Users-bernard-src-chq-chq-calendar/`.
-  They're cross-session state, not project docs.
+- **Claude Code memory files.** The agent's persistent memory directory is
+  per-user, per-machine (e.g. `~/.claude/projects/<project-dir-slug>/` —
+  the exact slug depends on each contributor's local checkout path). It's
+  cross-session state outside the repo, not project docs.
 - **Authoring NEW architecture docs.** This plan is about consolidating
   what's there, not generating new prose.
 
@@ -83,9 +85,10 @@ for whether the plan's PR shipped.
 **Steps:**
 1. For each plan, capture:
    - Was the work it describes shipped? (Check git log for matching PR /
-     commit references in the plan doc; memory files at
-     `~/.claude/projects/-Users-bernard-src-chq-chq-calendar/memory/` cover
-     most of these.)
+     commit references in the plan doc. If running Claude Code with
+     existing memory for this project, the agent's local memory directory
+     also covers most of these; otherwise rely on `git log --grep` and PR
+     history.)
    - Is it actionable as a future reference? (Some shipped plans contain
      architectural notes worth keeping; some are pure execution scripts
      that have no further value.)
