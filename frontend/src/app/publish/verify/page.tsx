@@ -15,7 +15,7 @@ type Status =
   | { kind: 'ok'; email: string; isApply: boolean }
   | { kind: 'error'; message: string };
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 export default function PublishVerifyPage() {
   const [status, setStatus] = useState<Status>({ kind: 'pending' });

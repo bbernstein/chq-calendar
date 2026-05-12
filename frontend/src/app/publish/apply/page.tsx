@@ -45,7 +45,7 @@ type Status =
   | { kind: 'sent'; email: string }
   | { kind: 'error'; message: string; field?: string };
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 // Read directly via `import.meta.env.VITE_RECAPTCHA_SITE_KEY` (no cast or
 // optional chain) so vitest.config.ts's compile-time `define` for that exact
 // expression substitutes deterministically. Empty string is treated as
