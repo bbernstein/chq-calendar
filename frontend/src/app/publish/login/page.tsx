@@ -22,7 +22,7 @@ type Status =
   | { kind: 'sent' }
   | { kind: 'error'; message: string };
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL ?? '';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 // Window during which the submit button stays disabled after a successful
 // send, to discourage spamming the SES quota. The backend rate-limits to
