@@ -215,7 +215,9 @@ export const syncStatusHandler = async (event: APIGatewayProxyEvent, _context: C
 /**
  * Sync list handler - get list of recent syncs
  */
-const VALID_SYNC_TYPES = ['manual', 'full', 'scheduled', 'incremental', 'daily', 'hourly'] as const;
+const VALID_SYNC_TYPES = [
+  'manual', 'full', 'scheduled', 'incremental', 'daily', 'hourly',
+] as const satisfies readonly NonNullable<SyncStatusRecord['type']>[];
 type ValidSyncType = typeof VALID_SYNC_TYPES[number];
 
 export const syncListHandler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
