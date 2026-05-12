@@ -97,11 +97,19 @@ DynamoDB DocumentClient. Frontend lint stack (already proven on the same repo):
 3. Write the categorized count back into this file's "Baseline" section
    below, so the next executor knows what they're walking into.
 
-**Baseline** (fill in after running):
-- Total problems: TBD
-- Errors: TBD
-- Warnings: TBD
-- Top 5 rules by hit count: TBD
+**Baseline** (captured 2026-05-12 on `chore/backend-eslint-setup`):
+- Total problems: 26
+- Errors: 0
+- Warnings: 26
+- Top rules by hit count:
+  - `@typescript-eslint/no-unused-vars` — 26 (100%)
+- Distribution: 26 / 26 in `src/` production code; tests (`src/__tests__/**`) are
+  already clean against the current rule set
+- Categorization:
+  - **Style/consistency**: all 26 hits are unused vars/args/imports — pure
+    cleanup, no real bugs hiding
+  - No `no-explicit-any`, no `no-non-null-assertion`, no rule-level decisions
+    needed for first pass
 
 ---
 
