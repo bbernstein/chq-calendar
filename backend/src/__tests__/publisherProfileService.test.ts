@@ -6,7 +6,6 @@
 
 import {
   updatePublisherProfile,
-  ProfileValidationError,
   type FeedTestResult,
 } from '../services/publisherProfileService';
 import type { PublisherRecord, SourceType } from '../types/publisher';

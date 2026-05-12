@@ -1,7 +1,7 @@
 import { EventsCalendarDataSyncService } from '../services/eventsCalendarDataSyncService';
 import { EventsCalendarApiClient } from '../services/eventsCalendarApiClient';
 import { EventTransformationService } from '../services/eventTransformationService';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { jest } from '@jest/globals';
 
 // Mock dependencies
