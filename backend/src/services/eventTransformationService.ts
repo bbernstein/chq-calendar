@@ -433,5 +433,3 @@ export class EventTransformationService {
     return html.replace(/<[^>]*>/g, '').trim();
   }
 }
-
-export default EventTransformationService;

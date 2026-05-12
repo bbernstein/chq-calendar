@@ -453,5 +453,3 @@ export class EventsCalendarApiClient {
     }
   }
 }
-
-export default EventsCalendarApiClient;

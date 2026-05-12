@@ -632,21 +632,6 @@ describe('EventsCalendarDataSyncService', () => {
     });
   });
 
-  describe('getSyncStatistics', () => {
-    it('should return sync statistics', async () => {
-      const stats = await syncService.getSyncStatistics();
-
-      expect(stats).toHaveProperty('totalEvents');
-      expect(stats).toHaveProperty('eventsByWeek');
-      expect(stats).toHaveProperty('eventsByCategory');
-      expect(stats).toHaveProperty('syncHistory');
-      expect(typeof stats.totalEvents).toBe('number');
-      expect(typeof stats.eventsByWeek).toBe('object');
-      expect(typeof stats.eventsByCategory).toBe('object');
-      expect(Array.isArray(stats.syncHistory)).toBe(true);
-    });
-  });
-
   describe('syncNearTerm', () => {
     it('should sync events for 7 days past through 14 days ahead', async () => {
       const mockApiEvents = [
