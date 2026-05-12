@@ -16,7 +16,9 @@ and a multi-target esbuild bundle, but no ESLint config and no `lint` script.
 frontend cleanup PR (#123) closed the last two frontend ESLint warnings; the
 backend has never had a pass run against it.
 
-**Tech stack:** Node 22 / TypeScript 5 / jest / esbuild bundler / AWS SDK v3 /
+**Tech stack:** Node 24 (per `backend/package.json` `engines.node: >=24.0.0`
+and esbuild `--target=node24`; the build-and-test matrix runs 24 and 25) /
+TypeScript 5 / jest / esbuild bundler / AWS SDK v3 /
 DynamoDB DocumentClient. Frontend lint stack (already proven on the same repo):
 `eslint`, `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`.
 
