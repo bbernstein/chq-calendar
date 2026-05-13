@@ -6,7 +6,7 @@
 # Publisher self-service portal — design doc
 
 **Date:** 2026-05-03
-**Status:** design / brainstorm
+**Status:** Shipped (see banner above)
 **Branch:** `feat/admin-index-and-publisher-portal`
 
 ## Problem

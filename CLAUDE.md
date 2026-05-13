@@ -31,20 +31,13 @@ chq-calendar/                    # Root (npm workspaces)
 │   ├── index.html               # Main entry HTML
 │   ├── vite.config.ts           # Vite build config
 │   ├── src/
-│   │   ├── entries/             # Vite entry points per page
-│   │   │   ├── main.tsx         # Main calendar entry
-│   │   │   ├── feedback.tsx     # Feedback form entry
-│   │   │   ├── admin-login.tsx  # OAuth login entry
-│   │   │   └── admin-feedback.tsx # Admin dashboard entry
-│   │   ├── app/
-│   │   │   ├── page.tsx         # Main calendar component
-│   │   │   ├── globals.css      # Tailwind + custom CSS
-│   │   │   ├── feedback/page.tsx        # Public feedback form
-│   │   │   └── admin/
-│   │   │       ├── login/page.tsx       # OAuth login
-│   │   │       └── feedback/page.tsx    # Admin feedback dashboard
-│   │   └── lib/
-│   │       └── auth.ts          # Auth helpers (localStorage)
+│   │   ├── entries/             # One entry file per page (mounts a component)
+│   │   ├── app/                 # Page-level components (page.tsx, feedback/, publish/, admin/...)
+│   │   ├── components/          # Reusable UI components
+│   │   ├── hooks/                # Custom Preact hooks
+│   │   ├── lib/                 # Utilities (auth, helpers, search, dates)
+│   │   ├── types/               # Shared type definitions
+│   │   └── __tests__/           # Cross-cutting test files (most tests live next to source)
 │   ├── public/                  # Static assets (icons, manifest)
 │   ├── package.json             # Frontend deps and scripts
 │   ├── tsconfig.json            # TypeScript config

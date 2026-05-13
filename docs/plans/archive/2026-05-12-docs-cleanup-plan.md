@@ -1,3 +1,7 @@
+> **Status:** Shipped via PR #125. Kept for reference — the Audit Results
+> sections record which top-level docs and plans were considered Current,
+> Reference, or Archive at execution time.
+
 # Docs Cleanup Plan
 
 > **For agentic workers:** Self-contained plan for a fresh session. Use

@@ -5,7 +5,7 @@
 # Multi-Year Season Support — Design Document
 
 **Date:** 2026-03-03
-**Status:** Approved
+**Status:** Shipped (see banner above)
 
 ## Goal
 

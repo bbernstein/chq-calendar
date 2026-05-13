@@ -5,7 +5,7 @@
 
 # CHQ-Orbit Event Publisher Format — Design
 
-**Status:** Draft for review
+**Status:** Shipped (see banner above)
 **Date:** 2026-05-01
 **Author:** brainstorming session
 **Scope:** Defines a JSON event-feed format that Chautauqua-orbit publishers can publish (as a static JSON file or embedded in HTML), plus the ingestion pipeline that pulls those feeds into chqcal.org.

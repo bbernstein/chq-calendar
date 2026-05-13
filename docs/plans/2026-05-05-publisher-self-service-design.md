@@ -6,7 +6,7 @@
 # Publisher portal self-service — design
 
 **Date**: 2026-05-05
-**Status**: Design (awaiting implementation plan)
+**Status**: Shipped (see banner above)
 **Builds on**: Phases A–D of the publisher portal (`docs/plans/2026-05-03-publisher-portal-design.md`).
 
 ## Problem
