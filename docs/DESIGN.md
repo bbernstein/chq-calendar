@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Chautauqua Calendar is a full-stack serverless application designed to provide a dynamic, filterable calendar for the 2025 Chautauqua Institution season. This document outlines the comprehensive architecture, design decisions, and assumptions that guide the development of this project.
+The Chautauqua Calendar is a full-stack serverless application designed to provide a dynamic, filterable calendar for the Chautauqua Institution summer season. This document outlines the comprehensive architecture, design decisions, and assumptions that guide the development of this project.
 
 ## Table of Contents
 
@@ -139,7 +139,7 @@ frontend/
     │       └── publisher-events/
     ├── components/              # Reusable UI components
     ├── hooks/                   # Custom Preact hooks
-    ├── lib/                     # Utilities (auth, helpers, types)
+    ├── lib/                     # Utilities (auth, helpers, search, dates)
     └── types/                   # Shared type definitions
 ```
 
