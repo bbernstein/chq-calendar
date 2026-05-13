@@ -1,3 +1,7 @@
+> **Status:** Shipped via PR #64 (commit `db12dff`). Kept for architectural
+> context — the October-1 year-rollover rule and tiered sync schedule
+> described here are still load-bearing for current code.
+
 # Multi-Year Season Support — Design Document
 
 **Date:** 2026-03-03

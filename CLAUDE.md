@@ -1,18 +1,18 @@
 # CLAUDE.md — Agentic Development Guide
 
-## MANDATORY FIRST ACTION — Do This Before Anything Else
+## Project Status
 
-**BEFORE writing any code, answering any question, or making any changes, you MUST:**
+The project is in steady-state delivery. The frontend Vite + Preact
+migration and bundle-optimization initiative finished in 2025; the
+publisher portal, ingest pipeline, integration-test program, and CI
+coverage floor all shipped in 2026 spring. Day-to-day work is feature
+delivery and incremental polish — there is no master backlog file that
+agents must consult before starting work.
 
-1. **Read the optimization plan**: `cat docs/OPTIMIZATION_PLAN.md`
-2. **Check recent git history**: `git log --oneline -10`
-3. **Verify the build works**: `cd frontend && npm run build`
-
-The file `docs/OPTIMIZATION_PLAN.md` contains the detailed task list with current status markers showing what has been completed (`[x]`), what is in progress (`[~]`), and what is next (`[ ]`). **You cannot know what to work on without reading it.** Do not invent your own optimization tasks — follow the plan.
-
-If asked to "continue optimizing" or "work on the next task", the answer is ALWAYS in `docs/OPTIMIZATION_PLAN.md`. Find the first `[ ]` task whose dependencies are `[x]`, and do that task.
-
----
+When you start a session, work from the conversation. Check `git log`
+for recent activity, and check `docs/plans/` for the small set of active
+plan docs (most are archived under `docs/plans/archive/`). The user will
+direct you to whatever is next.
 
 ## Project Overview
 
@@ -54,10 +54,13 @@ chq-calendar/                    # Root (npm workspaces)
 │   └── package.json             # Backend deps
 ├── infrastructure/              # Terraform IaC (AWS)
 ├── docs/                        # Documentation
-│   ├── OPTIMIZATION_PLAN.md     # ** ACTIVE OPTIMIZATION PLAN **
+│   ├── DESIGN.md                # System design (frontend + backend)
 │   ├── CACHING_ARCHITECTURE.md  # Cache strategy evolution
-│   ├── DEVELOPMENT_HISTORY.md   # Architecture decisions
-│   └── ...                      # Other docs
+│   ├── DEVELOPMENT_HISTORY.md   # Architecture decisions over time
+│   ├── plans/                   # Active plan docs (most are in archive/)
+│   ├── runbooks/                # Operational runbooks
+│   ├── publisher/               # Publisher-facing docs (live content)
+│   └── archive/                 # Historical docs kept for searchability
 ├── scripts/                     # Deployment scripts
 ├── utils/                       # Dev utilities
 └── docker-compose.yml           # Local dev environment
@@ -75,7 +78,7 @@ chq-calendar/                    # Root (npm workspaces)
 | Backend | AWS Lambda + API Gateway | — |
 | Database | DynamoDB | — |
 | IaC | Terraform | — |
-| Node.js | 22 (minimum 20.19) | — |
+| Node.js | 24 (engines: `>=24.0.0`; CI matrix runs 24 + 25) | — |
 
 ## Development Commands
 
@@ -143,111 +146,32 @@ CloudFront CDN → all-events.json → Browser Cache (1hr)
 - Example: `import { Event } from '@/lib/types'`
 - **Hooks and React-shaped types may be imported from `'react'`.** `@preact/preset-vite` aliases `'react'` and `'react-dom'` to `'preact/compat'` at build time (and `vitest.config.ts` does the same for tests). Importing `useState`, `createContext`, `useContext`, `React.FormEvent`, `React.ReactNode`, etc. from `'react'` is the accepted convention — `preact/compat` is what installs the `onChange` → `onInput` event normalization that React-style form components rely on, and removing `'react'` imports across the tree silently breaks form handlers in tests and production. New files may import hooks from `'preact/hooks'` if they don't render JSX (e.g. pure `.ts` hook files), but anything that wires DOM event handlers should keep the `'react'` import.
 
-## Active Optimization Plan
-
-> **CRITICAL**: The detailed task list with step-by-step instructions, file lists, and verification
-> criteria lives in **`docs/OPTIMIZATION_PLAN.md`**. You MUST read that file (via `cat` or the Read tool)
-> before starting any optimization work. The summary below is just an overview — the plan file has the
-> actual instructions you need to follow.
-
-### Task Status Key
-- `[ ]` Not started — available to work on (if dependencies are met)
-- `[~]` In progress — currently being worked on
-- `[x]` Complete — done and verified
-- `[!]` Blocked — cannot proceed, see notes
-
-### Current Baseline Metrics
-
-| Metric | Value |
-|--------|-------|
-| First Load JS (shared) | 101 KB |
-| Main page First Load JS | 115 KB |
-| Framework chunk (React) | 179 KB on disk |
-| Build time | ~6 seconds |
-| Production deps | 13 (9 unused) |
-
-### Phase & Task Overview
-
-**Check `docs/OPTIMIZATION_PLAN.md` for current `[x]`/`[~]`/`[ ]` status of each task.**
-
-| Phase | Tasks | Parallelizable | Goal |
-|-------|-------|----------------|------|
-| 1. Foundation | 1A (bundle analyzer), 1B (remove deps), 1C (dead code) | All 3 | Remove unused deps, set up analysis |
-| 2. Decomposition | 2A (types), 2B (utils), 2C (hooks), 2D (filters), 2E (events), 2F (layout) | 2A+2B, then 2C, then 2D+2E, then 2F | Break 1,760-line page.tsx into modules |
-| 3. Preact | 3A (install), 3B (compat fixes), 3C (measure) | Sequential | Replace React 19 with Preact |
-| 4. Bundle | 4A (admin dynamic), 4B (feedback dynamic), 4C (images), 4D (fonts) | 4A+4B | Dynamic imports, image/font optimization |
-| 5. Runtime | 5A (virtual scroll), 5B (useReducer), 5C (debounce), 5D (memoize) | 5A+5B+5C | Virtual scroll, debounce, memoization |
-| 6. CSS/Build | 6A (CSS audit), 6B (strict checks) | Both | CSS audit, enable strict build checks |
-| 7. PWA | 7A (service worker), 7B (manifest) | Sequential | Service worker, offline support |
-
-### How to Find Your Next Task
-
-1. Open `docs/OPTIMIZATION_PLAN.md`
-2. Find the first task marked `[ ]` whose phase dependencies are all `[x]`
-3. Mark it `[~]` in the plan file
-4. Follow the steps listed under that task
-5. Verify using the task's verification criteria
-6. Mark it `[x]` and commit
-
 ## Agentic Workflow — How to Work on This Project
 
-### Starting a New Conversation
+### Starting a session
+1. Read the current conversation. The user's ask is the source of truth
+   for what to work on, not any file on disk.
+2. `git log --oneline -10` to see recent activity.
+3. If the work touches an existing plan, look in `docs/plans/` — most are
+   archived under `docs/plans/archive/`, but a small number stay active or
+   serve as Reference for ongoing architecture (each marked with a
+   "Status" banner at the top).
+4. Never commit to the `main` branch. If `git branch --show-current`
+   returns `main`, create a feature branch first.
 
-**Every new conversation MUST begin with these steps, in order:**
+### Committing
+- Run verification before every commit (see "Verification Checklist"
+  below).
+- Use a concise commit subject that names the change ("feat(admin): X",
+  "fix(ingest): Y", "chore: Z"). One logical change per commit.
+- Push to the working branch after each commit. Open a PR rather than
+  fast-forwarding `main`.
 
-1. **Read `docs/OPTIMIZATION_PLAN.md`** — this is the source of truth for task status. Use `cat docs/OPTIMIZATION_PLAN.md` or the Read tool. Do NOT skip this step.
-2. **Check git log** — run `git log --oneline -10` to see what was recently completed
-3. **Verify build** — run `cd frontend && npm run build` to confirm the project is in a working state
-4. **Identify the next task** — find the first `[ ]` task in the plan whose dependencies are all `[x]`
-5. **Mark the task `[~]`** in `docs/OPTIMIZATION_PLAN.md` before starting work
-6. **Work on the task** following its specific steps and file lists
-7. **Verify** using the task's verification criteria (`npm run validate && npm run build`)
-8. **Mark the task `[x]`** in `docs/OPTIMIZATION_PLAN.md` after verification passes
-9. **Commit** with format: `Phase XY: Brief description` (e.g., "Phase 1B: Remove unused dependencies")
-10. **Push** to the working branch
-
-**Do NOT invent your own optimization tasks.** The plan is comprehensive and ordered by dependency. Follow it.
-
-### Parallel Task Execution
-
-Tasks within the same phase that are marked "parallelizable" in the plan can be worked on simultaneously by different agents. Each agent should:
-- Claim its task by marking `[~]`
-- Work only on files listed for that task
-- Not modify files belonging to another parallel task
-- Commit separately with task-specific messages
-
-### Committing Changes
-
-- **One commit per task** — each task should be a discrete, rollback-able commit
-- **Commit message format**: `Phase XY: Brief description of change`
-  - Example: `Phase 1B: Remove 9 unused dependencies`
-  - Example: `Phase 2A: Extract types and constants from page.tsx`
-- **Always run verification** before committing:
-  ```bash
-  cd frontend && npm run validate && npm run build
-  ```
-- **Push to the working branch** after each commit
-
-### Handling Failures
-
-- If `npm run build` fails: fix the issue, do not mark the task complete
-- If a task is blocked: mark it `[!]` and add a note explaining the blocker
-- If you discover a new issue during work: add it as a subtask or note under the relevant task
-- If a phase's prerequisite isn't met: do NOT start that phase, work on the prerequisite first
-
-### Handing Off Between Conversations
-
-When ending a conversation:
-1. Ensure all completed work is committed and pushed
-2. Update task statuses in `docs/OPTIMIZATION_PLAN.md`
-3. If a task is partially complete, add notes about what's done and what remains
-4. Update the Metrics Tracking section if you completed a phase
-
-When starting a new conversation:
-1. Read this file and the optimization plan
-2. Check git log for recent commits to understand what was last done
-3. Run `npm run build` to verify the project is in a good state
-4. Pick up from the next uncompleted task
+### Handling failures
+- If `npm run build` or `npm run validate` fails, fix the issue before
+  committing. Don't mark work complete on a red build.
+- If a task is blocked, surface the blocker in the conversation instead
+  of guessing.
 
 ## Common Pitfalls
 
@@ -274,7 +198,8 @@ When starting a new conversation:
 | `frontend/src/app/admin/login/page.tsx` | OAuth login |
 | `frontend/src/lib/auth.ts` | Auth utilities |
 | `frontend/package.json` | Dependencies and scripts |
-| `docs/OPTIMIZATION_PLAN.md` | Task tracking |
+| `docs/DESIGN.md` | System design reference |
+| `docs/plans/` | Active plan docs (most are in `archive/`) |
 
 ## Verification Checklist
 

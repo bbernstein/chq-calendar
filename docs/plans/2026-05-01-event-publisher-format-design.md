@@ -1,3 +1,8 @@
+> **Status:** Shipped across PRs #69, #70, #72 (`b0b4c76`), and #73
+> (`4bf81d0`). Kept as the authoritative reference for the publisher feed
+> format — the schema, validation rules, and trust model documented here
+> are what ingest still enforces.
+
 # CHQ-Orbit Event Publisher Format — Design
 
 **Status:** Draft for review

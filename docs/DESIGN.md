@@ -113,13 +113,39 @@ graph TB
 
 ### Component Structure
 
+Vite builds a multi-page static app. Each page has its own HTML entry plus
+a TypeScript entry under `src/entries/`. Page components live under
+`src/app/`. Reusable code is organized by responsibility.
+
 ```
-src/app/
-├── layout.tsx          # Root layout with metadata
-├── page.tsx            # Main calendar interface
-├── globals.css         # Global styles
-└── favicon.ico         # Site icon
+frontend/
+├── index.html                   # Main calendar HTML entry
+├── publish.html, admin.html ... # One HTML file per page (see vite.config.ts)
+└── src/
+    ├── entries/                 # One entry file per page (mounts a component)
+    │   ├── main.tsx
+    │   ├── admin.tsx
+    │   ├── publish-apply.tsx
+    │   └── ...
+    ├── app/                     # Page-level components
+    │   ├── page.tsx             # Main calendar
+    │   ├── globals.css          # Tailwind + custom CSS
+    │   ├── feedback/
+    │   ├── publish/
+    │   └── admin/
+    │       ├── feedback/
+    │       ├── login/
+    │       ├── publishers/
+    │       └── publisher-events/
+    ├── components/              # Reusable UI components
+    ├── hooks/                   # Custom Preact hooks
+    ├── lib/                     # Utilities (auth, helpers, types)
+    └── types/                   # Shared type definitions
 ```
+
+Adding a new page means adding an `index.html`-style file, a matching
+entry in `src/entries/`, and registering it in
+`vite.config.ts`'s `rollupOptions.input` map.
 
 ### Key Design Principles
 
@@ -716,6 +742,5 @@ This design document serves as the single source of truth for the Chautauqua Cal
 
 ---
 
-*Last Updated: July 26, 2025*
-*Version: 1.1*
-*Next Review: September 2025*
+*Last Updated: 2026-05-13 (Component Structure refreshed for Vite multi-page layout)*
+*Version: 1.2*
