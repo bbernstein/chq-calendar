@@ -120,7 +120,7 @@ a TypeScript entry under `src/entries/`. Page components live under
 ```
 frontend/
 ├── index.html                   # Main calendar HTML entry
-├── publish.html, admin.html ... # One HTML file per page (see vite.config.ts)
+├── feedback/, publish/, admin/… # Per-page directories with `index.html` entries
 └── src/
     ├── entries/                 # One entry file per page (mounts a component)
     │   ├── main.tsx
