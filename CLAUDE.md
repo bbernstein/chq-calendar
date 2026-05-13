@@ -53,7 +53,8 @@ chq-calendar/                    # Root (npm workspaces)
 │   ├── plans/                   # Active plan docs (most are in archive/)
 │   ├── runbooks/                # Operational runbooks
 │   ├── publisher/               # Publisher-facing docs (live content)
-│   └── archive/                 # Historical docs kept for searchability
+│   ├── archive/                 # Historical docs kept for searchability
+│   └── ...                      # Plus DEPLOYMENT.md, DEVELOPMENT_WORKFLOW.md, coverage.md, etc.
 ├── scripts/                     # Deployment scripts
 ├── utils/                       # Dev utilities
 └── docker-compose.yml           # Local dev environment

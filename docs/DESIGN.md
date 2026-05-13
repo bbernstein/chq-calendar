@@ -169,7 +169,13 @@ entry in `src/entries/`, and registering it in
 
 ### State Management
 
-**React Hooks with localStorage Persistence:**
+**Hooks with localStorage Persistence:**
+
+The code below uses `useState` and friends imported from `'react'` — a
+deliberate convention: `@preact/preset-vite` aliases `'react'` and
+`'react-dom'` to `'preact/compat'` at build time, which installs the
+`onChange` → `onInput` event normalization that React-style form
+components rely on. See `CLAUDE.md` ("Imports") for the full reasoning.
 ```typescript
 // Main state structure with localStorage integration
 const [events, setEvents] = useState<ChautauquaEvent[]>([]);
