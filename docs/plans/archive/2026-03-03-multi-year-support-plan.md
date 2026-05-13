@@ -875,12 +875,12 @@ With:
 
 Replace:
 ```tsx
-<p className="text-gray-400">© 2026 Chautauqua Calendar by Bernie and Claude</p>
+<p className="text-gray-400">© 2026 Chautauqua Calendar by Bernie</p>
 ```
 
 With:
 ```tsx
-<p className="text-gray-400">© {new Date().getFullYear()} Chautauqua Calendar by Bernie and Claude</p>
+<p className="text-gray-400">© {new Date().getFullYear()} Chautauqua Calendar by Bernie</p>
 ```
 
 **Step 8: Update document title dynamically**
