@@ -18,7 +18,7 @@ async function tableExists(tableName: string): Promise<boolean> {
     const command = new DescribeTableCommand({ TableName: tableName });
     await dynamoClient.send(command);
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }

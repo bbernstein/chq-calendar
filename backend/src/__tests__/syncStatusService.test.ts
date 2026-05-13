@@ -1,4 +1,4 @@
-import { SyncStatusService } from '../services/syncStatusService';
+import { SyncStatusService, VALID_SYNC_TYPES } from '../services/syncStatusService';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 
 // Mock uuid
@@ -225,13 +225,40 @@ describe('SyncStatusService', () => {
       expect(mockSend.mock.calls[0][0]).toBeInstanceOf(QueryCommand);
     });
 
-    it('should get recent sync statuses without type filter', async () => {
+    it('should get recent sync statuses without type filter by fanning out across all known types', async () => {
       mockSend.mockResolvedValue({ Items: [] });
 
       const result = await service.getRecentSyncStatuses();
 
       expect(result).toEqual([]);
-      expect(mockSend).toHaveBeenCalledTimes(1);
+      // No-type path runs one Query per VALID_SYNC_TYPES entry to
+      // cover the table; the previous "manual"-only fallback masked
+      // records of other types.
+      expect(mockSend).toHaveBeenCalledTimes(VALID_SYNC_TYPES.length);
+    });
+
+    it('should merge per-type results and sort by timestamp desc when no type filter', async () => {
+      // Per-type queries are issued in VALID_SYNC_TYPES order; queue
+      // one result per type so the merge/sort can be exercised. The
+      // arbitrary timestamps below are chosen so the top-3 by
+      // timestamp (desc) is hourly → scheduled → incremental.
+      const perTypeRecord: Record<string, unknown> = {
+        manual: { id: 'm-1', type: 'manual', timestamp: 300 },
+        scheduled: { id: 's-1', type: 'scheduled', timestamp: 500 },
+        full: { id: 'f-1', type: 'full', timestamp: 100 },
+        incremental: { id: 'i-1', type: 'incremental', timestamp: 400 },
+        daily: { id: 'd-1', type: 'daily', timestamp: 200 },
+        hourly: { id: 'h-1', type: 'hourly', timestamp: 600 },
+      };
+      for (const t of VALID_SYNC_TYPES) {
+        mockSend.mockResolvedValueOnce({ Items: [perTypeRecord[t]] });
+      }
+
+      const result = await service.getRecentSyncStatuses(undefined, 3);
+
+      expect(result.map(r => r.id)).toEqual(['h-1', 's-1', 'i-1']);
+      expect(result.map(r => r.timestamp)).toEqual([600, 500, 400]);
+      expect(mockSend).toHaveBeenCalledTimes(VALID_SYNC_TYPES.length);
     });
 
     it('should handle empty result', async () => {
@@ -243,157 +270,4 @@ describe('SyncStatusService', () => {
     });
   });
 
-  describe('getActiveSyncs', () => {
-    it('should return active syncs', async () => {
-      const activeSyncs = [
-        { id: 'sync-1', status: 'in_progress', type: 'manual' },
-        { id: 'sync-2', status: 'pending', type: 'manual' }
-      ];
-      mockSend.mockResolvedValue({ Items: activeSyncs });
-
-      const result = await service.getActiveSyncs();
-
-      expect(result).toEqual(activeSyncs);
-      expect(mockSend).toHaveBeenCalledTimes(1);
-    });
-
-    it('should handle empty active syncs', async () => {
-      mockSend.mockResolvedValue({ Items: null });
-
-      const result = await service.getActiveSyncs();
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('getSyncStatistics', () => {
-    it('should calculate sync statistics correctly', async () => {
-      const now = Date.now();
-      const mockSyncs = [
-        {
-          id: 'sync-1',
-          type: 'manual',
-          status: 'completed',
-          timestamp: now - 1000,
-          duration: 5000
-        },
-        {
-          id: 'sync-2',
-          type: 'scheduled',
-          status: 'completed',
-          timestamp: now - 2000,
-          duration: 3000
-        },
-        {
-          id: 'sync-3',
-          type: 'manual',
-          status: 'failed',
-          timestamp: now - 3000
-        },
-        {
-          id: 'sync-4',
-          type: 'manual',
-          status: 'in_progress',
-          timestamp: now - 1000
-        }
-      ];
-      mockSend.mockResolvedValue({ Items: mockSyncs });
-
-      const stats = await service.getSyncStatistics(1);
-
-      expect(stats.totalSyncs).toBe(4);
-      expect(stats.successfulSyncs).toBe(2);
-      expect(stats.failedSyncs).toBe(1);
-      expect(stats.averageDuration).toBe(4000);
-      expect(stats.syncsByType).toEqual({
-        manual: 3,
-        scheduled: 1
-      });
-      expect(stats.recentSyncs).toHaveLength(4);
-    });
-
-    it('should handle empty sync history', async () => {
-      mockSend.mockResolvedValue({ Items: [] });
-
-      const stats = await service.getSyncStatistics();
-
-      expect(stats).toMatchObject({
-        totalSyncs: 0,
-        successfulSyncs: 0,
-        failedSyncs: 0,
-        averageDuration: 0,
-        syncsByType: {},
-        recentSyncs: []
-      });
-    });
-
-    it('should filter syncs by time range', async () => {
-      const now = Date.now();
-      const oldTimestamp = now - 10 * 24 * 60 * 60 * 1000; // 10 days ago
-      const recentTimestamp = now - 1000; // 1 second ago
-
-      const mockSyncs = [
-        {
-          id: 'sync-old',
-          type: 'manual',
-          status: 'completed',
-          timestamp: oldTimestamp,
-          duration: 1000
-        },
-        {
-          id: 'sync-recent',
-          type: 'manual',
-          status: 'completed',
-          timestamp: recentTimestamp,
-          duration: 2000
-        }
-      ];
-      mockSend.mockResolvedValue({ Items: mockSyncs });
-
-      const stats = await service.getSyncStatistics(7); // Last 7 days
-
-      expect(stats.totalSyncs).toBe(1);
-      expect(stats.recentSyncs[0].id).toBe('sync-recent');
-    });
-  });
-
-  describe('cleanupOldRecords', () => {
-    it('should delete old sync records', async () => {
-      const now = Date.now();
-      const oldRecords = [
-        { id: 'old-1', timestamp: now - 40 * 24 * 60 * 60 * 1000 },
-        { id: 'old-2', timestamp: now - 35 * 24 * 60 * 60 * 1000 }
-      ];
-      mockSend
-        .mockResolvedValueOnce({ Items: oldRecords }) // QueryCommand
-        .mockResolvedValue({}); // UpdateCommands
-
-      const deletedCount = await service.cleanupOldRecords(30);
-
-      expect(deletedCount).toBe(2);
-      expect(mockSend).toHaveBeenCalledTimes(3); // 1 query + 2 deletes
-    });
-
-    it('should handle deletion errors gracefully', async () => {
-      const oldRecord = { id: 'old-1', timestamp: 1 };
-      mockSend
-        .mockResolvedValueOnce({ Items: [oldRecord] })
-        .mockRejectedValue(new Error('Delete failed'));
-
-      const deletedCount = await service.cleanupOldRecords(30);
-
-      expect(deletedCount).toBe(0);
-    });
-
-    it('should skip recent records', async () => {
-      const now = Date.now();
-      const recentRecord = { id: 'recent-1', timestamp: now - 1000 }; // 1 second ago
-      mockSend.mockResolvedValue({ Items: [recentRecord] });
-
-      const deletedCount = await service.cleanupOldRecords(30);
-
-      expect(deletedCount).toBe(0);
-      expect(mockSend).toHaveBeenCalledTimes(1); // Only query, no deletes
-    });
-  });
 });

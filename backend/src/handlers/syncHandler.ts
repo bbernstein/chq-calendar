@@ -2,7 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { EventsCalendarDataSyncService } from '../services/eventsCalendarDataSyncService';
-import { SyncStatusService } from '../services/syncStatusService';
+import { SyncStatusService, SyncType, VALID_SYNC_TYPES } from '../services/syncStatusService';
 
 // Initialize DynamoDB clients
 const dynamoClient = new DynamoDBClient({
@@ -31,7 +31,7 @@ function getDefaultYear(): number {
 /**
  * Scheduled sync handler - triggered by EventBridge rules
  */
-export const scheduledSyncHandler = async (event: any, context: Context): Promise<void> => {
+export const scheduledSyncHandler = async (event: any, _context: Context): Promise<void> => {
   console.log('Starting scheduled sync operation:', JSON.stringify(event));
 
   try {
@@ -77,7 +77,7 @@ export const scheduledSyncHandler = async (event: any, context: Context): Promis
 /**
  * Manual sync handler - triggered via API Gateway
  */
-export const manualSyncHandler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
+export const manualSyncHandler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   console.log('Starting manual sync operation');
 
   try {
@@ -123,7 +123,7 @@ export const manualSyncHandler = async (event: APIGatewayProxyEvent, context: Co
 /**
  * Health check handler
  */
-export const healthCheckHandler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
+export const healthCheckHandler = async (_event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   try {
     const health = await syncService.getHealthStatus();
 
@@ -155,7 +155,7 @@ export const healthCheckHandler = async (event: APIGatewayProxyEvent, context: C
 /**
  * Sync status handler - get status of specific sync
  */
-export const syncStatusHandler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
+export const syncStatusHandler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   try {
     const syncId = event.pathParameters?.id;
 
@@ -215,12 +215,42 @@ export const syncStatusHandler = async (event: APIGatewayProxyEvent, context: Co
 /**
  * Sync list handler - get list of recent syncs
  */
-export const syncListHandler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
+const MAX_SYNC_LIST_LIMIT = 100;
+
+export const syncListHandler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   try {
     const queryParams = event.queryStringParameters || {};
     const { type, limit = '10' } = queryParams;
 
-    const syncs = await statusService.getRecentSyncStatuses(type, parseInt(limit));
+    const errorHeaders = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    };
+
+    if (type !== undefined && !VALID_SYNC_TYPES.includes(type as SyncType)) {
+      return {
+        statusCode: 400,
+        headers: errorHeaders,
+        body: JSON.stringify({
+          error: 'Invalid sync type',
+          allowed: VALID_SYNC_TYPES,
+        }),
+      };
+    }
+
+    const parsedLimit = Number.parseInt(limit, 10);
+    if (!/^\d+$/.test(limit) || parsedLimit < 1 || parsedLimit > MAX_SYNC_LIST_LIMIT) {
+      return {
+        statusCode: 400,
+        headers: errorHeaders,
+        body: JSON.stringify({
+          error: 'Invalid limit',
+          message: `limit must be an integer between 1 and ${MAX_SYNC_LIST_LIMIT}`,
+        }),
+      };
+    }
+
+    const syncs = await statusService.getRecentSyncStatuses(type as SyncType | undefined, parsedLimit);
 
     return {
       statusCode: 200,

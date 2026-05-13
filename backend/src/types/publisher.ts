@@ -52,8 +52,8 @@ export interface PublisherRecord {
     incomingFeed: { eventCount: number; publisherId: string };
   };
   // Phase B (publisher portal — apply flow). All optional. Existing rows
-  // pre-dating Phase B have no applicationStatus and are treated as approved
-  // by callers (`isApproved` helper below).
+  // pre-dating Phase B have no applicationStatus and are treated as
+  // approved by callers (see utils/publisherApproval.ts).
   applicationStatus?: ApplicationStatus;
   appliedAt?: string;
   reviewedAt?: string;
@@ -61,12 +61,6 @@ export interface PublisherRecord {
   rejectionReason?: string;
   organization?: string;
   applicantNotes?: string;
-}
-
-// Existing publishers (pre-Phase-B) have no applicationStatus and must be
-// treated as approved. New rows created via the apply flow start as 'pending'.
-export function isApproved(p: Pick<PublisherRecord, 'applicationStatus'>): boolean {
-  return p.applicationStatus === undefined || p.applicationStatus === 'approved';
 }
 
 export interface ApplyFormPayload {

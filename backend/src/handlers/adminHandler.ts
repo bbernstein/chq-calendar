@@ -160,19 +160,6 @@ const oauth2Client = new google.auth.OAuth2(
   `${isProduction ? 'https://www.chqcal.org' : 'http://localhost:3001'}/auth/google/callback`
 );
 
-// Types
-interface FeedbackRecord {
-  id: string;
-  feedback: string;
-  contactInfo?: string;
-  timestamp: number;
-  userAgent?: string;
-  ipAddress?: string;
-  createdAt: string;
-  archived?: boolean;
-  archivedAt?: string;
-}
-
 // Header names whose values must never appear in logs.
 // `set-cookie` is a response header and won't appear on inbound
 // APIGatewayProxyEvents, but we include it defensively so the same set
@@ -246,7 +233,7 @@ const generateJWT = (user: { email: string; name: string }) => {
 const verifyJWT = (token: string): { email: string; name: string } | null => {
   try {
     return jwt.verify(token, JWT_SECRET) as { email: string; name: string };
-  } catch (error) {
+  } catch {
     return null;
   }
 };
@@ -328,7 +315,7 @@ const authenticateRequest = (event: APIGatewayProxyEvent): { email: string; name
   return user;
 };
 
-export const handler = async (event: APIGatewayProxyEvent, context: Context): Promise<APIGatewayProxyResult> => {
+export const handler = async (event: APIGatewayProxyEvent, _context: Context): Promise<APIGatewayProxyResult> => {
   console.log('Admin Lambda Event:', JSON.stringify(redactEventForLogging(event), null, 2));
   console.log('Environment check - NODE_ENV:', process.env.NODE_ENV, 'ENVIRONMENT:', process.env.ENVIRONMENT);
   console.log('isProduction:', isProduction);

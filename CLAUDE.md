@@ -281,20 +281,25 @@ When starting a new conversation:
 Run this after every set of changes:
 
 ```bash
-# 1. Type check
-cd frontend && npm run type-check
+# 1. Frontend build (already runs validate + tests internally)
+cd frontend && npm run build
 
-# 2. Lint
-npm run lint
+# 2. Backend validate (type-check + lint, fails on any warning)
+cd ../backend && npm run validate
 
-# 3. Full build (includes validate)
+# 3. Backend build (runs tests + esbuild bundle)
 npm run build
 
 # 4. Dev server smoke test (if available)
-npm run dev
+cd ../frontend && npm run dev
 # Then visit: http://localhost:3000
 # Verify: events load, search works, filters work, descriptions expand
 ```
+
+The backend `lint` script runs with `--max-warnings=0`, so any ESLint
+warning fails the build. The frontend `lint` script does not (warnings
+are reported but do not fail). New backend code must pass
+`npm run validate --workspace=backend` before committing.
 
 Coverage floor enforced via `.coverage-floor.json`; see `docs/coverage.md`.
 

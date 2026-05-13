@@ -1,9 +1,15 @@
 import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand, GetCommand, QueryCommandOutput } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
-interface SyncStatusRecord {
+export const VALID_SYNC_TYPES = [
+  'manual', 'scheduled', 'full', 'incremental', 'daily', 'hourly',
+] as const;
+
+export type SyncType = typeof VALID_SYNC_TYPES[number];
+
+export interface SyncStatusRecord {
   id: string;
-  type: 'manual' | 'scheduled' | 'full' | 'incremental' | 'daily' | 'hourly';
+  type: SyncType;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   timestamp: number;
   startTime: string;
@@ -216,16 +222,19 @@ export class SyncStatusService {
   }
 
   /**
-   * Get recent sync statuses by type
+   * Get recent sync statuses. If `type` is provided, queries the
+   * TypeIndex GSI directly. If omitted, fans out one query per known
+   * sync type in parallel, merges the results, sorts by `timestamp`
+   * descending, and returns the first `limit` records — the table has
+   * no GSI that covers "all types sorted by timestamp", so this is the
+   * cheapest correct path without adding an index.
    */
   async getRecentSyncStatuses(
-    type?: SyncStatusRecord['type'],
+    type?: SyncType,
     limit: number = 10
   ): Promise<SyncStatusRecord[]> {
-    let command;
-    
     if (type) {
-      command = new QueryCommand({
+      const command = new QueryCommand({
         TableName: this.tableName,
         IndexName: 'TypeIndex',
         KeyConditionExpression: '#type = :type',
@@ -238,126 +247,41 @@ export class SyncStatusService {
         ScanIndexForward: false, // Sort by timestamp descending
         Limit: limit,
       });
-    } else {
-      // If no type specified, we'll need to scan (less efficient)
-      command = new QueryCommand({
-        TableName: this.tableName,
-        IndexName: 'TypeIndex',
-        KeyConditionExpression: '#type = :type',
-        ExpressionAttributeNames: {
-          '#type': 'type',
-        },
-        ExpressionAttributeValues: {
-          ':type': 'manual', // Default to manual syncs
-        },
-        ScanIndexForward: false,
-        Limit: limit,
-      });
+      const response = await this.docClient.send(command) as QueryCommandOutput;
+      return (response.Items ? response.Items as SyncStatusRecord[] : []);
     }
 
-    const response = await this.docClient.send(command) as QueryCommandOutput;
-    return (response.Items ? response.Items as SyncStatusRecord[] : []);
-  }
-
-  /**
-   * Get currently running syncs
-   */
-  async getActiveSyncs(): Promise<SyncStatusRecord[]> {
-    // We'll need to scan for active syncs since status isn't indexed
-    // This is not ideal for large datasets, but acceptable for sync status tracking
-    const response = await this.docClient.send(new QueryCommand({
-      TableName: this.tableName,
-      IndexName: 'TypeIndex',
-      KeyConditionExpression: '#type = :type',
-      FilterExpression: '#status = :status OR #status = :pendingStatus',
-      ExpressionAttributeNames: {
-        '#type': 'type',
-        '#status': 'status',
-      },
-      ExpressionAttributeValues: {
-        ':type': 'manual', // Check manual syncs first
-        ':status': 'in_progress',
-        ':pendingStatus': 'pending',
-      },
-      ScanIndexForward: false,
-      Limit: 50, // Reasonable limit for active syncs
-    })) as QueryCommandOutput;
-
-    return (response.Items ? response.Items as SyncStatusRecord[] : []);
-  }
-
-  /**
-   * Get sync statistics
-   */
-  async getSyncStatistics(days: number = 7): Promise<{
-    totalSyncs: number;
-    successfulSyncs: number;
-    failedSyncs: number;
-    averageDuration: number;
-    syncsByType: Record<string, number>;
-    recentSyncs: SyncStatusRecord[];
-  }> {
-    const cutoffTime = Date.now() - (days * 24 * 60 * 60 * 1000);
-    
-    // Get recent syncs for all types
-    const recentSyncs = await this.getRecentSyncStatuses(undefined, 100);
-    
-    // Filter by time and calculate statistics
-    const filteredSyncs = recentSyncs.filter(sync => sync.timestamp >= cutoffTime);
-    
-    const stats = {
-      totalSyncs: filteredSyncs.length,
-      successfulSyncs: filteredSyncs.filter(s => s.status === 'completed').length,
-      failedSyncs: filteredSyncs.filter(s => s.status === 'failed').length,
-      averageDuration: 0,
-      syncsByType: {} as Record<string, number>,
-      recentSyncs: filteredSyncs.slice(0, 10),
-    };
-
-    // Calculate average duration for completed syncs
-    const completedSyncs = filteredSyncs.filter(s => s.status === 'completed' && s.duration);
-    if (completedSyncs.length > 0) {
-      const totalDuration = completedSyncs.reduce((sum, sync) => sum + (sync.duration || 0), 0);
-      stats.averageDuration = totalDuration / completedSyncs.length;
-    }
-
-    // Count syncs by type
-    filteredSyncs.forEach(sync => {
-      stats.syncsByType[sync.type] = (stats.syncsByType[sync.type] || 0) + 1;
-    });
-
-    return stats;
-  }
-
-  /**
-   * Clean up old sync records
-   */
-  async cleanupOldRecords(daysToKeep: number = 30): Promise<number> {
-    const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
-    
-    // Get old records
-    const oldRecords = await this.getRecentSyncStatuses(undefined, 1000);
-    const recordsToDelete = oldRecords.filter(record => record.timestamp < cutoffTime);
-    
-    // Delete old records
-    let deletedCount = 0;
-    for (const record of recordsToDelete) {
-      try {
-        await this.docClient.send(new UpdateCommand({
+    // allSettled (rather than all) so a single throttle/transient
+    // failure on one type doesn't sink the whole list endpoint —
+    // partial results are more useful than a 500. Failures are
+    // logged so they're not silent.
+    const perTypeResults = await Promise.allSettled(
+      VALID_SYNC_TYPES.map(async (t) => {
+        const response = await this.docClient.send(new QueryCommand({
           TableName: this.tableName,
-          Key: { id: record.id },
-          UpdateExpression: 'REMOVE #id',
-          ExpressionAttributeNames: {
-            '#id': 'id',
-          },
-        }));
-        deletedCount++;
-      } catch (error) {
-        console.error(`Failed to delete sync record ${record.id}:`, error);
-      }
-    }
+          IndexName: 'TypeIndex',
+          KeyConditionExpression: '#type = :type',
+          ExpressionAttributeNames: { '#type': 'type' },
+          ExpressionAttributeValues: { ':type': t },
+          ScanIndexForward: false,
+          Limit: limit,
+        })) as QueryCommandOutput;
+        return (response.Items ?? []) as SyncStatusRecord[];
+      })
+    );
 
-    console.log(`Cleaned up ${deletedCount} old sync records`);
-    return deletedCount;
+    return perTypeResults
+      .flatMap((r, i) => {
+        if (r.status === 'rejected') {
+          console.error(
+            `getRecentSyncStatuses: query for type=${VALID_SYNC_TYPES[i]} failed:`,
+            r.reason,
+          );
+          return [];
+        }
+        return r.value;
+      })
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, limit);
   }
 }

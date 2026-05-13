@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import { ApiEvent, ApiResponse, DateRange, ApiOptions, SyncResult } from '../types';
+import { ApiEvent, ApiResponse, DateRange, ApiOptions } from '../types';
 
 /**
  * Compute the default year using the Oct 1 turnover rule:
@@ -453,5 +453,3 @@ export class EventsCalendarApiClient {
     }
   }
 }
-
-export default EventsCalendarApiClient;

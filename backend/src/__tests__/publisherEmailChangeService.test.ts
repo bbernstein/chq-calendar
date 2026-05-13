@@ -4,10 +4,7 @@
 // no DDB or SES contact. The tests focus on the edge-case matrix from the
 // design spec section "Edge cases enforced".
 
-import {
-  PublisherEmailChangeService,
-  EmailChangeError,
-} from '../services/publisherEmailChangeService';
+import { PublisherEmailChangeService } from '../services/publisherEmailChangeService';
 import { PublisherNotFoundError } from '../services/publisherRegistryService';
 import type { PublisherRecord } from '../types/publisher';
 

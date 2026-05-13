@@ -3,7 +3,7 @@ import { EventTransformationService } from './eventTransformationService';
 import { MultiLayerCacheService } from './multiLayerCacheService';
 import { SyncStatusService } from './syncStatusService';
 import { ChautauquaEvent, SyncResult, DateRange } from '../types';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 export class EventsCalendarDataSyncService {
@@ -82,15 +82,11 @@ export class EventsCalendarDataSyncService {
       console.log(`Transformed ${transformedEvents.length} events`);
 
       // Process events in bulk for better performance
-      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      const processedEvents = await this.bulkProcessEvents(transformedEvents);
       result.eventsProcessed = processedEvents.processed;
       result.eventsCreated = processedEvents.created;
       result.eventsUpdated = processedEvents.updated;
       result.errors.push(...processedEvents.errors);
-
-      // Clean up old events that are no longer in the API
-      const deletedCount = await this.cleanupOldEvents(dateRange, transformedEvents);
-      result.eventsDeleted = deletedCount;
 
       result.success = result.errors.length === 0;
       result.duration = Date.now() - startTime;
@@ -145,7 +141,7 @@ export class EventsCalendarDataSyncService {
       const startTime = Date.now();
 
       // Process events in bulk
-      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      const processedEvents = await this.bulkProcessEvents(transformedEvents);
 
       result.eventsProcessed = processedEvents.processed;
       result.eventsCreated = processedEvents.created;
@@ -225,7 +221,7 @@ export class EventsCalendarDataSyncService {
       const startTime = Date.now();
 
       // Process events in bulk for better performance
-      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      const processedEvents = await this.bulkProcessEvents(transformedEvents);
       result.eventsProcessed = processedEvents.processed;
       result.eventsCreated = processedEvents.created;
       result.eventsUpdated = processedEvents.updated;
@@ -303,7 +299,7 @@ export class EventsCalendarDataSyncService {
       const startTime = Date.now();
 
       // Process events in bulk for better performance
-      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      const processedEvents = await this.bulkProcessEvents(transformedEvents);
       result.eventsProcessed = processedEvents.processed;
       result.eventsCreated = processedEvents.created;
       result.eventsUpdated = processedEvents.updated;
@@ -370,7 +366,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
       const startTime = Date.now();
 
       // Process events in bulk for better performance
-      const processedEvents = await this.bulkProcessEvents(transformedEvents, result);
+      const processedEvents = await this.bulkProcessEvents(transformedEvents);
       result.eventsProcessed = processedEvents.processed;
       result.eventsCreated = processedEvents.created;
       result.eventsUpdated = processedEvents.updated;
@@ -445,7 +441,7 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
   /**
    * Process events in bulk with batch operations for better performance
    */
-  private async bulkProcessEvents(events: ChautauquaEvent[], result: SyncResult): Promise<{
+  private async bulkProcessEvents(events: ChautauquaEvent[]): Promise<{
     processed: number;
     created: number;
     updated: number;
@@ -731,43 +727,6 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     }
 
     return false;
-  }
-
-  /**
-   * Clean up old events that are no longer in the API
-   */
-  private async cleanupOldEvents(dateRange: DateRange, currentEvents: ChautauquaEvent[]): Promise<number> {
-    try {
-      // This would typically:
-      // 1. Query all events in the date range from database
-      // 2. Compare with current events
-      // 3. Delete events that are no longer in the API
-      // TODO: Implement actual cleanup logic
-      console.log(`Cleaning up old events for range ${dateRange.start} to ${dateRange.end}`);
-      return 0;
-    } catch (error) {
-      console.error('Error cleaning up old events:', error);
-      return 0;
-    }
-  }
-
-  /**
-   * Get sync statistics
-   */
-  async getSyncStatistics(): Promise<{
-    lastSyncTime?: string;
-    totalEvents: number;
-    eventsByWeek: { [week: number]: number };
-    eventsByCategory: { [category: string]: number };
-    syncHistory: SyncResult[];
-  }> {
-    // TODO: Implement actual statistics gathering
-    return {
-      totalEvents: 0,
-      eventsByWeek: {},
-      eventsByCategory: {},
-      syncHistory: []
-    };
   }
 
   /**
@@ -1087,5 +1046,3 @@ console.log(`Fetched ${apiEvents.length} events for date range`);
     this.apiClient.clearCache();
   }
 }
-
-export default EventsCalendarDataSyncService;

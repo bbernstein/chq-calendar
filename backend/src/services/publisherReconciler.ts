@@ -1,6 +1,5 @@
 import type { FeedDocument, FeedEvent } from '@chq-calendar/publisher-format';
 import type {
-  ReconcileDiff,
   ReconcileResult,
   StoredPublisherEvent,
   TrustLevel,

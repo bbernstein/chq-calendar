@@ -1,7 +1,7 @@
 import { EventsCalendarDataSyncService } from '../services/eventsCalendarDataSyncService';
 import { EventsCalendarApiClient } from '../services/eventsCalendarApiClient';
 import { EventTransformationService } from '../services/eventTransformationService';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { jest } from '@jest/globals';
 
 // Mock dependencies
@@ -629,21 +629,6 @@ describe('EventsCalendarDataSyncService', () => {
 
       expect(result.success).toBe(false);
       expect(result.errors).toContain('Date range sync failed: Range error');
-    });
-  });
-
-  describe('getSyncStatistics', () => {
-    it('should return sync statistics', async () => {
-      const stats = await syncService.getSyncStatistics();
-
-      expect(stats).toHaveProperty('totalEvents');
-      expect(stats).toHaveProperty('eventsByWeek');
-      expect(stats).toHaveProperty('eventsByCategory');
-      expect(stats).toHaveProperty('syncHistory');
-      expect(typeof stats.totalEvents).toBe('number');
-      expect(typeof stats.eventsByWeek).toBe('object');
-      expect(typeof stats.eventsByCategory).toBe('object');
-      expect(Array.isArray(stats.syncHistory)).toBe(true);
     });
   });
 

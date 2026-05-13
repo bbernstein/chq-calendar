@@ -28,7 +28,7 @@ describe('Server', () => {
     
     // Mock the listen method to prevent actual server startup
     const originalListen = express.application.listen;
-    express.application.listen = function(this: any, ...args: any[]) {
+    express.application.listen = function(this: any, ..._args: any[]) {
       // Don't actually start the server
       return {
         close: jest.fn()

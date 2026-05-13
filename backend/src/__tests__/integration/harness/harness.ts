@@ -107,8 +107,6 @@ export interface CreateHarnessOpts {
   now?: Date | string;
 }
 
-// Module-level singletons (so harness can reset across tests).
-let _harnessSingleton: Harness | null = null;
 const TEST_JWT_SECRET = 'test-publisher-jwt-secret-do-not-use-in-prod';
 
 // Mock the publisher secret cache so signPublisherJwt / verifyPublisherJwt use
@@ -306,15 +304,9 @@ export async function createHarness(opts: CreateHarnessOpts = {}): Promise<Harne
       admin._setPublisherAdminForTests(null);
       admin._setLambdaClientForTests(null);
       _captchaToggleRef = null;
-      _harnessSingleton = null;
     },
   };
   harness.actors = buildActors(harness);
-  _harnessSingleton = harness;
 
   return harness;
-}
-
-export function currentHarness(): Harness | null {
-  return _harnessSingleton;
 }

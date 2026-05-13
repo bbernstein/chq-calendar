@@ -126,14 +126,6 @@ describe('EventsCalendarApiClient', () => {
         },
       };
 
-      const mockResponse2 = {
-        data: {
-          events: [{ id: 3, title: 'Event 3' }],
-          total: 3,
-          total_pages: 2,
-        },
-      };
-
       // First call returns 2 events (less than perPage=50), so pagination stops
       mockAxiosInstance.get.mockResolvedValueOnce(mockResponse1);
 
