@@ -157,7 +157,7 @@ entry in `src/entries/`, and registering it in
 2. **Client-Side Performance**
    - All filtering happens client-side for instant results
    - Memoized components to prevent unnecessary re-renders
-   - Efficient state management with React hooks and localStorage persistence
+   - Efficient state management with hooks and localStorage persistence
    - FIFO recent items tracking (10 most recent, display 3+ as pills)
 
 3. **User Experience**
@@ -176,6 +176,7 @@ deliberate convention: `@preact/preset-vite` aliases `'react'` and
 `'react-dom'` to `'preact/compat'` at build time, which installs the
 `onChange` → `onInput` event normalization that React-style form
 components rely on. See `CLAUDE.md` ("Imports") for the full reasoning.
+
 ```typescript
 // Main state structure with localStorage integration
 const [events, setEvents] = useState<ChautauquaEvent[]>([]);
