@@ -1,7 +1,12 @@
+> **Status:** Shipped via PRs #83 (`b8c1bc4`), #84 (`205403a`), and #85
+> (`161e19b`). Kept for architectural context — the portal's data model,
+> verification flow, and admin/review state machine described here still
+> govern current code.
+
 # Publisher self-service portal — design doc
 
 **Date:** 2026-05-03
-**Status:** design / brainstorm
+**Status:** Shipped (see banner above)
 **Branch:** `feat/admin-index-and-publisher-portal`
 
 ## Problem

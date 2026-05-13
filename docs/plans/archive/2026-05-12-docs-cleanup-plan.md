@@ -1,3 +1,7 @@
+> **Status:** Shipped via PR #125. Kept for reference — the Audit Results
+> sections record which top-level docs and plans were considered Current,
+> Reference, or Archive at execution time.
+
 # Docs Cleanup Plan
 
 > **For agentic workers:** Self-contained plan for a fresh session. Use
@@ -73,8 +77,20 @@ historical plans, with `CLAUDE.md` pointing at things that still exist."
 describes the pre-Vite/Preact migration and is referenced by `CLAUDE.md` as
 if it were active. Both the doc and the reference need attention.
 
-**Audit Results** (fill in during the task):
-- TBD
+**Audit Results** (2026-05-13):
+
+| File | Verdict | Notes |
+|---|---|---|
+| `API_INTEGRATION_DESIGN.md` | Current | Still describes the live Events Calendar API integration. |
+| `CACHING_ARCHITECTURE.md` | Current | Already names Vite + Preact; contrasts the obsolete Lambda-based phases. |
+| `coverage.md` | Current | Framework-agnostic ratchet policy. |
+| `DEPLOYMENT.md` | Current | References Vite dev server + Lambda; no Next.js idioms. |
+| `DESIGN.md` | Needs refresh | Section structure still leans on the Next.js `src/app/` shape; tooling table itself is correct. |
+| `DEVELOPMENT_HISTORY.md` | Current | Phase 6 ends on the Vite/Preact migration; the chronology is accurate. |
+| `DEVELOPMENT_WORKFLOW.md` | Current | Vite dev server, no Next.js conventions. |
+| `OAuth-Setup.md` | Current | Framework-agnostic env + Terraform setup. |
+| `OPTIMIZATION_PLAN.md` | Historical | Describes the pre-Vite Next.js 15 + React 19 optimization initiative; archive. |
+| `YEAR_CONFIGURATION.md` | Current | Backend/data config, independent of frontend framework. |
 
 ### Task 1B: Inventory `docs/plans/`
 
@@ -105,6 +121,19 @@ for whether the plan's PR shipped.
    - Possibly `2026-05-08-close-out-backlog-plan.md` if any tasks remain
      (check first — most likely fully shipped)
 
+**Audit Results — Phase 1B** (2026-05-13):
+
+Active (keep as-is):
+- `2026-05-12-docs-cleanup-plan.md` (this plan)
+
+Reference (annotate with status banner, keep in `docs/plans/`):
+- `2026-03-03-multi-year-support-design.md` — year-rollover rule still load-bearing.
+- `2026-05-01-event-publisher-format-design.md` — feed-format spec referenced by ingest + portal docs.
+- `2026-05-03-publisher-portal-design.md` — portal architecture spec.
+- `2026-05-05-publisher-self-service-design.md` — self-service flow + key model.
+
+Archive (move to `docs/plans/archive/`): everything else (33 plan files), including the matching `-plan.md` siblings of the Reference design docs.
+
 ### Task 1C: Inventory subdirectories
 
 `docs/superpowers/` has `plans/` and `specs/` mirroring `docs/plans/`'s shape
@@ -116,6 +145,12 @@ but only contains the publisher-observability pair. Decide:
 
 `docs/runbooks/` and `docs/publisher/` are out of scope per the top of this
 plan.
+
+**Decision (2026-05-13):** Consolidate. The two publisher-observability files
+(`docs/superpowers/specs/2026-05-06-publisher-observability-design.md` and
+`docs/superpowers/plans/2026-05-06-publisher-observability-plan.md`) move into
+`docs/plans/archive/` (both shipped via PRs #110/#111/#112). Empty
+`docs/superpowers/` directory then removed.
 
 ---
 

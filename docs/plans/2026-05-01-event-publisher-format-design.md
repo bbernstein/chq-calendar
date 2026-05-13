@@ -1,6 +1,11 @@
+> **Status:** Shipped across PRs #69, #70, #72 (`b0b4c76`), and #73
+> (`4bf81d0`). Kept as the authoritative reference for the publisher feed
+> format — the schema, validation rules, and trust model documented here
+> are what ingest still enforces.
+
 # CHQ-Orbit Event Publisher Format — Design
 
-**Status:** Draft for review
+**Status:** Shipped (see banner above)
 **Date:** 2026-05-01
 **Author:** brainstorming session
 **Scope:** Defines a JSON event-feed format that Chautauqua-orbit publishers can publish (as a static JSON file or embedded in HTML), plus the ingestion pipeline that pulls those feeds into chqcal.org.

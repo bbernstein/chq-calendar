@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Chautauqua Calendar is a full-stack serverless application designed to provide a dynamic, filterable calendar for the 2025 Chautauqua Institution season. This document outlines the comprehensive architecture, design decisions, and assumptions that guide the development of this project.
+The Chautauqua Calendar is a full-stack serverless application designed to provide a dynamic, filterable calendar for the Chautauqua Institution summer season. This document outlines the comprehensive architecture, design decisions, and assumptions that guide the development of this project.
 
 ## Table of Contents
 
@@ -93,7 +93,7 @@ graph TB
 ### Technology Stack
 
 - **Frontend**: Vite 7, Preact 10, TypeScript, Tailwind CSS 4
-- **Backend**: AWS Lambda (Node.js 22.x), Express.js (local dev), TypeScript
+- **Backend**: AWS Lambda (Node.js 24.x), Express.js (local dev), TypeScript
 - **Database**: DynamoDB (AWS/Local)
 - **Infrastructure**: AWS (S3, CloudFront, API Gateway, Lambda, DynamoDB)
 - **Development**: Docker Compose, Jest, ESBuild
@@ -113,13 +113,39 @@ graph TB
 
 ### Component Structure
 
+Vite builds a multi-page static app. Each page has its own HTML entry plus
+a TypeScript entry under `src/entries/`. Page components live under
+`src/app/`. Reusable code is organized by responsibility.
+
 ```
-src/app/
-├── layout.tsx          # Root layout with metadata
-├── page.tsx            # Main calendar interface
-├── globals.css         # Global styles
-└── favicon.ico         # Site icon
+frontend/
+├── index.html                   # Main calendar HTML entry
+├── feedback/, publish/, admin/… # Per-page directories with `index.html` entries
+└── src/
+    ├── entries/                 # One entry file per page (mounts a component)
+    │   ├── main.tsx
+    │   ├── admin.tsx
+    │   ├── publish-apply.tsx
+    │   └── ...
+    ├── app/                     # Page-level components
+    │   ├── page.tsx             # Main calendar
+    │   ├── globals.css          # Tailwind + custom CSS
+    │   ├── feedback/
+    │   ├── publish/
+    │   └── admin/
+    │       ├── feedback/
+    │       ├── login/
+    │       ├── publishers/
+    │       └── publisher-events/
+    ├── components/              # Reusable UI components
+    ├── hooks/                   # Custom Preact hooks
+    ├── lib/                     # Utilities (auth, helpers, search, dates)
+    └── types/                   # Shared type definitions
 ```
+
+Adding a new page means adding an `index.html`-style file, a matching
+entry in `src/entries/`, and registering it in
+`vite.config.ts`'s `rollupOptions.input` map.
 
 ### Key Design Principles
 
@@ -190,7 +216,7 @@ const [recentCategories, setRecentCategories] = useState<string[]>([]);
 
 ### Runtime Environment
 
-**AWS Lambda with Node.js 22.x**
+**AWS Lambda with Node.js 24.x**
 - Serverless compute for cost efficiency
 - Auto-scaling based on demand
 - TypeScript compilation with ES2020 target
@@ -716,6 +742,5 @@ This design document serves as the single source of truth for the Chautauqua Cal
 
 ---
 
-*Last Updated: July 26, 2025*
-*Version: 1.1*
-*Next Review: September 2025*
+*Last Updated: 2026-05-13 (Component Structure refreshed for Vite multi-page layout)*
+*Version: 1.2*

@@ -1,7 +1,12 @@
+> **Status:** Shipped via PR #98 (`11b8587`) with follow-ups in PR #115
+> (`ad51483`). Kept for architectural context — the self-service profile,
+> email-change, and ingest-controls flows described here still govern
+> current code.
+
 # Publisher portal self-service — design
 
 **Date**: 2026-05-05
-**Status**: Design (awaiting implementation plan)
+**Status**: Shipped (see banner above)
 **Builds on**: Phases A–D of the publisher portal (`docs/plans/2026-05-03-publisher-portal-design.md`).
 
 ## Problem
