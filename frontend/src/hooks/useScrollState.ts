@@ -164,16 +164,23 @@ export function useWeekDragSelection(
       setSelectedWeeks([]);
       return;
     }
-    setSelectedWeeks(prev => {
-      const newSelection = prev.includes(weekNum)
+    // Touch has no shift/cmd modifiers, so tapping a week while a relative
+    // date filter (Now / Today / This Week) is active should replace that
+    // filter with the single tapped week — matching desktop click behavior.
+    // Multi-week selection is only available once no relative filter is set.
+    const isRelativeFilterActive =
+      dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week';
+    if (isRelativeFilterActive) {
+      setDateFilter('all');
+      setSelectedWeeks([weekNum]);
+      return;
+    }
+    setSelectedWeeks(prev =>
+      prev.includes(weekNum)
         ? prev.filter(w => w !== weekNum)
-        : [...prev, weekNum].sort((a, b) => a - b);
-      if (newSelection.length > 0) {
-        setDateFilter('all');
-      }
-      return newSelection;
-    });
-  }, [currentWeekNumber, selectedWeeks, setDateFilter, setSelectedWeeks]);
+        : [...prev, weekNum].sort((a, b) => a - b),
+    );
+  }, [currentWeekNumber, dateFilter, selectedWeeks, setDateFilter, setSelectedWeeks]);
 
   // Global mouseup handler for drag
   useEffect(() => {
