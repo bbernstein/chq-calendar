@@ -103,6 +103,19 @@ describe('useWeekDragSelection — handleWeekTap (touchscreen)', () => {
     expect(result.current.selectedWeeks).toEqual([]);
   });
 
+  it('switches to "This Week" when tapping the current week while "Today" is active', () => {
+    const { result } = renderHook(() =>
+      useHarness({ dateFilter: 'today', selectedWeeks: [], currentWeekNumber: 7 }),
+    );
+
+    act(() => {
+      result.current.drag.handleWeekTap(7);
+    });
+
+    expect(result.current.dateFilter).toBe('this-week');
+    expect(result.current.selectedWeeks).toEqual([]);
+  });
+
   it('multi-selects weeks when no relative filter is active', () => {
     const { result } = renderHook(() =>
       useHarness({ dateFilter: 'all', selectedWeeks: [5], currentWeekNumber: 11 }),
