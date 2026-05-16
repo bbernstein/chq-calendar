@@ -15,6 +15,15 @@ function useHarness(initial: { dateFilter: DateFilter; selectedWeeks: number[]; 
   return { dateFilter, selectedWeeks, drag };
 }
 
+// `handleWeekMouseDown` mutates `document.body.style.userSelect = 'none'` when it
+// starts a drag, and `handleWeekMouseUp` (or the global mouseup listener) is what
+// resets it. Tests that exercise mouseDown without a matching mouseUp would leak
+// that global DOM state into the next test — reset it after every test to keep
+// the order-independence guarantee.
+afterEach(() => {
+  document.body.style.userSelect = '';
+});
+
 describe('useWeekDragSelection — handleWeekTap (touchscreen)', () => {
   it('replaces an active "Now" filter with the tapped week', () => {
     const { result } = renderHook(() =>
@@ -58,6 +67,19 @@ describe('useWeekDragSelection — handleWeekTap (touchscreen)', () => {
   it('switches to "This Week" when tapping the current week from a clean state', () => {
     const { result } = renderHook(() =>
       useHarness({ dateFilter: 'all', selectedWeeks: [], currentWeekNumber: 7 }),
+    );
+
+    act(() => {
+      result.current.drag.handleWeekTap(7);
+    });
+
+    expect(result.current.dateFilter).toBe('this-week');
+    expect(result.current.selectedWeeks).toEqual([]);
+  });
+
+  it('stays on "This Week" when tapping the current week while already in "this-week" (no toggle off)', () => {
+    const { result } = renderHook(() =>
+      useHarness({ dateFilter: 'this-week', selectedWeeks: [], currentWeekNumber: 7 }),
     );
 
     act(() => {
