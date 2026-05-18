@@ -158,9 +158,11 @@ New hook `useWeeklyThemes(year: number)`:
 - The `title` attribute extends to include the theme:
   `Week 1 — "Building a Culture of Empathy" (Jun 27–Jul 4)`. Free
   native tooltip on desktop.
-- Visual affordance that a theme is available: a small dot or thin
-  underline on buttons whose week has a theme entry. (Final styling
-  to be tweaked when we view it.)
+- No visual indicator on themed buttons — they look identical to
+  un-themed ones. Theme info is surfaced only when the user requests
+  it (hover title, right-click, long-press, or `ContextMenu` /
+  `Shift+F10` for keyboard users). This change from the original
+  "dot or underline" sketch came out of mobile review.
 - A new `WeekThemePopover` component:
   - Opens on **long-press** (touch) or **right-click / shift-click /
     keyboard menu** on a week button.
@@ -176,19 +178,30 @@ inside the popover trigger if testing shows long-press is missed.
 
 ### Active filter chip
 
-When a week filter is active, the chip text gains the theme title:
-`Week 1 · "Building a Culture of Empathy"`, truncating with ellipsis
-on narrow widths. Falls back to the existing `Week 1` text if no
-theme is loaded.
+Originally this section proposed extending the chip text to
+`Week 1 · "Building a Culture of Empathy"`. After mobile review the
+chip was left as the bare `Week 1` form to keep the "Filtering by"
+row compact on narrow viewports — the theme is reachable from the
+WeekSelector tooltip / popover, so duplicating it on the chip wasn't
+worth the screen real estate.
+
+### EventList day headers (shipped)
+
+Each day group's header now reads `Day, Month D, YYYY - Week N`. On
+Saturdays — where the canonical Sat-noon-to-Sat-noon boundary splits
+the calendar day across two season weeks — it reads
+`Day, Month D, YYYY - Week N/M`, and the popover stacks both themes.
+`groupEventsByDay` was restructured to return
+`{ key, baseLabel, weekNumbers, events }` so `EventList` can render
+the week portion via a `WeekBadge` with the same hover/long-press
+popover affordances as the filter row.
 
 ### Where else themes could appear (deliberately deferred)
 
-- Section headers in `EventList` when grouped by week.
 - Event cards (one-line theme attribution under the date).
 
-Both are easy to add once we've validated the popover/chip surface.
-Pushing them past v1 keeps the diff small and the iteration loop
-fast.
+Easy to add once we've validated the popover surface. Pushed past v1
+to keep the diff small.
 
 ## Multi-year
 
