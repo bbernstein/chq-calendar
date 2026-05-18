@@ -9,6 +9,7 @@ import { useFilterState } from '@/hooks/useFilterState';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
+import { useWeeklyThemes } from '@/hooks/useWeeklyThemes';
 import { GlobalEventDataProvider, useGlobalEventData } from '@/components/providers/GlobalEventDataProvider';
 import { Header } from '@/components/layout/Header';
 import { CountdownBanner } from '@/components/layout/CountdownBanner';
@@ -40,6 +41,7 @@ function HomeContent() {
     locationListScroll.updateScrollState(); categoryListScroll.updateScrollState();
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ year: selectedYear, globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
+  const { themes: weeklyThemes } = useWeeklyThemes(selectedYear);
   const isCurrentYear = selectedYear === defaultYear;
   const prevYearRef = useRef(selectedYear);
   const pendingYearChangeRef = useRef(false);
@@ -138,6 +140,7 @@ function HomeContent() {
               onToggleFavoritesOnly={filters.toggleFavoritesOnly}
               favoriteCount={favorites.favoriteCount}
               isCurrentYear={isCurrentYear}
+              weeklyThemes={weeklyThemes}
             />
             <div className="space-y-3">
               <LocationFilter
@@ -172,7 +175,7 @@ function HomeContent() {
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
                 dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay}
-                hasMoreDays={hasMoreDays} />
+                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} />
             )}
           </div>
         </div>

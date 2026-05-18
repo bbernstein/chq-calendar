@@ -62,6 +62,8 @@ backend/coverage/
 frontend/data/*
 frontend/public/data/*
 !frontend/public/data/years.json
+!frontend/public/data/weekly-themes/
+!frontend/public/data/weekly-themes/*.json
 
 # Build outputs
 backend/dist-all/

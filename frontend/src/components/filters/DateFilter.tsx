@@ -1,5 +1,6 @@
 import type { SeasonWeek } from '@/lib/types';
 import { WeekSelector } from './WeekSelector';
+import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 
 interface DateFilterProps {
   dateFilter: string;
@@ -21,6 +22,7 @@ interface DateFilterProps {
   onToggleFavoritesOnly: () => void;
   favoriteCount: number;
   isCurrentYear: boolean;
+  weeklyThemes?: Record<number, WeekTheme>;
 }
 
 function DateFilterButton({ label, title, isActive, onClick, ariaLabel }: {
@@ -94,7 +96,7 @@ export function DateFilter({
   currentWeekNumber, seasonWeeks, isThisWeekButtonActive,
   weekDrag, isWeekHighlighted,
   showFavoritesOnly, onToggleFavoritesOnly, favoriteCount,
-  isCurrentYear,
+  isCurrentYear, weeklyThemes,
 }: DateFilterProps) {
   const toggleDateFilter = (filter: 'next' | 'today' | 'this-week') => {
     setDateFilter(dateFilter === filter ? 'all' : filter);
@@ -119,6 +121,7 @@ export function DateFilter({
             onMouseUp={weekDrag.handleWeekMouseUp}
             onTap={weekDrag.handleWeekTap}
             size="sm"
+            themes={weeklyThemes}
           />
         </div>
       </div>
@@ -152,6 +155,7 @@ export function DateFilter({
             onMouseUp={weekDrag.handleWeekMouseUp}
             onTap={weekDrag.handleWeekTap}
             size="lg"
+            themes={weeklyThemes}
           />
         </div>
       </div>

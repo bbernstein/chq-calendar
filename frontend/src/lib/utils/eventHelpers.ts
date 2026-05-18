@@ -1,5 +1,4 @@
 import type { Event, SeasonWeek } from '@/lib/types';
-import { getWeekNumberForDate } from './dateHelpers';
 
 // Lookup table for common HTML entities found in event data
 const HTML_ENTITY_MAP: Record<string, string> = {
@@ -82,44 +81,63 @@ export function decodeEventHtmlEntities(event: Event): Event {
   };
 }
 
-export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Array<{ day: string; events: Event[] }> {
-  const grouped: { [key: string]: Event[] } = {};
+export interface DayGroup {
+  /** Stable key per calendar date (YYYY-MM-DD in local time). */
+  key: string;
+  /** Display label without the week part, e.g. "Saturday, July 4, 2026". */
+  baseLabel: string;
+  /** Season week numbers that span any portion of this calendar date (1-2 entries). */
+  weekNumbers: number[];
+  events: Event[];
+}
 
-  events.forEach(event => {
-    const eventDate = new Date(event.startDate);
-    const baseDayKey = eventDate.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+function localDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
-    // Add week number to the day label
-    const weekNumber = getWeekNumberForDate(eventDate, seasonWeeks);
-    const dayKey = weekNumber
-      ? `${baseDayKey} - Week ${weekNumber}`
-      : baseDayKey;
-
-    if (!grouped[dayKey]) {
-      grouped[dayKey] = [];
+function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): number[] {
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  const numbers: number[] = [];
+  for (const w of seasonWeeks) {
+    if (w.start <= dayEnd && w.end > dayStart) {
+      numbers.push(w.number);
     }
-    grouped[dayKey].push(event);
-  });
+  }
+  return numbers;
+}
 
-  // Sort events within each day by start time
-  Object.keys(grouped).forEach(dayKey => {
-    grouped[dayKey].sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-  });
+export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): DayGroup[] {
+  const grouped = new Map<string, DayGroup>();
 
-  // Return days sorted by date
-  const sortedDays = Object.keys(grouped).sort((a, b) => {
-    const dateA = new Date(grouped[a][0].startDate);
-    const dateB = new Date(grouped[b][0].startDate);
-    return dateA.getTime() - dateB.getTime();
-  });
+  for (const event of events) {
+    const eventDate = new Date(event.startDate);
+    const key = localDateKey(eventDate);
+    let group = grouped.get(key);
+    if (!group) {
+      const baseLabel = eventDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+      group = {
+        key,
+        baseLabel,
+        weekNumbers: weekNumbersForCalendarDate(eventDate, seasonWeeks),
+        events: [],
+      };
+      grouped.set(key, group);
+    }
+    group.events.push(event);
+  }
 
-  return sortedDays.map(dayKey => ({
-    day: dayKey,
-    events: grouped[dayKey]
-  }));
+  for (const group of grouped.values()) {
+    group.events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+  }
+
+  return Array.from(grouped.values()).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }

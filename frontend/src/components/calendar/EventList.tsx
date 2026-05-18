@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { Event } from '@/lib/types';
+import type { DayGroup } from '@/lib/utils/eventHelpers';
+import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import { downloadICS } from '@/lib/utils/icsHelpers';
 import { EventCard } from './EventCard';
-
-interface DayGroup {
-  day: string;
-  events: Event[];
-}
+import { WeekBadge } from './WeekBadge';
 
 interface EventListProps {
   groupedEvents: DayGroup[];
@@ -19,11 +17,12 @@ interface EventListProps {
   dateFilter: string;
   onShowNextDay?: () => void;
   hasMoreDays?: boolean;
+  weeklyThemes?: Record<number, WeekTheme>;
 }
 
 const BATCH_SIZE = 50;
 
-export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay, hasMoreDays }: EventListProps) {
+export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay, hasMoreDays, weeklyThemes }: EventListProps) {
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -49,14 +48,14 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
 
   // Slice day groups to only show visibleCount events total
   let remaining = visibleCount;
-  const visibleGroups: Array<{ day: string; events: Event[] }> = [];
+  const visibleGroups: DayGroup[] = [];
   for (const group of groupedEvents) {
     if (remaining <= 0) break;
     if (group.events.length <= remaining) {
       visibleGroups.push(group);
       remaining -= group.events.length;
     } else {
-      visibleGroups.push({ day: group.day, events: group.events.slice(0, remaining) });
+      visibleGroups.push({ ...group, events: group.events.slice(0, remaining) });
       remaining = 0;
     }
   }
@@ -75,9 +74,17 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
   return (
     <div className="space-y-4 sm:space-y-6">
       {visibleGroups.map((dayGroup) => (
-        <div key={dayGroup.day}>
+        <div key={dayGroup.key}>
           <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">{dayGroup.day}</h3>
+            <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
+              {dayGroup.baseLabel}
+              {dayGroup.weekNumbers.length > 0 && (
+                <>
+                  <span> - </span>
+                  <WeekBadge weekNumbers={dayGroup.weekNumbers} themes={weeklyThemes ?? {}} />
+                </>
+              )}
+            </h3>
           </div>
           <div className="space-y-1">
             {dayGroup.events.map((event, index) => (

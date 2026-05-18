@@ -1,0 +1,70 @@
+{
+  "year": 2026,
+  "scrapedAt": "2026-05-18T14:03:21.141Z",
+  "source": "https://www.chq.org/things-to-do/events/weekly-themes/",
+  "weeks": [
+    {
+      "number": 1,
+      "title": "Icons and Instigators: Women Who Change the World",
+      "description": "",
+      "startDate": "2026-06-27",
+      "endDate": "2026-07-04"
+    },
+    {
+      "number": 2,
+      "title": "Breaking the News: Charting a New Media Landscape",
+      "description": "",
+      "startDate": "2026-07-04",
+      "endDate": "2026-07-11"
+    },
+    {
+      "number": 3,
+      "title": "The 2026 Election: What’s at Stake?",
+      "description": "",
+      "startDate": "2026-07-11",
+      "endDate": "2026-07-18"
+    },
+    {
+      "number": 4,
+      "title": "Wasted: Our Era of Disposability",
+      "description": "",
+      "startDate": "2026-07-18",
+      "endDate": "2026-07-25"
+    },
+    {
+      "number": 5,
+      "title": "Art and Artists Against the Odds",
+      "description": "",
+      "startDate": "2026-07-25",
+      "endDate": "2026-08-01"
+    },
+    {
+      "number": 6,
+      "title": "America at 250: In Partnership with The Colonial Williamsburg Foundation",
+      "description": "",
+      "startDate": "2026-08-01",
+      "endDate": "2026-08-08"
+    },
+    {
+      "number": 7,
+      "title": "Global Power and Our Evolving International Order",
+      "description": "",
+      "startDate": "2026-08-08",
+      "endDate": "2026-08-15"
+    },
+    {
+      "number": 8,
+      "title": "The Future of Food: Climate, Technology and the Next Agricultural Revolution",
+      "description": "",
+      "startDate": "2026-08-15",
+      "endDate": "2026-08-22"
+    },
+    {
+      "number": 9,
+      "title": "The Importance of Gathering: A Collaboration with the Smithsonian Folklife Festival",
+      "description": "",
+      "startDate": "2026-08-22",
+      "endDate": "2026-08-30"
+    }
+  ]
+}
