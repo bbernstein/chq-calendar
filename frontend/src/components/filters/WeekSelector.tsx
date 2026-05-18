@@ -124,10 +124,8 @@ export function WeekSelector({
                     openPopoverIfThemed(week.number);
                   }, LONG_PRESS_MS);
                 }
-                if (!longPressFiredRef.current) {
-                  e.preventDefault();
-                  if (!hasTheme) onTap(week.number);
-                }
+                e.preventDefault();
+                if (!hasTheme) onTap(week.number);
               }}
               onTouchEnd={(e) => {
                 clearLongPress();
