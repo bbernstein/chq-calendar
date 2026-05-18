@@ -1,8 +1,7 @@
 # Weekly themes — design
 
-**Status:** Draft, awaiting user review
+**Status:** Implemented — PR #129 (`weekly-themes-design` branch)
 **Date:** 2026-05-17
-**Branch:** `weekly-themes-design`
 
 ## Problem
 

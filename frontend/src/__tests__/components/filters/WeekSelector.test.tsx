@@ -123,6 +123,21 @@ describe('WeekSelector — weekly theme integration', () => {
     }
   });
 
+  it('opens the popover when Shift+F10 is pressed on a themed week', () => {
+    render(
+      <WeekSelector
+        seasonWeeks={seasonWeeks}
+        selectedWeeks={[]}
+        size="sm"
+        themes={themes}
+        {...noops()}
+      />
+    );
+    const week1 = screen.getByRole('button', { name: /^Week 1\b/i });
+    fireEvent.keyDown(week1, { key: 'F10', shiftKey: true });
+    expect(screen.getByRole('dialog', { name: /Week 1 theme/i })).toBeInTheDocument();
+  });
+
   it('does not crash and renders normally when no themes prop is provided', () => {
     render(
       <WeekSelector

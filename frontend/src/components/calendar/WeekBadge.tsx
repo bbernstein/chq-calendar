@@ -67,6 +67,14 @@ export function WeekBadge({ weekNumbers, themes }: WeekBadgeProps) {
           }
         }}
         onClick={(e) => {
+          if (longPressFiredRef.current) {
+            // Synthetic click that immediately follows a long-press touch.
+            // Suppress so the popover the long-press just opened doesn't
+            // get re-toggled shut.
+            longPressFiredRef.current = false;
+            e.preventDefault();
+            return;
+          }
           if (hasAnyTheme) {
             e.preventDefault();
             setOpen(o => !o);
@@ -89,8 +97,17 @@ export function WeekBadge({ weekNumbers, themes }: WeekBadgeProps) {
             }, LONG_PRESS_MS);
           }
         }}
-        onTouchEnd={() => {
+        onTouchEnd={(e) => {
           clearLongPress();
+          if (longPressFiredRef.current) {
+            e.preventDefault();
+            // Leave the flag set briefly so the synthetic click that may
+            // follow (despite preventDefault) is also suppressed; auto-clear
+            // so we don't swallow a legitimate later click if the synthetic
+            // one never arrives.
+            window.setTimeout(() => { longPressFiredRef.current = false; }, 50);
+            return;
+          }
           longPressFiredRef.current = false;
         }}
         onTouchMove={() => clearLongPress()}

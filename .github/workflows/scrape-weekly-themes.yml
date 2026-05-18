@@ -42,12 +42,16 @@ jobs:
       - name: Scrape weekly themes (dry run)
         if: ${{ inputs.dry_run }}
         working-directory: backend
-        run: npx ts-node src/scripts/scrapeWeeklyThemes.ts --year=${{ inputs.year }} --dry-run
+        env:
+          YEAR: ${{ inputs.year }}
+        run: npx ts-node src/scripts/scrapeWeeklyThemes.ts --year="${YEAR}" --dry-run
 
       - name: Scrape weekly themes (write file)
         if: ${{ !inputs.dry_run }}
         working-directory: backend
-        run: npx ts-node src/scripts/scrapeWeeklyThemes.ts --year=${{ inputs.year }}
+        env:
+          YEAR: ${{ inputs.year }}
+        run: npx ts-node src/scripts/scrapeWeeklyThemes.ts --year="${YEAR}"
 
       - name: Open PR with updated themes file
         if: ${{ !inputs.dry_run }}

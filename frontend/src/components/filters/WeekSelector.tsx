@@ -106,6 +106,15 @@ export function WeekSelector({
                   openPopoverIfThemed(week.number);
                 }
               }}
+              onKeyDown={(e) => {
+                // ContextMenu key (Windows menu key, Shift+F10) opens the
+                // theme popover, matching the right-click affordance. Native
+                // Enter/Space still trigger the button's onTap behavior.
+                if (hasTheme && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) {
+                  e.preventDefault();
+                  openPopoverIfThemed(week.number);
+                }
+              }}
               onTouchStart={(e) => {
                 longPressFiredRef.current = false;
                 if (hasTheme) {

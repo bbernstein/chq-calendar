@@ -1,5 +1,5 @@
 /// <reference types="vitest/globals" />
-import { render, screen, fireEvent } from '@testing-library/preact';
+import { render, screen, fireEvent, act } from '@testing-library/preact';
 import { WeekBadge } from '@/components/calendar/WeekBadge';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 
@@ -63,6 +63,24 @@ describe('WeekBadge', () => {
     label.focus();
     fireEvent.keyDown(label, { key: ' ' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('keeps the popover open across the synthetic click that follows a long-press touch', () => {
+    vi.useFakeTimers();
+    try {
+      render(<WeekBadge weekNumbers={[4]} themes={themes} />);
+      const label = screen.getByText('Week 4');
+
+      fireEvent.touchStart(label);
+      act(() => { vi.advanceTimersByTime(600); });
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      fireEvent.touchEnd(label);
+      fireEvent.click(label);
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not behave as a clickable button when no themes are loaded', () => {
