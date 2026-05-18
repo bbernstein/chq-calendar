@@ -1,0 +1,82 @@
+name: Scrape Weekly Themes
+
+# Manual push-button workflow that re-scrapes chq.org's Weekly Themes page
+# for a given year and opens a PR with the updated JSON file. Themes do
+# not change inside a season — run this once per year (or when the
+# Institution edits the page).
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Season year to scrape (e.g. 2026)"
+        required: true
+        default: "2026"
+        type: string
+      dry_run:
+        description: "When true, log the parsed JSON and do not commit"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Scrape weekly themes (dry run)
+        if: ${{ inputs.dry_run }}
+        working-directory: backend
+        run: npx ts-node src/scripts/scrapeWeeklyThemes.ts --year=${{ inputs.year }} --dry-run
+
+      - name: Scrape weekly themes (write file)
+        if: ${{ !inputs.dry_run }}
+        working-directory: backend
+        run: npx ts-node src/scripts/scrapeWeeklyThemes.ts --year=${{ inputs.year }}
+
+      - name: Open PR with updated themes file
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          YEAR: ${{ inputs.year }}
+        run: |
+          set -euo pipefail
+          target_file="frontend/public/data/weekly-themes/${YEAR}.json"
+          if git diff --quiet -- "$target_file"; then
+            if git ls-files --error-unmatch "$target_file" >/dev/null 2>&1; then
+              echo "No changes to $target_file; nothing to do."
+              exit 0
+            fi
+          fi
+
+          branch="chore/weekly-themes-${YEAR}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add "$target_file"
+          git commit -m "chore: refresh weekly themes for ${YEAR}"
+          git push -u origin "$branch" --force-with-lease
+
+          # Open a PR if one doesn't already exist for this branch.
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore: refresh weekly themes for ${YEAR}" \
+              --body "Automated re-scrape of https://www.chq.org/things-to-do/events/weekly-themes/ for season ${YEAR}. Review the diff before merging."
+          fi
