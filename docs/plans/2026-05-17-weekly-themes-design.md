@@ -86,7 +86,7 @@ Why this storage choice (vs. alternatives considered):
 
 ## Scraper
 
-A single TypeScript script at `scripts/scrape-weekly-themes.ts`,
+A single TypeScript script at `backend/src/scripts/scrapeWeeklyThemes.ts`,
 runnable two ways:
 
 1. **GitHub Actions, push-button** — the primary path. New workflow
@@ -100,23 +100,23 @@ runnable two ways:
    - Check out repo.
    - Set up Node (matches the build matrix — 24).
    - `npm ci` in repo root.
-   - `npx tsx scripts/scrape-weekly-themes.ts --year=$YEAR --out=frontend/public/data/weekly-themes/$YEAR.json`.
+   - `npx ts-node backend/src/scripts/scrapeWeeklyThemes.ts --year=$YEAR --out=frontend/public/data/weekly-themes/$YEAR.json`.
    - If the file changed, commit on branch `chore/weekly-themes-$YEAR`
      and open a PR via `gh pr create`. The user reviews and merges
      normally — nothing lands on `main` without human approval.
 
    Permissions: `contents: write`, `pull-requests: write`.
 
-2. **Local** — `npx tsx scripts/scrape-weekly-themes.ts --year=2026`
+2. **Local** — `npx ts-node backend/src/scripts/scrapeWeeklyThemes.ts --year=2026`
    for debugging or one-offs.
 
 Implementation:
 
-- Lives in a new `scripts/` npm workspace (or, if simpler, runs under
-  the existing `backend` workspace as `backend/scripts/scrape-weekly-themes.ts`).
-  Implementation plan picks one; the design only requires that
-  `cheerio` and `tsx` are resolvable from the script's location. Both
-  are already in `backend`'s dependency tree.
+- Lives under the existing `backend` workspace at
+  `backend/src/scripts/scrapeWeeklyThemes.ts`, with the parser/validator
+  extracted to `backend/src/services/weeklyThemesScraper.ts` so it is
+  covered by jest. `cheerio` and `ts-node` are already in `backend`'s
+  dependency tree.
 - Fetches the source page, locates each week block, extracts
   `number`, `title`, optional `description`, and the published
   `startDate` / `endDate`.

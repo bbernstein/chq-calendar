@@ -87,6 +87,51 @@ describe('useWeeklyThemes', () => {
     expect(b.current.themes[1]).toBeDefined();
   });
 
+  it('retries on transient (non-404) failures across remounts', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    });
+
+    const first = renderHook(() => useWeeklyThemes(2026));
+    await waitFor(() => expect(first.result.current.loading).toBe(false));
+    expect(first.result.current.themes).toEqual({});
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // A second mount should refetch — 500 must not poison the cache.
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(PAYLOAD_2026),
+    });
+    const second = renderHook(() => useWeeklyThemes(2026));
+    await waitFor(() => expect(second.result.current.loading).toBe(false));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(second.result.current.themes[1]).toBeDefined();
+  });
+
+  it('clears stale themes when year changes before the new fetch resolves', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(PAYLOAD_2026),
+    });
+    const view = renderHook(({ year }: { year: number }) => useWeeklyThemes(year), {
+      initialProps: { year: 2026 },
+    });
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    expect(view.result.current.themes[1]).toBeDefined();
+
+    // Switch to an uncached year — themes should reset before fetch resolves.
+    let resolveFetch: (v: unknown) => void = () => {};
+    (fetch as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise((r) => { resolveFetch = r; }));
+    view.rerender({ year: 2099 });
+    expect(view.result.current.themes).toEqual({});
+    expect(view.result.current.loading).toBe(true);
+
+    resolveFetch({ ok: false, status: 404 });
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    expect(view.result.current.themes).toEqual({});
+  });
+
   it('caches across remounts and does not refetch the same year', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,

@@ -20,36 +20,51 @@ export interface UseWeeklyThemesResult {
   loading: boolean;
 }
 
-const inflight = new Map<number, Promise<Record<number, WeekTheme>>>();
+interface LoadResult {
+  themes: Record<number, WeekTheme>;
+  /** When true the result is durable (200/404) and may be cached forever. */
+  cacheable: boolean;
+}
+
+const inflight = new Map<number, Promise<LoadResult>>();
 const resolved = new Map<number, Record<number, WeekTheme>>();
 
-async function loadThemes(year: number): Promise<Record<number, WeekTheme>> {
+async function loadThemes(year: number): Promise<LoadResult> {
   if (resolved.has(year)) {
-    return resolved.get(year)!;
+    return { themes: resolved.get(year)!, cacheable: true };
   }
   const existing = inflight.get(year);
   if (existing) return existing;
 
-  const promise = (async () => {
+  const promise = (async (): Promise<LoadResult> => {
     try {
       const res = await fetch(`/data/weekly-themes/${year}.json`);
-      if (!res.ok) return {};
+      if (res.status === 404) {
+        // No themes file for this year — durable empty result.
+        return { themes: {}, cacheable: true };
+      }
+      if (!res.ok) {
+        // Transient (5xx / 403 / network error). Don't poison the cache.
+        return { themes: {}, cacheable: false };
+      }
       const payload = (await res.json()) as WeeklyThemesFile;
       const themes: Record<number, WeekTheme> = {};
       for (const w of payload.weeks ?? []) {
         themes[w.number] = w;
       }
-      return themes;
+      return { themes, cacheable: true };
     } catch {
-      return {};
+      return { themes: {}, cacheable: false };
     }
   })();
 
   inflight.set(year, promise);
-  const themes = await promise;
-  resolved.set(year, themes);
+  const result = await promise;
+  if (result.cacheable) {
+    resolved.set(year, result.themes);
+  }
   inflight.delete(year);
-  return themes;
+  return result;
 }
 
 export function useWeeklyThemes(year: number): UseWeeklyThemesResult {
@@ -64,10 +79,13 @@ export function useWeeklyThemes(year: number): UseWeeklyThemesResult {
       setLoading(false);
       return;
     }
+    // Clear stale themes from the prior year before the new fetch resolves,
+    // so consumers don't briefly see the wrong year's data.
+    setThemes({});
     setLoading(true);
     loadThemes(year).then((result) => {
       if (cancelled) return;
-      setThemes(result);
+      setThemes(result.themes);
       setLoading(false);
     });
     return () => {

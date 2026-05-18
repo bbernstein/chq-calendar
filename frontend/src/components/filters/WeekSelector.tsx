@@ -97,9 +97,17 @@ export function WeekSelector({
                   ? 'bg-blue-600 text-white'
                   : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700'
               }`}
-              onMouseDown={(e) => onMouseDown(week.number, e)}
+              onMouseDown={(e) => {
+                // Skip non-primary buttons so right-click opens the theme
+                // popover without also triggering the drag/selection path.
+                if (e.button !== 0) return;
+                onMouseDown(week.number, e);
+              }}
               onMouseEnter={() => onMouseEnter(week.number)}
-              onMouseUp={() => onMouseUp(week.number)}
+              onMouseUp={(e) => {
+                if (e.button !== 0) return;
+                onMouseUp(week.number);
+              }}
               onContextMenu={(e) => {
                 if (hasTheme) {
                   e.preventDefault();
@@ -107,9 +115,10 @@ export function WeekSelector({
                 }
               }}
               onKeyDown={(e) => {
-                // ContextMenu key (Windows menu key, Shift+F10) opens the
-                // theme popover, matching the right-click affordance. Native
-                // Enter/Space still trigger the button's onTap behavior.
+                // ContextMenu key (Windows menu key) and Shift+F10 (the
+                // universal keyboard equivalent of right-click) open the
+                // theme popover. Selection itself is mouse/touch-only in
+                // this control — there is no onClick path.
                 if (hasTheme && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) {
                   e.preventDefault();
                   openPopoverIfThemed(week.number);

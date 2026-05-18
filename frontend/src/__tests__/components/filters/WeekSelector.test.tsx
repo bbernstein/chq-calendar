@@ -123,6 +123,28 @@ describe('WeekSelector — weekly theme integration', () => {
     }
   });
 
+  it('does not invoke the selection handlers when a non-primary mouse button is pressed', () => {
+    const handlers = {
+      ...noops(),
+      onMouseDown: vi.fn(),
+      onMouseUp: vi.fn(),
+    };
+    render(
+      <WeekSelector
+        seasonWeeks={seasonWeeks}
+        selectedWeeks={[]}
+        size="sm"
+        themes={themes}
+        {...handlers}
+      />
+    );
+    const week1 = screen.getByRole('button', { name: /^Week 1\b/i });
+    fireEvent.mouseDown(week1, { button: 2 }); // right-click
+    fireEvent.mouseUp(week1, { button: 2 });
+    expect(handlers.onMouseDown).not.toHaveBeenCalled();
+    expect(handlers.onMouseUp).not.toHaveBeenCalled();
+  });
+
   it('opens the popover when Shift+F10 is pressed on a themed week', () => {
     render(
       <WeekSelector

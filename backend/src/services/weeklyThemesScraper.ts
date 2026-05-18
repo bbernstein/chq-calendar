@@ -101,25 +101,47 @@ export function parseWeeklyThemes(html: string, year: number): ParsedWeek[] {
   return weeks;
 }
 
+function parseIsoOrThrow(iso: string, weekNumber: number): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    throw new Error(`Week ${weekNumber} has an unparseable date "${iso}"`);
+  }
+  const [y, m, d] = iso.split('-').map(s => parseInt(s, 10));
+  const parsed = new Date(Date.UTC(y, m - 1, d));
+  // Round-trip check: rejects impossible day-of-month like 2026-06-31.
+  if (
+    parsed.getUTCFullYear() !== y ||
+    parsed.getUTCMonth() !== m - 1 ||
+    parsed.getUTCDate() !== d
+  ) {
+    throw new Error(`Week ${weekNumber} has an impossible date "${iso}"`);
+  }
+  return parsed;
+}
+
 export function validateWeeklyThemes(weeks: ParsedWeek[], year: number): void {
   if (weeks.length !== 9) {
     throw new Error(`Expected exactly 9 weeks, got ${weeks.length}`);
   }
+  let prevEnd: Date | null = null;
   for (let i = 0; i < 9; i++) {
-    if (weeks[i].number !== i + 1) {
-      throw new Error(`Weeks must be numbered 1..9 in order; entry ${i} has number ${weeks[i].number}`);
+    const w = weeks[i];
+    if (w.number !== i + 1) {
+      throw new Error(`Weeks must be numbered 1..9 in order; entry ${i} has number ${w.number}`);
     }
-    if (!weeks[i].title || !weeks[i].title.trim()) {
-      throw new Error(`Week ${weeks[i].number} is missing a title`);
+    if (!w.title || !w.title.trim()) {
+      throw new Error(`Week ${w.number} is missing a title`);
     }
-    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-    if (!datePattern.test(weeks[i].startDate) || !datePattern.test(weeks[i].endDate)) {
-      throw new Error(`Week ${weeks[i].number} has an unparseable date`);
+    const start = parseIsoOrThrow(w.startDate, w.number);
+    const end = parseIsoOrThrow(w.endDate, w.number);
+    if (start.getUTCFullYear() !== year || end.getUTCFullYear() !== year) {
+      throw new Error(`Week ${w.number} dates are not in year ${year} (got ${w.startDate}..${w.endDate})`);
     }
-    const startYear = parseInt(weeks[i].startDate.slice(0, 4), 10);
-    const endYear = parseInt(weeks[i].endDate.slice(0, 4), 10);
-    if (startYear !== year || endYear !== year) {
-      throw new Error(`Week ${weeks[i].number} dates are not in year ${year} (got ${weeks[i].startDate}..${weeks[i].endDate})`);
+    if (end <= start) {
+      throw new Error(`Week ${w.number} end date "${w.endDate}" must be after start "${w.startDate}"`);
     }
+    if (prevEnd && start < prevEnd) {
+      throw new Error(`Week ${w.number} starts at "${w.startDate}" before the previous week ended at "${weeks[i - 1].endDate}"`);
+    }
+    prevEnd = end;
   }
 }

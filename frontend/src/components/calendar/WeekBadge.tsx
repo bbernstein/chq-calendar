@@ -128,7 +128,7 @@ export function WeekBadge({ weekNumbers, themes }: WeekBadgeProps) {
             visibility: coords ? 'visible' : 'hidden',
           }}
         >
-          <WeekThemePopover themes={availableThemes} onClose={() => setOpen(false)} />
+          <WeekThemePopover themes={availableThemes} onClose={() => setOpen(false)} triggerRef={badgeRef} />
         </span>,
         document.body,
       )}

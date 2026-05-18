@@ -65,6 +65,16 @@ describe('WeekBadge', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
+  it('closes the popover when the badge itself is clicked again', () => {
+    render(<WeekBadge weekNumbers={[4]} themes={themes} />);
+    const label = screen.getByText('Week 4');
+    fireEvent.click(label);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.mouseDown(label);
+    fireEvent.click(label);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('keeps the popover open across the synthetic click that follows a long-press touch', () => {
     vi.useFakeTimers();
     try {

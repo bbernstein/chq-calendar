@@ -4,6 +4,13 @@ import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 interface WeekThemePopoverProps {
   themes: WeekTheme[];
   onClose: () => void;
+  /**
+   * The DOM element that triggered the popover. Clicks/touches inside this
+   * element are NOT treated as "outside" — that way a trigger that also
+   * handles click-to-toggle (e.g. WeekBadge) can close the popover via its
+   * own state instead of fighting the outside-click handler.
+   */
+  triggerRef?: { current: HTMLElement | null };
 }
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -20,7 +27,7 @@ export function formatThemeDateRange(theme: WeekTheme): string {
   return `${formatIsoAsShort(theme.startDate)}–${formatIsoAsShort(theme.endDate)}`;
 }
 
-export function WeekThemePopover({ themes, onClose }: WeekThemePopoverProps) {
+export function WeekThemePopover({ themes, onClose, triggerRef }: WeekThemePopoverProps) {
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -31,9 +38,10 @@ export function WeekThemePopover({ themes, onClose }: WeekThemePopoverProps) {
       }
     }
     function onPointerDownOutside(e: Event) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
+      const target = e.target as Node;
+      if (ref.current && ref.current.contains(target)) return;
+      if (triggerRef?.current && triggerRef.current.contains(target)) return;
+      onClose();
     }
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onPointerDownOutside);
@@ -43,7 +51,7 @@ export function WeekThemePopover({ themes, onClose }: WeekThemePopoverProps) {
       document.removeEventListener('mousedown', onPointerDownOutside);
       document.removeEventListener('touchstart', onPointerDownOutside);
     };
-  }, [onClose]);
+  }, [onClose, triggerRef]);
 
   if (themes.length === 0) return null;
 

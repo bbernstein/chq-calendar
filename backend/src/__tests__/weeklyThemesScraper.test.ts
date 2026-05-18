@@ -13,7 +13,7 @@ describe('parseWeeklyThemes', () => {
     expect(weeks.map(w => w.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
-  it('parses week 1 title, dates, and source link', () => {
+  it('parses week 1 title and dates', () => {
     const weeks = parseWeeklyThemes(html, 2026);
     expect(weeks[0]).toEqual({
       number: 1,
@@ -59,13 +59,17 @@ describe('parseWeeklyThemes', () => {
 });
 
 describe('validateWeeklyThemes', () => {
-  const goodWeeks: ParsedWeek[] = Array.from({ length: 9 }, (_, i) => ({
-    number: i + 1,
-    title: `Week ${i + 1} title`,
-    description: '',
-    startDate: '2026-06-27',
-    endDate: '2026-07-04',
-  }));
+  const goodWeeks: ParsedWeek[] = Array.from({ length: 9 }, (_, i) => {
+    const start = new Date(Date.UTC(2026, 5, 27 + i * 7)); // Sat June 27 + i weeks
+    const end = new Date(Date.UTC(2026, 6, 4 + i * 7));
+    return {
+      number: i + 1,
+      title: `Week ${i + 1} title`,
+      description: '',
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
+    };
+  });
 
   it('passes on 9 sequential, titled, dated weeks', () => {
     expect(() => validateWeeklyThemes(goodWeeks, 2026)).not.toThrow();
@@ -97,5 +101,36 @@ describe('validateWeeklyThemes', () => {
     const bad = [...goodWeeks];
     bad[0] = { ...bad[0], startDate: '2025-06-27' };
     expect(() => validateWeeklyThemes(bad, 2026)).toThrow(/2026/);
+  });
+
+  it('throws on an impossible calendar date (e.g. 2026-06-31)', () => {
+    const bad = [...goodWeeks];
+    bad[3] = { ...bad[3], startDate: '2026-06-31' };
+    expect(() => validateWeeklyThemes(bad, 2026)).toThrow(/impossible date/i);
+  });
+
+  it('throws when endDate is not after startDate', () => {
+    const bad = [...goodWeeks];
+    bad[2] = { ...bad[2], startDate: '2026-07-04', endDate: '2026-07-04' };
+    expect(() => validateWeeklyThemes(bad, 2026)).toThrow(/must be after/i);
+  });
+
+  it('throws when weeks are not in chronological order', () => {
+    const sequential: ParsedWeek[] = Array.from({ length: 9 }, (_, i) => ({
+      number: i + 1,
+      title: `Week ${i + 1}`,
+      description: '',
+      startDate: `2026-07-0${i % 9 + 1}`,
+      endDate: `2026-07-0${i % 9 + 1}`,
+    }));
+    // Make all start/end dates real and sequential except week 5 which goes backward.
+    for (let i = 0; i < 9; i++) {
+      const start = new Date(Date.UTC(2026, 5, 27 + i * 7));
+      const end = new Date(Date.UTC(2026, 6, 4 + i * 7));
+      sequential[i].startDate = start.toISOString().slice(0, 10);
+      sequential[i].endDate = end.toISOString().slice(0, 10);
+    }
+    sequential[4].startDate = '2026-06-27'; // earlier than week 4's end
+    expect(() => validateWeeklyThemes(sequential, 2026)).toThrow(/before the previous week/i);
   });
 });
