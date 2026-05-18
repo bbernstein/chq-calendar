@@ -1,15 +1,10 @@
 /// <reference types="vitest/globals" />
 import { render, screen, fireEvent, act } from '@testing-library/preact';
 import { WeekSelector } from '@/components/filters/WeekSelector';
-import type { SeasonWeek } from '@/lib/types';
+import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 
-const seasonWeeks: SeasonWeek[] = Array.from({ length: 9 }, (_, i) => ({
-  number: i + 1,
-  start: new Date(`2026-06-${27 + i}T12:00:00Z`),
-  end: new Date(`2026-07-${4 + i}T12:00:00Z`),
-  label: `Week ${i + 1}`,
-}));
+const seasonWeeks = getChautauquaSeasonWeeks(2026);
 
 const themes: Record<number, WeekTheme> = {
   1: { number: 1, title: 'Icons and Instigators', description: 'A description.', startDate: '2026-06-27', endDate: '2026-07-04' },
@@ -53,7 +48,7 @@ describe('WeekSelector — weekly theme integration', () => {
       />
     );
     const week7 = screen.getByRole('button', { name: /^Week 7\b/i });
-    expect(week7.getAttribute('title')).toBe('Week 7');
+    expect(week7.getAttribute('title')).toBe(seasonWeeks[6].label);
   });
 
   it('opens the popover on right-click and shows the theme title and dates', () => {
@@ -138,6 +133,6 @@ describe('WeekSelector — weekly theme integration', () => {
       />
     );
     const week1 = screen.getByRole('button', { name: /^Week 1\b/i });
-    expect(week1.getAttribute('title')).toBe('Week 1');
+    expect(week1.getAttribute('title')).toBe(seasonWeeks[0].label);
   });
 });

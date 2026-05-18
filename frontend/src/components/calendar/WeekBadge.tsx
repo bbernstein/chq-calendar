@@ -3,13 +3,12 @@ import { createPortal } from 'react-dom';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import { WeekThemePopover, formatThemeDateRange } from '@/components/filters/WeekThemePopover';
 import { useFloatingCoords } from '@/hooks/useViewportClamp';
+import { LONG_PRESS_MS } from '@/lib/constants';
 
 interface WeekBadgeProps {
   weekNumbers: number[];
   themes: Record<number, WeekTheme>;
 }
-
-const LONG_PRESS_MS = 500;
 
 function buildHoverTitle(weekNumbers: number[], themes: Record<number, WeekTheme>): string {
   const parts = weekNumbers
@@ -69,6 +68,13 @@ export function WeekBadge({ weekNumbers, themes }: WeekBadgeProps) {
         }}
         onClick={(e) => {
           if (hasAnyTheme) {
+            e.preventDefault();
+            setOpen(o => !o);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (!hasAnyTheme) return;
+          if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             setOpen(o => !o);
           }

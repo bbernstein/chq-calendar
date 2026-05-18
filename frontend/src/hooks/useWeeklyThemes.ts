@@ -78,7 +78,12 @@ export function useWeeklyThemes(year: number): UseWeeklyThemesResult {
   return { themes, loading };
 }
 
-/** Test-only: clear the module-level cache so each test starts fresh. */
+/**
+ * Test-only: clear the module-level cache so each test starts fresh.
+ * The `inflight` / `resolved` Maps are deliberately module-scoped so all
+ * consumers of `useWeeklyThemes` share one fetch — that's untestable across
+ * Vitest cases without a reset hook. Do NOT call this from production code.
+ */
 export function __resetWeeklyThemesCacheForTests(): void {
   inflight.clear();
   resolved.clear();

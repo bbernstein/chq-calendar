@@ -4,6 +4,7 @@ import type { SeasonWeek } from '@/lib/types';
 import { isWeekInPast } from '@/lib/utils/dateHelpers';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import { useFloatingCoords } from '@/hooks/useViewportClamp';
+import { LONG_PRESS_MS } from '@/lib/constants';
 import { WeekThemePopover, formatThemeDateRange } from './WeekThemePopover';
 
 interface WeekSelectorProps {
@@ -18,8 +19,6 @@ interface WeekSelectorProps {
   size: 'sm' | 'lg';
   themes?: Record<number, WeekTheme>;
 }
-
-const LONG_PRESS_MS = 500;
 
 function buildButtonTitle(week: SeasonWeek, theme: WeekTheme | undefined): string {
   if (!theme) return week.label;
@@ -68,9 +67,6 @@ export function WeekSelector({
     }
   }
 
-  const popoverIdx = popoverWeek !== null
-    ? seasonWeeks.findIndex(w => w.number === popoverWeek)
-    : -1;
   const popoverTheme = popoverWeek !== null ? themes?.[popoverWeek] : undefined;
 
   return (
@@ -150,7 +146,7 @@ export function WeekSelector({
           );
         })}
       </div>
-      {popoverWeek !== null && popoverTheme && popoverIdx >= 0 && createPortal(
+      {popoverWeek !== null && popoverTheme && createPortal(
         <div
           ref={popoverContentRef}
           className="fixed z-50"

@@ -49,6 +49,22 @@ describe('WeekBadge', () => {
     expect(dialog).not.toHaveTextContent('Icons and Instigators');
   });
 
+  it('opens the popover when Enter is pressed and themes are loaded', () => {
+    render(<WeekBadge weekNumbers={[4]} themes={themes} />);
+    const label = screen.getByText('Week 4');
+    label.focus();
+    fireEvent.keyDown(label, { key: 'Enter' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('opens the popover when Space is pressed and themes are loaded', () => {
+    render(<WeekBadge weekNumbers={[4]} themes={themes} />);
+    const label = screen.getByText('Week 4');
+    label.focus();
+    fireEvent.keyDown(label, { key: ' ' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('does not behave as a clickable button when no themes are loaded', () => {
     render(<WeekBadge weekNumbers={[4]} themes={{}} />);
     fireEvent.click(screen.getByText('Week 4'));
