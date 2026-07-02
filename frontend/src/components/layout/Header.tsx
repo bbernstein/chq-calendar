@@ -62,6 +62,12 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             >
               Programs
             </button>
+            <button
+              onClick={() => window.open('https://questions.chq.org/', '_blank')}
+              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Questions
+            </button>
           </div>
           {/* Mobile */}
           <div className="md:hidden relative" ref={menuRef}>
@@ -92,6 +98,12 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
                   className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                 >
                   Programs
+                </button>
+                <button
+                  onClick={() => { window.open('https://questions.chq.org/', '_blank'); setMenuOpen(false); }}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                >
+                  Questions
                 </button>
               </div>
             )}
