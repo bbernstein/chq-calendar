@@ -391,12 +391,16 @@ describe('useFavorites — FavoritesMap model', () => {
   });
 
   it('migrates the legacy {eventIds,lastSaved} localStorage shape on mount', () => {
+    // Use a fresh timestamp: loadInitial() drops anything older than
+    // USER_STATE_EXPIRY_MS (30 days), so an epoch-0 fixture would be discarded
+    // and the migration would never run.
+    const savedAt = Date.now();
     localStorage.setItem('chq-calendar-favorites', JSON.stringify({
-      eventIds: ['old-a', 'old-b'], lastSaved: 1_000,
+      eventIds: ['old-a', 'old-b'], lastSaved: savedAt,
     }));
     const { result } = renderHook(() => useFavorites());
     expect(result.current.isFavorite('old-a')).toBe(true);
-    expect(result.current.favoritesMap['old-a']).toEqual({ favorited: true, at: 1_000 });
+    expect(result.current.favoritesMap['old-a']).toEqual({ favorited: true, at: savedAt });
     expect(result.current.favoriteCount).toBe(2);
   });
 
@@ -868,7 +872,8 @@ Expected: FAIL — module not found.
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 
 export interface CognitoClaims {
-  sub: string;
+  sub: string;          // immutable account id (our userId / DynamoDB key)
+  username?: string;    // Cognito pool username — REQUIRED by AdminDeleteUser (sub is NOT accepted there)
   email?: string;
   tokenUse: 'access';
 }
@@ -906,6 +911,7 @@ export async function verifyCognitoAccessToken(token: string): Promise<CognitoCl
     if (c.token_use !== 'access') return null;
     return {
       sub: c.sub,
+      username: typeof c.username === 'string' ? c.username : undefined,
       email: typeof c.email === 'string' ? c.email : undefined,
       tokenUse: 'access',
     };
@@ -944,8 +950,9 @@ git commit -m "feat(auth): Cognito access-token JWKS verifier with test seam"
 - Produces:
   - `handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult>` — Lambda entry, dispatches on `event.httpMethod` + `event.path`.
   - Route functions: `handleGetPreferences(event)`, `handlePutPreferences(event)`, `handleDeleteUser(event)`.
-  - Test seams: `_setProfileServiceForTests(s | null)`, `_setFavoritesServiceForTests(s | null)`.
-- Wire contract: `GET /user/preferences` → `{ preferences, favorites }` (favorites as a `FavoritesMap`); `PUT /user/preferences` body `{ preferences, favorites }` → 204; `DELETE /user` → 204 after purging profile + all favorites rows.
+  - Test seams: `_setProfileServiceForTests(s | null)`, `_setFavoritesServiceForTests(s | null)`, `_setCognitoClientForTests(c | null)`.
+- Consumes (added): `CognitoIdentityProviderClient` + `AdminDeleteUserCommand` from `@aws-sdk/client-cognito-identity-provider`, and the `username` claim from `verifyCognitoAccessToken`.
+- Wire contract: `GET /user/preferences` → `{ preferences, favorites }` (favorites as a `FavoritesMap`); `PUT /user/preferences` body `{ preferences, favorites }` → 204; `DELETE /user` → 204 after purging all favorites rows + profile + the Cognito user (spec §7).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -954,7 +961,7 @@ git commit -m "feat(auth): Cognito access-token JWKS verifier with test seam"
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import {
   handleGetPreferences, handlePutPreferences, handleDeleteUser,
-  _setProfileServiceForTests, _setFavoritesServiceForTests,
+  _setProfileServiceForTests, _setFavoritesServiceForTests, _setCognitoClientForTests,
 } from '../handlers/userHandler';
 
 jest.mock('../services/cognitoVerifier', () => ({
@@ -974,14 +981,20 @@ const evt = (over: Partial<APIGatewayProxyEvent> = {}): APIGatewayProxyEvent => 
 describe('userHandler', () => {
   let profile: { get: jest.Mock; put: jest.Mock; delete: jest.Mock };
   let favorites: { listByUser: jest.Mock; upsertMany: jest.Mock; deleteAllForUser: jest.Mock };
+  let cognitoSend: jest.Mock;
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.COGNITO_USER_POOL_ID = 'pool-1';
     profile = { get: jest.fn(), put: jest.fn(), delete: jest.fn() };
     favorites = { listByUser: jest.fn(), upsertMany: jest.fn(), deleteAllForUser: jest.fn() };
+    cognitoSend = jest.fn().mockResolvedValue({});
     _setProfileServiceForTests(profile as any);
     _setFavoritesServiceForTests(favorites as any);
+    _setCognitoClientForTests({ send: cognitoSend } as any);
   });
-  afterEach(() => { _setProfileServiceForTests(null); _setFavoritesServiceForTests(null); });
+  afterEach(() => {
+    _setProfileServiceForTests(null); _setFavoritesServiceForTests(null); _setCognitoClientForTests(null);
+  });
 
   it('rejects an unauthenticated GET with 401', async () => {
     (verifyCognitoAccessToken as jest.Mock).mockResolvedValue(null);
@@ -1013,12 +1026,15 @@ describe('userHandler', () => {
     expect(favorites.upsertMany).toHaveBeenCalledWith('u1', { e1: { favorited: false, at: 8 } });
   });
 
-  it('DELETE purges profile AND all favorites rows', async () => {
-    (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', tokenUse: 'access' });
+  it('DELETE purges favorites rows, profile, AND the Cognito user', async () => {
+    (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', username: 'Google_123', tokenUse: 'access' });
     const r = await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user', headers: { Authorization: 'Bearer good' } }));
     expect(r.statusCode).toBe(204);
     expect(favorites.deleteAllForUser).toHaveBeenCalledWith('u1');
     expect(profile.delete).toHaveBeenCalledWith('u1');
+    // Cognito AdminDeleteUser sent with the pool Username (not the sub)
+    const cmd = cognitoSend.mock.calls[0][0];
+    expect(cmd.input).toEqual({ UserPoolId: 'pool-1', Username: 'Google_123' });
   });
 });
 ```
@@ -1035,7 +1051,8 @@ Expected: FAIL — module not found.
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { verifyCognitoAccessToken } from '../services/cognitoVerifier';
+import { CognitoIdentityProviderClient, AdminDeleteUserCommand } from '@aws-sdk/client-cognito-identity-provider';
+import { verifyCognitoAccessToken, type CognitoClaims } from '../services/cognitoVerifier';
 import { UserProfileService, type UserProfile } from '../services/userProfileService';
 import { FavoritesService } from '../services/favoritesService';
 
@@ -1081,18 +1098,25 @@ function favoritesSvc(): FavoritesService {
 export function _setProfileServiceForTests(s: UserProfileService | null): void { _profile = s; }
 export function _setFavoritesServiceForTests(s: FavoritesService | null): void { _favorites = s; }
 
+let _cognito: CognitoIdentityProviderClient | null = null;
+function cognito(): CognitoIdentityProviderClient {
+  if (!_cognito) _cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION || 'us-east-1' });
+  return _cognito;
+}
+export function _setCognitoClientForTests(c: CognitoIdentityProviderClient | null): void { _cognito = c; }
+
 function bearer(event: APIGatewayProxyEvent): string {
   const h = event.headers.Authorization || event.headers.authorization || '';
   return h.startsWith('Bearer ') ? h.slice(7) : '';
 }
-async function requireUser(event: APIGatewayProxyEvent): Promise<string | null> {
-  const claims = await verifyCognitoAccessToken(bearer(event));
-  return claims?.sub ?? null;
+async function requireUser(event: APIGatewayProxyEvent): Promise<CognitoClaims | null> {
+  return verifyCognitoAccessToken(bearer(event));
 }
 
 export async function handleGetPreferences(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const userId = await requireUser(event);
-  if (!userId) return json(401, { error: 'unauthorized' });
+  const claims = await requireUser(event);
+  if (!claims) return json(401, { error: 'unauthorized' });
+  const userId = claims.sub;
   const [profile, rows] = await Promise.all([profileSvc().get(userId), favoritesSvc().listByUser(userId)]);
   const favorites: FavMap = {};
   for (const r of rows) favorites[r.eventId] = { favorited: r.favorited, at: r.at };
@@ -1100,8 +1124,9 @@ export async function handleGetPreferences(event: APIGatewayProxyEvent): Promise
 }
 
 export async function handlePutPreferences(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const userId = await requireUser(event);
-  if (!userId) return json(401, { error: 'unauthorized' });
+  const claims = await requireUser(event);
+  if (!claims) return json(401, { error: 'unauthorized' });
+  const userId = claims.sub;
   let parsed: { preferences?: { lastSaved?: number }; favorites?: FavMap };
   try { parsed = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'invalid json' }); }
   const existing = await profileSvc().get(userId);
@@ -1119,10 +1144,19 @@ export async function handlePutPreferences(event: APIGatewayProxyEvent): Promise
 }
 
 export async function handleDeleteUser(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const userId = await requireUser(event);
-  if (!userId) return json(401, { error: 'unauthorized' });
+  const claims = await requireUser(event);
+  if (!claims) return json(401, { error: 'unauthorized' });
+  const userId = claims.sub;
   await favoritesSvc().deleteAllForUser(userId); // favorites first: never orphan rows if profile delete fails
   await profileSvc().delete(userId);
+  // Spec §7: deletion must also remove the Cognito user. AdminDeleteUser needs
+  // the pool Username (not the sub), which we read from the access-token claim.
+  if (claims.username && process.env.COGNITO_USER_POOL_ID) {
+    await cognito().send(new AdminDeleteUserCommand({
+      UserPoolId: process.env.COGNITO_USER_POOL_ID,
+      Username: claims.username,
+    }));
+  }
   return json(204);
 }
 
@@ -1144,18 +1178,45 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 - [ ] **Step 4: Run to verify pass**
 
 Run: `cd backend && npx jest userHandler`
-Expected: PASS — all four cases green (401, GET shape, PUT persistence, DELETE purge order).
+Expected: PASS — all cases green (401 on every route, GET shape, PUT persistence, DELETE purge incl. Cognito).
 
-- [ ] **Step 5: Run backend validate (lint is zero-warning) + full test**
+- [ ] **Step 5: Install the Cognito SDK dep and add `userHandler` to the Lambda build**
 
-Run: `cd backend && npm run validate && npx jest`
-Expected: PASS, no lint warnings.
+> **Without this the Lambda deploys with no handler file.** `package:terraform`
+> zips only `dist/ + package.json` (no `node_modules`), and `build:prod` today
+> bundles only the four existing handlers. `dist/userHandler.js` must be emitted
+> or every invocation fails `Runtime.ImportModuleError`.
 
-- [ ] **Step 6: Commit**
+Run: `cd backend && npm install @aws-sdk/client-cognito-identity-provider`
+(the Node Lambda runtime provides `@aws-sdk/*`, so it's externalized in the
+bundle — but it must be installed for the local build/type-check).
+
+Append a fifth esbuild entry to the `build:prod` script in
+`backend/package.json`, mirroring the existing ones. Externalize the SDK
+modules the runtime provides; **bundle `aws-jwt-verify`** (NOT in the runtime),
+so do NOT add it to `--external`:
+```
+&& npx esbuild src/handlers/userHandler.ts --bundle --platform=node --target=node24 --outfile=dist/userHandler.js --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:@aws-sdk/client-cognito-identity-provider
+```
+(Insert it before the `cp -r src/services dist/` tail, matching the `&&` chain.)
+
+- [ ] **Step 6: Verify the handler actually builds**
+
+Run: `cd backend && npm run build:prod && test -f dist/userHandler.js && echo OK`
+Expected: `OK` (the file exists). Then `npm run validate && npx jest`
+(zero lint warnings, all tests pass).
+
+> Deploy note (with-user step, not the code PR): the new `user_handler` Lambda
+> is created by Terraform, but ongoing code deploys via
+> `.github/workflows/deploy-production.yml` update the *existing* four functions
+> by name — add a fifth `aws lambda update-function-code --function-name
+> ${app}-user-handler` step there so future deploys refresh it.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add backend/src/handlers/userHandler.ts backend/src/__tests__/userHandler.test.ts
-git commit -m "feat(user): userHandler routes with auth enforcement and deletion purge"
+git add backend/src/handlers/userHandler.ts backend/src/__tests__/userHandler.test.ts backend/package.json backend/package-lock.json
+git commit -m "feat(user): userHandler routes with auth enforcement and full-purge deletion"
 ```
 
 ---
@@ -1266,7 +1327,12 @@ resource "aws_cognito_identity_provider" "google" {
     client_id                 = var.google_oauth_client_id
     client_secret             = var.google_oauth_client_secret
     authorize_scopes          = "openid email profile"
-    # CRITICAL: do NOT enable attribute-based auto-linking. Linking is explicit (Phase 2).
+    # Account linking is EXPLICIT/user-initiated (Phase 2), never automatic.
+    # Cognito performs no attribute/email-based auto-merge unless a merge is
+    # requested via AdminLinkProviderForUser — there is no provider_details key
+    # to set here, so the guard is: do NOT add one, and do NOT reuse a username
+    # mapping that collides across providers. Verified: default behavior is no
+    # auto-link. Phase 2 (Task 14) is the only path that links identities.
   }
 
   attribute_mapping = {
@@ -1333,18 +1399,26 @@ resource "aws_iam_role_policy" "user_lambda_scoped" {
   role = aws_iam_role.user_lambda_role.id
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Action = [
-        "dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem",
-        "dynamodb:UpdateItem", "dynamodb:DeleteItem"
-      ],
-      Resource = [
-        aws_dynamodb_table.users.arn,
-        aws_dynamodb_table.favorites.arn,
-        "${aws_dynamodb_table.favorites.arn}/index/by-event"
-      ]
-    }]
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem",
+          "dynamodb:UpdateItem", "dynamodb:DeleteItem"
+        ],
+        Resource = [
+          aws_dynamodb_table.users.arn,
+          aws_dynamodb_table.favorites.arn,
+          "${aws_dynamodb_table.favorites.arn}/index/by-event"
+        ]
+      },
+      {
+        # Account deletion (DELETE /user) purges the Cognito user too (spec §7).
+        Effect   = "Allow",
+        Action   = ["cognito-idp:AdminDeleteUser"],
+        Resource = aws_cognito_user_pool.users.arn
+      }
+    ]
   })
 }
 ```
@@ -1819,8 +1893,8 @@ git commit -m "feat(sync): authed user-preferences API client"
 
 **Interfaces:**
 - Consumes: `reconcileFavorites`/`reconcileBlob` (Task 1), `fetchPreferences`/`pushPreferences` (Task 9), a `FavoritesMap` + `mergeFavorites` from `useFavorites` (Task 2).
-- Produces: `usePreferenceSync(opts: { isAuthenticated: boolean; favoritesMap: FavoritesMap; mergeFavorites: (m: FavoritesMap) => void; buildLocalBlob: () => PreferencesBlob; applyBlob: (b: PreferencesBlob) => void }): { syncing: boolean; lastError: string | null }`.
-- Behavior: on `isAuthenticated` becoming true → `fetchPreferences`, reconcile with local, `applyBlob`/`mergeFavorites`, then push merged. On local favorites change while authed → debounced `pushPreferences` (best-effort; errors captured in `lastError`, never thrown).
+- Produces: `usePreferenceSync(opts: { isAuthenticated: boolean; favoritesMap: FavoritesMap; mergeFavorites: (m: FavoritesMap) => void; buildLocalBlob: () => PreferencesBlob; applyBlob: (b: PreferencesBlob) => void; changeSignature: string }): { syncing: boolean; lastError: string | null }`.
+- Behavior: on `isAuthenticated` becoming true → `fetchPreferences`, reconcile with local, `applyBlob`/`mergeFavorites`, then push merged. On any local change (signalled by `changeSignature` changing) while authed → debounced `pushPreferences` (best-effort; errors captured in `lastError`, never thrown). The `changeSignature` is a primitive so the debounce effect has stable deps.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1853,6 +1927,7 @@ describe('usePreferenceSync', () => {
       mergeFavorites,
       buildLocalBlob: () => blob(300),         // local newer
       applyBlob,
+      changeSignature: 'sig-0',
     }));
     await waitFor(() => expect(mergeFavorites).toHaveBeenCalledWith({ e2: { favorited: true, at: 50 } }));
     // local blob newer (300 > 100) -> applyBlob keeps local; push includes unioned favorites
@@ -1865,9 +1940,28 @@ describe('usePreferenceSync', () => {
   it('does nothing when not authenticated', () => {
     renderHook(() => usePreferenceSync({
       isAuthenticated: false, favoritesMap: {}, mergeFavorites: vi.fn(),
-      buildLocalBlob: () => blob(1), applyBlob: vi.fn(),
+      buildLocalBlob: () => blob(1), applyBlob: vi.fn(), changeSignature: 'sig-0',
     }));
     expect(fetchPreferences).not.toHaveBeenCalled();
+  });
+
+  it('after initial sync, a changeSignature change debounces a write-through push', async () => {
+    vi.useFakeTimers();
+    (fetchPreferences as any).mockResolvedValue({ preferences: blob(1), favorites: {} });
+    const props = {
+      isAuthenticated: true, favoritesMap: { e1: { favorited: true, at: 10 } } as any,
+      mergeFavorites: vi.fn(), buildLocalBlob: () => blob(10), applyBlob: vi.fn(),
+      changeSignature: 'sig-1',
+    };
+    const { rerender } = renderHook((p: any) => usePreferenceSync(p), { initialProps: props });
+    await vi.runOnlyPendingTimersAsync();          // let the initial sync + its push settle
+    (pushPreferences as any).mockClear();
+    // a local change: new signature + new favorites
+    rerender({ ...props, changeSignature: 'sig-2', favoritesMap: { e1: { favorited: false, at: 20 } } });
+    expect(pushPreferences).not.toHaveBeenCalled(); // still within debounce window
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(pushPreferences).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 });
 ```
@@ -1892,13 +1986,20 @@ interface Opts {
   mergeFavorites: (m: FavoritesMap) => void;
   buildLocalBlob: () => PreferencesBlob;
   applyBlob: (b: PreferencesBlob) => void;
+  // A cheap primitive the caller memoizes from favorites + filters (e.g. a
+  // JSON string). Changes to it trigger the debounced write-through. Using a
+  // primitive keeps the effect deps stable (buildLocalBlob is an inline arrow).
+  changeSignature: string;
 }
 
+const WRITE_DEBOUNCE_MS = 1500;
+
 export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: string | null } {
-  const { isAuthenticated, favoritesMap, mergeFavorites, buildLocalBlob, applyBlob } = opts;
+  const { isAuthenticated, favoritesMap, mergeFavorites, buildLocalBlob, applyBlob, changeSignature } = opts;
   const [syncing, setSyncing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const didInitialSync = useRef(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initial reconcile on sign-in.
   useEffect(() => {
@@ -1913,6 +2014,9 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
         const local = buildLocalBlob();
         const mergedBlob = server.preferences ? reconcileBlob(local, server.preferences) : local;
         applyBlob(mergedBlob);
+        // mergeFavorites MUST be reconcile-into-local (union), never an overwrite —
+        // useFavorites.mergeFavorites is reconcileFavorites(prev, incoming). If that
+        // ever changes to a replace, local-only favorites would be lost here.
         const mergedFavorites = reconcileFavorites(favoritesMap, server.favorites ?? {});
         mergeFavorites(server.favorites ?? {});
         await pushPreferences({ preferences: mergedBlob, favorites: mergedFavorites });
@@ -1928,13 +2032,22 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
   // Reset the guard on sign-out so a later sign-in re-syncs.
   useEffect(() => { if (!isAuthenticated) didInitialSync.current = false; }, [isAuthenticated]);
 
+  // Debounced write-through: after the initial sync, any local change (favorites
+  // toggled, filters edited) pushes to the server best-effort. This is what makes
+  // sync ONGOING, not just at sign-in — device A's later edits reach device B.
+  useEffect(() => {
+    if (!isAuthenticated || !didInitialSync.current) return; // don't double-push during initial reconcile
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      pushPreferences({ preferences: buildLocalBlob(), favorites: favoritesMap })
+        .catch((e) => setLastError(e instanceof Error ? e.message : 'sync failed'));
+    }, WRITE_DEBOUNCE_MS);
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
+  }, [isAuthenticated, changeSignature, buildLocalBlob, favoritesMap]);
+
   return { syncing, lastError };
 }
 ```
-
-> The debounced write-through on subsequent local changes can be added here
-> later; the initial-reconcile + push is the core guardrail behavior and is
-> what the tests pin. Keep the push best-effort (never throw to the UI).
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -1957,6 +2070,7 @@ git commit -m "feat(sync): usePreferenceSync reconciles local and server on sign
 - Create: `frontend/src/components/layout/SignInButton.tsx`
 - Create: `frontend/src/components/layout/__tests__/SignInButton.test.tsx`
 - Create: `frontend/index-auth-callback.html` + `frontend/src/entries/authCallback.tsx` (new page per multi-page convention) + `vite.config.ts` input entry
+- Modify: `frontend/src/hooks/useFilterState.ts` (+ its test) — add a `HYDRATE_STATE` reducer action and a `hydrateFilters(snapshot)` callback so a server-won blob can be applied
 - Modify: `frontend/src/components/layout/Header.tsx` (mount `SignInButton` in the desktop cluster + mobile menu, gated by the flag)
 - Modify: `frontend/src/app/page.tsx` (call `useAuth` + `usePreferenceSync`, both gated by the flag)
 
@@ -2073,29 +2187,63 @@ the mobile "More" dropdown — **only when `isAccountsEnabled()`**. When the fla
 is off the button does not render, so anonymous users see today's header
 exactly.
 
-`page.tsx`: after the existing `useFilterState()`/`useFavorites()` calls, add
-(note the `isAuthenticated` is `false` whenever the flag is off, so sync never
-activates for gated-off visitors):
+**First, add a hydrate seam to `useFilterState`** (required by `applyBlob`).
+The existing `reconcileFilters(availableCategories, availableLocations,
+isCurrentYear)` only *prunes* invalid selections — it does NOT load a
+`FilterSnapshot`, and the reducer has no HYDRATE action. So when the server
+blob wins `reconcileBlob`, there is currently no way to apply it. Add one, TDD:
+
+```ts
+// in useFilterState.ts reducer — add a case:
+case 'HYDRATE_STATE':
+  return {
+    ...state, // keep runtime-only fields (availableCategories/Locations, extraDays)
+    searchTerm: action.snapshot.searchTerm,
+    selectedTags: action.snapshot.selectedTags,
+    selectedLocations: action.snapshot.selectedLocations,
+    dateFilter: action.snapshot.dateFilter,
+    selectedWeeks: action.snapshot.selectedWeeks,
+    expandedDescriptions: new Set(action.snapshot.expandedDescriptions),
+    recentLocations: action.snapshot.recentLocations,
+    recentCategories: action.snapshot.recentCategories,
+    showFavoritesOnly: action.snapshot.showFavoritesOnly,
+  };
+// ...and expose a callback in the hook return:
+const hydrateFilters = useCallback((snapshot: FilterSnapshot) =>
+  dispatch({ type: 'HYDRATE_STATE', snapshot }), []);
+```
+Add a test in `useFilterState.test.ts`: dispatch a snapshot via `hydrateFilters`
+and assert `searchTerm`/`selectedTags`/`expandedDescriptions` reflect it while
+`availableCategories` (runtime-only) is untouched. (`FilterSnapshot` is the
+Task 1 type; import it.)
+
+**Then** `page.tsx`: after the existing `useFilterState()`/`useFavorites()`
+calls, add (note `isAuthenticated` is `false` whenever the flag is off, so sync
+never activates for gated-off visitors):
 ```tsx
 const accountsOn = isAccountsEnabled();
 const { user } = useAuth();
+const buildLocalBlob = useCallback((): PreferencesBlob => ({
+  filters: {
+    searchTerm: filterState.searchTerm, selectedTags: filterState.selectedTags,
+    selectedLocations: filterState.selectedLocations, dateFilter: filterState.dateFilter,
+    selectedWeeks: filterState.selectedWeeks,
+    expandedDescriptions: Array.from(filterState.expandedDescriptions),
+    recentLocations: filterState.recentLocations, recentCategories: filterState.recentCategories,
+    showFavoritesOnly: filterState.showFavoritesOnly,
+  },
+  notes: {},
+  lastSaved: Date.now(),
+}), [filterState]);
+// Primitive change-signal for the debounced write-through (stable dep):
+const changeSignature = JSON.stringify([favorites.favoritesMap, buildLocalBlob().filters]);
 usePreferenceSync({
   isAuthenticated: accountsOn && user !== null,
   favoritesMap: favorites.favoritesMap,
   mergeFavorites: favorites.mergeFavorites,
-  buildLocalBlob: () => ({
-    filters: {
-      searchTerm: filterState.searchTerm, selectedTags: filterState.selectedTags,
-      selectedLocations: filterState.selectedLocations, dateFilter: filterState.dateFilter,
-      selectedWeeks: filterState.selectedWeeks,
-      expandedDescriptions: Array.from(filterState.expandedDescriptions),
-      recentLocations: filterState.recentLocations, recentCategories: filterState.recentCategories,
-      showFavoritesOnly: filterState.showFavoritesOnly,
-    },
-    notes: {},
-    lastSaved: Date.now(),
-  }),
-  applyBlob: (b) => filterState.reconcileFilters(b.filters), // use existing reconcileFilters seam
+  buildLocalBlob,
+  applyBlob: (b) => filterState.hydrateFilters(b.filters), // the new hydrate seam
+  changeSignature,
 });
 ```
 (Adapt property access to however `page.tsx` currently destructures the hooks.)
