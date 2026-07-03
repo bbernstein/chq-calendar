@@ -7,6 +7,11 @@
 > work may land first. Do not start executing tasks until the user explicitly
 > says to begin. When execution starts, re-verify the "Current-State Facts"
 > against the codebase (files may have moved).
+>
+> **Execution mode (pre-chosen by the user):** subagent-driven — use
+> superpowers:subagent-driven-development, a fresh subagent per task with a
+> two-stage review between tasks. Do NOT prompt for the execution-mode choice
+> when work is authorized; go straight to subagent-driven.
 
 **Goal:** Give signed-in users server-side, cross-device persistence of their
 calendar preferences (filters, favorites, notes) via Google (Phase 1) and
