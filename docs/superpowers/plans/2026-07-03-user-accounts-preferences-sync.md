@@ -93,6 +93,51 @@ route and purges all favorites rows on account deletion.
 
 ---
 
+## Testing, Environments & Rollout (chosen strategy)
+
+**Context:** There is exactly ONE environment today — production (S3 +
+CloudFront + Lambdas, deployed by `.github/workflows/deploy-production.yml` on
+merge to `main`). There is no staging, and standing one up is a non-trivial
+Terraform refactor (domain/zone/cert aliases and Lambda names are hard-coded to
+the single prod stack; state is committed-local with no workspaces). The app
+has real users, so protecting the anonymous/offline path is a hard requirement.
+
+**Decision (user, 2026-07-03): feature-flag + dev Cognito pool for Phase 1;
+defer a real staging environment to Phase 2 (Apple forces it).**
+
+The rollout rests on three layers:
+
+1. **Full local E2E (exists today).** `docker compose up` runs frontend +
+   Express-wrapped Lambda handlers + DynamoDB Local. Point the frontend's
+   `VITE_COGNITO_*` vars at a **dedicated dev Cognito pool** (a standalone pool
+   — it does NOT need the staging/domain refactor and keeps dev sign-ins out of
+   prod user data). This exercises Google sign-in + the full sync round-trip
+   locally. The backend JWKS verifier reaches the real dev pool over the
+   internet.
+
+2. **Dark-launch behind `VITE_ENABLE_ACCOUNTS`.** The entire sign-in UI and the
+   sync activation are gated behind a build-time flag (precedent:
+   `VITE_ENABLE_PUBLISHER_FEEDS` in `useEventData.ts`), with a **URL-param
+   opt-in (`?accounts=1`)** for per-visitor self-testing without a rebuild. Ship
+   ALL code to prod with the flag OFF: existing users see zero change, but the
+   *shared-path* changes (favorites refactor, header) run in real prod so you
+   can confirm anonymous behavior is unchanged. Flip on for yourself via the URL
+   param; expose to everyone later by rebuilding with the flag defaulted on.
+
+3. **Staging environment — Phase 2 only.** Apple Sign In rejects
+   `http://localhost` (needs HTTPS + a verified domain), so Phase 2 gets a real
+   `staging.chqcal.org` (the wildcard `*.chqcal.org` cert already covers it).
+   Scoped as a Phase 2 prerequisite task, not Phase 1.
+
+**Shared-path risk callout:** the ONE part of this feature that runs for every
+user regardless of the flag is the `useFavorites` refactor + localStorage
+migration (Task 2) — because it changes code on the anonymous render path. The
+flag does NOT gate it (it can't; favorites must keep working for signed-out
+users). Its migration test suite is therefore load-bearing, and the dark-launch
+step exists specifically to verify it in prod before any sign-in is exposed.
+
+---
+
 ## File Structure
 
 **Frontend (new):**
@@ -108,6 +153,8 @@ route and purges all favorites rows on account deletion.
   `/user/*`.
 - `frontend/src/hooks/usePreferenceSync.ts` — wires reconcile + api + hooks.
 - `frontend/src/components/layout/SignInButton.tsx` — header affordance.
+- `frontend/src/lib/featureFlags.ts` — `isAccountsEnabled()` dark-launch gate
+  (`VITE_ENABLE_ACCOUNTS` + `?accounts=1` opt-in).
 
 **Frontend (modified):**
 - `frontend/src/hooks/useFavorites.ts` — `Set<string>` → `FavoritesMap`, with
@@ -135,7 +182,8 @@ route and purges all favorites rows on account deletion.
 - `infrastructure/main.tf` — API Gateway `/user/{proxy+}` resource +
   deployment `depends_on`/`triggers`; CloudFront behavior for `/api/user*`.
 - `frontend/.env` / Terraform-injected `VITE_` config — Cognito domain,
-  client ID, pool ID, region.
+  client ID, pool ID, region, and `VITE_ENABLE_ACCOUNTS` (default `false` in
+  prod until dark-launch).
 
 ---
 
@@ -1404,7 +1452,37 @@ list (find the existing block; append alongside the `admin_proxy` entries).
 > pattern). The frontend api client (Task 9) must use the SAME prefix chosen
 > here. Default to `/user/*` with a dedicated behavior.
 
-- [ ] **Step 7: Validate (no apply)**
+- [ ] **Step 7: Provision a dev Cognito pool for local testing (separate from prod)**
+
+The Cognito pool + Google IdP + app client (Steps 2) are **standalone** — they
+do NOT depend on the CloudFront/domain/Lambda tangle, so a second *dev* pool can
+be created without any staging refactor, keeping dev sign-ins out of prod user
+data. Two ways to get one:
+- Apply just the Cognito resources with `-target` into a dev-named pool (e.g.
+  add a `dev` app client whose only callback is `http://localhost:3000/auth/callback`), OR
+- Create a throwaway dev pool by hand in the console for local dev.
+
+Record its domain + client ID in `frontend/.env.local`:
+```
+VITE_COGNITO_DOMAIN=https://<dev-pool-domain>.auth.us-east-1.amazoncognito.com
+VITE_COGNITO_CLIENT_ID=<dev-app-client-id>
+VITE_ENABLE_ACCOUNTS=true   # local dev turns the feature on
+```
+The backend (local Express shim) needs `COGNITO_USER_POOL_ID` + `COGNITO_CLIENT_ID`
+for the dev pool so JWKS verification points at the same pool. Google works from
+localhost because Google only sees the *Cognito* domain as the redirect target.
+(Apple does NOT work from localhost — deferred to Phase 2 with staging.)
+
+- [ ] **Step 8: Frontend env config — add the flag + Cognito vars to prod**
+
+The production build must default `VITE_ENABLE_ACCOUNTS=false` until launch
+(dark-launch), and carry `VITE_COGNITO_DOMAIN` / `VITE_COGNITO_CLIENT_ID` for
+the prod pool. Add these to the frontend env injected by
+`.github/workflows/deploy-production.yml` (and `.env.production.example`).
+Flipping the feature on for everyone = set `VITE_ENABLE_ACCOUNTS=true` and
+rebuild/redeploy; self-testing before that uses the `?accounts=1` URL param.
+
+- [ ] **Step 9: Validate (no apply)**
 
 Run: `cd infrastructure && terraform init -backend=false && terraform validate`
 Expected: `Success! The configuration is valid.`
@@ -1412,7 +1490,7 @@ Expected: `Success! The configuration is valid.`
 Run: `cd infrastructure && terraform fmt -check`
 Expected: no diffs (run `terraform fmt` if it reports files).
 
-- [ ] **Step 8: Commit (still no apply)**
+- [ ] **Step 10: Commit (still no apply)**
 
 ```bash
 git add infrastructure/user-accounts.tf infrastructure/main.tf infrastructure/variables.tf
@@ -1875,14 +1953,16 @@ git commit -m "feat(sync): usePreferenceSync reconciles local and server on sign
 ## Task 11: Header sign-in affordance + `/auth/callback` entry + page wiring
 
 **Files:**
+- Create: `frontend/src/lib/featureFlags.ts` + `frontend/src/lib/__tests__/featureFlags.test.ts` (the `VITE_ENABLE_ACCOUNTS` + `?accounts=1` gate)
 - Create: `frontend/src/components/layout/SignInButton.tsx`
 - Create: `frontend/src/components/layout/__tests__/SignInButton.test.tsx`
 - Create: `frontend/index-auth-callback.html` + `frontend/src/entries/authCallback.tsx` (new page per multi-page convention) + `vite.config.ts` input entry
-- Modify: `frontend/src/components/layout/Header.tsx` (mount `SignInButton` in the desktop cluster + mobile menu)
-- Modify: `frontend/src/app/page.tsx` (call `useAuth` + `usePreferenceSync`)
+- Modify: `frontend/src/components/layout/Header.tsx` (mount `SignInButton` in the desktop cluster + mobile menu, gated by the flag)
+- Modify: `frontend/src/app/page.tsx` (call `useAuth` + `usePreferenceSync`, both gated by the flag)
 
 **Interfaces:**
 - Consumes: `useAuth` (Task 8), `useFavorites` + `useFilterState` (existing/Task 2), `usePreferenceSync` (Task 10), `exchangeCodeForTokens`+`saveTokens` (Task 8).
+- Produces: `isAccountsEnabled(): boolean` — true when `VITE_ENABLE_ACCOUNTS === 'true'` OR the URL contains `?accounts=1` (per-visitor self-test opt-in). Gates ALL sign-in UI + sync activation.
 
 - [ ] **Step 1: Write the failing component test**
 
@@ -1936,15 +2016,71 @@ export function SignInButton({ user, signIn, signOut }: Props) {
 Run: `cd frontend && npx vitest run src/components/layout/__tests__/SignInButton.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Wire Header + page + callback**
+- [ ] **Step 5: Feature-flag gate (TDD helper)**
 
-Header: import `useAuth`, render `<SignInButton user={user} signIn={signIn} signOut={signOut} />` inside the desktop `gap-2` cluster (next to Feedback/Programs/Questions) and mirror into the mobile "More" dropdown.
+Write the failing test, then the helper. This is the dark-launch switch — all
+sign-in UI and sync activation route through it.
 
-`page.tsx`: after the existing `useFilterState()`/`useFavorites()` calls, add:
+```ts
+// frontend/src/lib/__tests__/featureFlags.test.ts
+/// <reference types="vitest/globals" />
+import { vi } from 'vitest';
+import { isAccountsEnabled } from '@/lib/featureFlags';
+
+describe('isAccountsEnabled', () => {
+  const origSearch = window.location.search;
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    Object.defineProperty(window, 'location', { value: { ...window.location, search: origSearch }, writable: true });
+  });
+  it('is true when VITE_ENABLE_ACCOUNTS === "true"', () => {
+    vi.stubEnv('VITE_ENABLE_ACCOUNTS', 'true');
+    expect(isAccountsEnabled()).toBe(true);
+  });
+  it('is true when the URL has ?accounts=1 even if the env flag is off', () => {
+    vi.stubEnv('VITE_ENABLE_ACCOUNTS', 'false');
+    Object.defineProperty(window, 'location', { value: { ...window.location, search: '?accounts=1' }, writable: true });
+    expect(isAccountsEnabled()).toBe(true);
+  });
+  it('is false by default (flag off, no param)', () => {
+    vi.stubEnv('VITE_ENABLE_ACCOUNTS', 'false');
+    Object.defineProperty(window, 'location', { value: { ...window.location, search: '' }, writable: true });
+    expect(isAccountsEnabled()).toBe(false);
+  });
+});
+```
+
+Run: `cd frontend && npx vitest run src/lib/__tests__/featureFlags.test.ts`
+(expect FAIL), then implement:
+
+```ts
+// frontend/src/lib/featureFlags.ts
+export function isAccountsEnabled(): boolean {
+  if (String(import.meta.env.VITE_ENABLE_ACCOUNTS) === 'true') return true;
+  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('accounts') === '1') return true;
+  return false;
+}
+```
+
+Re-run: expect PASS.
+
+- [ ] **Step 6: Wire Header + page + callback (gated by the flag)**
+
+Header: import `useAuth` + `isAccountsEnabled`; render
+`<SignInButton user={user} signIn={signIn} signOut={signOut} />` inside the
+desktop `gap-2` cluster (next to Feedback/Programs/Questions) and mirror into
+the mobile "More" dropdown — **only when `isAccountsEnabled()`**. When the flag
+is off the button does not render, so anonymous users see today's header
+exactly.
+
+`page.tsx`: after the existing `useFilterState()`/`useFavorites()` calls, add
+(note the `isAuthenticated` is `false` whenever the flag is off, so sync never
+activates for gated-off visitors):
 ```tsx
+const accountsOn = isAccountsEnabled();
 const { user } = useAuth();
 usePreferenceSync({
-  isAuthenticated: user !== null,
+  isAuthenticated: accountsOn && user !== null,
   favoritesMap: favorites.favoritesMap,
   mergeFavorites: favorites.mergeFavorites,
   buildLocalBlob: () => ({
@@ -1981,16 +2117,16 @@ if (code) {
 Add `index-auth-callback.html` (mirroring an existing page's HTML) and register
 it in `vite.config.ts` `rollupOptions.input`, output path `/auth/callback`.
 
-- [ ] **Step 6: Run full frontend build + tests**
+- [ ] **Step 7: Run full frontend build + tests**
 
 Run: `cd frontend && npm run build`
 Expected: PASS (validate + type-check + lint + vitest + vite build all green).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/src/components/layout/ frontend/src/entries/authCallback.tsx frontend/index-auth-callback.html frontend/vite.config.ts frontend/src/app/page.tsx frontend/src/components/layout/Header.tsx
-git commit -m "feat(auth): header sign-in button, OAuth callback page, and page sync wiring"
+git add frontend/src/lib/featureFlags.ts frontend/src/lib/__tests__/featureFlags.test.ts frontend/src/components/layout/ frontend/src/entries/authCallback.tsx frontend/index-auth-callback.html frontend/vite.config.ts frontend/src/app/page.tsx frontend/src/components/layout/Header.tsx
+git commit -m "feat(auth): flag-gated header sign-in button, OAuth callback page, and page sync wiring"
 ```
 
 ---
@@ -2086,12 +2222,57 @@ Before opening the Phase 1 PR, all green:
 Infra `apply`, Cognito Google credentials, and the CloudFront behavior are a
 **deploy step performed with the user**, not part of the code PR.
 
+### Phase 1 dark-launch sequence (protects current users)
+
+Perform WITH the user, in order — the flag stays OFF in prod until the final
+step:
+
+1. **Local E2E** against the dev Cognito pool (Task 7 Step 7): sign in with
+   Google, verify favorites/filters sync across two browsers.
+2. **Apply infra** (prod pool + tables + Lambda + routes). `VITE_ENABLE_ACCOUNTS`
+   still `false` in the prod build.
+3. **Deploy the code dark.** All shared-path changes now run in prod with
+   sign-in hidden. **Verify anonymous users are unaffected:** favorites still
+   work, the header is unchanged, the legacy localStorage favorites of a real
+   returning user still load (the migration is the load-bearing risk — Task 2).
+4. **Self-test live** via `https://www.chqcal.org/?accounts=1`: sign in against
+   the prod pool, confirm sync + account deletion end-to-end. Everyone else
+   still sees the flag OFF.
+5. **Expose** by rebuilding with `VITE_ENABLE_ACCOUNTS=true`. Instant rollback =
+   redeploy with it `false` again.
+
 ---
 
 # PHASE 2 — Apple sign-in + cross-provider account linking
 
 > Do not start until Phase 1 is merged and deployed. Account-linking is the
 > single most delicate flow in this plan; it is test-first.
+
+## Task 12b (Phase 2 prerequisite): Staging environment
+
+Apple Sign In rejects `http://localhost` — it needs HTTPS + a verified domain —
+so Phase 2 requires a real `staging.chqcal.org` to test against before prod.
+This is the Terraform refactor deferred from Phase 1.
+
+- [ ] **Step 1:** Parameterize the single-prod hard-codings by `var.environment`:
+  the Route53 zone/records, ACM cert usage (the `*.chqcal.org` wildcard already
+  covers `staging.`), CloudFront `aliases`, and the fixed Lambda function names
+  (env-suffix them). Introduce per-env resource naming end-to-end.
+- [ ] **Step 2:** Move Terraform off committed-local state to a remote backend
+  (S3 + DynamoDB lock) and/or workspaces so `staging` and `prod` don't share one
+  state file. (Migrate the existing `terraform.tfstate`.)
+- [ ] **Step 3:** Create `staging.tfvars` (`environment = "staging"`,
+  `domain_name` handling for the subdomain) and a `staging` GitHub deploy path
+  (a workflow that deploys the `staging` stack on demand / on a `staging` branch).
+- [ ] **Step 4:** Stand up a staging Cognito pool + app client whose callbacks
+  are `https://staging.chqcal.org/auth/callback`.
+- [ ] **Step 5:** Smoke-test the staging stack end-to-end (Google sign-in +
+  sync) before adding Apple, to prove the new environment works.
+- [ ] **Step 6:** Commit `infra(staging): parameterized staging environment for Phase 2`.
+
+> This task is sizeable and independent — it may be worth its own spec/plan
+> cycle. It is listed here so Phase 2 is not started assuming localhost can test
+> Apple.
 
 ## Task 13: Add Apple as a Cognito IdP (infra)
 

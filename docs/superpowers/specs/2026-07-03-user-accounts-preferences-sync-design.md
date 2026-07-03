@@ -248,7 +248,39 @@ door open with no rework.
 
 ---
 
-## 11. Open Questions / Dependencies to Verify
+## 11. Testing & Rollout Strategy
+
+The app has real users and only ONE environment (production); there is no
+staging today, and standing one up is a non-trivial Terraform refactor
+(domain/zone/cert aliases and Lambda names are hard-coded to the single prod
+stack; state is committed-local, no workspaces). The rollout is therefore
+built to protect the anonymous/offline path without a staging dependency in
+Phase 1.
+
+**Chosen strategy (2026-07-03): feature flag + dev Cognito pool for Phase 1;
+real staging deferred to Phase 2 (Apple requires HTTPS).**
+
+- **Full local E2E (exists today).** `docker compose up` runs frontend +
+  Lambda-handler Express shim + DynamoDB Local. The frontend points its
+  `VITE_COGNITO_*` vars at a **dedicated dev Cognito pool** — a standalone pool
+  that needs no staging/domain refactor and keeps dev sign-ins out of prod
+  data. Google sign-in + full sync are testable locally.
+- **Dark-launch behind `VITE_ENABLE_ACCOUNTS`** (precedent:
+  `VITE_ENABLE_PUBLISHER_FEEDS`). All sign-in UI + sync activation are gated;
+  a `?accounts=1` URL param opts a single visitor in for self-testing without a
+  rebuild. Ship all code to prod with the flag OFF (existing users unaffected;
+  shared-path changes verified in real prod), self-test via the param, then
+  expose by rebuilding with the flag on. Instant rollback = redeploy flag off.
+- **Cognito on localhost:** Google works from `http://localhost` (Cognito
+  permits http for localhost; Google only sees the Cognito domain as the
+  redirect). Apple does **not** work from localhost (needs HTTPS + verified
+  domain) — the reason staging is a **Phase 2 prerequisite**.
+- **Shared-path risk:** the `useFavorites` refactor + localStorage migration
+  (design §5/§8) runs for every user regardless of the flag; the flag cannot
+  gate it. Its migration tests are load-bearing, and the dark-launch step
+  exists specifically to verify it in prod before exposing any sign-in.
+
+## 12. Open Questions / Dependencies to Verify
 
 - Confirm the exact Cognito access-token verification library/approach for
   the Node Lambda runtime (JWKS caching).
