@@ -753,6 +753,15 @@ describe('FavoritesService', () => {
     expect(cmd.input.Select).toBe('COUNT');
     expect(cmd.input.ExpressionAttributeValues[':e']).toBe('e1');
   });
+
+  it('countFavoritesForEvent sums COUNT across paginated Query pages', async () => {
+    mockSend
+      .mockResolvedValueOnce({ Count: 5, LastEvaluatedKey: { eventId: 'e1', userId: 'u5' } })
+      .mockResolvedValueOnce({ Count: 3 }); // no LastEvaluatedKey -> last page
+    expect(await svc.countFavoritesForEvent('e1')).toBe(8);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSend.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ eventId: 'e1', userId: 'u5' });
+  });
 });
 ```
 
@@ -843,17 +852,27 @@ export class FavoritesService {
     }
   }
 
-  /** Popularity query (admin-only; no HTTP route in Phase 1). */
+  /** Popularity query (admin-only; no HTTP route in Phase 1).
+   *  MUST paginate: a `Query` with `Select: 'COUNT'` returns the count for ONE
+   *  page (1MB scanned), so a popular event would be undercounted without looping
+   *  `LastEvaluatedKey` and summing. */
   async countFavoritesForEvent(eventId: string): Promise<number> {
-    const r = await this.db.send(new QueryCommand({
-      TableName: this.tableName,
-      IndexName: this.byEventIndexName,
-      KeyConditionExpression: 'eventId = :e',
-      FilterExpression: 'favorited = :t',
-      ExpressionAttributeValues: { ':e': eventId, ':t': true },
-      Select: 'COUNT',
-    }));
-    return r.Count ?? 0;
+    let total = 0;
+    let last: Record<string, unknown> | undefined;
+    do {
+      const r = await this.db.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: this.byEventIndexName,
+        KeyConditionExpression: 'eventId = :e',
+        FilterExpression: 'favorited = :t',
+        ExpressionAttributeValues: { ':e': eventId, ':t': true },
+        Select: 'COUNT',
+        ExclusiveStartKey: last,
+      }));
+      total += r.Count ?? 0;
+      last = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (last);
+    return total;
   }
 }
 ```
@@ -1383,9 +1402,13 @@ Expected: `OK` (the file exists). Then `npm run validate && npx jest`
 > is created by Terraform, but ongoing code deploys via
 > `.github/workflows/deploy-production.yml` refresh the existing handler bundles
 > by name (calendar, admin, sync — note the sync job updates several sync
-> function names — and publisher-ingest). Add a `user_handler` deploy step there
-> (`aws lambda update-function-code --function-name ${app}-user-handler`, having
-> packaged its bundle the same way the others do) so future deploys refresh it.
+> function names — and publisher-ingest). Each such job does more than one call:
+> it builds a `package_temp/` dir, runs `npm ci --omit=dev` to include the
+> externalized deps, copies the `dist/<handler>.js` bundle, `zip`s it, then calls
+> `aws lambda update-function-code`. Add an equivalent `user_handler` job that
+> **packages `dist/userHandler.js` + its `node_modules`** and then updates
+> `${app}-user-handler` — adding only the update call with nothing packaged would
+> deploy an empty/broken function.
 
 - [ ] **Step 7: Commit**
 
@@ -2369,7 +2392,7 @@ git commit -m "feat(sync): usePreferenceSync reconciles local and server on sign
 - Create: `frontend/src/lib/featureFlags.ts` + `frontend/src/lib/__tests__/featureFlags.test.ts` (the `VITE_ENABLE_ACCOUNTS` + `?accounts=1` gate)
 - Create: `frontend/src/components/layout/SignInButton.tsx`
 - Create: `frontend/src/components/layout/__tests__/SignInButton.test.tsx`
-- Create: `frontend/index-auth-callback.html` + `frontend/src/entries/authCallback.tsx` (new page per multi-page convention) + `vite.config.ts` input entry
+- Create: `frontend/auth/callback/index.html` + `frontend/src/entries/authCallback.tsx` (per the repo MPA convention of `<path>/index.html`, e.g. `admin/login/index.html`) + a `vite.config.ts` `rollupOptions.input` entry `'auth-callback': resolve(__dirname, 'auth/callback/index.html')`
 - Modify: `frontend/src/hooks/useFilterState.ts` (+ its test) — add a `HYDRATE_STATE` reducer action and a `hydrateFilters(snapshot)` callback so a server-won blob can be applied
 - Modify: `frontend/src/components/layout/Header.tsx` (mount `SignInButton` in the desktop cluster + mobile menu, gated by the flag)
 - Modify: `frontend/src/app/page.tsx` (call `useAuth` + `usePreferenceSync`, both gated by the flag)
@@ -2615,8 +2638,12 @@ if (code && stateOk) {
   window.location.href = '/';
 }
 ```
-Add `index-auth-callback.html` (mirroring an existing page's HTML) and register
-it in `vite.config.ts` `rollupOptions.input`, output path `/auth/callback`.
+Add `frontend/auth/callback/index.html` (mirroring an existing page's HTML, e.g.
+`admin/login/index.html`) and register it in `vite.config.ts`
+`rollupOptions.input` as `'auth-callback': resolve(__dirname, 'auth/callback/index.html')`.
+This serves at `/auth/callback` and matches the dev-server middleware that maps
+`/<path>` → `<path>/index.html`. Do NOT use a root-level `index-*.html` — that's
+not the repo convention.
 
 - [ ] **Step 7: Run full frontend build + tests**
 
@@ -2626,7 +2653,7 @@ Expected: PASS (validate + type-check + lint + vitest + vite build all green).
 - [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/src/lib/featureFlags.ts frontend/src/lib/__tests__/featureFlags.test.ts frontend/src/components/layout/ frontend/src/entries/authCallback.tsx frontend/index-auth-callback.html frontend/vite.config.ts frontend/src/app/page.tsx frontend/src/components/layout/Header.tsx
+git add frontend/src/lib/featureFlags.ts frontend/src/lib/__tests__/featureFlags.test.ts frontend/src/components/layout/ frontend/src/entries/authCallback.tsx frontend/auth/callback/index.html frontend/vite.config.ts frontend/src/app/page.tsx frontend/src/components/layout/Header.tsx
 git commit -m "feat(auth): flag-gated header sign-in button, OAuth callback page, and page sync wiring"
 ```
 
