@@ -185,7 +185,10 @@ step exists specifically to verify it in prod before any sign-in is exposed.
 
 **Modified infra:**
 - `infrastructure/main.tf` — API Gateway `/user/{proxy+}` resource +
-  deployment `depends_on`/`triggers`; CloudFront behavior for `/api/user*`.
+  deployment `depends_on`/`triggers`; CloudFront behavior for `/user/*` (the
+  default prefix; Task 7 Step 6 is the single place that decides `/user/*` vs
+  `/api/user/*` — the frontend client, CloudFront behavior, and Vite dev proxy
+  must all use whatever it picks).
 - `frontend/.env` / Terraform-injected `VITE_` config — Cognito domain,
   client ID, pool ID, region, and `VITE_ENABLE_ACCOUNTS` (default `false` in
   prod until dark-launch).
@@ -1731,7 +1734,15 @@ git commit -m "infra(user): Cognito pool + Google IdP, users/favorites tables, u
 - Produces:
   - `frontend/src/lib/cognito.ts`: `buildAuthorizeUrl(): Promise<string>` (PKCE — async because it hashes the verifier via SubtleCrypto), `exchangeCodeForTokens(code: string): Promise<AuthTokens>`, `refreshTokens(refreshToken: string): Promise<AuthTokens>`, `consumeAndVerifyState(returnedState: string | null): boolean`, `decodeJwtPayload(jwt: string): Record<string, unknown> | null`, `AuthTokens = { accessToken: string; idToken: string; refreshToken?: string; expiresAt: number }`, storage helpers `saveTokens/getTokens/clearTokens/getAccessToken`.
   - `frontend/src/hooks/useAuth.ts`: `useAuth(): { user: { sub: string; email?: string } | null; signIn(): void; signOut(): void; isAuthenticated: boolean }`.
-- Storage keys: `chq_user_tokens` (JSON), following the existing `chq_*` convention.
+- Storage keys: this codebase has **two** localStorage prefixes by purpose —
+  **auth tokens** use `chq_<role>_*` with underscores (`chq_auth_token`,
+  `chq_publisher_jwt`), while **preference data** uses `chq-calendar-*` with
+  hyphens (`chq-calendar-user-state`, `chq-calendar-favorites`). The new keys
+  are auth-token storage, so they follow the underscore convention:
+  `chq_user_tokens` (JSON), plus `chq_pkce_verifier` / `chq_oauth_state` in
+  sessionStorage. (The preference blob is NOT stored under a new key — it stays
+  in the existing `chq-calendar-*` hooks; only the sync layer moves it to the
+  server.)
 
 - [ ] **Step 1: Write the failing test for the pure PKCE/token bits** (redirect and network calls are integration; test the storage + expiry logic and URL construction)
 
@@ -2041,7 +2052,7 @@ import { API_BASE_URL } from '@/lib/api';
 import { getAccessToken } from '@/lib/cognito';
 import type { PreferencesBlob, FavoritesMap } from '@/lib/preferenceSync/types';
 
-const PREFIX = `${API_BASE_URL}/user`; // MUST match the CloudFront path chosen in Task 7 Step 6
+const PREFIX = `${API_BASE_URL}/user`; // MUST match the prefix chosen in Task 7 Step 6
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getAccessToken();
@@ -2068,6 +2079,14 @@ export function deleteAccount(): Promise<void> {
   return req('', { method: 'DELETE' });
 }
 ```
+
+> **Local dev proxy:** `frontend/vite.config.ts` `backendProxy` currently forwards
+> only `/auth`, `/admin/api`, `/api`, and `/cache` to `localhost:3001` — NOT
+> `/user`. If Task 7 Step 6 picks the `/user/*` prefix, add a `'/user'` entry to
+> `backendProxy` (mirroring the `/api` entry) or local E2E will 404. Picking
+> `/api/user/*` instead needs no proxy change (it's already covered by `/api`)
+> but does need the CloudFront behavior to match. Keep all three — client
+> `PREFIX`, CloudFront behavior, Vite proxy — on the same choice.
 
 - [ ] **Step 4: Run to verify pass**
 
