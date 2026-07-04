@@ -874,11 +874,16 @@ export class FavoritesService {
 >   sequential; each retains its `ConditionExpression`. (`TransactWriteItems`,
 >   25/chunk, also supports conditions and is an alternative if atomicity is
 >   wanted.)
-> - **`deleteAllForUser`** → unconditional, so chunked `BatchWriteItem`
->   (25/request) is fine here and fastest for the purge.
-> This is why the IAM role keeps `dynamodb:BatchWriteItem` (for the delete path)
-> alongside `PutItem` (for the conditional upserts). The tests assert per-event
-> effects, so they hold under either approach; keep them.
+> - **`deleteAllForUser`** → the **shown implementation is sequential
+>   `DeleteCommand` per row, and its unit test asserts exactly that** (1 query +
+>   N deletes, inspecting `DeleteCommand` input). Chunked `BatchWriteItem`
+>   (25/request) is an OPTIONAL later optimization for very large purges — if you
+>   adopt it, you MUST update that test to assert the `BatchWriteCommand` shape
+>   instead of per-row `DeleteCommand` calls.
+> The IAM role includes `dynamodb:BatchWriteItem` so that optimization is
+> available without an IAM change; the `PutItem` grant covers the conditional
+> upserts. `upsertMany`'s test asserts per-event effects and holds under bounded
+> concurrency; keep it.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -1346,13 +1351,23 @@ Run: `cd backend && npm install @aws-sdk/client-cognito-identity-provider`
 bundle — but it must be installed for the local build/type-check).
 
 Append a fifth esbuild entry to the `build:prod` script in
-`backend/package.json`, mirroring the existing ones. Externalize
-`@aws-sdk/client-dynamodb` + `@aws-sdk/lib-dynamodb` (the runtime provides
-them, as the other handlers rely on). **Bundle `aws-jwt-verify`** (not in the
-runtime) AND **bundle `@aws-sdk/client-cognito-identity-provider`** — no
-existing handler imports the Cognito IdP client, so don't assume the
-`node_modules`-less deploy zip can resolve it; bundling removes the risk of a
-first-DELETE `Runtime.ImportModuleError`:
+`backend/package.json`, mirroring the existing ones. **Dependency resolution in
+this repo has two layers:** existing handlers externalize `@aws-sdk/*` and rely
+on them being resolvable at runtime — both because the `nodejs24.x` runtime
+bundles the AWS SDK v3 suite AND because the CI deploy workflow
+(`deploy-production.yml`) packages `node_modules` via `npm ci --omit=dev` into
+each function zip. The publisher-ingest Lambda additionally proves the Terraform
+`lambda-function.zip` path (which ships `dist/ + package.json`, **no
+`node_modules`**) works with externalized `@aws-sdk/*` — i.e. the runtime alone
+suffices for them.
+
+So: externalize `@aws-sdk/client-dynamodb` + `@aws-sdk/lib-dynamodb` (runtime-
+provided, matching every existing handler). **Bundle `aws-jwt-verify`** (NOT in
+the runtime, and not guaranteed present in the node_modules-less Terraform zip)
+AND bundle `@aws-sdk/client-cognito-identity-provider` defensively (it IS part of
+the runtime SDK, but no existing handler imports it — bundling removes any doubt
+about a first-`DELETE` `Runtime.ImportModuleError` regardless of which deploy
+path packages `user_handler`):
 ```
 && npx esbuild src/handlers/userHandler.ts --bundle --platform=node --target=node24 --outfile=dist/userHandler.js --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb
 ```
@@ -1366,9 +1381,11 @@ Expected: `OK` (the file exists). Then `npm run validate && npx jest`
 
 > Deploy note (with-user step, not the code PR): the new `user_handler` Lambda
 > is created by Terraform, but ongoing code deploys via
-> `.github/workflows/deploy-production.yml` update the *existing* four functions
-> by name — add a fifth `aws lambda update-function-code --function-name
-> ${app}-user-handler` step there so future deploys refresh it.
+> `.github/workflows/deploy-production.yml` refresh the existing handler bundles
+> by name (calendar, admin, sync — note the sync job updates several sync
+> function names — and publisher-ingest). Add a `user_handler` deploy step there
+> (`aws lambda update-function-code --function-name ${app}-user-handler`, having
+> packaged its bundle the same way the others do) so future deploys refresh it.
 
 - [ ] **Step 7: Commit**
 
