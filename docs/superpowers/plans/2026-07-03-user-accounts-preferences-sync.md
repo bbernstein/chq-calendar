@@ -540,7 +540,7 @@ git commit -m "feat(favorites): FavoritesMap model with tombstones and legacy mi
 **Interfaces:**
 - Produces:
   - `interface UserProfile { userId: string; preferences: unknown; email?: string; linkedProviders?: string[]; lastSaved: number; createdAt: number }`
-  - `class UserProfileService { constructor(db: DynamoDBDocumentClient, tableName: string); get(userId): Promise<UserProfile | null>; put(profile: UserProfile): Promise<void>; delete(userId): Promise<void> }`
+  - `class UserProfileService { constructor(db: DynamoDBDocumentClient, tableName: string); get(userId): Promise<UserProfile | null>; putIfNewer(profile: UserProfile): Promise<boolean>; delete(userId): Promise<void> }` (`putIfNewer` enforces server-side LWW; returns false when a stale write is ignored)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -575,12 +575,18 @@ describe('UserProfileService', () => {
     expect(await svc.get('missing')).toBeNull();
   });
 
-  it('put writes the profile to the table', async () => {
+  it('putIfNewer writes conditionally and returns true', async () => {
     mockSend.mockResolvedValueOnce({});
-    await svc.put(profile({ userId: 'u2' }));
+    const ok = await svc.putIfNewer(profile({ userId: 'u2', lastSaved: 7 }));
+    expect(ok).toBe(true);
     const cmd: any = mockSend.mock.calls[0][0];
-    expect(cmd.input.TableName).toBe('chq-users');
     expect(cmd.input.Item.userId).toBe('u2');
+    expect(cmd.input.ConditionExpression).toContain('lastSaved <= :ls');
+    expect(cmd.input.ExpressionAttributeValues[':ls']).toBe(7);
+  });
+  it('putIfNewer returns false (not throws) when a newer server copy wins', async () => {
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('stale'), { name: 'ConditionalCheckFailedException' }));
+    expect(await svc.putIfNewer(profile())).toBe(false);
   });
 
   it('delete removes by userId', async () => {
@@ -624,8 +630,23 @@ export class UserProfileService {
     return (r.Item as UserProfile) ?? null;
   }
 
-  async put(profile: UserProfile): Promise<void> {
-    await this.db.send(new PutCommand({ TableName: this.tableName, Item: profile }));
+  /** LWW write: persists only if the row is absent OR the stored `lastSaved`
+   *  is not newer than the incoming one. Returns false when a newer server copy
+   *  won (a stale client push is silently ignored, preserving cross-device LWW).
+   *  The server enforces LWW here — it never trusts the client to have merged. */
+  async putIfNewer(profile: UserProfile): Promise<boolean> {
+    try {
+      await this.db.send(new PutCommand({
+        TableName: this.tableName,
+        Item: profile,
+        ConditionExpression: 'attribute_not_exists(userId) OR lastSaved <= :ls',
+        ExpressionAttributeValues: { ':ls': profile.lastSaved },
+      }));
+      return true;
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return false;
+      throw err;
+    }
   }
 
   async delete(userId: string): Promise<void> {
@@ -657,7 +678,7 @@ git commit -m "feat(user): UserProfileService for users-table blob CRUD"
 **Interfaces:**
 - Produces:
   - `interface FavoriteRow { userId: string; eventId: string; favorited: boolean; at: number }`
-  - `class FavoritesService { constructor(db, tableName, byEventIndexName); listByUser(userId): Promise<FavoriteRow[]>; putRow(row: FavoriteRow): Promise<void>; upsertMany(userId, map: Record<string,{favorited:boolean;at:number}>): Promise<void>; deleteAllForUser(userId): Promise<void>; countFavoritesForEvent(eventId): Promise<number> }`
+  - `class FavoritesService { constructor(db, tableName, byEventIndexName); listByUser(userId): Promise<FavoriteRow[]>; putRow(row: FavoriteRow): Promise<boolean>; upsertMany(userId, map: Record<string,{favorited:boolean;at:number}>): Promise<void>; deleteAllForUser(userId): Promise<void>; countFavoritesForEvent(eventId): Promise<number> }` (`putRow` is a per-event conditional LWW write; returns false when a stale write is skipped)
 - `countFavoritesForEvent` is the **popularity query** (admin-only; no route in
   Phase 1). It queries the `by-event` GSI with `Select: 'COUNT'` and a filter
   on `favorited = true`.
@@ -688,12 +709,19 @@ describe('FavoritesService', () => {
     expect(cmd.input.ExpressionAttributeValues[':u']).toBe('u1');
   });
 
-  it('upsertMany writes one row per event with its timestamp', async () => {
+  it('upsertMany writes one row per event with a per-event LWW condition', async () => {
     mockSend.mockResolvedValue({});
     await svc.upsertMany('u1', { e1: { favorited: true, at: 5 }, e2: { favorited: false, at: 6 } });
     expect(mockSend).toHaveBeenCalledTimes(2);
     const first: any = mockSend.mock.calls[0][0];
     expect(first.input.Item).toEqual({ userId: 'u1', eventId: 'e1', favorited: true, at: 5 });
+    expect(first.input.ConditionExpression).toContain('#at < :at');
+    expect(first.input.ExpressionAttributeValues[':at']).toBe(5);
+  });
+
+  it('putRow returns false (not throws) when the stored record is newer', async () => {
+    mockSend.mockRejectedValueOnce(Object.assign(new Error('stale'), { name: 'ConditionalCheckFailedException' }));
+    expect(await svc.putRow({ userId: 'u1', eventId: 'e1', favorited: true, at: 1 })).toBe(false);
   });
 
   it('deleteAllForUser deletes every row it lists (account purge)', async () => {
@@ -760,14 +788,32 @@ export class FavoritesService {
     return out;
   }
 
-  async putRow(row: FavoriteRow): Promise<void> {
-    await this.db.send(new PutCommand({ TableName: this.tableName, Item: row }));
+  /** Per-event LWW write: persists only if the row is absent OR the stored `at`
+   *  is older than the incoming one. A stale record is silently ignored, so a
+   *  late-arriving old push can't resurrect or erase a favorite. `#at` is aliased
+   *  defensively. Returns false when the write was skipped as stale. */
+  async putRow(row: FavoriteRow): Promise<boolean> {
+    try {
+      await this.db.send(new PutCommand({
+        TableName: this.tableName,
+        Item: row,
+        ConditionExpression: 'attribute_not_exists(eventId) OR #at < :at',
+        ExpressionAttributeNames: { '#at': 'at' },
+        ExpressionAttributeValues: { ':at': row.at },
+      }));
+      return true;
+    } catch (err) {
+      if ((err as { name?: string })?.name === 'ConditionalCheckFailedException') return false;
+      throw err;
+    }
   }
 
   async upsertMany(
     userId: string,
     map: Record<string, { favorited: boolean; at: number }>,
   ): Promise<void> {
+    // Conditional per-event writes (see putRow) with bounded concurrency — see the
+    // batching note below on why this is NOT BatchWriteItem.
     for (const [eventId, rec] of Object.entries(map)) {
       await this.putRow({ userId, eventId, favorited: rec.favorited, at: rec.at });
     }
@@ -804,12 +850,21 @@ export class FavoritesService {
 > counts are ever needed, project `favorited` into the GSI key instead. Out of
 > scope now.
 >
-> **Batching (perf):** `upsertMany` and `deleteAllForUser` write one row per
-> event *sequentially*. A long-time user could have hundreds of favorites, and
-> the `user_handler` Lambda times out at 30s (Task 7). When implementing,
-> replace the loops with chunked `BatchWriteCommand` (25 items/request) so
-> first-sign-in merge-up and account deletion stay well under the timeout. The
-> tests assert per-event effects, so they hold under batching; keep them.
+> **Batching (perf) — note the conditional-write constraint:** these loops are
+> sequential; a long-time user could have hundreds of favorites against the
+> `user_handler`'s 30s timeout (Task 7). BUT `BatchWriteItem` does **not**
+> support conditional expressions, so it CANNOT be used for `upsertMany` without
+> discarding the per-event LWW guard in `putRow`. When implementing:
+> - **`upsertMany`** → keep conditional `putRow` writes, but run them with
+>   **bounded concurrency** (e.g. a small pool of ~10) instead of fully
+>   sequential; each retains its `ConditionExpression`. (`TransactWriteItems`,
+>   25/chunk, also supports conditions and is an alternative if atomicity is
+>   wanted.)
+> - **`deleteAllForUser`** → unconditional, so chunked `BatchWriteItem`
+>   (25/request) is fine here and fastest for the purge.
+> This is why the IAM role keeps `dynamodb:BatchWriteItem` (for the delete path)
+> alongside `PutItem` (for the conditional upserts). The tests assert per-event
+> effects, so they hold under either approach; keep them.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -1015,13 +1070,13 @@ const evt = (over: Partial<APIGatewayProxyEvent> = {}): APIGatewayProxyEvent => 
 });
 
 describe('userHandler', () => {
-  let profile: { get: jest.Mock; put: jest.Mock; delete: jest.Mock };
+  let profile: { get: jest.Mock; putIfNewer: jest.Mock; delete: jest.Mock };
   let favorites: { listByUser: jest.Mock; upsertMany: jest.Mock; deleteAllForUser: jest.Mock };
   let cognitoSend: jest.Mock;
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.COGNITO_USER_POOL_ID = 'pool-1';
-    profile = { get: jest.fn(), put: jest.fn(), delete: jest.fn() };
+    profile = { get: jest.fn(), putIfNewer: jest.fn().mockResolvedValue(true), delete: jest.fn() };
     favorites = { listByUser: jest.fn(), upsertMany: jest.fn(), deleteAllForUser: jest.fn() };
     cognitoSend = jest.fn().mockResolvedValue({});
     _setProfileServiceForTests(profile as any);
@@ -1051,7 +1106,7 @@ describe('userHandler', () => {
     expect(r.headers!['Access-Control-Allow-Origin']).not.toBe('*');
   });
 
-  it('PUT persists blob + favorites and returns 204', async () => {
+  it('PUT persists blob + favorites via putIfNewer and returns 204', async () => {
     (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', tokenUse: 'access' });
     profile.get.mockResolvedValue(null);
     const r = await handlePutPreferences(evt({
@@ -1060,8 +1115,18 @@ describe('userHandler', () => {
       body: JSON.stringify({ preferences: { filters: {}, notes: {}, lastSaved: 7 }, favorites: { e1: { favorited: false, at: 8 } } }),
     }));
     expect(r.statusCode).toBe(204);
-    expect(profile.put).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1', lastSaved: 7 }));
+    expect(profile.putIfNewer).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1', lastSaved: 7 }));
     expect(favorites.upsertMany).toHaveBeenCalledWith('u1', { e1: { favorited: false, at: 8 } });
+  });
+
+  it('PUT rejects a payload without a numeric preferences.lastSaved (400)', async () => {
+    (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', tokenUse: 'access' });
+    const r = await handlePutPreferences(evt({
+      httpMethod: 'PUT', headers: { Authorization: 'Bearer good' },
+      body: JSON.stringify({ preferences: { filters: {}, notes: {} }, favorites: {} }), // no lastSaved
+    }));
+    expect(r.statusCode).toBe(400);
+    expect(profile.putIfNewer).not.toHaveBeenCalled();
   });
 
   it('handler returns a JSON 500 (not an unhandled throw) when the verifier throws on missing config', async () => {
@@ -1080,6 +1145,15 @@ describe('userHandler', () => {
     // Cognito AdminDeleteUser sent with the pool Username (not the sub)
     const cmd = cognitoSend.mock.calls[0][0];
     expect(cmd.input).toEqual({ UserPoolId: 'pool-1', Username: 'Google_123' });
+  });
+
+  it('DELETE fails (500) WITHOUT purging when the username claim is missing', async () => {
+    (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', tokenUse: 'access' }); // no username
+    const r = await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user', headers: { Authorization: 'Bearer good' } }));
+    expect(r.statusCode).toBe(500);
+    expect(favorites.deleteAllForUser).not.toHaveBeenCalled(); // nothing half-deleted
+    expect(profile.delete).not.toHaveBeenCalled();
+    expect(cognitoSend).not.toHaveBeenCalled();
   });
 });
 ```
@@ -1176,18 +1250,23 @@ export async function handlePutPreferences(event: APIGatewayProxyEvent): Promise
   const userId = claims.sub;
   let parsed: { preferences?: { lastSaved?: number }; favorites?: FavMap };
   try { parsed = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'invalid json' }); }
+  // LWW integrity: require a REAL client edit timestamp. Never fabricate one —
+  // a partial/stale payload with a `Date.now()` fallback would look "newest" and
+  // could clobber correct server state.
+  if (!parsed.preferences || typeof parsed.preferences.lastSaved !== 'number') {
+    return json(400, { error: 'preferences.lastSaved (number) required' });
+  }
   const existing = await profileSvc().get(userId);
   const now = Date.now();
   const toStore: UserProfile = {
     userId,
-    preferences: parsed.preferences ?? existing?.preferences ?? null,
-    // fall back to the existing timestamp when a partial/legacy client omits preferences
-    lastSaved: parsed.preferences?.lastSaved ?? existing?.lastSaved ?? now,
+    preferences: parsed.preferences,
+    lastSaved: parsed.preferences.lastSaved,
     createdAt: existing?.createdAt ?? now,
-    email: claims.email ?? existing?.email, // informational; sourced from the verified token, never logged
+    email: claims.email ?? existing?.email, // informational; from the verified token, never logged
     linkedProviders: existing?.linkedProviders,
   };
-  await profileSvc().put(toStore);
+  await profileSvc().putIfNewer(toStore);   // server-side LWW: a stale write is silently ignored
   if (parsed.favorites) await favoritesSvc().upsertMany(userId, parsed.favorites);
   return json(204);
 }
@@ -1196,16 +1275,18 @@ export async function handleDeleteUser(event: APIGatewayProxyEvent): Promise<API
   const claims = await requireUser(event);
   if (!claims) return json(401, { error: 'unauthorized' });
   const userId = claims.sub;
-  await favoritesSvc().deleteAllForUser(userId); // favorites first: never orphan rows if profile delete fails
-  await profileSvc().delete(userId);
-  // Spec §7: deletion must also remove the Cognito user. AdminDeleteUser needs
-  // the pool Username (not the sub), which we read from the access-token claim.
-  if (claims.username && process.env.COGNITO_USER_POOL_ID) {
-    await cognito().send(new AdminDeleteUserCommand({
-      UserPoolId: process.env.COGNITO_USER_POOL_ID,
-      Username: claims.username,
-    }));
+  const poolId = process.env.COGNITO_USER_POOL_ID;
+  // Spec §7 REQUIRES the Cognito user to be purged too. If we can't (missing
+  // `username` claim — real federated tokens always carry it — or no pool id),
+  // FAIL before touching the DB rather than silently leaving an undeleted
+  // account. The client sees 500 and can retry; nothing is half-deleted.
+  if (!claims.username || !poolId) {
+    console.error('cannot complete account deletion: missing username claim or pool id');
+    return json(500, { error: 'account deletion unavailable' });
   }
+  await favoritesSvc().deleteAllForUser(userId); // favorites first: never orphan rows if a later step fails
+  await profileSvc().delete(userId);
+  await cognito().send(new AdminDeleteUserCommand({ UserPoolId: poolId, Username: claims.username }));
   return json(204);
 }
 
@@ -1648,7 +1729,7 @@ git commit -m "infra(user): Cognito pool + Google IdP, users/favorites tables, u
 
 **Interfaces:**
 - Produces:
-  - `frontend/src/lib/cognito.ts`: `buildAuthorizeUrl(): string` (PKCE), `exchangeCodeForTokens(code: string): Promise<AuthTokens>`, `refreshTokens(refreshToken: string): Promise<AuthTokens>`, `AuthTokens = { accessToken: string; idToken: string; refreshToken?: string; expiresAt: number }`, storage helpers `saveTokens/getTokens/clearTokens/getAccessToken`.
+  - `frontend/src/lib/cognito.ts`: `buildAuthorizeUrl(): Promise<string>` (PKCE — async because it hashes the verifier via SubtleCrypto), `exchangeCodeForTokens(code: string): Promise<AuthTokens>`, `refreshTokens(refreshToken: string): Promise<AuthTokens>`, `consumeAndVerifyState(returnedState: string | null): boolean`, `decodeJwtPayload(jwt: string): Record<string, unknown> | null`, `AuthTokens = { accessToken: string; idToken: string; refreshToken?: string; expiresAt: number }`, storage helpers `saveTokens/getTokens/clearTokens/getAccessToken`.
   - `frontend/src/hooks/useAuth.ts`: `useAuth(): { user: { sub: string; email?: string } | null; signIn(): void; signOut(): void; isAuthenticated: boolean }`.
 - Storage keys: `chq_user_tokens` (JSON), following the existing `chq_*` convention.
 
@@ -2522,6 +2603,14 @@ describe('user preferences round-trip (in-memory Dynamo)', () => {
 Run: `cd backend && npx jest userPreferences.integration`
 Expected: PASS. (If the harness constructor/import differs, adapt to the
 harness's real API — inspect `inMemoryDocClient.ts` first.)
+
+> The round-trip now exercises **conditional** writes (`putIfNewer` uses
+> `attribute_not_exists(userId) OR lastSaved <= :ls`; `putRow` uses
+> `attribute_not_exists(eventId) OR #at < :at` with a `#at` name alias). Confirm
+> the in-memory harness evaluates these — the scout reported it supports
+> condition expressions and throws `ConditionalCheckFailedException`; if it
+> doesn't cover `attribute_not_exists`/comparison/name-aliases, extend it (a
+> small, reusable harness improvement) rather than weakening the services.
 
 - [ ] **Step 3: Full backend gate**
 
