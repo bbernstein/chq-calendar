@@ -112,8 +112,9 @@ the bundle). See the decision matrix in the brainstorming discussion.
   - `GET /user/preferences` — return the user's blob + favorites.
   - `PUT /user/preferences` — upsert the blob and favorites (reconciled
     server-side; see §6).
-  - `DELETE /user` — account deletion: purge Cognito user + `users` row +
-    all `favorites` rows (see §7).
+  - `DELETE /user/account` — account deletion: purge Cognito user + `users`
+    row + all `favorites` rows (see §7). Under `/user/*` (not bare `/user`) so
+    one CloudFront behavior routes all user endpoints.
 - Popularity is **not** an endpoint in this scope — it is an admin/aggregate
   query against the `by-event` GSI (§5), used ad hoc, no public surface.
 
@@ -206,7 +207,7 @@ view loses (last-write-wins). Intentional and invisible in practice for a
   `by-event` popularity query is **admin/aggregate-only**; no public
   popularity endpoint exists in this scope. All PII stays in the AWS account.
   **Never log email/name** (per project sensitivity rules).
-- **Account deletion.** `DELETE /user` must purge the Cognito user, the
+- **Account deletion.** `DELETE /user/account` must purge the Cognito user, the
   `users` row, and **all** `favorites` rows for that `userId`. Designed in
   now, not retrofitted.
 - **Sessions.** Cognito refresh tokens keep sessions alive; `useAuth`

@@ -725,7 +725,7 @@ describe('FavoritesService', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
     const first: any = mockSend.mock.calls[0][0];
     expect(first.input.Item).toEqual({ userId: 'u1', eventId: 'e1', favorited: true, at: 5 });
-    expect(first.input.ConditionExpression).toContain('#at < :at');
+    expect(first.input.ConditionExpression).toContain('#at <= :at');
     expect(first.input.ExpressionAttributeValues[':at']).toBe(5);
   });
 
@@ -799,15 +799,19 @@ export class FavoritesService {
   }
 
   /** Per-event LWW write: persists only if the row is absent OR the stored `at`
-   *  is older than the incoming one. A stale record is silently ignored, so a
-   *  late-arriving old push can't resurrect or erase a favorite. `#at` is aliased
+   *  is older-or-equal to the incoming one. Uses `<=` (incoming wins an exact
+   *  tie) to MATCH the client-side `mergeFavoritesRecord` (`a.at >= b.at`, local
+   *  wins) — so there's no client/server divergence on a same-`at` favorite.
+   *  (This is deliberately the opposite of the blob's strict `<`, which mirrors
+   *  `reconcileBlob`'s server-wins-tie.) A strictly-older record is still ignored,
+   *  so a late old push can't resurrect/erase a favorite. `#at` is aliased
    *  defensively. Returns false when the write was skipped as stale. */
   async putRow(row: FavoriteRow): Promise<boolean> {
     try {
       await this.db.send(new PutCommand({
         TableName: this.tableName,
         Item: row,
-        ConditionExpression: 'attribute_not_exists(eventId) OR #at < :at',
+        ConditionExpression: 'attribute_not_exists(eventId) OR #at <= :at',
         ExpressionAttributeNames: { '#at': 'at' },
         ExpressionAttributeValues: { ':at': row.at },
       }));
@@ -1052,7 +1056,7 @@ git commit -m "feat(auth): Cognito access-token JWKS verifier with test seam"
   - Route functions: `handleGetPreferences(event)`, `handlePutPreferences(event)`, `handleDeleteUser(event)`.
   - Test seams: `_setProfileServiceForTests(s | null)`, `_setFavoritesServiceForTests(s | null)`, `_setCognitoClientForTests(c | null)`.
 - Consumes (added): `CognitoIdentityProviderClient` + `AdminDeleteUserCommand` from `@aws-sdk/client-cognito-identity-provider`, and the `username` claim from `verifyCognitoAccessToken`.
-- Wire contract: `GET /user/preferences` → `{ preferences, favorites }` (favorites as a `FavoritesMap`); `PUT /user/preferences` body `{ preferences, favorites }` → 204; `DELETE /user` → 204 after purging all favorites rows + profile + the Cognito user (spec §7).
+- Wire contract: `GET /user/preferences` → `{ preferences, favorites }` (favorites as a `FavoritesMap`); `PUT /user/preferences` body `{ preferences, favorites }` → 204; `DELETE /user/account` → 204 after purging all favorites rows + profile + the Cognito user (spec §7). All routes live under `/user/*` so one CloudFront behavior covers them.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1148,7 +1152,7 @@ describe('userHandler', () => {
 
   it('DELETE purges favorites rows, profile, AND the Cognito user', async () => {
     (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', username: 'Google_123', tokenUse: 'access' });
-    const r = await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user', headers: { Authorization: 'Bearer good' } }));
+    const r = await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user/account', headers: { Authorization: 'Bearer good' } }));
     expect(r.statusCode).toBe(204);
     expect(favorites.deleteAllForUser).toHaveBeenCalledWith('u1');
     expect(profile.delete).toHaveBeenCalledWith('u1');
@@ -1159,7 +1163,7 @@ describe('userHandler', () => {
 
   it('DELETE fails (500) WITHOUT purging when the username claim is missing', async () => {
     (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', tokenUse: 'access' }); // no username
-    const r = await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user', headers: { Authorization: 'Bearer good' } }));
+    const r = await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user/account', headers: { Authorization: 'Bearer good' } }));
     expect(r.statusCode).toBe(500);
     expect(favorites.deleteAllForUser).not.toHaveBeenCalled(); // nothing half-deleted
     expect(profile.delete).not.toHaveBeenCalled();
@@ -1310,7 +1314,9 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     if (method === 'OPTIONS') return json(204);
     if (path.endsWith('/user/preferences') && method === 'GET') return await handleGetPreferences(event);
     if (path.endsWith('/user/preferences') && method === 'PUT') return await handlePutPreferences(event);
-    if (path.endsWith('/user') && method === 'DELETE') return await handleDeleteUser(event);
+    // Deletion lives under /user/account (NOT bare /user) so the single CloudFront
+    // `/user/*` behavior matches it — a `/user/*` pattern does not match bare `/user`.
+    if (path.endsWith('/user/account') && method === 'DELETE') return await handleDeleteUser(event);
     return json(404, { error: 'not found' });
   } catch (err) {
     console.error('userHandler unexpected error:', (err as Error)?.message); // never log token/PII
@@ -1340,11 +1346,15 @@ Run: `cd backend && npm install @aws-sdk/client-cognito-identity-provider`
 bundle — but it must be installed for the local build/type-check).
 
 Append a fifth esbuild entry to the `build:prod` script in
-`backend/package.json`, mirroring the existing ones. Externalize the SDK
-modules the runtime provides; **bundle `aws-jwt-verify`** (NOT in the runtime),
-so do NOT add it to `--external`:
+`backend/package.json`, mirroring the existing ones. Externalize
+`@aws-sdk/client-dynamodb` + `@aws-sdk/lib-dynamodb` (the runtime provides
+them, as the other handlers rely on). **Bundle `aws-jwt-verify`** (not in the
+runtime) AND **bundle `@aws-sdk/client-cognito-identity-provider`** — no
+existing handler imports the Cognito IdP client, so don't assume the
+`node_modules`-less deploy zip can resolve it; bundling removes the risk of a
+first-DELETE `Runtime.ImportModuleError`:
 ```
-&& npx esbuild src/handlers/userHandler.ts --bundle --platform=node --target=node24 --outfile=dist/userHandler.js --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:@aws-sdk/client-cognito-identity-provider
+&& npx esbuild src/handlers/userHandler.ts --bundle --platform=node --target=node24 --outfile=dist/userHandler.js --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb
 ```
 (Insert it before the `cp -r src/services dist/` tail, matching the `&&` chain.)
 
@@ -1573,7 +1583,7 @@ resource "aws_iam_role_policy" "user_lambda_scoped" {
         ]
       },
       {
-        # Account deletion (DELETE /user) purges the Cognito user too (spec §7).
+        # Account deletion (DELETE /user/account) purges the Cognito user too (spec §7).
         Effect   = "Allow",
         Action   = ["cognito-idp:AdminDeleteUser"],
         Resource = aws_cognito_user_pool.users.arn
@@ -1943,6 +1953,7 @@ async function tokenRequest(body: Record<string, string>): Promise<AuthTokens> {
 
 export async function exchangeCodeForTokens(code: string): Promise<AuthTokens> {
   const verifier = sessionStorage.getItem(PKCE_VERIFIER_KEY) ?? '';
+  sessionStorage.removeItem(PKCE_VERIFIER_KEY); // single-use; don't leave it lingering
   return tokenRequest({
     grant_type: 'authorization_code',
     client_id: CLIENT_ID,
@@ -2102,7 +2113,7 @@ export function pushPreferences(body: { preferences: PreferencesBlob; favorites:
   return req('/preferences', { method: 'PUT', body: JSON.stringify(body) });
 }
 export function deleteAccount(): Promise<void> {
-  return req('', { method: 'DELETE' });
+  return req('/account', { method: 'DELETE' }); // -> /user/account, under the /user/* CloudFront behavior
 }
 ```
 
@@ -2238,14 +2249,24 @@ interface Opts {
 const WRITE_DEBOUNCE_MS = 1500;
 
 export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: string | null } {
-  const { isAuthenticated, favoritesMap, mergeFavorites, buildLocalBlob, applyBlob, changeSignature } = opts;
+  const { isAuthenticated, changeSignature } = opts;
   const [syncing, setSyncing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const didInitialSync = useRef(false);            // guards duplicate initial fetches
   const [initialSyncDone, setInitialSyncDone] = useState(false); // gates the write-through; flips AFTER the initial push resolves
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Initial reconcile on sign-in.
+  // CRITICAL: `useFilterState()` returns a fresh object every render and
+  // `applyBlob`/`buildLocalBlob` are inline arrows, so their identities change
+  // every render. If the effects depended on them, the initial-sync effect would
+  // re-run mid-fetch, its cleanup would cancel the in-flight sync, and
+  // `initialSyncDone` would never flip — ongoing write-through would silently
+  // never activate. So we stash the latest inputs in a ref and depend ONLY on
+  // primitives (`isAuthenticated`, `changeSignature`).
+  const latest = useRef(opts);
+  latest.current = opts;
+
+  // Initial reconcile on sign-in — depends only on isAuthenticated.
   useEffect(() => {
     if (!isAuthenticated || didInitialSync.current) return;
     didInitialSync.current = true;
@@ -2253,6 +2274,7 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
     (async () => {
       setSyncing(true);
       try {
+        const { favoritesMap, mergeFavorites, buildLocalBlob, applyBlob } = latest.current;
         const server = await fetchPreferences();
         if (cancelled) return;
         const local = buildLocalBlob();
@@ -2274,7 +2296,8 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
       }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated, favoritesMap, mergeFavorites, buildLocalBlob, applyBlob]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inputs read via `latest` ref by design
+  }, [isAuthenticated]);
 
   // Reset the guards on sign-out so a later sign-in re-syncs cleanly.
   useEffect(() => {
@@ -2282,17 +2305,20 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
   }, [isAuthenticated]);
 
   // Debounced write-through: after the initial sync COMPLETES, any local change
-  // (favorites toggled, filters edited) pushes to the server best-effort. This is
-  // what makes sync ONGOING, not just at sign-in — device A's later edits reach B.
+  // (favorites toggled, filters edited) — signalled by the primitive
+  // `changeSignature` — pushes to the server best-effort. This is what makes sync
+  // ONGOING, not just at sign-in — device A's later edits reach B.
   useEffect(() => {
     if (!isAuthenticated || !initialSyncDone) return; // never overlaps the initial reconcile
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
+      const { buildLocalBlob, favoritesMap } = latest.current;
       pushPreferences({ preferences: buildLocalBlob(), favorites: favoritesMap })
         .catch((e) => setLastError(e instanceof Error ? e.message : 'sync failed'));
     }, WRITE_DEBOUNCE_MS);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
-  }, [isAuthenticated, initialSyncDone, changeSignature, buildLocalBlob, favoritesMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildLocalBlob/favoritesMap read via `latest` ref; changeSignature is the intended trigger
+  }, [isAuthenticated, initialSyncDone, changeSignature]);
 
   return { syncing, lastError };
 }
@@ -2540,7 +2566,12 @@ usePreferenceSync({
   changeSignature,
 });
 ```
-(Adapt property access to however `page.tsx` currently destructures the hooks.)
+Adapt property access to however `page.tsx` actually destructures the hooks —
+it currently does `const filters = useFilterState()` (not `filterState`), so use
+that name. **You do NOT need to memoize `buildLocalBlob`/`applyBlob` into stable
+identities** — `usePreferenceSync` reads them through an internal `latest` ref
+precisely so unstable caller identities (a fresh hook-return object each render)
+can't re-trigger and self-cancel the initial sync. Passing inline arrows is fine.
 
 `authCallback.tsx` entry (verifies the OAuth `state` before exchanging the code):
 ```tsx
@@ -2634,7 +2665,7 @@ describe('user preferences round-trip (in-memory Dynamo)', () => {
     expect(got.preferences.lastSaved).toBe(42);
     expect(got.favorites.e1).toEqual({ favorited: true, at: 9 });
 
-    await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user' }));
+    await handleDeleteUser(evt({ httpMethod: 'DELETE', path: '/user/account' }));
     const after = JSON.parse((await handleGetPreferences(evt())).body);
     expect(after.preferences).toBeNull();
     expect(after.favorites).toEqual({});
@@ -2651,9 +2682,10 @@ Expected: PASS. (If the harness constructor/import differs, adapt to the
 harness's real API — inspect `inMemoryDocClient.ts` first.)
 
 > The round-trip now exercises **conditional** writes (`putIfNewer` uses
-> `attribute_not_exists(userId) OR lastSaved < :ls`; `putRow` uses
-> `attribute_not_exists(eventId) OR #at < :at` with a `#at` name alias — both
-> strict `<`, so the server wins exact ties). Confirm
+> `attribute_not_exists(userId) OR lastSaved < :ls` — strict, server wins ties;
+> `putRow` uses `attribute_not_exists(eventId) OR #at <= :at` with a `#at` name
+> alias — `<=`, incoming/local wins ties, matching the client-side favorites
+> merge). Confirm
 > the in-memory harness evaluates these — the scout reported it supports
 > condition expressions and throws `ConditionalCheckFailedException`; if it
 > doesn't cover `attribute_not_exists`/comparison/name-aliases, extend it (a
