@@ -90,8 +90,13 @@ the bundle). See the decision matrix in the brainstorming discussion.
   Cognito (`AdminLinkProviderForUser`), both providers resolve to the **same
   Cognito user with the same stable `sub`**. The Phase 1 data model therefore
   survives Phase 2 unchanged.
-- **Linking guard:** Cognito's default email-based auto-linking **must be
-  disabled** so two different people who share an email are never merged.
+- **Linking guard:** Cognito has **no automatic account-linking to disable** —
+  federated identities merge **only** via an explicit `AdminLinkProviderForUser`
+  call (Phase 2). The guard is structural: map `username = sub` (provider-
+  specific) and expose no native signup surface, so two people who share an
+  email are distinct pool users and are never merged unless we explicitly link
+  them. (Plan Task 7 documents the concrete control point; it is fully
+  Terraform-managed, no manual step.)
 
 ---
 
@@ -113,16 +118,20 @@ the bundle). See the decision matrix in the brainstorming discussion.
 
 ## 5. Data Model
 
-### `chq-calendar-users`
+### `${var.app_name}-users` (default expansion `chautauqua-calendar-users`)
 - Hash key: `userId` (= Cognito `sub`).
 - Attributes:
   - `preferences` — opaque blob `{ filterState, notes }` (mirrors the
     existing `useFilterState` shape, plus optional per-event `notes`).
-  - `email` — informational only, **never a key**.
+  - `email` — informational only, **never a key**. Written from the verified
+    token's `email` claim on upsert (never logged, per project rules).
   - `linkedProviders: string[]` — informational (e.g. `["google","apple"]`).
   - `lastSaved: number`, `createdAt: number`.
 
-### `chq-calendar-favorites`
+> Table names follow the repo's Terraform convention `"${var.app_name}-<thing>"`
+> (`app_name` default `chautauqua-calendar`), NOT a literal `chq-calendar-*`.
+
+### `${var.app_name}-favorites` (default expansion `chautauqua-calendar-favorites`)
 - Hash key: `userId`, range key: `eventId`. **One row per favorite.**
 - Attributes: `{ favorited: boolean, at: number }`.
 - **GSI `by-event`:** hash `eventId` — the popularity index. Counting/
@@ -222,8 +231,8 @@ Adds:
   (Phase 2).
 - `user_handler` Lambda + `user_lambda_role` (scoped to the two new tables
   only).
-- `chq-calendar-users` and `chq-calendar-favorites` tables (favorites with
-  the `by-event` GSI; consider PITR + SSE as with publisher tables).
+- `${var.app_name}-users` and `${var.app_name}-favorites` tables (favorites
+  with the `by-event` GSI; PITR + SSE as with publisher tables).
 - CloudFront routing for `/user/*` and the OAuth callback path.
 - `VITE_`-prefixed frontend config: Cognito domain, client ID, pool ID,
   region.

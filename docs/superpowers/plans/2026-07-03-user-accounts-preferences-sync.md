@@ -35,18 +35,23 @@ DocumentClient); AWS Cognito; `aws-jwt-verify` for JWKS; Terraform (AWS).
 
 - Node.js `>=24.0.0`; Lambda runtime `nodejs24.x`. (Copied from CLAUDE.md.)
 - Backend lint runs `--max-warnings=0`; any ESLint warning fails the build.
-- Coverage floors are enforced: frontend `frontend/.coverage-floor.json`,
-  backend `backend/src/.coverage-floor.json`. New logic must keep coverage at
-  or above the floor.
+- Coverage floors are enforced from a SINGLE repo-root `.coverage-floor.json`:
+  `backend/jest.config.js` reads `require('../.coverage-floor.json')`
+  (`floor.backend.lines`) and `frontend/vitest.config.ts` reads
+  `import floor from '../.coverage-floor.json'` (`floor.frontend.lines`). New
+  logic must keep coverage at or above the floor.
 - Never commit to `main`. Work on a feature branch
   (`feat/user-accounts-preferences-sync` already exists).
 - Never log user email or name (project sensitivity rule).
 - Frontend hooks/JSX files import hooks/types from `'react'` (aliased to
   `preact/compat`); pure `.ts` logic files may import from `'preact/hooks'` or
   avoid Preact entirely.
-- AWS resource names use the `"${var.app_name}-<thing>"` prefix; GSI names are
-  `by-<attr>`; env vars are `*_TABLE_NAME`, resolved in code via
-  `process.env.X ?? '<default>'`.
+- AWS resource names use the `"${var.app_name}-<thing>"` prefix (`app_name`
+  default `chautauqua-calendar`); env vars are `*_TABLE_NAME`, resolved in code
+  via `process.env.X ?? '<default>'`. GSI naming is NOT uniform in this repo
+  (core tables use `WeekIndex`/`DateIndex`/`CategoryIndex`; publisher tables use
+  `by-<attr>`). For NEW GSIs this plan adopts the `by-<attr>` convention
+  (`by-event`) — a preference, not a repo-wide rule.
 - Backend service pattern: constructor-inject a built `DynamoDBDocumentClient`
   + a `tableName` string; expose a `_set<Thing>ForTests` seam on handlers.
 
@@ -324,7 +329,14 @@ export function reconcileBlob(local: PreferencesBlob, server: PreferencesBlob): 
   return local.lastSaved > server.lastSaved ? local : server;
 }
 
-/** Per-event last-write-wins. A present record beats undefined. */
+/** Per-event last-write-wins. A present record beats undefined.
+ *  Tie-break note: on an exact `at` tie the FIRST arg wins (`a.at >= b.at`).
+ *  `reconcileFavorites` calls this as `(local, server)`, so favorites resolve a
+ *  tie toward LOCAL — deliberately opposite to `reconcileBlob`, which resolves a
+ *  filter tie toward SERVER. Rationale: favorite state is a single per-event bit
+ *  where keeping the device's own value on a tie avoids a visible flip; filters
+ *  are a bulk view where preferring the server on a tie avoids needless local
+ *  churn. Both are arbitrary-but-deterministic; exact ties are near-impossible. */
 export function mergeFavoritesRecord(
   a: FavoriteRecord | undefined,
   b: FavoriteRecord | undefined,
@@ -787,6 +799,13 @@ export class FavoritesService {
 > returned `Count` — acceptable for admin ad-hoc use. If exact high-volume
 > counts are ever needed, project `favorited` into the GSI key instead. Out of
 > scope now.
+>
+> **Batching (perf):** `upsertMany` and `deleteAllForUser` write one row per
+> event *sequentially*. A long-time user could have hundreds of favorites, and
+> the `user_handler` Lambda times out at 30s (Task 7). When implementing,
+> replace the loops with chunked `BatchWriteCommand` (25 items/request) so
+> first-sign-in merge-up and account deletion stay well under the timeout. The
+> tests assert per-event effects, so they hold under batching; keep them.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -1134,8 +1153,10 @@ export async function handlePutPreferences(event: APIGatewayProxyEvent): Promise
   const toStore: UserProfile = {
     userId,
     preferences: parsed.preferences ?? existing?.preferences ?? null,
-    lastSaved: parsed.preferences?.lastSaved ?? now,
+    // fall back to the existing timestamp when a partial/legacy client omits preferences
+    lastSaved: parsed.preferences?.lastSaved ?? existing?.lastSaved ?? now,
     createdAt: existing?.createdAt ?? now,
+    email: claims.email ?? existing?.email, // informational; sourced from the verified token, never logged
     linkedProviders: existing?.linkedProviders,
   };
   await profileSvc().put(toStore);
@@ -1327,13 +1348,18 @@ resource "aws_cognito_identity_provider" "google" {
     client_id                 = var.google_oauth_client_id
     client_secret             = var.google_oauth_client_secret
     authorize_scopes          = "openid email profile"
-    # Account linking is EXPLICIT/user-initiated (Phase 2), never automatic.
-    # Cognito performs no attribute/email-based auto-merge unless a merge is
-    # requested via AdminLinkProviderForUser — there is no provider_details key
-    # to set here, so the guard is: do NOT add one, and do NOT reuse a username
-    # mapping that collides across providers. Verified: default behavior is no
-    # auto-link. Phase 2 (Task 14) is the only path that links identities.
   }
+  # CONTROL POINT for the "no auto-link" guard (spec §3): Cognito has no
+  # attribute/email-based auto-merge setting to toggle — federated identities
+  # are merged ONLY by an explicit AdminLinkProviderForUser call (Phase 2,
+  # Task 14). The guard is therefore structural, enforced by two things below:
+  #   1. attribute_mapping maps `username = "sub"` (provider-specific), so a
+  #      Google user and an Apple user with the same email are DISTINCT pool
+  #      users until explicitly linked — no silent collision.
+  #   2. This pool exposes no native (email/password) signup surface, so there
+  #      is no pre-existing local user for a federated login to collide with.
+  # Nothing to "disable"; the requirement is met by NOT adding an explicit link
+  # anywhere except Task 14. This is fully Terraform-managed (no manual step).
 
   attribute_mapping = {
     email    = "email"
@@ -1591,7 +1617,10 @@ git commit -m "infra(user): Cognito pool + Google IdP, users/favorites tables, u
 ```ts
 // frontend/src/lib/__tests__/cognito.test.ts
 /// <reference types="vitest/globals" />
-import { saveTokens, getTokens, clearTokens, getAccessToken, isExpired, type AuthTokens } from '@/lib/cognito';
+import {
+  saveTokens, getTokens, clearTokens, getAccessToken, isExpired,
+  decodeJwtPayload, consumeAndVerifyState, type AuthTokens,
+} from '@/lib/cognito';
 
 const tokens = (over: Partial<AuthTokens> = {}): AuthTokens => ({
   accessToken: 'a', idToken: 'i', refreshToken: 'r', expiresAt: Date.now() + 3_600_000, ...over,
@@ -1615,6 +1644,33 @@ describe('cognito token storage', () => {
     expect(isExpired(tokens({ expiresAt: Date.now() + 10_000 }))).toBe(false);
   });
 });
+
+describe('decodeJwtPayload (base64url-safe)', () => {
+  it('decodes a base64url payload that standard atob would choke on', () => {
+    // payload {"sub":"u1","email":"a+b@x.io"} base64url-encoded (has - / _ , no padding)
+    const payload = { sub: 'u1', email: 'a+b@x.io' };
+    const b64url = btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const jwt = `h.${b64url}.sig`;
+    expect(decodeJwtPayload(jwt)).toEqual(payload);
+  });
+  it('returns null on a malformed token', () => {
+    expect(decodeJwtPayload('not-a-jwt')).toBeNull();
+  });
+});
+
+describe('consumeAndVerifyState (OAuth CSRF)', () => {
+  beforeEach(() => sessionStorage.clear());
+  it('accepts a matching, single-use state and rejects reuse', () => {
+    sessionStorage.setItem('chq_oauth_state', 'abc');
+    expect(consumeAndVerifyState('abc')).toBe(true);
+    expect(consumeAndVerifyState('abc')).toBe(false); // consumed → no stored value now
+  });
+  it('rejects a mismatched or missing state', () => {
+    sessionStorage.setItem('chq_oauth_state', 'abc');
+    expect(consumeAndVerifyState('xyz')).toBe(false);
+    expect(consumeAndVerifyState(null)).toBe(false);
+  });
+});
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1635,6 +1691,7 @@ export interface AuthTokens {
 
 const TOKENS_KEY = 'chq_user_tokens';
 const PKCE_VERIFIER_KEY = 'chq_pkce_verifier';
+const OAUTH_STATE_KEY = 'chq_oauth_state';
 
 const DOMAIN = import.meta.env.VITE_COGNITO_DOMAIN ?? '';       // e.g. https://xxx.auth.us-east-1.amazoncognito.com
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID ?? '';
@@ -1668,15 +1725,27 @@ function base64url(bytes: ArrayBuffer): string {
 async function sha256(input: string): Promise<ArrayBuffer> {
   return crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
 }
-function randomVerifier(): string {
+function randomToken(): string {
   const arr = new Uint8Array(32);
   crypto.getRandomValues(arr);
   return base64url(arr.buffer);
 }
 
+/** Decode a base64url-encoded JWT segment (JWTs are NOT standard base64). */
+export function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
+  try {
+    const seg = jwt.split('.')[1];
+    if (!seg) return null;
+    const b64 = seg.replace(/-/g, '+').replace(/_/g, '/').padEnd(seg.length + (4 - (seg.length % 4)) % 4, '=');
+    return JSON.parse(atob(b64)) as Record<string, unknown>;
+  } catch { return null; }
+}
+
 export async function buildAuthorizeUrl(): Promise<string> {
-  const verifier = randomVerifier();
+  const verifier = randomToken();
+  const state = randomToken();
   sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier);
+  sessionStorage.setItem(OAUTH_STATE_KEY, state);   // CSRF binding, verified in the callback
   const challenge = base64url(await sha256(verifier));
   const params = new URLSearchParams({
     response_type: 'code',
@@ -1685,8 +1754,17 @@ export async function buildAuthorizeUrl(): Promise<string> {
     scope: 'openid email profile',
     code_challenge_method: 'S256',
     code_challenge: challenge,
+    state,
   });
   return `${DOMAIN}/oauth2/authorize?${params.toString()}`;
+}
+
+/** Verify the returned ?state against the stored value (single-use). Returns
+ *  false on mismatch — the callback MUST abort the code exchange if false. */
+export function consumeAndVerifyState(returnedState: string | null): boolean {
+  const expected = sessionStorage.getItem(OAUTH_STATE_KEY);
+  sessionStorage.removeItem(OAUTH_STATE_KEY);
+  return !!expected && !!returnedState && expected === returnedState;
 }
 
 async function tokenRequest(body: Record<string, string>): Promise<AuthTokens> {
@@ -1736,15 +1814,14 @@ Expected: PASS.
 ```ts
 // frontend/src/hooks/useAuth.ts
 import { useState, useEffect, useCallback } from 'react';
-import { buildAuthorizeUrl, getTokens, clearTokens, isExpired, refreshTokens, saveTokens } from '@/lib/cognito';
+import { buildAuthorizeUrl, getTokens, clearTokens, isExpired, refreshTokens, saveTokens, decodeJwtPayload } from '@/lib/cognito';
 
 interface AuthUser { sub: string; email?: string }
 
 function decodeIdToken(idToken: string): AuthUser | null {
-  try {
-    const payload = JSON.parse(atob(idToken.split('.')[1]));
-    return { sub: payload.sub, email: payload.email };
-  } catch { return null; }
+  const payload = decodeJwtPayload(idToken); // base64url-safe (JWT segments are not standard base64)
+  if (!payload || typeof payload.sub !== 'string') return null;
+  return { sub: payload.sub, email: typeof payload.email === 'string' ? payload.email : undefined };
 }
 
 export function useAuth() {
@@ -1998,7 +2075,8 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
   const { isAuthenticated, favoritesMap, mergeFavorites, buildLocalBlob, applyBlob, changeSignature } = opts;
   const [syncing, setSyncing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const didInitialSync = useRef(false);
+  const didInitialSync = useRef(false);            // guards duplicate initial fetches
+  const [initialSyncDone, setInitialSyncDone] = useState(false); // gates the write-through; flips AFTER the initial push resolves
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initial reconcile on sign-in.
@@ -2023,27 +2101,32 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
       } catch (e) {
         if (!cancelled) setLastError(e instanceof Error ? e.message : 'sync failed');
       } finally {
-        if (!cancelled) setSyncing(false);
+        // Enable the write-through ONLY now — after the merged push has resolved —
+        // so a debounced push can never fire with pre-merge state and clobber the
+        // just-reconciled server copy.
+        if (!cancelled) { setSyncing(false); setInitialSyncDone(true); }
       }
     })();
     return () => { cancelled = true; };
   }, [isAuthenticated, favoritesMap, mergeFavorites, buildLocalBlob, applyBlob]);
 
-  // Reset the guard on sign-out so a later sign-in re-syncs.
-  useEffect(() => { if (!isAuthenticated) didInitialSync.current = false; }, [isAuthenticated]);
-
-  // Debounced write-through: after the initial sync, any local change (favorites
-  // toggled, filters edited) pushes to the server best-effort. This is what makes
-  // sync ONGOING, not just at sign-in — device A's later edits reach device B.
+  // Reset the guards on sign-out so a later sign-in re-syncs cleanly.
   useEffect(() => {
-    if (!isAuthenticated || !didInitialSync.current) return; // don't double-push during initial reconcile
+    if (!isAuthenticated) { didInitialSync.current = false; setInitialSyncDone(false); }
+  }, [isAuthenticated]);
+
+  // Debounced write-through: after the initial sync COMPLETES, any local change
+  // (favorites toggled, filters edited) pushes to the server best-effort. This is
+  // what makes sync ONGOING, not just at sign-in — device A's later edits reach B.
+  useEffect(() => {
+    if (!isAuthenticated || !initialSyncDone) return; // never overlaps the initial reconcile
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
       pushPreferences({ preferences: buildLocalBlob(), favorites: favoritesMap })
         .catch((e) => setLastError(e instanceof Error ? e.message : 'sync failed'));
     }, WRITE_DEBOUNCE_MS);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
-  }, [isAuthenticated, changeSignature, buildLocalBlob, favoritesMap]);
+  }, [isAuthenticated, initialSyncDone, changeSignature, buildLocalBlob, favoritesMap]);
 
   return { syncing, lastError };
 }
@@ -2195,6 +2278,10 @@ blob wins `reconcileBlob`, there is currently no way to apply it. Add one, TDD:
 
 ```ts
 // in useFilterState.ts reducer — add a case:
+// FilterState gains a real `lastSaved: number` (the time filters were last
+// EDITED). This is what the blob-level LWW compares — do NOT fabricate it with
+// Date.now() at read time (that makes local always win and breaks
+// "expired-local pulls from server", spec §6.2).
 case 'HYDRATE_STATE':
   return {
     ...state, // keep runtime-only fields (availableCategories/Locations, extraDays)
@@ -2207,15 +2294,41 @@ case 'HYDRATE_STATE':
     recentLocations: action.snapshot.recentLocations,
     recentCategories: action.snapshot.recentCategories,
     showFavoritesOnly: action.snapshot.showFavoritesOnly,
+    lastSaved: action.lastSaved, // adopt the server blob's timestamp on a server-won pull
   };
-// ...and expose a callback in the hook return:
-const hydrateFilters = useCallback((snapshot: FilterSnapshot) =>
-  dispatch({ type: 'HYDRATE_STATE', snapshot }), []);
 ```
-Add a test in `useFilterState.test.ts`: dispatch a snapshot via `hydrateFilters`
-and assert `searchTerm`/`selectedTags`/`expandedDescriptions` reflect it while
-`availableCategories` (runtime-only) is untouched. (`FilterSnapshot` is the
-Task 1 type; import it.)
+The reducer must maintain `lastSaved` on real edits. Wrap the base reducer so a
+genuine state change bumps it, but skip `HYDRATE_STATE` (sets its own) and the
+runtime-only actions (`SET_AVAILABLE_*` / `SET_EXTRA_DAYS`) so loading category
+lists doesn't count as a user edit:
+```ts
+function filterReducer(state: FilterState, action: FilterAction): FilterState {
+  const next = baseFilterReducer(state, action);
+  if (next === state) return state;                       // no real change
+  if (action.type === 'HYDRATE_STATE') return next;       // already set lastSaved
+  if (action.type === 'SET_AVAILABLE_CATEGORIES' || action.type === 'SET_AVAILABLE_LOCATIONS' || action.type === 'SET_EXTRA_DAYS') {
+    return next;                                           // runtime-only, not an edit
+  }
+  return { ...next, lastSaved: Date.now() };
+}
+```
+`loadInitialState` seeds `lastSaved` from the persisted value when the stored
+state is still valid, and **`0` when it is absent or expired** — so an
+expired-local user loses the LWW tie and pulls the server copy:
+```ts
+// inside loadInitialState, in the valid branch: lastSaved: parsed.lastSaved,
+// in the expired/default branch (return initialState): lastSaved: 0
+```
+Expose a callback (note it also carries the blob-level timestamp):
+```ts
+const hydrateFilters = useCallback((snapshot: FilterSnapshot, lastSaved: number) =>
+  dispatch({ type: 'HYDRATE_STATE', snapshot, lastSaved }), []);
+```
+Add tests in `useFilterState.test.ts`: (a) an edit (`setSearchTerm`) bumps
+`lastSaved`; (b) `SET_AVAILABLE_CATEGORIES` does NOT bump it; (c) `hydrateFilters`
+sets fields AND `lastSaved` to the passed value while leaving
+`availableCategories` untouched; (d) an expired stored state loads with
+`lastSaved === 0`. (`FilterSnapshot` is the Task 1 type; import it.)
 
 **Then** `page.tsx`: after the existing `useFilterState()`/`useFavorites()`
 calls, add (note `isAuthenticated` is `false` whenever the flag is off, so sync
@@ -2233,7 +2346,7 @@ const buildLocalBlob = useCallback((): PreferencesBlob => ({
     showFavoritesOnly: filterState.showFavoritesOnly,
   },
   notes: {},
-  lastSaved: Date.now(),
+  lastSaved: filterState.lastSaved, // REAL last-edit time, not Date.now()
 }), [filterState]);
 // Primitive change-signal for the debounced write-through (stable dep):
 const changeSignature = JSON.stringify([favorites.favoritesMap, buildLocalBlob().filters]);
@@ -2242,23 +2355,26 @@ usePreferenceSync({
   favoritesMap: favorites.favoritesMap,
   mergeFavorites: favorites.mergeFavorites,
   buildLocalBlob,
-  applyBlob: (b) => filterState.hydrateFilters(b.filters), // the new hydrate seam
+  applyBlob: (b) => filterState.hydrateFilters(b.filters, b.lastSaved), // hydrate seam carries the timestamp
   changeSignature,
 });
 ```
 (Adapt property access to however `page.tsx` currently destructures the hooks.)
 
-`authCallback.tsx` entry:
+`authCallback.tsx` entry (verifies the OAuth `state` before exchanging the code):
 ```tsx
 // frontend/src/entries/authCallback.tsx
-import { exchangeCodeForTokens, saveTokens } from '@/lib/cognito';
+import { exchangeCodeForTokens, saveTokens, consumeAndVerifyState } from '@/lib/cognito';
 
-const code = new URLSearchParams(window.location.search).get('code');
-if (code) {
+const params = new URLSearchParams(window.location.search);
+const code = params.get('code');
+const stateOk = consumeAndVerifyState(params.get('state')); // CSRF check — single-use
+if (code && stateOk) {
   exchangeCodeForTokens(code)
     .then(saveTokens)
     .finally(() => { window.location.href = '/'; });
 } else {
+  // Missing code or state mismatch → do NOT exchange; bounce home signed-out.
   window.location.href = '/';
 }
 ```
@@ -2299,7 +2415,7 @@ import { UserProfileService } from '../../services/userProfileService';
 import { FavoritesService } from '../../services/favoritesService';
 import {
   handlePutPreferences, handleGetPreferences, handleDeleteUser,
-  _setProfileServiceForTests, _setFavoritesServiceForTests,
+  _setProfileServiceForTests, _setFavoritesServiceForTests, _setCognitoClientForTests,
 } from '../../handlers/userHandler';
 
 jest.mock('../../services/cognitoVerifier', () => ({ verifyCognitoAccessToken: jest.fn() }));
@@ -2311,15 +2427,24 @@ const evt = (over: any = {}) => ({
 });
 
 describe('user preferences round-trip (in-memory Dynamo)', () => {
+  let cognitoSend: jest.Mock;
   beforeEach(() => {
+    process.env.COGNITO_USER_POOL_ID = 'pool-1';
     const db: any = new InMemoryDocClient();
     _setProfileServiceForTests(new UserProfileService(db, 'users'));
     _setFavoritesServiceForTests(new FavoritesService(db, 'favorites', 'by-event'));
-    (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', tokenUse: 'access' });
+    cognitoSend = jest.fn().mockResolvedValue({});
+    _setCognitoClientForTests({ send: cognitoSend } as any);
+    // Realistic federated claim: real Cognito access tokens carry `username`,
+    // which is what drives the AdminDeleteUser branch. Omitting it would let the
+    // delete path silently no-op and hide regressions.
+    (verifyCognitoAccessToken as jest.Mock).mockResolvedValue({ sub: 'u1', username: 'Google_123', tokenUse: 'access' });
   });
-  afterEach(() => { _setProfileServiceForTests(null); _setFavoritesServiceForTests(null); });
+  afterEach(() => {
+    _setProfileServiceForTests(null); _setFavoritesServiceForTests(null); _setCognitoClientForTests(null);
+  });
 
-  it('PUT then GET returns the stored blob and favorites; DELETE purges both', async () => {
+  it('PUT then GET returns the stored blob and favorites; DELETE purges DB rows AND the Cognito user', async () => {
     await handlePutPreferences(evt({
       httpMethod: 'PUT',
       body: JSON.stringify({ preferences: { filters: {}, notes: {}, lastSaved: 42 }, favorites: { e1: { favorited: true, at: 9 } } }),
@@ -2332,6 +2457,8 @@ describe('user preferences round-trip (in-memory Dynamo)', () => {
     const after = JSON.parse((await handleGetPreferences(evt())).body);
     expect(after.preferences).toBeNull();
     expect(after.favorites).toEqual({});
+    // the Cognito user was actually deleted, with the pool Username
+    expect(cognitoSend.mock.calls[0][0].input).toEqual({ UserPoolId: 'pool-1', Username: 'Google_123' });
   });
 });
 ```
