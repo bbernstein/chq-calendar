@@ -56,12 +56,15 @@ experience** — signed-out users behave exactly as they do today.
   - Both use `USER_STATE_EXPIRY_MS` (30 days) from
     `frontend/src/lib/constants.ts`. Every write stamps `lastSaved =
     Date.now()`.
-- **Two existing bespoke JWT auth systems** (both HS256, localStorage):
-  admin Google-OAuth (`backend/src/handlers/adminHandler.ts`, whitelist-
-  bound) and publisher magic-link
-  (`backend/src/services/publisherAuthService.ts`). The Google OAuth2 client
-  + JWT helpers are a usable *template* but are hard-gated to the admin email
-  whitelist — not a drop-in for end users.
+- **Two existing localStorage-backed JWT auth systems** (both HS256): admin
+  Google-OAuth (`backend/src/handlers/adminHandler.ts`, whitelist-bound) and
+  publisher magic-link (`backend/src/services/publisherAuthService.ts`). The
+  Google OAuth2 client + JWT helpers are a usable *template* but are hard-gated
+  to the admin email whitelist — not a drop-in for end users. (A third HS256
+  path exists — the smoke-bot admin token in
+  `backend/src/services/smokeAdminAuth.ts`, signed with a separate
+  Terraform-provisioned secret — but it's a CI-only, header-based token, not a
+  localStorage user session, so it's out of scope here.)
 - **Data layer:** DynamoDB (PAY_PER_REQUEST), Terraform IaC. No
   user/account/preferences table exists. IAM roles are already split
   (`admin_lambda_role` vs `lambda_role`).
