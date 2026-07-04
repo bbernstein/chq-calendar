@@ -2209,6 +2209,9 @@ describe('usePreferenceSync', () => {
     };
     const { rerender } = renderHook((p: any) => usePreferenceSync(p), { initialProps: props });
     await vi.runOnlyPendingTimersAsync();          // let the initial sync + its push settle
+    // (the initial sync is promise-based, not timer-based; if `initialSyncDone`
+    // hasn't flipped yet under fake timers, add an `await act(async () => {})` /
+    // extra microtask flush here before the rerender.)
     (pushPreferences as any).mockClear();
     // a local change: new signature + new favorites
     rerender({ ...props, changeSignature: 'sig-2', favoritesMap: { e1: { favorited: false, at: 20 } } });
@@ -2308,6 +2311,11 @@ export function usePreferenceSync(opts: Opts): { syncing: boolean; lastError: st
   // (favorites toggled, filters edited) — signalled by the primitive
   // `changeSignature` — pushes to the server best-effort. This is what makes sync
   // ONGOING, not just at sign-in — device A's later edits reach B.
+  // Note: when `initialSyncDone` first flips true this effect arms once even with
+  // no user edit, so ~WRITE_DEBOUNCE_MS after sign-in it fires one redundant push
+  // of the just-synced state. That's harmless (idempotent — the blob's strict `<`
+  // rejects the equal-timestamp write, and favorite rows re-write identically);
+  // not worth extra state to suppress.
   useEffect(() => {
     if (!isAuthenticated || !initialSyncDone) return; // never overlaps the initial reconcile
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
