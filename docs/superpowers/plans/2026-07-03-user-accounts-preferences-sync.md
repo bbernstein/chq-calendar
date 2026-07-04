@@ -995,6 +995,7 @@ git commit -m "feat(auth): Cognito access-token JWKS verifier with test seam"
 // backend/src/__tests__/userHandler.test.ts
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import {
+  handler,
   handleGetPreferences, handlePutPreferences, handleDeleteUser,
   _setProfileServiceForTests, _setFavoritesServiceForTests, _setCognitoClientForTests,
 } from '../handlers/userHandler';
@@ -1061,6 +1062,13 @@ describe('userHandler', () => {
     expect(r.statusCode).toBe(204);
     expect(profile.put).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u1', lastSaved: 7 }));
     expect(favorites.upsertMany).toHaveBeenCalledWith('u1', { e1: { favorited: false, at: 8 } });
+  });
+
+  it('handler returns a JSON 500 (not an unhandled throw) when the verifier throws on missing config', async () => {
+    (verifyCognitoAccessToken as jest.Mock).mockRejectedValue(new Error('COGNITO_USER_POOL_ID not set'));
+    const r = await handler(evt({ httpMethod: 'GET', path: '/user/preferences', headers: { Authorization: 'Bearer x' } }));
+    expect(r.statusCode).toBe(500);
+    expect(JSON.parse(r.body).error).toBe('Internal server error');
   });
 
   it('DELETE purges favorites rows, profile, AND the Cognito user', async () => {
@@ -1202,13 +1210,21 @@ export async function handleDeleteUser(event: APIGatewayProxyEvent): Promise<API
 }
 
 export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const method = event.httpMethod.toUpperCase();
-  const path = event.path;
-  if (method === 'OPTIONS') return json(204);
-  if (path.endsWith('/user/preferences') && method === 'GET') return handleGetPreferences(event);
-  if (path.endsWith('/user/preferences') && method === 'PUT') return handlePutPreferences(event);
-  if (path.endsWith('/user') && method === 'DELETE') return handleDeleteUser(event);
-  return json(404, { error: 'not found' });
+  // Top-level catch so any unexpected throw (e.g. missing Cognito config, or a
+  // transient AWS error) surfaces as the app's consistent JSON 500 rather than
+  // an unhandled rejection → API Gateway 502. Mirrors publisherPortalHandler.
+  try {
+    const method = event.httpMethod.toUpperCase();
+    const path = event.path;
+    if (method === 'OPTIONS') return json(204);
+    if (path.endsWith('/user/preferences') && method === 'GET') return await handleGetPreferences(event);
+    if (path.endsWith('/user/preferences') && method === 'PUT') return await handlePutPreferences(event);
+    if (path.endsWith('/user') && method === 'DELETE') return await handleDeleteUser(event);
+    return json(404, { error: 'not found' });
+  } catch (err) {
+    console.error('userHandler unexpected error:', (err as Error)?.message); // never log token/PII
+    return json(500, { error: 'Internal server error' });
+  }
 }
 ```
 
