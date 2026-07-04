@@ -1550,7 +1550,7 @@ resource "aws_iam_role_policy" "user_lambda_scoped" {
         Action = [
           "dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem",
           "dynamodb:UpdateItem", "dynamodb:DeleteItem",
-          "dynamodb:BatchWriteItem"  # favorites upsertMany/deleteAllForUser use chunked BatchWriteCommand
+          "dynamodb:BatchWriteItem"  # deleteAllForUser uses chunked BatchWriteItem (purge); upsertMany keeps conditional putRow writes for LWW
         ],
         Resource = [
           aws_dynamodb_table.users.arn,
