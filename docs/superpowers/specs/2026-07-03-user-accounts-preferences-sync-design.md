@@ -80,8 +80,11 @@ SaaS like Clerk (keeps PII in-account, stays in Terraform IaC, stays light on
 the bundle). See the decision matrix in the brainstorming discussion.
 
 - **Flow:** OAuth Authorization Code + **PKCE** redirect — correct for a
-  static SPA (no client secret in the browser). Sign-in redirects to Cognito,
-  returns to a callback URL with ID/access/refresh tokens.
+  static SPA (no client secret in the browser). Sign-in redirects to Cognito
+  and returns to the callback URL with an **authorization `code` (and `state`)**
+  — NOT tokens. The callback then exchanges that code at Cognito's
+  `/oauth2/token` endpoint (with the PKCE verifier) for the ID/access/refresh
+  tokens.
 - **Token verification:** Lambdas verify the Cognito **access token against
   the pool's JWKS** (public keys) — replacing the shared-HS256-secret pattern
   with standard asymmetric verification. Fits the existing "verify JWT

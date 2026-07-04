@@ -503,9 +503,14 @@ export function useFavorites() {
     Object.entries(favorites).filter(([, r]) => r.favorited).map(([id]) => id),
   );
 
+  // Newest per-event change time; a cheap, deterministic signal that favorites
+  // changed (used to drive the sync debounce without serializing the whole map).
+  const favoritesLastChanged = Object.values(favorites).reduce((m, r) => Math.max(m, r.at), 0);
+
   return {
     favoriteIds,
     favoritesMap: favorites,
+    favoritesLastChanged,
     isFavorite,
     toggleFavorite,
     mergeFavorites,
@@ -584,7 +589,7 @@ describe('UserProfileService', () => {
     expect(ok).toBe(true);
     const cmd: any = mockSend.mock.calls[0][0];
     expect(cmd.input.Item.userId).toBe('u2');
-    expect(cmd.input.ConditionExpression).toContain('lastSaved <= :ls');
+    expect(cmd.input.ConditionExpression).toContain('lastSaved < :ls');
     expect(cmd.input.ExpressionAttributeValues[':ls']).toBe(7);
   });
   it('putIfNewer returns false (not throws) when a newer server copy wins', async () => {
@@ -633,16 +638,18 @@ export class UserProfileService {
     return (r.Item as UserProfile) ?? null;
   }
 
-  /** LWW write: persists only if the row is absent OR the stored `lastSaved`
-   *  is not newer than the incoming one. Returns false when a newer server copy
-   *  won (a stale client push is silently ignored, preserving cross-device LWW).
-   *  The server enforces LWW here — it never trusts the client to have merged. */
+  /** LWW write: persists only if the row is absent OR the stored `lastSaved` is
+   *  STRICTLY older than the incoming one (strict `<` → the server keeps its copy
+   *  on an exact tie, matching `reconcileBlob`'s "server wins ties"). Returns
+   *  false when a newer-or-equal server copy won (a stale/duplicate client push is
+   *  silently ignored). The server enforces LWW here — it never trusts the client
+   *  to have merged. */
   async putIfNewer(profile: UserProfile): Promise<boolean> {
     try {
       await this.db.send(new PutCommand({
         TableName: this.tableName,
         Item: profile,
-        ConditionExpression: 'attribute_not_exists(userId) OR lastSaved <= :ls',
+        ConditionExpression: 'attribute_not_exists(userId) OR lastSaved < :ls', // strict < → server wins ties, matching reconcileBlob
         ExpressionAttributeValues: { ':ls': profile.lastSaved },
       }));
       return true;
@@ -1441,12 +1448,15 @@ resource "aws_dynamodb_table" "favorites" {
 resource "aws_cognito_user_pool" "users" {
   name = "${var.app_name}-users"
 
-  username_attributes      = ["email"]
+  # Federation-only pool. Do NOT set username_attributes = ["email"]: that makes
+  # email the pool username and would undermine the "no auto-link" guard, which
+  # relies on each IdP mapping `username = sub` (provider-specific) so Google and
+  # Apple identities stay distinct. Keep the username independent of email.
   auto_verified_attributes = ["email"]
 
-  # Federation-only pool: disable native self-service signup so no local
-  # (email/password) user can exist to collide with a federated identity — this
-  # is part of the "no auto-link" structural guard (see the Google IdP block).
+  # Disable native self-service signup so no local (email/password) user can
+  # exist to collide with a federated identity — part of the same structural
+  # "no auto-link" guard (see the Google IdP block).
   admin_create_user_config {
     allow_admin_create_user_only = true
   }
@@ -1733,7 +1743,7 @@ git commit -m "infra(user): Cognito pool + Google IdP, users/favorites tables, u
 
 **Interfaces:**
 - Produces:
-  - `frontend/src/lib/cognito.ts`: `buildAuthorizeUrl(): Promise<string>` (PKCE — async because it hashes the verifier via SubtleCrypto), `exchangeCodeForTokens(code: string): Promise<AuthTokens>`, `refreshTokens(refreshToken: string): Promise<AuthTokens>`, `consumeAndVerifyState(returnedState: string | null): boolean`, `decodeJwtPayload(jwt: string): Record<string, unknown> | null`, `AuthTokens = { accessToken: string; idToken: string; refreshToken?: string; expiresAt: number }`, storage helpers `saveTokens/getTokens/clearTokens/getAccessToken`.
+  - `frontend/src/lib/cognito.ts`: `buildAuthorizeUrl(): Promise<string>` (PKCE — async because it hashes the verifier via SubtleCrypto), `exchangeCodeForTokens(code: string): Promise<AuthTokens>`, `refreshTokens(refreshToken: string): Promise<AuthTokens>`, `consumeAndVerifyState(returnedState: string | null): boolean`, `decodeJwtPayload(jwt: string): Record<string, unknown> | null`, `AuthTokens = { accessToken: string; idToken: string; refreshToken?: string; expiresAt: number }`, storage helpers `saveTokens/getTokens/clearTokens/getAccessToken`, and `getFreshAccessToken(): Promise<string | null>` (refreshes on-demand if expired — the API client uses this so long-open sessions never send an expired token; `useAuth`'s mount refresh is not enough on its own).
   - `frontend/src/hooks/useAuth.ts`: `useAuth(): { user: { sub: string; email?: string } | null; signIn(): void; signOut(): void; isAuthenticated: boolean }`.
 - Storage keys: this codebase has **two** localStorage prefixes by purpose —
   **auth tokens** use `chq_<role>_*` with underscores (`chq_auth_token`,
@@ -1848,6 +1858,21 @@ export function isExpired(t: AuthTokens): boolean { return Date.now() >= t.expir
 export function getAccessToken(): string | null {
   const t = getTokens();
   return t ? t.accessToken : null;
+}
+
+/** Returns a currently-valid access token, refreshing on-demand if the stored
+ *  one has expired. The API client uses THIS (not getAccessToken) so a
+ *  long-open session never sends an expired token — useAuth only refreshes once
+ *  on mount. Returns null if signed out or the refresh fails. */
+export async function getFreshAccessToken(): Promise<string | null> {
+  let t = getTokens();
+  if (!t) return null;
+  if (isExpired(t)) {
+    if (!t.refreshToken) { clearTokens(); return null; }
+    try { t = await refreshTokens(t.refreshToken); saveTokens(t); }
+    catch { clearTokens(); return null; }
+  }
+  return t.accessToken;
 }
 
 // --- PKCE helpers (browser SubtleCrypto) ---
@@ -2013,7 +2038,7 @@ git commit -m "feat(auth): Cognito PKCE client and useAuth hook"
 // frontend/src/lib/__tests__/userPreferencesApi.test.ts
 /// <reference types="vitest/globals" />
 import { vi } from 'vitest';
-vi.mock('@/lib/cognito', () => ({ getAccessToken: () => 'tok-123' }));
+vi.mock('@/lib/cognito', () => ({ getFreshAccessToken: async () => 'tok-123' }));
 import { fetchPreferences, pushPreferences } from '@/lib/userPreferencesApi';
 
 describe('userPreferencesApi', () => {
@@ -2050,13 +2075,13 @@ Expected: FAIL — module not found.
 ```ts
 // frontend/src/lib/userPreferencesApi.ts
 import { API_BASE_URL } from '@/lib/api';
-import { getAccessToken } from '@/lib/cognito';
+import { getFreshAccessToken } from '@/lib/cognito';
 import type { PreferencesBlob, FavoritesMap } from '@/lib/preferenceSync/types';
 
 const PREFIX = `${API_BASE_URL}/user`; // MUST match the prefix chosen in Task 7 Step 6
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getAccessToken();
+  const token = await getFreshAccessToken(); // refreshes on-demand if the access token expired
   const res = await fetch(`${PREFIX}${path}`, {
     ...init,
     headers: {
@@ -2503,8 +2528,9 @@ const buildLocalBlob = useCallback((): PreferencesBlob => ({
   notes: {},
   lastSaved: filterState.lastSaved, // REAL last-edit time, not Date.now()
 }), [filterState]);
-// Primitive change-signal for the debounced write-through (stable dep):
-const changeSignature = JSON.stringify([favorites.favoritesMap, buildLocalBlob().filters]);
+// Cheap, deterministic change-signal for the debounced write-through — just two
+// timestamps, no full-map serialization and no buildLocalBlob() call in render:
+const changeSignature = `${filterState.lastSaved}:${favorites.favoritesLastChanged}`;
 usePreferenceSync({
   isAuthenticated: accountsOn && user !== null,
   favoritesMap: favorites.favoritesMap,
@@ -2625,8 +2651,9 @@ Expected: PASS. (If the harness constructor/import differs, adapt to the
 harness's real API — inspect `inMemoryDocClient.ts` first.)
 
 > The round-trip now exercises **conditional** writes (`putIfNewer` uses
-> `attribute_not_exists(userId) OR lastSaved <= :ls`; `putRow` uses
-> `attribute_not_exists(eventId) OR #at < :at` with a `#at` name alias). Confirm
+> `attribute_not_exists(userId) OR lastSaved < :ls`; `putRow` uses
+> `attribute_not_exists(eventId) OR #at < :at` with a `#at` name alias — both
+> strict `<`, so the server wins exact ties). Confirm
 > the in-memory harness evaluates these — the scout reported it supports
 > condition expressions and throws `ConditionalCheckFailedException`; if it
 > doesn't cover `attribute_not_exists`/comparison/name-aliases, extend it (a
