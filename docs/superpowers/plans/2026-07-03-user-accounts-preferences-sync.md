@@ -1371,7 +1371,8 @@ git commit -m "feat(user): userHandler routes with auth enforcement and full-pur
 **Files:**
 - Create: `infrastructure/user-accounts.tf`
 - Modify: `infrastructure/main.tf` (API Gateway `/user/{proxy+}` + deployment
-  triggers; CloudFront `/api/user*` behavior)
+  triggers; CloudFront `/user/*` behavior — the default; Step 6 is where the
+  `/user/*` vs `/api/user/*` prefix is decided for all of client/CDN/proxy)
 
 - [ ] **Step 1: Write the two DynamoDB tables**
 

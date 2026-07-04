@@ -129,7 +129,12 @@ the bundle). See the decision matrix in the brainstorming discussion.
   - `email` — informational only, **never a key**. Written from the verified
     token's `email` claim on upsert (never logged, per project rules).
   - `linkedProviders: string[]` — informational (e.g. `["google","apple"]`).
-  - `lastSaved: number`, `createdAt: number`.
+  - `lastSaved: number`, `createdAt: number`. **The top-level `lastSaved` MUST
+    equal `preferences.lastSaved`** — the handler copies the blob's timestamp up
+    to the top level so it can serve as the conditional-write / LWW key
+    (`putIfNewer` compares the stored top-level `lastSaved`). They are never
+    allowed to drift; the top level is just the indexed/queryable copy of the
+    in-blob value.
 
 > Table names follow the repo's Terraform convention `"${var.app_name}-<thing>"`
 > (`app_name` default `chautauqua-calendar`), NOT a literal `chq-calendar-*`.
