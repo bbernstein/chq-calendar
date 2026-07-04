@@ -1561,7 +1561,7 @@ resource "aws_cognito_user_pool_client" "web" {
   allowed_oauth_scopes                 = ["openid", "email", "profile"]
   supported_identity_providers         = ["Google"]
 
-  callback_urls = ["https://www.${var.domain_name}/auth/callback", "http://localhost:3000/auth/callback"]
+  callback_urls = ["https://www.${var.domain_name}/accounts/callback", "http://localhost:3000/accounts/callback"]
   logout_urls   = ["https://www.${var.domain_name}/", "http://localhost:3000/"]
 
   # Refresh token keeps sessions alive; access/id short-lived.
@@ -1744,7 +1744,7 @@ do NOT depend on the CloudFront/domain/Lambda tangle, so a second *dev* pool can
 be created without any staging refactor, keeping dev sign-ins out of prod user
 data. Two ways to get one:
 - Apply just the Cognito resources with `-target` into a dev-named pool (e.g.
-  add a `dev` app client whose only callback is `http://localhost:3000/auth/callback`), OR
+  add a `dev` app client whose only callback is `http://localhost:3000/accounts/callback`), OR
 - Create a throwaway dev pool by hand in the console for local dev.
 
 Record its domain + client ID in `frontend/.env.local`:
@@ -1888,7 +1888,7 @@ const OAUTH_STATE_KEY = 'chq_oauth_state';
 
 const DOMAIN = import.meta.env.VITE_COGNITO_DOMAIN ?? '';       // e.g. https://xxx.auth.us-east-1.amazoncognito.com
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID ?? '';
-const REDIRECT_URI = `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`;
+const REDIRECT_URI = `${typeof window !== 'undefined' ? window.location.origin : ''}/accounts/callback`;
 
 export function saveTokens(t: AuthTokens): void {
   if (typeof window === 'undefined') return;
@@ -2068,7 +2068,7 @@ git add frontend/src/lib/cognito.ts frontend/src/hooks/useAuth.ts frontend/src/l
 git commit -m "feat(auth): Cognito PKCE client and useAuth hook"
 ```
 
-> Deferred to Task 11: the `/auth/callback` page/entry that calls
+> Deferred to Task 11: the `/accounts/callback` page/entry that calls
 > `exchangeCodeForTokens` and redirects home.
 
 ---
@@ -2386,13 +2386,13 @@ git commit -m "feat(sync): usePreferenceSync reconciles local and server on sign
 
 ---
 
-## Task 11: Header sign-in affordance + `/auth/callback` entry + page wiring
+## Task 11: Header sign-in affordance + `/accounts/callback` entry + page wiring
 
 **Files:**
 - Create: `frontend/src/lib/featureFlags.ts` + `frontend/src/lib/__tests__/featureFlags.test.ts` (the `VITE_ENABLE_ACCOUNTS` + `?accounts=1` gate)
 - Create: `frontend/src/components/layout/SignInButton.tsx`
 - Create: `frontend/src/components/layout/__tests__/SignInButton.test.tsx`
-- Create: `frontend/auth/callback/index.html` + `frontend/src/entries/authCallback.tsx` (per the repo MPA convention of `<path>/index.html`, e.g. `admin/login/index.html`) + a `vite.config.ts` `rollupOptions.input` entry `'auth-callback': resolve(__dirname, 'auth/callback/index.html')`
+- Create: `frontend/accounts/callback/index.html` + `frontend/src/entries/authCallback.tsx` (per the repo MPA convention of `<path>/index.html`, e.g. `admin/login/index.html`) + a `vite.config.ts` `rollupOptions.input` entry `'accounts-callback': resolve(__dirname, 'accounts/callback/index.html')`
 - Modify: `frontend/src/hooks/useFilterState.ts` (+ its test) — add a `HYDRATE_STATE` reducer action and a `hydrateFilters(snapshot)` callback so a server-won blob can be applied
 - Modify: `frontend/src/components/layout/Header.tsx` (mount `SignInButton` in the desktop cluster + mobile menu, gated by the flag)
 - Modify: `frontend/src/app/page.tsx` (call `useAuth` + `usePreferenceSync`, both gated by the flag)
@@ -2638,12 +2638,21 @@ if (code && stateOk) {
   window.location.href = '/';
 }
 ```
-Add `frontend/auth/callback/index.html` (mirroring an existing page's HTML, e.g.
+Add `frontend/accounts/callback/index.html` (mirroring an existing page's HTML, e.g.
 `admin/login/index.html`) and register it in `vite.config.ts`
-`rollupOptions.input` as `'auth-callback': resolve(__dirname, 'auth/callback/index.html')`.
-This serves at `/auth/callback` and matches the dev-server middleware that maps
+`rollupOptions.input` as `'accounts-callback': resolve(__dirname, 'accounts/callback/index.html')`.
+This serves at `/accounts/callback` and matches the dev-server middleware that maps
 `/<path>` → `<path>/index.html`. Do NOT use a root-level `index-*.html` — that's
 not the repo convention.
+
+> **Why `/accounts/callback` and NOT `/auth/callback`:** the OAuth callback must
+> be served as a FRONTEND page (S3 origin), but CloudFront already routes
+> `/auth/*` to the admin API origin and Vite proxies `/auth` to the backend — so
+> a page at `/auth/callback` would never load (it'd hit the API and break the
+> PKCE exchange). `/user/*` is likewise the new user API. `/accounts/*` is matched
+> by no API behavior, so it falls to the default S3 origin in prod and is served
+> as a page in dev. `REDIRECT_URI` (cognito.ts) and the Cognito app-client
+> `callback_urls`/`logout_urls` all use `/accounts/callback` to match.
 
 - [ ] **Step 7: Run full frontend build + tests**
 
@@ -2653,7 +2662,7 @@ Expected: PASS (validate + type-check + lint + vitest + vite build all green).
 - [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/src/lib/featureFlags.ts frontend/src/lib/__tests__/featureFlags.test.ts frontend/src/components/layout/ frontend/src/entries/authCallback.tsx frontend/auth/callback/index.html frontend/vite.config.ts frontend/src/app/page.tsx frontend/src/components/layout/Header.tsx
+git add frontend/src/lib/featureFlags.ts frontend/src/lib/__tests__/featureFlags.test.ts frontend/src/components/layout/ frontend/src/entries/authCallback.tsx frontend/accounts/callback/index.html frontend/vite.config.ts frontend/src/app/page.tsx frontend/src/components/layout/Header.tsx
 git commit -m "feat(auth): flag-gated header sign-in button, OAuth callback page, and page sync wiring"
 ```
 
@@ -2814,7 +2823,7 @@ This is the Terraform refactor deferred from Phase 1.
   `domain_name` handling for the subdomain) and a `staging` GitHub deploy path
   (a workflow that deploys the `staging` stack on demand / on a `staging` branch).
 - [ ] **Step 4:** Stand up a staging Cognito pool + app client whose callbacks
-  are `https://staging.chqcal.org/auth/callback`.
+  are `https://staging.chqcal.org/accounts/callback`.
 - [ ] **Step 5:** Smoke-test the staging stack end-to-end (Google sign-in +
   sync) before adding Apple, to prove the new environment works.
 - [ ] **Step 6:** Commit `infra(staging): parameterized staging environment for Phase 2`.

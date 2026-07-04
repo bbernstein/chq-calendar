@@ -185,6 +185,14 @@ on it.** `localStorage` remains the instant, always-on source of truth.
   reducer change.
 - **Favorites = per-event last-write-wins rows** (§5). Union behavior falls
   out naturally; no starred event is silently lost or resurrected.
+- **Notes = blob-level last-write-wins (with filters).** `notes` live inside the
+  `preferences` blob, so they follow the same whole-blob LWW as filters, keyed on
+  the shared `lastSaved`. Consequence to accept in Phase 1: a newer *filter* edit
+  on device B can overwrite device A's newer *note* if B's blob `lastSaved` is
+  higher (notes and filters aren't timestamped independently). This is acceptable
+  because notes are a low-frequency, single-user annotation; if that ever proves
+  too coarse, notes can be promoted to their own per-event rows (like favorites)
+  as a follow-up — out of scope now.
 
 **Two consequences fall out of this design:**
 
@@ -250,7 +258,9 @@ Adds:
   only).
 - `${var.app_name}-users` and `${var.app_name}-favorites` tables (favorites
   with the `by-event` GSI; PITR + SSE as with publisher tables).
-- CloudFront routing for `/user/*` and the OAuth callback path.
+- CloudFront routing for `/user/*` (the user API). The OAuth callback page
+  lives at `/accounts/callback` and needs NO special behavior — it falls to the
+  default S3 origin (deliberately off `/auth/*`, which is the admin API).
 - `VITE_`-prefixed frontend config: Cognito domain, client ID, pool ID,
   region.
 - Secrets: Google client secret (Phase 1); Apple sign-in key + key ID + team
