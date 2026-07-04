@@ -2309,18 +2309,30 @@ case 'HYDRATE_STATE':
     lastSaved: action.lastSaved, // adopt the server blob's timestamp on a server-won pull
   };
 ```
-The reducer must maintain `lastSaved` on real edits. Wrap the base reducer so a
-genuine state change bumps it, but skip `HYDRATE_STATE` (sets its own) and the
-runtime-only actions (`SET_AVAILABLE_*` / `SET_EXTRA_DAYS`) so loading category
-lists doesn't count as a user edit:
+The reducer must bump `lastSaved` ONLY on genuine **user edits**. Use an
+explicit allowlist of edit actions (safer than excluding runtime actions — a
+future runtime-only action then can't accidentally fabricate a newer timestamp).
+The current `useFilterState` reducer's action types are: `SET_SEARCH`,
+`TOGGLE_TAG`, `TOGGLE_LOCATION`, `SET_DATE_FILTER`, `SET_SELECTED_WEEKS`,
+`TOGGLE_DESCRIPTION`, `TOGGLE_FAVORITES_ONLY`, `CLEAR_FILTERS`,
+`CLEAR_NON_DATE_FILTERS` (edits) vs `SET_AVAILABLE_CATEGORIES`,
+`SET_AVAILABLE_LOCATIONS`, `ADD_EXTRA_DAY`, `CLEAR_EXTRA_DAYS`,
+`RECONCILE_FILTERS`, `HYDRATE_STATE` (runtime/lifecycle — must NOT bump).
+Note especially `RECONCILE_FILTERS`: it fires on availability/year load (not a
+user action) and *can* prune persisted selections, so it must be excluded or
+year-reconciliation would spuriously make local win the LWW.
 ```ts
+const EDIT_ACTIONS: ReadonlySet<FilterAction['type']> = new Set([
+  'SET_SEARCH', 'TOGGLE_TAG', 'TOGGLE_LOCATION', 'SET_DATE_FILTER',
+  'SET_SELECTED_WEEKS', 'TOGGLE_DESCRIPTION', 'TOGGLE_FAVORITES_ONLY',
+  'CLEAR_FILTERS', 'CLEAR_NON_DATE_FILTERS',
+]);
+
 function filterReducer(state: FilterState, action: FilterAction): FilterState {
   const next = baseFilterReducer(state, action);
   if (next === state) return state;                       // no real change
-  if (action.type === 'HYDRATE_STATE') return next;       // already set lastSaved
-  if (action.type === 'SET_AVAILABLE_CATEGORIES' || action.type === 'SET_AVAILABLE_LOCATIONS' || action.type === 'SET_EXTRA_DAYS') {
-    return next;                                           // runtime-only, not an edit
-  }
+  if (action.type === 'HYDRATE_STATE') return next;       // sets its own lastSaved
+  if (!EDIT_ACTIONS.has(action.type)) return next;        // runtime/lifecycle, not a user edit
   return { ...next, lastSaved: Date.now() };
 }
 ```
@@ -2337,10 +2349,12 @@ const hydrateFilters = useCallback((snapshot: FilterSnapshot, lastSaved: number)
   dispatch({ type: 'HYDRATE_STATE', snapshot, lastSaved }), []);
 ```
 Add tests in `useFilterState.test.ts`: (a) an edit (`setSearchTerm`) bumps
-`lastSaved`; (b) `SET_AVAILABLE_CATEGORIES` does NOT bump it; (c) `hydrateFilters`
-sets fields AND `lastSaved` to the passed value while leaving
-`availableCategories` untouched; (d) an expired stored state loads with
-`lastSaved === 0`. (`FilterSnapshot` is the Task 1 type; import it.)
+`lastSaved`; (b) `setAvailableCategories` does NOT bump it; (c) **`reconcileFilters`
+does NOT bump it** even when it prunes a now-invalid selection (guards the
+year-reconciliation regression); (d) `hydrateFilters` sets fields AND `lastSaved`
+to the passed value while leaving `availableCategories` untouched; (e) an expired
+stored state loads with `lastSaved === 0`. (`FilterSnapshot` is the Task 1 type;
+import it.)
 
 **Then** `page.tsx`: after the existing `useFilterState()`/`useFavorites()`
 calls, add (note `isAuthenticated` is `false` whenever the flag is off, so sync
