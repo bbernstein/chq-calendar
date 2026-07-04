@@ -167,8 +167,13 @@ on it.** `localStorage` remains the instant, always-on source of truth.
 **Reconciliation is asymmetric by data type:**
 
 - **Filters = last-write-wins by `lastSaved`.** A filter set is the user's
-  "current view"; newest simply wins. The existing `lastSaved` timestamp
-  drives this for free.
+  "current view"; newest simply wins. This requires `lastSaved` to track the
+  last *user edit* — NOT every state write. Today `useFilterState` stamps
+  `Date.now()` on every persistence write (including lifecycle actions like
+  `reconcileFilters`), so Phase 1 adds a real edit-time `lastSaved` to the
+  reducer (see the plan: bump only on user-edit actions; `0` when local is
+  expired so the server copy wins). It is not "free" — it is a small, tested
+  reducer change.
 - **Favorites = per-event last-write-wins rows** (§5). Union behavior falls
   out naturally; no starred event is silently lost or resurrected.
 

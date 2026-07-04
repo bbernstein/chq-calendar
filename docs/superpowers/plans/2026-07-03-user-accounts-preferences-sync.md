@@ -835,7 +835,7 @@ git commit -m "feat(favorites): FavoritesService with rows and by-event populari
 **Interfaces:**
 - Produces:
   - `interface CognitoClaims { sub: string; email?: string; tokenUse: 'access'; }`
-  - `verifyCognitoAccessToken(token: string): Promise<CognitoClaims | null>` — returns null on any failure (expired/bad sig/malformed/wrong use), mirroring `verifyPublisherJwt`.
+  - `verifyCognitoAccessToken(token: string): Promise<CognitoClaims | null>` — returns null on any *token* failure (expired/bad sig/malformed/wrong use), mirroring `verifyPublisherJwt`. **Throws** on missing Cognito config (`COGNITO_*` env unset) — a deployment error that should surface as a loud 500, not a silent per-user 401 (matches `publisherSecretCache`, which throws on a missing secret ARN).
   - `_setVerifierForTests(v: { verify(token: string): Promise<Record<string, unknown>> } | null): void`
 
 - [ ] **Step 1: Add the dependency**
@@ -879,6 +879,12 @@ describe('verifyCognitoAccessToken', () => {
   it('returns null when sub is missing', async () => {
     verify.mockResolvedValueOnce({ token_use: 'access' });
     expect(await verifyCognitoAccessToken('nosub')).toBeNull();
+  });
+  it('THROWS (not null) when Cognito config is missing — a deploy error', async () => {
+    _setVerifierForTests(null);            // force the real factory path
+    delete process.env.COGNITO_USER_POOL_ID;
+    delete process.env.COGNITO_CLIENT_ID;
+    await expect(verifyCognitoAccessToken('any')).rejects.toThrow();
   });
 });
 ```
@@ -928,8 +934,14 @@ export function _setVerifierForTests(v: Verifier | null): void {
 
 export async function verifyCognitoAccessToken(token: string): Promise<CognitoClaims | null> {
   if (typeof token !== 'string' || token.length === 0) return null;
+  // Build the verifier OUTSIDE the try: a missing COGNITO_* env var is a
+  // deployment error, not a token failure. It throws (→ 500, loud, logged),
+  // matching the repo precedent (publisherSecretCache throws on missing config).
+  // We do NOT swallow it to null — that would silently 401 every user and hide
+  // the misconfiguration.
+  const v = verifier();
   try {
-    const c = await verifier().verify(token);
+    const c = await v.verify(token);            // only token-verification failures land here
     if (typeof c.sub !== 'string') return null;
     if (c.token_use !== 'access') return null;
     return {
@@ -939,7 +951,7 @@ export async function verifyCognitoAccessToken(token: string): Promise<CognitoCl
       tokenUse: 'access',
     };
   } catch {
-    return null;
+    return null;                                // expired / bad sig / malformed / wrong use → 401
   }
 }
 ```
