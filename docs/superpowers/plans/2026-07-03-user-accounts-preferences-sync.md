@@ -287,6 +287,9 @@ describe('mergeFavoritesRecord (per-event LWW)', () => {
     expect(mergeFavoritesRecord({ favorited: true, at: 5 }, undefined)).toEqual({ favorited: true, at: 5 });
     expect(mergeFavoritesRecord(undefined, { favorited: true, at: 5 })).toEqual({ favorited: true, at: 5 });
   });
+  it('throws when both are undefined (caller bug, never a silent undefined)', () => {
+    expect(() => mergeFavoritesRecord(undefined, undefined)).toThrow();
+  });
 });
 
 describe('reconcileFavorites (union + per-event LWW)', () => {
@@ -341,9 +344,10 @@ export function mergeFavoritesRecord(
   a: FavoriteRecord | undefined,
   b: FavoriteRecord | undefined,
 ): FavoriteRecord {
-  if (!a) return b!;
-  if (!b) return a;
-  return a.at >= b.at ? a : b;
+  if (a && b) return a.at >= b.at ? a : b;
+  const one = a ?? b;
+  if (!one) throw new Error('mergeFavoritesRecord requires at least one record'); // both-undefined is a caller bug, not a silent undefined
+  return one;
 }
 
 /** Union of keys; each event resolved by mergeFavoritesRecord. */
@@ -1030,6 +1034,8 @@ describe('userHandler', () => {
     const body = JSON.parse(r.body);
     expect(body.favorites).toEqual({ e1: { favorited: true, at: 9 } });
     expect(body.preferences.lastSaved).toBe(5);
+    // CORS is first-party only, never wildcard, on token-bearing routes
+    expect(r.headers!['Access-Control-Allow-Origin']).not.toBe('*');
   });
 
   it('PUT persists blob + favorites and returns 204', async () => {
@@ -1080,8 +1086,10 @@ import { FavoritesService } from '../services/favoritesService';
 type FavRecord = { favorited: boolean; at: number };
 type FavMap = Record<string, FavRecord>;
 
+// Authenticated end-user endpoints: lock CORS to the first-party site, mirroring
+// backend/src/handlers/publisherPortalHandler.ts (never '*' for token-bearing routes).
 const CORS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': process.env.SITE_BASE_URL ?? 'https://www.chqcal.org',
   'Access-Control-Allow-Headers': 'Content-Type,Authorization',
   'Access-Control-Allow-Methods': 'GET,PUT,DELETE,OPTIONS',
   'Content-Type': 'application/json',
@@ -1323,9 +1331,11 @@ resource "aws_cognito_user_pool" "users" {
   username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
 
-  # No password self-signup surface needed; federation only in Phase 1.
+  # Federation-only pool: disable native self-service signup so no local
+  # (email/password) user can exist to collide with a federated identity — this
+  # is part of the "no auto-link" structural guard (see the Google IdP block).
   admin_create_user_config {
-    allow_admin_create_user_only = false
+    allow_admin_create_user_only = true
   }
 
   tags = {
@@ -1430,7 +1440,8 @@ resource "aws_iam_role_policy" "user_lambda_scoped" {
         Effect = "Allow",
         Action = [
           "dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem",
-          "dynamodb:UpdateItem", "dynamodb:DeleteItem"
+          "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+          "dynamodb:BatchWriteItem"  # favorites upsertMany/deleteAllForUser use chunked BatchWriteCommand
         ],
         Resource = [
           aws_dynamodb_table.users.arn,
@@ -1472,6 +1483,7 @@ resource "aws_lambda_function" "user_handler" {
       FAVORITES_TABLE_NAME   = aws_dynamodb_table.favorites.name
       COGNITO_USER_POOL_ID   = aws_cognito_user_pool.users.id
       COGNITO_CLIENT_ID      = aws_cognito_user_pool_client.web.id
+      SITE_BASE_URL          = "https://www.${var.domain_name}"  # first-party CORS origin
     }
   }
 

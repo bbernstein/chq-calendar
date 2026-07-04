@@ -121,8 +121,11 @@ the bundle). See the decision matrix in the brainstorming discussion.
 ### `${var.app_name}-users` (default expansion `chautauqua-calendar-users`)
 - Hash key: `userId` (= Cognito `sub`).
 - Attributes:
-  - `preferences` — opaque blob `{ filterState, notes }` (mirrors the
-    existing `useFilterState` shape, plus optional per-event `notes`).
+  - `preferences` — opaque blob `{ filters, notes, lastSaved }` (the
+    `PreferencesBlob` type in the plan: `filters` is a snapshot of the
+    `useFilterState` fields, `notes` is optional per-event text, `lastSaved` is
+    the filter-edit timestamp used for last-write-wins). This is a persisted
+    wire contract — the key is `filters`, not `filterState`.
   - `email` — informational only, **never a key**. Written from the verified
     token's `email` claim on upsert (never logged, per project rules).
   - `linkedProviders: string[]` — informational (e.g. `["google","apple"]`).
