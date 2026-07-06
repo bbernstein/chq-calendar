@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'chqcal-v3';
+const CACHE_VERSION = 'chqcal-v4';
 const STATIC_CACHE = CACHE_VERSION + '-static';
 const DATA_CACHE = CACHE_VERSION + '-data';
 
@@ -6,6 +6,11 @@ const STATIC_ASSETS = [
   '/',
   '/manifest.json',
   '/chq-calendar-icon-256.svg',
+  '/apple-touch-icon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-192-maskable.png',
+  '/icon-512-maskable.png',
 ];
 
 // Install: pre-cache essential static assets

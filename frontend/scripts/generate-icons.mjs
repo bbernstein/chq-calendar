@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, '..', 'public');
-const SOURCE = join(PUBLIC, 'chq-calendar-icon-256.svg');
+const SOURCE = join(PUBLIC, 'chq-calendar-icon.svg'); // 1024x1024 master
 
 // Lavender — matches manifest `background_color`.
 const BG = { r: 0xee, g: 0xf2, b: 0xff, alpha: 1 };
@@ -30,8 +30,9 @@ const TARGETS = [
 
 async function render({ file, size, pad }) {
   const inner = Math.round(size * (1 - pad * 2));
-  // Render the SVG at high density so downscaling stays crisp.
-  const art = await sharp(SOURCE, { density: 1024 })
+  // Render the SVG at high density (~3600px for the 1024pt master) so
+  // downscaling to the target size stays crisp.
+  const art = await sharp(SOURCE, { density: 256 })
     .resize({ height: inner, width: inner, fit: 'inside' })
     .png()
     .toBuffer();
