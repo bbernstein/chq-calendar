@@ -102,7 +102,7 @@ cd backend && npm run deploy
 
 ### Prerequisites
 - Docker with the Compose plugin (Docker Compose v2)
-- Node.js 22+ (minimum 20.19, for development outside Docker)
+- Node.js 24+ (for development outside Docker; see `.nvmrc`)
 
 ### Running Locally
 The application can run completely locally using Docker:
