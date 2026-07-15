@@ -49,3 +49,44 @@ so no table wipe is needed.
 Any fetch/S3/DDB error aborts the run before the watermark advances — the
 previous sidecar stays live and the next hourly run re-covers the gap.
 Errors appear in the Lambda's CloudWatch error metric.
+
+## Local testing (no production impact)
+
+The ingest Lambda does not run through the local docker Express backend
+(`backend/src/server.ts` only wraps the calendar/admin handlers). Two
+host-run scripts drive the real pipeline locally instead. Both fetch
+chqdaily.com (read-only public data), read events from
+`frontend/public/data/all-events-<year>.json`, and write the sidecar to
+`frontend/public/data/article-links-<year>.json` so `npm run dev` in the
+frontend renders it. Neither touches AWS or production.
+
+**Fast path — file-backed, no docker:**
+
+    cd backend && npm run ingest:articles:local -- 2026
+    cd ../frontend && npm run dev   # expand a matched event (e.g. search "Chuck Todd")
+
+The article archive + match state persist to gitignored dotfiles
+(`frontend/public/data/.article-archive-*.json`,
+`.article-links-state-*.json`), so re-running shows incremental behavior
+(second run: `upserted 0, linksPublished false`).
+
+**Full-fidelity path — real AWS SDK against local DynamoDB + S3:**
+
+    docker compose up -d dynamodb localstack
+    cd backend && npx ts-node src/scripts/runArticleIngestLocalAws.ts 2026
+
+This exercises the real `ArticleStore` (DynamoDB), `EventSnapshotLoader`
+and `ArticleLinksPublisher` (S3) — including the public/private two-bucket
+split (state lands in a private bucket only). It seeds a local S3 bucket
+from the on-disk events file, runs the pipeline, then downloads the
+generated sidecar to `frontend/public/data/` for the frontend to display.
+Stop the containers with `docker compose down` when done.
+
+Reset local state: delete the dotfiles above (file-backed), or
+`docker compose down` and re-up (AWS-backed, in-memory DynamoDB +
+LocalStack reset on restart).
+
+Only the Lambda handler's env-var wiring
+(`backend/src/handlers/articleIngestHandler.ts`) is not exercised by these
+scripts — it constructs the same services these wire by hand, and first
+runs for real on deploy.
