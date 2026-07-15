@@ -113,6 +113,7 @@ describe('runArticleIngest', () => {
     const row: StoredArticle = deps.store.upsertArticle.mock.calls[0][0];
     expect(row.firstSeenAt).toBe('2026-07-01T00:00:00.000Z'); // preserved
     expect(deps.publisher.publishLinks).toHaveBeenCalledTimes(1);
+    expect(deps.publisher.saveState).toHaveBeenCalledTimes(1);
   });
 
   test('fetch failure propagates and watermark does not advance', async () => {
@@ -120,6 +121,32 @@ describe('runArticleIngest', () => {
       client: { fetchPostsModifiedSince: jest.fn().mockRejectedValue(new Error('WP 500')) },
     });
     await expect(runArticleIngest(deps)).rejects.toThrow('WP 500');
+    expect(deps.store.setWatermark).not.toHaveBeenCalled();
+    expect(deps.publisher.publishLinks).not.toHaveBeenCalled();
+  });
+
+  test('publishLinks failure propagates and watermark does not advance', async () => {
+    const deps = makeDeps({
+      publisher: {
+        loadState: jest.fn().mockResolvedValue(undefined),
+        saveState: jest.fn().mockResolvedValue(undefined),
+        publishLinks: jest.fn().mockRejectedValue(new Error('S3 down')),
+      },
+    });
+    await expect(runArticleIngest(deps)).rejects.toThrow('S3 down');
+    expect(deps.store.setWatermark).not.toHaveBeenCalled();
+  });
+
+  test('upsertArticle failure propagates and watermark does not advance, links not published', async () => {
+    const deps = makeDeps({
+      store: {
+        getWatermark: jest.fn().mockResolvedValue(undefined),
+        setWatermark: jest.fn().mockResolvedValue(undefined),
+        listAllArticles: jest.fn().mockResolvedValue([]),
+        upsertArticle: jest.fn().mockRejectedValue(new Error('DDB down')),
+      },
+    });
+    await expect(runArticleIngest(deps)).rejects.toThrow('DDB down');
     expect(deps.store.setWatermark).not.toHaveBeenCalled();
     expect(deps.publisher.publishLinks).not.toHaveBeenCalled();
   });
