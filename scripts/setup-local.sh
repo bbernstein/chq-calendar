@@ -18,10 +18,24 @@ if ! docker compose version &> /dev/null; then
     exit 1
 fi
 
-# Function to check if port is available
+# Function to check if port is available. Uses a raw TCP connect instead of
+# lsof/ss process inspection: Docker's port-forwarding sockets are owned by
+# root, so a non-root lsof silently fails to see them as in-use, letting a
+# real conflict slip through unnoticed.
+port_in_use() {
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&- 3<&-; return 0; } || return 1
+}
+
 check_port() {
     local port=$1
-    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
+    if port_in_use "$port"; then
+        # If this project's own containers are already up, docker compose up
+        # below will just reuse/recreate them — not a real conflict, and
+        # re-running this script against an already-running stack should
+        # succeed rather than bailing out.
+        if docker compose ps --status running --format '{{.Names}}' 2>/dev/null | grep -q '^chq-calendar-'; then
+            return 0
+        fi
         echo "❌ Port $port is already in use. Please stop the service using this port."
         exit 1
     fi
