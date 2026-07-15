@@ -60,6 +60,21 @@ describe('computeMatchState', () => {
     expect(second.state.matches).toEqual(first.state.matches);
   });
 
+  test('retitled article that still matches republishes even when the score is unchanged', () => {
+    const v1 = article();
+    const first = computeMatchState({ articles: [v1], events: [event()] });
+    // Same post id, tags, body, categories → identical score & kind, but a new
+    // title (a user-visible field) → contentHash changes, so the published
+    // sidecar must be regenerated with the new title.
+    const v2 = article({ title: 'Najeeba Syeed reflects on democracy and peace' });
+    expect(v2.contentHash).not.toBe(v1.contentHash);
+    const second = computeMatchState({ articles: [v2], events: [event()], prevState: first.state });
+    expect(second.state.matches).toHaveLength(1);
+    expect(second.state.matches[0].score).toBe(first.state.matches[0].score); // score identical
+    expect(second.linksChanged).toBe(true); // ...yet links must republish
+    expect(second.links['e1'][0].title).toBe('Najeeba Syeed reflects on democracy and peace');
+  });
+
   test('unchanged pairs are carried over without rescoring; changed article is rescored', () => {
     const a1 = article();
     const a2 = article({ wpPostId: 2, link: 'https://chqdaily.com/a2/', title: 'CSO under the stars', tags: [], categories: ['Symphony', 'Amphitheater'], bodyText: 'The CSO performs at 8:15 p.m. tonight in the Amphitheater.' });

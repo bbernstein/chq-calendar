@@ -172,11 +172,14 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
   // Date proximity (tiebreaker between recurring events)
   score += WEIGHTS.proximityMax * (1 - Math.min(Math.abs(diff), PREVIEW_WINDOW_DAYS) / PREVIEW_WINDOW_DAYS);
 
-  if (score < MATCH_THRESHOLD) return null;
+  // Round once so the threshold comparison and the published score agree at
+  // the boundary (avoids a raw 0.59996 that rounds to 0.6000 being rejected).
+  const finalScore = Math.min(1, Number(score.toFixed(4)));
+  if (finalScore < MATCH_THRESHOLD) return null;
 
   const isRecapTagged = [...article.categories, ...article.tags].some(c => /recap/i.test(c));
   const kind: ArticleLinkKind = isRecapTagged || diff < 0 ? 'recap' : 'preview';
-  return { score: Math.min(1, Number(score.toFixed(4))), reasons, kind };
+  return { score: finalScore, reasons, kind };
 }
 
 export function computeArticleContentHash(a: DailyArticle): string {
@@ -211,12 +214,20 @@ export interface MatchComputation {
   stateChanged: boolean;
 }
 
-/** Canonical serialization of the match set, ignoring order. */
-function canonicalMatches(matches: MatchRecord[]): string {
+/**
+ * Canonical serialization of the published-link set, order-independent. Keyed
+ * on (eventId, wpPostId, kind) plus the matched article's contentHash so that
+ * an article edit changing its displayed title/pubDate — even one that still
+ * matches the same events — flips `linksChanged` and republishes the sidecar.
+ * The raw score is deliberately excluded: a score-only change (same articles,
+ * same kinds, same order) does not alter the published sidecar, so it must not
+ * force a republish.
+ */
+function canonicalMatches(matches: MatchRecord[], hashes: Record<string, string>): string {
   return JSON.stringify(
     [...matches]
       .sort((a, b) => a.eventId.localeCompare(b.eventId) || a.wpPostId - b.wpPostId)
-      .map(m => [m.eventId, m.wpPostId, m.kind, m.score]),
+      .map(m => [m.eventId, m.wpPostId, m.kind, hashes[String(m.wpPostId)] ?? '']),
   );
 }
 
@@ -301,7 +312,10 @@ export function computeMatchState(input: {
 
   const matches = kept.concat(rescored);
   const state: MatchState = { matcherVersion: MATCHER_VERSION, articleHashes, eventFingerprints, matches };
-  const linksChanged = !prevState || canonicalMatches(matches) !== canonicalMatches(prevState.matches);
+  const linksChanged =
+    !prevState ||
+    canonicalMatches(matches, articleHashes) !==
+      canonicalMatches(prevState.matches, prevState.articleHashes);
   const stateChanged =
     fullRecompute || linksChanged || dirtyArticles.size > 0 || dirtyEvents.size > 0 ||
     Object.keys(prevState!.articleHashes).length !== articles.length ||
