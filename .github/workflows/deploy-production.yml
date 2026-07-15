@@ -343,9 +343,18 @@ jobs:
           # before that apply — the function does not exist yet, so guard the
           # code update and skip cleanly instead of failing the whole deploy.
           FUNC="chautauqua-calendar-article-ingest"
-          if ! aws lambda get-function --function-name "$FUNC" >/dev/null 2>&1; then
-            echo "::notice::${FUNC} not found — run 'terraform apply' to create it; skipping code deploy this run"
+          # Skip cleanly only for a genuine "not created yet" (before the first
+          # terraform apply). Any other error — AccessDenied, throttling — fails
+          # loud instead of masquerading as "waiting on terraform apply".
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-article-deploy.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-article-deploy.err; then
+            echo "::notice::${FUNC} not created yet — run 'terraform apply' to create it; skipping code deploy this run"
             exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-article-deploy.err
+            exit 1
           fi
 
           # article-ingest externalizes only the AWS SDK modules; cheerio and
@@ -931,9 +940,18 @@ jobs:
           # Guarded + continue-on-error so a not-yet-created function (before
           # the first terraform apply) or a transient error never fails deploy.
           FUNC="chautauqua-calendar-article-ingest"
-          if ! aws lambda get-function --function-name "$FUNC" >/dev/null 2>&1; then
-            echo "${FUNC} not found — run 'terraform apply' to create it; skipping trigger"
+          # Skip only for a genuine not-created-yet; surface any other error
+          # (this step is continue-on-error, so a loud failure logs but never
+          # fails the deploy).
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-article-trigger.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-article-trigger.err; then
+            echo "${FUNC} not created yet — run 'terraform apply' to create it; skipping trigger"
             exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-article-trigger.err
+            exit 1
           fi
           echo "Triggering article-links ingest to refresh news links..."
           # AWS CLI v2 expects base64 payloads by default; --cli-binary-format

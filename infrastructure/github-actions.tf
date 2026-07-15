@@ -45,7 +45,8 @@ resource "aws_iam_policy" "github_actions" {
           aws_lambda_function.sync_health.arn,
           aws_lambda_function.sync_status.arn,
           aws_lambda_function.sync_list.arn,
-          aws_lambda_function.publisher_ingest.arn
+          aws_lambda_function.publisher_ingest.arn,
+          aws_lambda_function.article_ingest.arn
         ]
       },
       {
@@ -135,6 +136,15 @@ resource "aws_iam_policy" "github_actions" {
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
         Resource = aws_lambda_function.publisher_ingest.arn
+      },
+      {
+        # Fire-and-forget invocation of the article-ingest Lambda from the
+        # deploy workflow's "Trigger article-links ingest" step, so news links
+        # refresh immediately instead of waiting for the hourly schedule.
+        Sid      = "LambdaInvokeArticleIngest"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.article_ingest.arn
       }
     ]
   })
