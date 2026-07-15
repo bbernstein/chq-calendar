@@ -3,6 +3,9 @@ import type {
   ArticleLinkKind,
   CalendarEventLite,
   DailyArticle,
+  MatchRecord,
+  MatchState,
+  PublishedArticleLink,
   StoredArticle,
 } from '../types/articles';
 
@@ -197,4 +200,112 @@ export function computeEventFingerprint(e: CalendarEventLite): string {
       ]),
     )
     .digest('hex');
+}
+
+export interface MatchComputation {
+  state: MatchState;
+  links: Record<string, PublishedArticleLink[]>;
+  /** True when the published sidecar content would differ from the previous run. */
+  linksChanged: boolean;
+  /** True when the private state object needs re-saving. */
+  stateChanged: boolean;
+}
+
+/** Canonical serialization of the match set, ignoring order. */
+function canonicalMatches(matches: MatchRecord[]): string {
+  return JSON.stringify(
+    [...matches]
+      .sort((a, b) => a.eventId.localeCompare(b.eventId) || a.wpPostId - b.wpPostId)
+      .map(m => [m.eventId, m.wpPostId, m.kind, m.score]),
+  );
+}
+
+function buildLinks(
+  matches: MatchRecord[],
+  articleById: Map<string, StoredArticle>,
+): Record<string, PublishedArticleLink[]> {
+  const byEvent = new Map<string, MatchRecord[]>();
+  for (const m of matches) {
+    if (!byEvent.has(m.eventId)) byEvent.set(m.eventId, []);
+    byEvent.get(m.eventId)!.push(m);
+  }
+  const links: Record<string, PublishedArticleLink[]> = {};
+  for (const [eventId, ms] of byEvent) {
+    const top = [...ms].sort((a, b) => b.score - a.score).slice(0, MAX_LINKS_PER_EVENT);
+    const entries = top
+      .map(m => {
+        const a = articleById.get(String(m.wpPostId));
+        if (!a) return null;
+        return { title: a.title, url: a.link, kind: m.kind, pubDate: a.pubDate.slice(0, 10) };
+      })
+      .filter((l): l is PublishedArticleLink => l !== null)
+      .sort((x, y) =>
+        x.kind === y.kind ? x.pubDate.localeCompare(y.pubDate) : x.kind === 'preview' ? -1 : 1,
+      );
+    if (entries.length > 0) links[eventId] = entries;
+  }
+  return links;
+}
+
+/**
+ * Incremental matching: rescore only pairs involving a changed article or a
+ * changed event; carry everything else over from prevState. A matcherVersion
+ * mismatch (or missing prevState) forces a full recompute.
+ */
+export function computeMatchState(input: {
+  articles: StoredArticle[];
+  events: CalendarEventLite[];
+  prevState?: MatchState;
+}): MatchComputation {
+  const { articles, events, prevState } = input;
+  const fullRecompute = !prevState || prevState.matcherVersion !== MATCHER_VERSION;
+
+  const articleById = new Map(articles.map(a => [String(a.wpPostId), a]));
+  const eventIds = new Set(events.map(e => e.id));
+
+  const articleHashes: Record<string, string> = {};
+  const dirtyArticles = new Set<string>();
+  for (const a of articles) {
+    const key = String(a.wpPostId);
+    articleHashes[key] = a.contentHash;
+    if (fullRecompute || prevState!.articleHashes[key] !== a.contentHash) dirtyArticles.add(key);
+  }
+
+  const eventFingerprints: Record<string, string> = {};
+  const dirtyEvents = new Set<string>();
+  for (const e of events) {
+    const fp = computeEventFingerprint(e);
+    eventFingerprints[e.id] = fp;
+    if (fullRecompute || prevState!.eventFingerprints[e.id] !== fp) dirtyEvents.add(e.id);
+  }
+
+  const kept = fullRecompute
+    ? []
+    : prevState!.matches.filter(
+        m =>
+          articleById.has(String(m.wpPostId)) &&
+          eventIds.has(m.eventId) &&
+          !dirtyArticles.has(String(m.wpPostId)) &&
+          !dirtyEvents.has(m.eventId),
+      );
+
+  const rescored: MatchRecord[] = [];
+  for (const a of articles) {
+    const aDirty = dirtyArticles.has(String(a.wpPostId));
+    for (const e of events) {
+      if (!aDirty && !dirtyEvents.has(e.id)) continue;
+      const r = scorePair(a, e);
+      if (r) rescored.push({ eventId: e.id, wpPostId: a.wpPostId, ...r });
+    }
+  }
+
+  const matches = kept.concat(rescored);
+  const state: MatchState = { matcherVersion: MATCHER_VERSION, articleHashes, eventFingerprints, matches };
+  const linksChanged = !prevState || canonicalMatches(matches) !== canonicalMatches(prevState.matches);
+  const stateChanged =
+    fullRecompute || linksChanged || dirtyArticles.size > 0 || dirtyEvents.size > 0 ||
+    Object.keys(prevState!.articleHashes).length !== articles.length ||
+    Object.keys(prevState!.eventFingerprints).length !== events.length;
+
+  return { state, links: buildLinks(matches, articleById), linksChanged, stateChanged };
 }
