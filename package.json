@@ -17,7 +17,7 @@
     "deploy:infra": "cd infrastructure && terraform apply",
     "deploy:backend": "cd backend && npm run deploy",
     "deploy:frontend": "cd frontend && npm run build && npm run deploy",
-    "setup": "./scripts/setup.sh",
+    "setup": "./scripts/setup-local.sh",
     "test:integration": "node integration-test.js",
     "smoke:publisher": "jest --config=scripts/smoke/jest.smoke.config.js"
   },

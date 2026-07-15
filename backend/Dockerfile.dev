@@ -22,5 +22,9 @@ EXPOSE 3001
 
 # publisher-format ships no prebuilt dist (gitignored), and the bind-mounted
 # source in docker-compose.yml shadows anything built at image-build time,
-# so build it as part of container start.
-CMD ["sh", "-c", "cd /app && npm run build --workspace=tools/publisher-format && cd /app/backend && npm run dev"]
+# so build it as part of container start. The container runs as root, and
+# tools/publisher-format is bind-mounted from the host, so the build output
+# would otherwise land on the host owned by root; chown it back to whatever
+# user already owns the bind-mounted source so host-side npm installs can
+# still touch it afterwards.
+CMD ["sh", "-c", "cd /app && npm run build --workspace=tools/publisher-format && chown -R $(stat -c '%u:%g' tools/publisher-format) tools/publisher-format/dist && cd /app/backend && npm run dev"]
