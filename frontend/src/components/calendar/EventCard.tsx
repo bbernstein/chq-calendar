@@ -43,9 +43,6 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                 hour12: true
               })}
               {event.location && <span className="ml-2">📍 {event.location}</span>}
-              {articleLinks && articleLinks.length > 0 && (
-                <span className="ml-2" title="Chautauquan Daily coverage">📰</span>
-              )}
             </span>
             <span className="flex items-center flex-shrink-0 ml-2">
               <button
@@ -195,6 +192,9 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                   onClick={() => onToggleDescription(event.id)}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-xs font-medium flex items-center gap-1"
                 >
+                  {articleLinks && articleLinks.length > 0 && (
+                    <span title="Chautauquan Daily coverage">📰</span>
+                  )}
                   <span className="text-xs">▶</span> Show more
                 </button>
               )}

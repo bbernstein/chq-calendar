@@ -1,5 +1,5 @@
 /// <reference types="vitest/globals" />
-import { render, screen } from '@testing-library/preact';
+import { render, screen, within } from '@testing-library/preact';
 import { EventCard } from '@/components/calendar/EventCard';
 import type { Event } from '@/lib/types';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
@@ -42,9 +42,12 @@ describe('EventCard article links', () => {
     expect(screen.queryByText('In the Chautauquan Daily')).toBeNull();
   });
 
-  it('collapsed card shows the hint glyph but not the titled links', () => {
+  it('collapsed card shows the hint glyph inside the Show more control, not the titled links', () => {
     renderCard({ articleLinks: LINKS });
-    expect(screen.getByTitle('Chautauquan Daily coverage')).toBeTruthy();
+    // The glyph now sits inside the "Show more" disclosure control, signalling
+    // that expanding reveals the articles (not up in the time/location line).
+    const showMore = screen.getByRole('button', { name: /Show more/ });
+    expect(within(showMore).getByTitle('Chautauquan Daily coverage')).toBeTruthy();
     expect(screen.queryByText('In the Chautauquan Daily')).toBeNull();
   });
 
