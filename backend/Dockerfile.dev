@@ -2,8 +2,12 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Copy workspace manifests (root + backend + the local publisher-format
+# dependency) so `npm install` resolves @chq-calendar/publisher-format via
+# npm workspaces instead of trying to fetch it from the registry.
 COPY package*.json ./
+COPY backend/package.json backend/package.json
+COPY tools/publisher-format/package.json tools/publisher-format/package.json
 
 # Install dependencies
 RUN npm install
@@ -11,8 +15,12 @@ RUN npm install
 # Copy source code
 COPY . .
 
+WORKDIR /app/backend
+
 # Expose port
 EXPOSE 3001
 
-# Development command
-CMD ["npm", "run", "dev"]
+# publisher-format ships no prebuilt dist (gitignored), and the bind-mounted
+# source in docker-compose.yml shadows anything built at image-build time,
+# so build it as part of container start.
+CMD ["sh", "-c", "cd /app && npm run build --workspace=tools/publisher-format && cd /app/backend && npm run dev"]

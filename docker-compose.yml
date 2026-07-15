@@ -14,8 +14,8 @@ services:
   # Backend (Express server for local development)
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: backend/Dockerfile.dev
     container_name: chq-calendar-backend
     ports:
       - "3001:3001"
@@ -36,19 +36,20 @@ services:
       - DATA_SOURCES_TABLE_NAME=chautauqua-calendar-data-sources  
       - FEEDBACK_TABLE_NAME=chautauqua-calendar-feedback
     volumes:
-      - ./backend:/app
+      - .:/app
       - /app/node_modules
+      - /app/backend/node_modules
+      - /app/tools/publisher-format/node_modules
     depends_on:
       - dynamodb
     networks:
       - chq-calendar-network
-    command: npm run dev
 
   # Frontend (Vite + Preact)
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: frontend/Dockerfile.dev
     container_name: chq-calendar-frontend
     ports:
       - "3000:3000"
@@ -57,8 +58,9 @@ services:
       # Points browser directly to backend (Docker proxy can't reach localhost:3001)
       - VITE_API_URL=http://localhost:3001
     volumes:
-      - ./frontend:/app
+      - .:/app
       - /app/node_modules
+      - /app/frontend/node_modules
     depends_on:
       - dynamodb
     networks:
