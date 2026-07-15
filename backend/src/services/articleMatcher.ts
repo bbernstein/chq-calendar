@@ -13,7 +13,7 @@ import type {
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 1;
+export const MATCHER_VERSION = 2;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -178,7 +178,15 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
   if (finalScore < MATCH_THRESHOLD) return null;
 
   const isRecapTagged = [...article.categories, ...article.tags].some(c => /recap/i.test(c));
-  const kind: ArticleLinkKind = isRecapTagged || diff < 0 ? 'recap' : 'preview';
+  // A recap is either explicitly tagged, or published after the event started.
+  // Compare full site-local ISO timestamps (not just calendar dates) so an
+  // evening recap of a morning/afternoon event is classified correctly instead
+  // of slipping through as a same-day "preview". Both strings are local
+  // wall-clock with no offset, so a lexicographic comparison is timezone-safe —
+  // unlike new Date(), which parses date-only vs date-time strings in different
+  // zones.
+  const publishedAfterEventStart = article.pubDate > event.startDate;
+  const kind: ArticleLinkKind = isRecapTagged || publishedAfterEventStart ? 'recap' : 'preview';
   return { score: finalScore, reasons, kind };
 }
 

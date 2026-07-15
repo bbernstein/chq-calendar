@@ -123,6 +123,22 @@ describe('scorePair', () => {
     expect(postEvent!.kind).toBe('recap');
   });
 
+  test('same-day article published after the event start is a recap', () => {
+    // Not Recap-tagged and the same calendar day, but published at 6 p.m. —
+    // after the 2 p.m. event. An evening recap of a morning/afternoon event
+    // must not be mislabeled a preview (the reason this signal is timestamp-
+    // based, not date-based).
+    const r = scorePair(article({ pubDate: '2026-07-15T18:00:00' }), event());
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe('recap');
+  });
+
+  test('same-day article published before the event start stays a preview', () => {
+    const r = scorePair(article({ pubDate: '2026-07-15T06:30:00' }), event());
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe('preview');
+  });
+
   test('weak signals alone (category + proximity only) stay below threshold', () => {
     const a = article({
       title: 'Around the grounds this week',
