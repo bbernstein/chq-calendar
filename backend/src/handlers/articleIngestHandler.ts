@@ -25,6 +25,7 @@ export async function scheduledHandler(evt?: { year?: number }): Promise<void> {
       process.env.CACHE_S3_BUCKET!,
       process.env.CACHE_S3_KEY_PREFIX!,
       process.env.STATE_S3_KEY_PREFIX ?? 'internal/article-links',
+      process.env.STATE_S3_BUCKET ?? process.env.CACHE_S3_BUCKET!,
     ),
     now,
     year: evt?.year ?? now.getFullYear(),

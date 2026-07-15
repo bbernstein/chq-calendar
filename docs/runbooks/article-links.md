@@ -10,7 +10,11 @@ Spec: `docs/superpowers/specs/2026-07-15-chqdaily-article-links-design.md`.
 ## Manual trigger
 
     aws lambda invoke --function-name chautauqua-calendar-article-ingest \
+      --cli-binary-format raw-in-base64-out \
       --payload '{}' /tmp/article-ingest-out.json
+
+`--cli-binary-format raw-in-base64-out` is required on AWS CLI v2 for a
+raw JSON `--payload` (the default binary format expects base64).
 
 Optional payload `{"year": 2026}` targets a non-current season.
 
@@ -27,7 +31,12 @@ matchedEvents, linksPublished}`).
 Bump `MATCHER_VERSION` in `backend/src/services/articleMatcher.ts` (code
 change + deploy), or delete the state object for a one-time rebuild:
 
-    aws s3 rm s3://<frontend-bucket>/internal/article-links/article-links-state-2026.json
+    aws s3 rm s3://<cache-bucket>/internal/article-links/article-links-state-2026.json
+
+`<cache-bucket>` is the private `chautauqua-calendar-cache-*` bucket
+(CloudFront-OAC-only, `aws_s3_bucket.cache_bucket` in
+`infrastructure/main.tf`) — not the public frontend bucket. The match
+state (scores/reasons) must stay off any world-readable bucket.
 
 ## Reset the article archive (full re-backfill)
 

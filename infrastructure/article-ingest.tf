@@ -71,13 +71,49 @@ resource "aws_iam_role_policy" "article_ingest_scoped" {
         ]
       },
       {
-        # Publish the public sidecar; round-trip the private match state.
-        Effect = "Allow",
-        Action = ["s3:GetObject", "s3:PutObject"],
-        Resource = [
-          "${aws_s3_bucket.frontend_bucket.arn}/cache/calendar-cache/article-links-*.json",
-          "${aws_s3_bucket.frontend_bucket.arn}/internal/article-links/*"
-        ]
+        # Publish the public sidecar (frontend bucket).
+        Effect   = "Allow",
+        Action   = ["s3:GetObject", "s3:PutObject"],
+        Resource = "${aws_s3_bucket.frontend_bucket.arn}/cache/calendar-cache/article-links-*.json"
+      },
+      {
+        # Round-trip the private match state (cache bucket — CloudFront-OAC-
+        # only, never world-readable; see aws_s3_bucket.cache_bucket).
+        Effect   = "Allow",
+        Action   = ["s3:GetObject", "s3:PutObject"],
+        Resource = "${aws_s3_bucket.cache_bucket.arn}/internal/article-links/*"
+      },
+      {
+        # S3 GetObject on a missing key returns 403 AccessDenied (not 404
+        # NoSuchKey) when the caller lacks s3:ListBucket. loadState() and
+        # the optional publisher-sidecar read in EventSnapshotLoader both
+        # discriminate "missing" vs "real error" on err.name === 'NoSuchKey',
+        # so without this grant a missing key aborts every run forever (the
+        # state file can only be created by a successful run). See
+        # publisher-ingest.tf's equivalent grant for the same reason.
+        Effect   = "Allow",
+        Action   = ["s3:ListBucket"],
+        Resource = aws_s3_bucket.frontend_bucket.arn,
+        Condition = {
+          StringLike = {
+            "s3:prefix" = [
+              "cache/calendar-cache/all-events-*",
+              "cache/calendar-cache/publisher-events-*",
+              "cache/calendar-cache/article-links-*"
+            ]
+          }
+        }
+      },
+      {
+        # Same 403-vs-404 fix for the private state object on the cache bucket.
+        Effect   = "Allow",
+        Action   = ["s3:ListBucket"],
+        Resource = aws_s3_bucket.cache_bucket.arn,
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["internal/article-links/*"]
+          }
+        }
       }
     ]
   })
@@ -103,6 +139,9 @@ resource "aws_lambda_function" "article_ingest" {
       CACHE_S3_BUCKET     = aws_s3_bucket.frontend_bucket.bucket
       CACHE_S3_KEY_PREFIX = "cache/calendar-cache"
       STATE_S3_KEY_PREFIX = "internal/article-links"
+      # Private cache bucket (CloudFront-OAC-only) for the match state —
+      # scores/reasons must not live on the public-read frontend bucket.
+      STATE_S3_BUCKET = aws_s3_bucket.cache_bucket.bucket
     }
   }
 

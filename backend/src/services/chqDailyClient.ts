@@ -62,6 +62,11 @@ export class ChqDailyClient {
       );
       out.push(...batch);
       if (batch.length < PER_PAGE) break;
+      if (page === MAX_PAGES) {
+        console.warn(
+          `[chqDailyClient] getAllPages(${pathAndQuery}) hit MAX_PAGES cap (${MAX_PAGES}) with a full last page — results may be truncated`,
+        );
+      }
     }
     return out;
   }
