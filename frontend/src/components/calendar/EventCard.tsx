@@ -1,8 +1,19 @@
 import { useState, useRef } from 'react';
 import type { Event } from '@/lib/types';
+import type { ArticleLink } from '@/hooks/useArticleLinks';
 import { getCategoryDisplayName } from '@/lib/constants';
 import { isDesktop } from '@/lib/utils/calendarUrls';
 import { CalendarPopup } from './CalendarPopup';
+
+/**
+ * Labels an article link with its kind and publish date, e.g. "(recap 7/13)".
+ * `pubDate` is a YYYY-MM-DD string; month and day are shown without leading
+ * zeros.
+ */
+export function formatArticleMeta(kind: ArticleLink['kind'], pubDate: string): string {
+  const [, m, d] = pubDate.slice(0, 10).split('-').map(Number);
+  return `(${kind} ${m}/${d})`;
+}
 
 interface EventCardProps {
   event: Event;
@@ -14,9 +25,10 @@ interface EventCardProps {
   isFavorite: boolean;
   onToggleFavorite: (eventId: string) => void;
   onDownloadICS: (event: Event) => void;
+  articleLinks?: ArticleLink[];
 }
 
-export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS }: EventCardProps) {
+export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS, articleLinks }: EventCardProps) {
   const [showPopup, setShowPopup] = useState(false);
   const calendarButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -119,7 +131,7 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
           )}
 
           {/* Description with disclosure widget */}
-          {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0)) && (
+          {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0) || (articleLinks && articleLinks.length > 0)) && (
             <div className="mb-2">
               {isExpanded ? (
                 <div>
@@ -159,12 +171,40 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                       </button>
                     ))}
                   </div>
+
+                  {articleLinks && articleLinks.length > 0 && (
+                    <div className="mb-2">
+                      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                        In the Chautauquan Daily
+                      </div>
+                      <ul className="space-y-0.5">
+                        {articleLinks.map((link) => (
+                          <li key={link.url} className="text-sm">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                            >
+                              📰 {link.title}
+                            </a>
+                            <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
+                              {formatArticleMeta(link.kind, link.pubDate)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <button
                   onClick={() => onToggleDescription(event.id)}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-xs font-medium flex items-center gap-1"
                 >
+                  {articleLinks && articleLinks.length > 0 && (
+                    <span title="Chautauquan Daily coverage">📰</span>
+                  )}
                   <span className="text-xs">▶</span> Show more
                 </button>
               )}

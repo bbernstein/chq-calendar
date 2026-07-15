@@ -335,6 +335,69 @@ jobs:
 
           rm -rf package_temp lambda-publisher-ingest.zip
 
+      - name: Deploy article-ingest Lambda
+        working-directory: ./backend
+        run: |
+          # The article-ingest Lambda is created by `terraform apply`
+          # (infrastructure/article-ingest.tf). On the very first deploy —
+          # before that apply — the function does not exist yet, so guard the
+          # code update and skip cleanly instead of failing the whole deploy.
+          FUNC="chautauqua-calendar-article-ingest"
+          # Skip cleanly only for a genuine "not created yet" (before the first
+          # terraform apply). Any other error — AccessDenied, throttling — fails
+          # loud instead of masquerading as "waiting on terraform apply".
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-article-deploy.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-article-deploy.err; then
+            echo "::notice::${FUNC} not created yet — run 'terraform apply' to create it; skipping code deploy this run"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-article-deploy.err
+            exit 1
+          fi
+
+          # article-ingest externalizes only the AWS SDK modules; cheerio and
+          # everything else are bundled inline by esbuild (the deploy zip carries
+          # no node_modules). It needs no dist/refs (it doesn't use
+          # publisher-format's loadReferences).
+          mkdir -p package_temp/node_modules
+
+          echo "Installing article-ingest handler dependencies..."
+          cd package_temp
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-article-ingest",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/client-s3": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev
+          cd ..
+
+          mkdir -p package_temp/dist
+          cp dist/articleIngestHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-article-ingest.zip . \
+            -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          echo "Deploying article-ingest Lambda..."
+          aws lambda update-function-code \
+            --function-name "$FUNC" \
+            --zip-file fileb://lambda-article-ingest.zip
+
+          echo "Waiting for article-ingest Lambda to finish updating..."
+          aws lambda wait function-updated \
+            --function-name "$FUNC"
+
+          rm -rf package_temp lambda-article-ingest.zip
+
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
@@ -868,6 +931,38 @@ jobs:
             /tmp/sync-response.json
 
           echo "Calendar sync triggered successfully - running in background to refresh cache data"
+
+      - name: Trigger article-links ingest
+        continue-on-error: true
+        run: |
+          # Refresh the Chautauquan Daily article links right after deploy
+          # instead of waiting up to an hour for the EventBridge schedule.
+          # Guarded + continue-on-error so a not-yet-created function (before
+          # the first terraform apply) or a transient error never fails deploy.
+          FUNC="chautauqua-calendar-article-ingest"
+          # Skip only for a genuine not-created-yet; surface any other error
+          # (this step is continue-on-error, so a loud failure logs but never
+          # fails the deploy).
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-article-trigger.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-article-trigger.err; then
+            echo "${FUNC} not created yet — run 'terraform apply' to create it; skipping trigger"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-article-trigger.err
+            exit 1
+          fi
+          echo "Triggering article-links ingest to refresh news links..."
+          # AWS CLI v2 expects base64 payloads by default; --cli-binary-format
+          # raw-in-base64-out lets us pass the JSON literal.
+          aws lambda invoke \
+            --function-name "$FUNC" \
+            --invocation-type Event \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{}' \
+            /tmp/article-ingest-response.json
+          echo "Article-links ingest triggered - running in background to refresh the sidecar"
 
       - name: Notify deployment success
         if: success()
