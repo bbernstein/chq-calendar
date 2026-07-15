@@ -90,13 +90,22 @@ class LocalEventSnapshotLoader {
 
   async load(): Promise<CalendarEventLite[]> {
     const file = path.join(DATA_DIR, `all-events-${this.year}.json`);
-    const payload = readJson<{ data?: CalendarEventLite[] }>(file);
-    if (!payload) {
+    const primary = readJson<{ data?: CalendarEventLite[] }>(file);
+    if (!primary) {
       throw new Error(
         `Missing ${file} — copy the season's all-events-${this.year}.json into frontend/public/data/ first.`,
       );
     }
-    return payload.data ?? [];
+    // Mirror the real EventSnapshotLoader: merge the optional publisher sidecar,
+    // deduped by id (primary wins), so publisher-fed events also get links.
+    const sidecar = readJson<{ data?: CalendarEventLite[] }>(
+      path.join(DATA_DIR, `publisher-events-${this.year}.json`),
+    );
+    const byId = new Map<string, CalendarEventLite>();
+    for (const e of [...(primary.data ?? []), ...(sidecar?.data ?? [])]) {
+      if (e?.id && !byId.has(e.id)) byId.set(e.id, e);
+    }
+    return [...byId.values()];
   }
 }
 
