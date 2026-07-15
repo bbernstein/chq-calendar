@@ -140,3 +140,74 @@ describe('computeMatchState', () => {
     expect(previews).toEqual([...previews].sort());
   });
 });
+
+describe('recurring-event link pruning', () => {
+  const cso: CalendarEventLite = {
+    id: 'cso',
+    title: 'Chautauqua Symphony Orchestra: An Evening of Brahms',
+    startDate: '2026-07-14T20:00:00',
+    venue: { name: 'Amphitheater' },
+    category: 'Symphony',
+    presenter: 'Chautauqua Symphony Orchestra',
+  };
+
+  function csoArticle(
+    id: number,
+    pubDate: string,
+    title: string,
+    extraTags: string[] = [],
+  ): StoredArticle {
+    const base: StoredArticle = {
+      wpPostId: id,
+      title,
+      link: `https://chqdaily.com/cso-${id}/`,
+      pubDate,
+      modified: pubDate,
+      categories: ['Amphitheater', 'Music'],
+      tags: ['Chautauqua Symphony Orchestra', ...extraTags],
+      excerptText: '',
+      bodyText: 'The Chautauqua Symphony Orchestra performs in the Amphitheater.',
+      contentHash: '',
+      firstSeenAt: '2026-07-01T00:00:00.000Z',
+    };
+    base.contentHash = computeArticleContentHash(base);
+    return base;
+  }
+
+  test('keeps only the latest preview date, dropping other occurrences that week', () => {
+    const arts = [
+      csoArticle(1, '2026-07-08T19:00:00', 'Milanov brings The New World, CSO performs Dvorak'),
+      csoArticle(2, '2026-07-10T19:00:00', 'Troupe Vertigo, Chautauqua Symphony Orchestra bring cinema'),
+      csoArticle(3, '2026-07-13T19:00:00', 'Milanov to lead CSO through Brahms Double Concerto'),
+    ];
+    const r = computeMatchState({ articles: arts, events: [cso] });
+    const links = r.links['cso'] ?? [];
+    expect(links.map(l => l.pubDate)).toEqual(['2026-07-13']);
+    expect(links[0].kind).toBe('preview');
+  });
+
+  test('keeps multiple previews published the same day (program note + piece note)', () => {
+    const arts = [
+      csoArticle(1, '2026-07-08T19:00:00', 'Milanov brings The New World, CSO performs Dvorak'),
+      csoArticle(3, '2026-07-13T19:00:00', 'Milanov to lead CSO through Brahms Double Concerto'),
+      csoArticle(4, '2026-07-13T09:00:00', 'The Chautauqua Symphony Orchestra music of Brahms explained'),
+    ];
+    const r = computeMatchState({ articles: arts, events: [cso] });
+    const links = r.links['cso'] ?? [];
+    expect(links.every(l => l.pubDate === '2026-07-13')).toBe(true);
+    expect(links).toHaveLength(2);
+  });
+
+  test('keeps the earliest post-event recap, dropping recap-tagged articles about prior occurrences', () => {
+    const arts = [
+      // recap-tagged but dated before this concert → about a prior occurrence
+      csoArticle(5, '2026-07-10T19:00:00', 'Chautauqua Symphony Orchestra opens week', ['Symphony Recap']),
+      // the actual recap of the 7/14 concert, published the next morning
+      csoArticle(6, '2026-07-15T08:00:00', 'Chautauqua Symphony Orchestra delivers Brahms', ['Symphony Recap']),
+    ];
+    const r = computeMatchState({ articles: arts, events: [cso] });
+    const links = r.links['cso'] ?? [];
+    expect(links.map(l => l.pubDate)).toEqual(['2026-07-15']);
+    expect(links[0].kind).toBe('recap');
+  });
+});

@@ -13,7 +13,7 @@ import type {
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 2;
+export const MATCHER_VERSION = 3;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -242,6 +242,7 @@ function canonicalMatches(matches: MatchRecord[], hashes: Record<string, string>
 function buildLinks(
   matches: MatchRecord[],
   articleById: Map<string, StoredArticle>,
+  eventDateById: Map<string, string>,
 ): Record<string, PublishedArticleLink[]> {
   const byEvent = new Map<string, MatchRecord[]>();
   for (const m of matches) {
@@ -250,18 +251,43 @@ function buildLinks(
   }
   const links: Record<string, PublishedArticleLink[]> = {};
   for (const [eventId, ms] of byEvent) {
-    const top = [...ms].sort((a, b) => b.score - a.score).slice(0, MAX_LINKS_PER_EVENT);
-    const entries = top
+    const entries = ms
       .map(m => {
         const a = articleById.get(String(m.wpPostId));
         if (!a) return null;
         return { title: a.title, url: a.link, kind: m.kind, pubDate: a.pubDate.slice(0, 10) };
       })
-      .filter((l): l is PublishedArticleLink => l !== null)
+      .filter((l): l is PublishedArticleLink => l !== null);
+
+    // Recurring events (a symphony that plays several nights, a chaplain who
+    // preaches daily) pull previews/recaps of their OTHER occurrences into the
+    // date window. The article closest in time is the one actually about this
+    // occurrence, so keep only the latest preview date and the earliest recap
+    // date that is on/after the event (a recap of a prior occurrence can be
+    // recap-tagged yet dated before this event). Same-day siblings on those
+    // dates all survive, so a program note + a piece note for one concert both
+    // show.
+    const eventDate = eventDateById.get(eventId) ?? '';
+    const previews = entries.filter(e => e.kind === 'preview');
+    const recaps = entries.filter(e => e.kind === 'recap');
+    const kept: PublishedArticleLink[] = [];
+    if (previews.length > 0) {
+      const latest = previews.reduce((mx, e) => (e.pubDate > mx ? e.pubDate : mx), previews[0].pubDate);
+      kept.push(...previews.filter(e => e.pubDate === latest));
+    }
+    if (recaps.length > 0) {
+      const postEvent = recaps.filter(e => e.pubDate >= eventDate);
+      const pool = postEvent.length > 0 ? postEvent : recaps;
+      const earliest = pool.reduce((mn, e) => (e.pubDate < mn ? e.pubDate : mn), pool[0].pubDate);
+      kept.push(...pool.filter(e => e.pubDate === earliest));
+    }
+
+    const ordered = kept
       .sort((x, y) =>
         x.kind === y.kind ? x.pubDate.localeCompare(y.pubDate) : x.kind === 'preview' ? -1 : 1,
-      );
-    if (entries.length > 0) links[eventId] = entries;
+      )
+      .slice(0, MAX_LINKS_PER_EVENT);
+    if (ordered.length > 0) links[eventId] = ordered;
   }
   return links;
 }
@@ -320,8 +346,13 @@ export function computeMatchState(input: {
 
   const matches = kept.concat(rescored);
   const state: MatchState = { matcherVersion: MATCHER_VERSION, articleHashes, eventFingerprints, matches };
+  const eventDateById = new Map(events.map(e => [e.id, e.startDate.slice(0, 10)]));
+  // A matcherVersion bump (fullRecompute) changes how links are derived from
+  // matches, so always republish then — canonicalMatches compares the match set
+  // and can't see buildLinks-level changes on its own.
   const linksChanged =
     !prevState ||
+    fullRecompute ||
     canonicalMatches(matches, articleHashes) !==
       canonicalMatches(prevState.matches, prevState.articleHashes);
   const stateChanged =
@@ -329,5 +360,5 @@ export function computeMatchState(input: {
     Object.keys(prevState!.articleHashes).length !== articles.length ||
     Object.keys(prevState!.eventFingerprints).length !== events.length;
 
-  return { state, links: buildLinks(matches, articleById), linksChanged, stateChanged };
+  return { state, links: buildLinks(matches, articleById, eventDateById), linksChanged, stateChanged };
 }
