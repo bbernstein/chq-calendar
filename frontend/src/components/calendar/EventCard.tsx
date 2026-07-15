@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import type { Event } from '@/lib/types';
+import type { ArticleLink } from '@/hooks/useArticleLinks';
 import { getCategoryDisplayName } from '@/lib/constants';
 import { isDesktop } from '@/lib/utils/calendarUrls';
 import { CalendarPopup } from './CalendarPopup';
@@ -14,9 +15,10 @@ interface EventCardProps {
   isFavorite: boolean;
   onToggleFavorite: (eventId: string) => void;
   onDownloadICS: (event: Event) => void;
+  articleLinks?: ArticleLink[];
 }
 
-export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS }: EventCardProps) {
+export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS, articleLinks }: EventCardProps) {
   const [showPopup, setShowPopup] = useState(false);
   const calendarButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -41,6 +43,9 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                 hour12: true
               })}
               {event.location && <span className="ml-2">📍 {event.location}</span>}
+              {articleLinks && articleLinks.length > 0 && (
+                <span className="ml-2" title="Chautauquan Daily coverage">📰</span>
+              )}
             </span>
             <span className="flex items-center flex-shrink-0 ml-2">
               <button
@@ -119,7 +124,7 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
           )}
 
           {/* Description with disclosure widget */}
-          {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0)) && (
+          {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0) || (articleLinks && articleLinks.length > 0)) && (
             <div className="mb-2">
               {isExpanded ? (
                 <div>
@@ -159,6 +164,31 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                       </button>
                     ))}
                   </div>
+
+                  {articleLinks && articleLinks.length > 0 && (
+                    <div className="mb-2">
+                      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                        In the Chautauquan Daily
+                      </div>
+                      <ul className="space-y-0.5">
+                        {articleLinks.map((link) => (
+                          <li key={link.url} className="text-sm">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                            >
+                              📰 {link.title}
+                            </a>
+                            <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
+                              ({link.kind})
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <button

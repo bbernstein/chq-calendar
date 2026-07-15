@@ -10,6 +10,7 @@ import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
 import { useWeeklyThemes } from '@/hooks/useWeeklyThemes';
+import { useArticleLinks } from '@/hooks/useArticleLinks';
 import { GlobalEventDataProvider, useGlobalEventData } from '@/components/providers/GlobalEventDataProvider';
 import { Header } from '@/components/layout/Header';
 import { CountdownBanner } from '@/components/layout/CountdownBanner';
@@ -42,6 +43,7 @@ function HomeContent() {
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ year: selectedYear, globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
   const { themes: weeklyThemes } = useWeeklyThemes(selectedYear);
+  const { links: articleLinks } = useArticleLinks(selectedYear);
   const isCurrentYear = selectedYear === defaultYear;
   const prevYearRef = useRef(selectedYear);
   const pendingYearChangeRef = useRef(false);
@@ -175,7 +177,7 @@ function HomeContent() {
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
                 dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay}
-                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} />
+                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} articleLinks={articleLinks} />
             )}
           </div>
         </div>
