@@ -2,14 +2,20 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Copy the workspace root manifest + lockfile (this monorepo has a single
+# lockfile at the repo root, not one per workspace) so npm resolves the
+# exact locked versions instead of re-resolving semver ranges against the
+# registry — the frontend does not need the other workspaces' manifests.
 COPY package*.json ./
+COPY frontend/package.json frontend/package.json
 
 # Install dependencies
 RUN npm install
 
 # Copy source code
 COPY . .
+
+WORKDIR /app/frontend
 
 # Expose port
 EXPOSE 3000
