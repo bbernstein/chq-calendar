@@ -5,6 +5,16 @@ import { getCategoryDisplayName } from '@/lib/constants';
 import { isDesktop } from '@/lib/utils/calendarUrls';
 import { CalendarPopup } from './CalendarPopup';
 
+/**
+ * Labels an article link with its kind and publish date, e.g. "(recap 7/13)".
+ * `pubDate` is a YYYY-MM-DD string; month and day are shown without leading
+ * zeros.
+ */
+export function formatArticleMeta(kind: ArticleLink['kind'], pubDate: string): string {
+  const [, m, d] = pubDate.slice(0, 10).split('-').map(Number);
+  return `(${kind} ${m}/${d})`;
+}
+
 interface EventCardProps {
   event: Event;
   index: number;
@@ -179,7 +189,7 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                               📰 {link.title}
                             </a>
                             <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
-                              ({link.kind})
+                              {formatArticleMeta(link.kind, link.pubDate)}
                             </span>
                           </li>
                         ))}

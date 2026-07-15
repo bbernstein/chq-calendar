@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 import { render, screen, within } from '@testing-library/preact';
-import { EventCard } from '@/components/calendar/EventCard';
+import { EventCard, formatArticleMeta } from '@/components/calendar/EventCard';
 import type { Event } from '@/lib/types';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
 
@@ -14,7 +14,7 @@ const baseEvent: Event = {
 };
 
 const LINKS: ArticleLink[] = [
-  { title: 'Syeed to speak today', url: 'https://chqdaily.com/preview/', kind: 'preview', pubDate: '2026-07-15' },
+  { title: 'Syeed to speak today', url: 'https://chqdaily.com/preview/', kind: 'preview', pubDate: '2026-07-13' },
   { title: 'Syeed spoke on peace', url: 'https://chqdaily.com/recap/', kind: 'recap', pubDate: '2026-07-16' },
 ];
 
@@ -58,8 +58,8 @@ describe('EventCard article links', () => {
     expect(preview.href).toBe('https://chqdaily.com/preview/');
     expect(preview.target).toBe('_blank');
     expect(preview.rel).toContain('noopener');
-    expect(screen.getByText('(recap)')).toBeTruthy();
-    expect(screen.getByText('(preview)')).toBeTruthy();
+    expect(screen.getByText('(recap 7/16)')).toBeTruthy();
+    expect(screen.getByText('(preview 7/13)')).toBeTruthy();
   });
 
   it('event with article links but no description still gets the disclosure widget', () => {
@@ -68,5 +68,27 @@ describe('EventCard article links', () => {
       articleLinks: LINKS,
     });
     expect(screen.getByText(/Show more/)).toBeTruthy();
+  });
+});
+
+describe('formatArticleMeta', () => {
+  it('formats a preview as "(preview M/D)"', () => {
+    expect(formatArticleMeta('preview', '2026-07-13')).toBe('(preview 7/13)');
+  });
+
+  it('formats a recap as "(recap M/D)"', () => {
+    expect(formatArticleMeta('recap', '2026-07-13')).toBe('(recap 7/13)');
+  });
+
+  it('always shows the date, even for a same-day preview', () => {
+    expect(formatArticleMeta('preview', '2026-07-15')).toBe('(preview 7/15)');
+  });
+
+  it('always shows the date, even for a next-day recap', () => {
+    expect(formatArticleMeta('recap', '2026-07-16')).toBe('(recap 7/16)');
+  });
+
+  it('strips leading zeros from month and day', () => {
+    expect(formatArticleMeta('preview', '2026-08-04')).toBe('(preview 8/4)');
   });
 });
