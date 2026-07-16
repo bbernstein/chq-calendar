@@ -133,6 +133,16 @@ describe('scorePair', () => {
     expect(r!.reasons).toContain('category-body');
     expect(r!.reasons).not.toContain('category-concept');
     expect(r!.reasons).not.toContain('category-token');
+
+    // Prove the body tier applied HALF credit, not full: the same pair with the
+    // program as a structured tag fires the concept tier (full 0.15) instead of
+    // the body tier (half 0.075), with every other signal identical. The score
+    // delta therefore equals exactly half the category weight. ('cso' is 3 chars,
+    // so adding it as a tag does not affect the people/title-token signal.)
+    const conceptSibling = scorePair({ ...a, tags: ['cso'] }, e);
+    expect(conceptSibling).not.toBeNull();
+    expect(conceptSibling!.reasons).toContain('category-concept');
+    expect(conceptSibling!.score - r!.score).toBeCloseTo(0.075, 4);
   });
 
   test('no category signal when taxonomies and body share no concept or token', () => {
