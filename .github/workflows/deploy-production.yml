@@ -423,6 +423,7 @@ jobs:
             --exclude "manifest.json" \
             --exclude "version.json" \
             --exclude "sw.js" \
+            --exclude "data/weekly-themes/*" \
             --cache-control "public, max-age=31536000, immutable"
 
           # Pass 2 — always-revalidate files. `cp` re-uploads unconditionally (unlike
@@ -445,6 +446,15 @@ jobs:
 
           aws s3 cp out/sw.js "s3://$BUCKET/sw.js" \
             --content-type "text/javascript" \
+            --cache-control "no-cache"
+
+          # weekly-themes JSON is fetched directly from /data/ in production
+          # (useWeeklyThemes has no dev/prod split) and is NOT content-hashed,
+          # so it must revalidate — otherwise a content edit under the same
+          # filename would never reach users (the same bug this deploy fixes).
+          aws s3 cp out/data/weekly-themes/ "s3://$BUCKET/data/weekly-themes/" \
+            --recursive \
+            --content-type "application/json" \
             --cache-control "no-cache"
 
           # Invalidate CloudFront cache

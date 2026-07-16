@@ -98,6 +98,7 @@ aws s3 sync "$BUILD_DIR/" "s3://$S3_BUCKET/" \
     --exclude "manifest.json" \
     --exclude "version.json" \
     --exclude "sw.js" \
+    --exclude "data/weekly-themes/*" \
     --cache-control "public, max-age=31536000, immutable"
 
 # Pass 2 — always-revalidate files. `cp` applies the header unconditionally
@@ -125,6 +126,17 @@ fi
 if [ -f "$BUILD_DIR/sw.js" ]; then
     aws s3 cp "$BUILD_DIR/sw.js" "s3://$S3_BUCKET/sw.js" \
         --content-type "text/javascript" \
+        --cache-control "no-cache"
+fi
+
+# weekly-themes JSON is fetched directly from /data/ in production
+# (useWeeklyThemes has no dev/prod split) and is NOT content-hashed, so it must
+# revalidate — otherwise a content edit under the same filename would never
+# reach users (the same bug this deploy fixes).
+if [ -d "$BUILD_DIR/data/weekly-themes" ]; then
+    aws s3 cp "$BUILD_DIR/data/weekly-themes/" "s3://$S3_BUCKET/data/weekly-themes/" \
+        --recursive \
+        --content-type "application/json" \
         --cache-control "no-cache"
 fi
 
