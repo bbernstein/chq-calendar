@@ -88,43 +88,38 @@ EOF
 fi
 
 # Sync files to S3
-echo "☁️  Uploading files to S3..."
+# Pass 1 — content-hashed, immutable assets. Exclude always-revalidate files.
+echo "☁️  Uploading immutable assets to S3..."
 aws s3 sync "$BUILD_DIR/" "s3://$S3_BUCKET/" \
     --delete \
-    --cache-control "public, max-age=31536000" \
+    --exclude "*.map" \
+    --exclude "cache/*" \
     --exclude "*.html" \
-    --exclude "*.xml" \
-    --exclude "*.txt"
+    --exclude "manifest.json" \
+    --exclude "version.json" \
+    --cache-control "public, max-age=31536000, immutable"
 
-# Upload HTML files with different cache control
-echo "📄 Uploading HTML files..."
-aws s3 sync "$BUILD_DIR/" "s3://$S3_BUCKET/" \
-    --delete \
-    --cache-control "public, max-age=0, must-revalidate" \
+# Pass 2 — always-revalidate files. `cp` applies the header unconditionally
+# (`sync` skips unchanged files, leaving stale headers behind).
+echo "📄 Uploading HTML with no-cache..."
+aws s3 cp "$BUILD_DIR/" "s3://$S3_BUCKET/" \
+    --recursive \
+    --exclude "*" \
+    --include "*.html" \
     --content-type "text/html" \
-    --include "*.html"
+    --cache-control "no-cache"
 
-# Upload other text files
-echo "📄 Uploading text files..."
-find "$BUILD_DIR" -name "*.xml" -o -name "*.txt" -o -name "*.json" | while read file; do
-    if [ -f "$file" ]; then
-        relative_path=${file#$BUILD_DIR/}
-        aws s3 cp "$file" "s3://$S3_BUCKET/$relative_path" \
-            --cache-control "public, max-age=3600"
-    fi
-done
+if [ -f "$BUILD_DIR/manifest.json" ]; then
+    aws s3 cp "$BUILD_DIR/manifest.json" "s3://$S3_BUCKET/manifest.json" \
+        --content-type "application/json" \
+        --cache-control "no-cache"
+fi
 
-# Set proper content types for specific files
-echo "🔧 Setting content types..."
-aws s3 cp "s3://$S3_BUCKET/index.html" "s3://$S3_BUCKET/index.html" \
-    --metadata-directive REPLACE \
-    --content-type "text/html" \
-    --cache-control "public, max-age=0, must-revalidate" || true
-
-aws s3 cp "s3://$S3_BUCKET/error.html" "s3://$S3_BUCKET/error.html" \
-    --metadata-directive REPLACE \
-    --content-type "text/html" \
-    --cache-control "public, max-age=0, must-revalidate" || true
+if [ -f "$BUILD_DIR/version.json" ]; then
+    aws s3 cp "$BUILD_DIR/version.json" "s3://$S3_BUCKET/version.json" \
+        --content-type "application/json" \
+        --cache-control "no-cache"
+fi
 
 # Invalidate CloudFront cache
 if [ ! -z "$CLOUDFRONT_DISTRIBUTION_ID" ] && [ "$CLOUDFRONT_DISTRIBUTION_ID" != "null" ]; then
