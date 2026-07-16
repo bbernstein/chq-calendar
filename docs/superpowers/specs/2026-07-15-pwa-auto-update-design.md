@@ -108,11 +108,12 @@ Restructure the S3 upload in **both** `.github/workflows/deploy-production.yml`
   a one-year immutable TTL is correct. Continue to exclude `cache/*` and `*.map`
   as today.
 - **Pass 2 — always-revalidate files:** upload `*.html`, `manifest.json`, and
-  `version.json` with `cache-control: no-cache` using
-  `aws s3 cp --metadata-directive REPLACE` (explicit `cp`, **not** a second
-  `sync`) so the header is applied unconditionally and the sync-skip bug cannot
-  recur. `no-cache` means the browser revalidates via ETag on every load; an
-  unchanged file returns a near-free `304`.
+  `version.json` with `cache-control: no-cache` using `aws s3 cp` (explicit
+  `cp`, **not** a second `sync`) so the header is applied unconditionally and
+  the sync-skip bug cannot recur. (`--metadata-directive REPLACE` is not used —
+  it applies only to S3→S3 copies; a local→S3 `cp` takes its metadata directly
+  from the flags.) `no-cache` means the browser revalidates via ETag on every
+  load; an unchanged file returns a near-free `304`.
 - CloudFront full invalidation (`/*`) stays as-is.
 
 ### Part 2 — Version stamp
