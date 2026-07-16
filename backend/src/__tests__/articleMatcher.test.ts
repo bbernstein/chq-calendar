@@ -86,6 +86,85 @@ describe('scorePair', () => {
     expect(r!.reasons).toEqual(expect.arrayContaining(['venue-body', 'time-of-day']));
   });
 
+  test('category-concept: article tag "cso" matches event "…/Classical Concerts" via concept', () => {
+    const a = article({
+      title: 'Grgic to perform guitar concerto',
+      categories: ['Amphitheater'],
+      tags: ['cso'],
+      pubDate: '2026-07-16T00:40:00',
+      excerptText: 'A Grammy nominee takes the stage.',
+      bodyText: 'A Grammy nominee takes the stage beside the orchestra.',
+    });
+    const e = event({
+      id: 'cso-1',
+      title: 'Chautauqua Symphony Orchestra with Mak Grgic',
+      startDate: '2026-07-16T20:00:00',
+      venue: { name: 'Amphitheater' },
+      category: undefined,
+      categories: [{ name: 'Chautauqua Symphony Orchestra/Classical Concerts' }],
+      presenter: 'Mak Grgic',
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toContain('category-concept');
+    expect(r!.reasons).not.toContain('category-token');
+  });
+
+  test('category-body: no structured concept/token overlap, but body names the program (half credit)', () => {
+    const a = article({
+      title: 'A night of guitar with Mak Grgic',
+      categories: ['Amphitheater'],
+      tags: [],
+      excerptText: '',
+      bodyText: 'Grgic performs beside the Chautauqua Symphony Orchestra in the Amphitheater.',
+      pubDate: '2026-07-16T00:40:00',
+    });
+    const e = event({
+      id: 'cso-2',
+      title: 'Symphony night with Mak Grgic',
+      startDate: '2026-07-16T20:00:00',
+      venue: { name: 'Amphitheater' },
+      category: undefined,
+      categories: [{ name: 'Chautauqua Symphony Orchestra/Classical Concerts' }],
+      presenter: 'Mak Grgic',
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toContain('category-body');
+    expect(r!.reasons).not.toContain('category-concept');
+    expect(r!.reasons).not.toContain('category-token');
+
+    // Prove the body tier applied HALF credit, not full: the same pair with the
+    // program as a structured tag fires the concept tier (full 0.15) instead of
+    // the body tier (half 0.075), with every other signal identical. The score
+    // delta therefore equals exactly half the category weight. ('cso' is 3 chars,
+    // so adding it as a tag does not affect the people/title-token signal.)
+    const conceptSibling = scorePair({ ...a, tags: ['cso'] }, e);
+    expect(conceptSibling).not.toBeNull();
+    expect(conceptSibling!.reasons).toContain('category-concept');
+    expect(conceptSibling!.score - r!.score).toBeCloseTo(0.075, 4);
+  });
+
+  test('no category signal when taxonomies and body share no concept or token', () => {
+    const a = article({
+      title: 'Jane Marlow on democracy',
+      categories: ['Movies'],
+      tags: ['Jane Marlow'],
+      excerptText: 'Jane Marlow speaks at 2 p.m. today in the Hall of Philosophy.',
+      bodyText: 'Jane Marlow speaks at 2 p.m. today in the Hall of Philosophy.',
+    });
+    const e = event({
+      title: 'Morning talk',
+      startDate: '2026-07-15T14:00:00',
+      venue: { name: 'Hall of Philosophy' },
+      category: 'Recreation',
+      presenter: 'Jane Marlow',
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.reasons.some(x => x.startsWith('category'))).toBe(false);
+  });
+
   test('recurring-slot disambiguation: same venue+time daily lecture matches the right speaker day', () => {
     const a = article({
       title: 'Jane Marlow to open Week Four lectures',

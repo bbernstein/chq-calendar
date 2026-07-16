@@ -8,12 +8,14 @@ import type {
   PublishedArticleLink,
   StoredArticle,
 } from '../types/articles';
+import { normalize } from './textNormalize';
+import { conceptsFor, conceptsInBody } from './chqConcepts';
 
 /**
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 3;
+export const MATCHER_VERSION = 4;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -47,10 +49,6 @@ export interface PairScore {
   score: number;
   reasons: string[];
   kind: ArticleLinkKind;
-}
-
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /** Local calendar date (YYYY-MM-DD) from a site-local ISO string. */
@@ -159,14 +157,35 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
     }
   }
 
-  // Category alignment: any distinctive token shared between taxonomies
-  const articleCatTokens = new Set(article.categories.flatMap(distinctiveTokens));
-  const aligned = eventCategoryNames(event).some(name =>
-    distinctiveTokens(name).some(t => articleCatTokens.has(t)),
-  );
-  if (aligned) {
+  // Category alignment, most-precise tier first (at most one fires):
+  //  1. concept match — bridges acronyms / short↔long vocabulary (CSO ↔
+  //     "Chautauqua Symphony Orchestra/Classical Concerts"). Now also reads
+  //     article.tags, where the Daily often puts the program shorthand.
+  //  2. raw distinctive-token overlap — the original fallback, over tags too.
+  //  3. bounded prose corroboration — half credit, multi-word phrases only.
+  const eventCatNames = eventCategoryNames(event);
+  const eventConcepts = new Set(eventCatNames.flatMap(name => [...conceptsFor(name)]));
+  const articleCatSources = [...article.categories, ...article.tags];
+  const articleConcepts = new Set(articleCatSources.flatMap(s => [...conceptsFor(s)]));
+
+  if ([...eventConcepts].some(k => articleConcepts.has(k))) {
     score += WEIGHTS.category;
-    reasons.push('category');
+    reasons.push('category-concept');
+  } else {
+    const articleCatTokens = new Set(articleCatSources.flatMap(distinctiveTokens));
+    const tokenAligned = eventCatNames.some(name =>
+      distinctiveTokens(name).some(t => articleCatTokens.has(t)),
+    );
+    if (tokenAligned) {
+      score += WEIGHTS.category;
+      reasons.push('category-token');
+    } else {
+      const bodyConcepts = conceptsInBody(normBody);
+      if ([...eventConcepts].some(k => bodyConcepts.has(k))) {
+        score += WEIGHTS.category * 0.5;
+        reasons.push('category-body');
+      }
+    }
   }
 
   // Date proximity (tiebreaker between recurring events)
