@@ -69,10 +69,11 @@ function dayDiff(dateA: string, dateB: string): number {
 /**
  * Render an event start time the way the Daily prints it: "10:45 a.m.",
  * "2 p.m.", "12 p.m." (noon). Returns null when startDate has no parseable
- * HH:MM component.
+ * HH:MM component. Accepts either date/time separator — production events use
+ * a space ("2026-07-16 20:00:00"), not "T" (issue #140).
  */
 export function formatEventTimeAsPrinted(startDate: string): string | null {
-  const m = startDate.match(/T(\d{2}):(\d{2})/);
+  const m = startDate.match(/[T ](\d{2}):(\d{2})/);
   if (!m) return null;
   const hour24 = Number(m[1]);
   const minute = Number(m[2]);
@@ -214,11 +215,13 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
   // A recap is either explicitly tagged, or published after the event started.
   // Compare full site-local ISO timestamps (not just calendar dates) so an
   // evening recap of a morning/afternoon event is classified correctly instead
-  // of slipping through as a same-day "preview". Both strings are local
-  // wall-clock with no offset, so a lexicographic comparison is timezone-safe —
-  // unlike new Date(), which parses date-only vs date-time strings in different
-  // zones.
-  const publishedAfterEventStart = article.pubDate > event.startDate;
+  // of slipping through as a same-day "preview". Both are local wall-clock with
+  // no offset, so a lexicographic comparison is timezone-safe — but the WP
+  // pubDate uses a "T" separator while event startDate uses a space, and 'T' >
+  // ' ' would flag every same-day article a recap. Normalize the separator
+  // first (issue #140).
+  const publishedAfterEventStart =
+    article.pubDate.replace(' ', 'T') > event.startDate.replace(' ', 'T');
   const kind: ArticleLinkKind = isRecapTagged || publishedAfterEventStart ? 'recap' : 'preview';
   return { score: finalScore, reasons, kind };
 }

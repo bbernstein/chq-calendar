@@ -43,6 +43,7 @@ describe('formatEventTimeAsPrinted', () => {
     ['2026-07-15T20:15:00', '8:15 p.m.'],
     ['2026-07-15T12:00:00', '12 p.m.'],
     ['2026-07-15T00:30:00', '12:30 a.m.'],
+    ['2026-07-15 14:00:00', '2 p.m.'], // space separator — the production event format (issue #140)
   ])('%s → %s', (iso, printed) => {
     expect(formatEventTimeAsPrinted(iso)).toBe(printed);
   });
@@ -249,6 +250,47 @@ describe('scorePair', () => {
     // Wrong day: venue matches but no person, no same-day time → below threshold
     expect(wrong).toBeNull();
     expect(right!.score).toBeGreaterThan(MATCH_THRESHOLD);
+  });
+
+  test('accented article name matches an ASCII presenter surname (issue #138)', () => {
+    // The event feed spells the presenter ASCII ("Grgic"); the Daily writes it
+    // accented ("Grgić"). Before diacritic folding these normalized to
+    // different tokens (grgic vs grgi), so the surname match silently failed.
+    const a = article({
+      title: 'Grgić dazzles',
+      tags: [],
+      categories: ['Amphitheater'],
+      excerptText: '',
+      bodyText: 'A wonderful recital.',
+      pubDate: '2026-07-15T09:00:00',
+    });
+    const e = event({
+      title: 'An Evening Recital', // shares no distinctive tokens with the article title
+      startDate: '2026-07-15T14:00:00',
+      venue: { name: 'Amphitheater' },
+      category: undefined,
+      presenter: 'Mak Grgic',
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toContain('people'); // fires only via the surname match
+  });
+
+  test('time-of-day fires when the event startDate uses a space separator (issue #140)', () => {
+    // Production events store startDate as "YYYY-MM-DD HH:MM:SS" (space), not
+    // "…T…". The printed-time signal must still fire.
+    const r = scorePair(article(), event({ startDate: '2026-07-15 14:00:00' }));
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toContain('time-of-day');
+  });
+
+  test('same-day morning preview is not mislabeled a recap with a space-separated startDate (issue #140)', () => {
+    // Article at 6:30 a.m., event at 2 p.m. the same day. The recap check must
+    // compare the T-form pubDate and space-form startDate on a normalized
+    // separator, or 'T' > ' ' would flag every same-day article a recap.
+    const r = scorePair(article(), event({ startDate: '2026-07-15 14:00:00' }));
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe('preview');
   });
 
   test('recap: "Lecture Recap" tag or post-event pubDate classifies as recap', () => {
