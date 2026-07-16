@@ -43,6 +43,7 @@ describe('formatEventTimeAsPrinted', () => {
     ['2026-07-15T20:15:00', '8:15 p.m.'],
     ['2026-07-15T12:00:00', '12 p.m.'],
     ['2026-07-15T00:30:00', '12:30 a.m.'],
+    ['2026-07-15 14:00:00', '2 p.m.'], // space separator — the production event format (issue #140)
   ])('%s → %s', (iso, printed) => {
     expect(formatEventTimeAsPrinted(iso)).toBe(printed);
   });
@@ -134,15 +135,76 @@ describe('scorePair', () => {
     expect(r!.reasons).not.toContain('category-concept');
     expect(r!.reasons).not.toContain('category-token');
 
-    // Prove the body tier applied HALF credit, not full: the same pair with the
-    // program as a structured tag fires the concept tier (full 0.15) instead of
-    // the body tier (half 0.075), with every other signal identical. The score
-    // delta therefore equals exactly half the category weight. ('cso' is 3 chars,
-    // so adding it as a tag does not affect the people/title-token signal.)
-    const conceptSibling = scorePair({ ...a, tags: ['cso'] }, e);
-    expect(conceptSibling).not.toBeNull();
-    expect(conceptSibling!.reasons).toContain('category-concept');
-    expect(conceptSibling!.score - r!.score).toBeCloseTo(0.075, 4);
+    // Prove the body tier applied HALF credit, not full: the same pair with a
+    // program TOKEN in a structured category ("Classical" shares the token
+    // "classical" with the event's "…/Classical Concerts") fires the token tier
+    // (full 0.15) instead of the body tier (half 0.075), with every other signal
+    // identical. The score delta therefore equals exactly half the category
+    // weight. A token — not concept — sibling is used deliberately so the
+    // people+concept corroboration bonus doesn't perturb the delta (both this
+    // sibling and `r` have people but neither has category-concept).
+    const tokenSibling = scorePair({ ...a, categories: [...a.categories, 'Classical'] }, e);
+    expect(tokenSibling).not.toBeNull();
+    expect(tokenSibling!.reasons).toContain('category-token');
+    expect(tokenSibling!.reasons).not.toContain('category-concept');
+    expect(tokenSibling!.score - r!.score).toBeCloseTo(0.075, 4);
+  });
+
+  test('people + concept corroboration rescues a venue-changed event (Grgić/CSO regression)', () => {
+    // Real case: the CSO concert moved Amphitheater→Norton Hall after the
+    // Daily's preview ran, so the article still names the old venue and the
+    // venue signal (0.30) is gone. It is also a day-ahead preview (local
+    // pubDate the evening before), so time-of-day can't fire either. A
+    // performer/title match plus an exact-program (concept) match must still
+    // identify it: 0.35 people + 0.15 concept + 0.05 bonus + ~0.086 proximity.
+    const a = article({
+      title: 'Uplifting the Spirit: Grgic to perform guitar concerto with CSO',
+      categories: ['Chautauqua Symphony Orchestra', 'Amphitheater'],
+      tags: ['cso'],
+      pubDate: '2026-07-15T20:40:03',
+      excerptText: 'Mak Grgic takes the stage beside the Chautauqua Symphony Orchestra.',
+      bodyText: 'Together they perform a guitar concerto.',
+    });
+    const e = event({
+      id: '98400',
+      title: 'Chautauqua Symphony Orchestra with Mak Grgic, guitar',
+      startDate: '2026-07-16 20:00:00',
+      venue: { name: 'Norton Hall' },
+      category: 'Chautauqua Symphony Orchestra/Classical Concerts',
+      categories: undefined,
+      presenter: undefined,
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toEqual(
+      expect.arrayContaining(['people', 'category-concept', 'people-concept-corroboration']),
+    );
+    expect(r!.reasons).not.toContain('venue-category');
+    expect(r!.reasons).not.toContain('venue-body');
+  });
+
+  test('concept match without a people match does NOT trigger the corroboration bonus', () => {
+    // Only venue + concept + proximity, no performer/title overlap. Must stay
+    // below threshold (0.30 + 0.15 + 0.10 = 0.55): the bonus requires BOTH
+    // people and concept, so it must not leak in on a concept-only match.
+    const a = article({
+      title: 'Season concert series announced',
+      categories: ['Chautauqua Symphony Orchestra', 'Amphitheater'],
+      tags: ['cso'],
+      excerptText: '',
+      bodyText: 'The orchestra returns this week.',
+      pubDate: '2026-07-16T06:00:00',
+    });
+    const e = event({
+      id: 'cso-noppl',
+      title: 'Toward a New World',
+      startDate: '2026-07-16T20:00:00',
+      venue: { name: 'Amphitheater' },
+      category: 'Chautauqua Symphony Orchestra/Classical Concerts',
+      categories: undefined,
+      presenter: undefined,
+    });
+    expect(scorePair(a, e)).toBeNull();
   });
 
   test('no category signal when taxonomies and body share no concept or token', () => {
@@ -188,6 +250,47 @@ describe('scorePair', () => {
     // Wrong day: venue matches but no person, no same-day time → below threshold
     expect(wrong).toBeNull();
     expect(right!.score).toBeGreaterThan(MATCH_THRESHOLD);
+  });
+
+  test('accented article name matches an ASCII presenter surname (issue #138)', () => {
+    // The event feed spells the presenter ASCII ("Grgic"); the Daily writes it
+    // accented ("Grgić"). Before diacritic folding these normalized to
+    // different tokens (grgic vs grgi), so the surname match silently failed.
+    const a = article({
+      title: 'Grgić dazzles',
+      tags: [],
+      categories: ['Amphitheater'],
+      excerptText: '',
+      bodyText: 'A wonderful recital.',
+      pubDate: '2026-07-15T09:00:00',
+    });
+    const e = event({
+      title: 'An Evening Recital', // shares no distinctive tokens with the article title
+      startDate: '2026-07-15T14:00:00',
+      venue: { name: 'Amphitheater' },
+      category: undefined,
+      presenter: 'Mak Grgic',
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toContain('people'); // fires only via the surname match
+  });
+
+  test('time-of-day fires when the event startDate uses a space separator (issue #140)', () => {
+    // Production events store startDate as "YYYY-MM-DD HH:MM:SS" (space), not
+    // "…T…". The printed-time signal must still fire.
+    const r = scorePair(article(), event({ startDate: '2026-07-15 14:00:00' }));
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toContain('time-of-day');
+  });
+
+  test('same-day morning preview is not mislabeled a recap with a space-separated startDate (issue #140)', () => {
+    // Article at 6:30 a.m., event at 2 p.m. the same day. The recap check must
+    // compare the T-form pubDate and space-form startDate on a normalized
+    // separator, or 'T' > ' ' would flag every same-day article a recap.
+    const r = scorePair(article(), event({ startDate: '2026-07-15 14:00:00' }));
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe('preview');
   });
 
   test('recap: "Lecture Recap" tag or post-event pubDate classifies as recap', () => {

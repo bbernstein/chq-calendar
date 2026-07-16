@@ -15,7 +15,7 @@ import { conceptsFor, conceptsInBody } from './chqConcepts';
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 4;
+export const MATCHER_VERSION = 5;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -25,6 +25,9 @@ const WEIGHTS = {
   timeOfDay: 0.4,
   category: 0.15,
   proximityMax: 0.1,
+  // Bonus when a performer/title match AND an exact-program (concept) match
+  // co-fire — a strong joint identifier that survives a venue change.
+  peopleConceptBonus: 0.05,
 } as const;
 
 /** Event date must fall within [pubDate - RECAP_DAYS, pubDate + PREVIEW_DAYS]. */
@@ -66,10 +69,11 @@ function dayDiff(dateA: string, dateB: string): number {
 /**
  * Render an event start time the way the Daily prints it: "10:45 a.m.",
  * "2 p.m.", "12 p.m." (noon). Returns null when startDate has no parseable
- * HH:MM component.
+ * HH:MM component. Accepts either date/time separator — production events use
+ * a space ("2026-07-16 20:00:00"), not "T" (issue #140).
  */
 export function formatEventTimeAsPrinted(startDate: string): string | null {
-  const m = startDate.match(/T(\d{2}):(\d{2})/);
+  const m = startDate.match(/[T ](\d{2}):(\d{2})/);
   if (!m) return null;
   const hour24 = Number(m[1]);
   const minute = Number(m[2]);
@@ -188,6 +192,17 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
     }
   }
 
+  // Corroboration bonus: a performer/title match AND an exact-program (concept)
+  // match together identify an event with high confidence even when the venue
+  // disagrees — e.g. a concert moved indoors after the Daily's preview ran, so
+  // the article still names the old venue. Gated on BOTH signals, so it never
+  // rescues a weak single match: venue + concept without people is still
+  // 0.30 + 0.15 + 0.10 = 0.55 < 0.60.
+  if (reasons.includes('people') && reasons.includes('category-concept')) {
+    score += WEIGHTS.peopleConceptBonus;
+    reasons.push('people-concept-corroboration');
+  }
+
   // Date proximity (tiebreaker between recurring events)
   score += WEIGHTS.proximityMax * (1 - Math.min(Math.abs(diff), PREVIEW_WINDOW_DAYS) / PREVIEW_WINDOW_DAYS);
 
@@ -200,11 +215,13 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
   // A recap is either explicitly tagged, or published after the event started.
   // Compare full site-local ISO timestamps (not just calendar dates) so an
   // evening recap of a morning/afternoon event is classified correctly instead
-  // of slipping through as a same-day "preview". Both strings are local
-  // wall-clock with no offset, so a lexicographic comparison is timezone-safe —
-  // unlike new Date(), which parses date-only vs date-time strings in different
-  // zones.
-  const publishedAfterEventStart = article.pubDate > event.startDate;
+  // of slipping through as a same-day "preview". Both are local wall-clock with
+  // no offset, so a lexicographic comparison is timezone-safe — but the WP
+  // pubDate uses a "T" separator while event startDate uses a space, and 'T' >
+  // ' ' would flag every same-day article a recap. Normalize the separator
+  // first (issue #140).
+  const publishedAfterEventStart =
+    article.pubDate.replace(' ', 'T') > event.startDate.replace(' ', 'T');
   const kind: ArticleLinkKind = isRecapTagged || publishedAfterEventStart ? 'recap' : 'preview';
   return { score: finalScore, reasons, kind };
 }
