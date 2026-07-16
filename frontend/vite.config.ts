@@ -2,6 +2,7 @@ import { defineConfig, PluginOption } from 'vite';
 import preact from '@preact/preset-vite';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
+import { execSync } from 'child_process';
 
 // In MPA mode, Vite doesn't resolve bare paths like /feedback to /feedback/index.html.
 // This plugin adds that behavior so dev matches production (S3/CloudFront).
@@ -50,6 +51,34 @@ function devServerMiddleware(): PluginOption {
   };
 }
 
+// Build version stamp: short git SHA of the deployed commit, or a timestamp
+// fallback for environments without git. Baked into the bundle via `define`
+// and emitted as version.json so the client can detect new deploys.
+function resolveAppVersion(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return `build-${Date.now()}`;
+  }
+}
+
+// Emits out/version.json at build time with the same value baked into the bundle.
+function emitVersionJson(version: string): PluginOption {
+  return {
+    name: 'emit-version-json',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ version }),
+      });
+    },
+  };
+}
+
+const APP_VERSION = resolveAppVersion();
+
 // Proxy config shared between dev server and preview server.
 // Routes API/auth requests to the local backend (port 3001) and
 // cache requests to the production CDN.
@@ -77,7 +106,10 @@ const backendProxy = {
 
 export default defineConfig({
   appType: 'mpa',
-  plugins: [devServerMiddleware(), preact()],
+  plugins: [devServerMiddleware(), preact(), emitVersionJson(APP_VERSION)],
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

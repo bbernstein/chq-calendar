@@ -410,20 +410,52 @@ jobs:
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
-          # Sync to S3 bucket
-          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+          BUCKET="${{ secrets.S3_BUCKET_NAME }}"
+
+          # Pass 1 — content-hashed, immutable assets. Exclude the files that must always
+          # revalidate so they never get the year-long immutable header. --delete removes
+          # stale hashed bundles; excluded files are neither uploaded nor deleted here.
+          aws s3 sync out/ "s3://$BUCKET/" \
             --delete \
             --exclude "*.map" \
             --exclude "cache/*" \
-            --cache-control "public, max-age=31536000, immutable" \
-            --metadata-directive REPLACE
+            --exclude "*.html" \
+            --exclude "manifest.json" \
+            --exclude "version.json" \
+            --exclude "sw.js" \
+            --exclude "data/weekly-themes/*" \
+            --cache-control "public, max-age=31536000, immutable"
 
-          # Update HTML files with shorter cache
-          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+          # Pass 2 — always-revalidate files. `cp` re-uploads unconditionally (unlike
+          # `sync`, which skips unchanged files and was the cause of the stale-shell bug),
+          # so the no-cache header is applied every time.
+          aws s3 cp out/ "s3://$BUCKET/" \
+            --recursive \
             --exclude "*" \
             --include "*.html" \
-            --cache-control "public, max-age=3600" \
-            --metadata-directive REPLACE
+            --content-type "text/html" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/manifest.json "s3://$BUCKET/manifest.json" \
+            --content-type "application/json" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/version.json "s3://$BUCKET/version.json" \
+            --content-type "application/json" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/sw.js "s3://$BUCKET/sw.js" \
+            --content-type "text/javascript" \
+            --cache-control "no-cache"
+
+          # weekly-themes JSON is fetched directly from /data/ in production
+          # (useWeeklyThemes has no dev/prod split) and is NOT content-hashed,
+          # so it must revalidate — otherwise a content edit under the same
+          # filename would never reach users (the same bug this deploy fixes).
+          aws s3 cp out/data/weekly-themes/ "s3://$BUCKET/data/weekly-themes/" \
+            --recursive \
+            --content-type "application/json" \
+            --cache-control "no-cache"
 
           # Invalidate CloudFront cache
           aws cloudfront create-invalidation \
