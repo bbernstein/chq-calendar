@@ -15,6 +15,13 @@ import { normalize } from './textNormalize';
  * Seeded from the venueMap in eventTransformationService.ts and extended to
  * the real event category vocabulary. Add an entry when a new program needs
  * acronym/short-form bridging.
+ *
+ * This list is intentionally maintained by hand and is allowed to diverge
+ * from that venueMap: this maps PROGRAMS (for article↔event category
+ * matching), while venueMap also carries pure venue abbreviations (amp, hop,
+ * hoc) that are not programs and deliberately have no concept here. Keep only
+ * surface forms you can confirm name the same program — do not merge two
+ * distinct organizations under one key.
  */
 interface Concept {
   key: string;
@@ -40,8 +47,8 @@ const CONCEPTS: Concept[] = [
   },
   {
     key: 'ciwl',
-    surfaces: ['ciwl', 'chautauqua womens club', 'chautauqua institution womens league'],
-    bodyPhrases: ['chautauqua womens club', 'chautauqua institution womens league'],
+    surfaces: ['ciwl', 'chautauqua institution womens league'],
+    bodyPhrases: ['chautauqua institution womens league'],
   },
   {
     key: 'opera',
