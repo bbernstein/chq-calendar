@@ -8,6 +8,7 @@ import type {
   PublishedArticleLink,
   StoredArticle,
 } from '../types/articles';
+import { normalize } from './textNormalize';
 
 /**
  * Bump when weights, threshold, aliases, or signal logic change — forces a
@@ -47,10 +48,6 @@ export interface PairScore {
   score: number;
   reasons: string[];
   kind: ArticleLinkKind;
-}
-
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /** Local calendar date (YYYY-MM-DD) from a site-local ISO string. */
