@@ -26,6 +26,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Record deploy start time
+        id: deploy_start
+        # Captured before any Lambda deploys so the publisher E2E test can
+        # assert each function's LastModified is newer than this deploy. Used as
+        # the workflow_dispatch fallback for DEPLOY_START_RAW: github.run_started_at
+        # is not a real github-context field and resolves to '' on manual runs,
+        # which made the downstream datetime.fromisoformat('') throw.
+        run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -473,9 +482,11 @@ jobs:
         # ci-e2e-test publisher row + static feed exist.
         shell: bash
         env:
-          # github.event.head_commit.timestamp is only set on push; fall back
-          # to the run start time for workflow_dispatch.
-          DEPLOY_START_RAW: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+          # github.event.head_commit.timestamp is only set on push; fall back to
+          # the timestamp captured by the "Record deploy start time" step for
+          # workflow_dispatch (github.run_started_at is not a real context field
+          # and resolves to '' on manual runs).
+          DEPLOY_START_RAW: ${{ github.event.head_commit.timestamp || steps.deploy_start.outputs.ts }}
           S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
         run: |
           set -euo pipefail
