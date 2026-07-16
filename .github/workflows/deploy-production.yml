@@ -482,10 +482,8 @@ jobs:
         # ci-e2e-test publisher row + static feed exist.
         shell: bash
         env:
-          # github.event.head_commit.timestamp is only set on push; fall back to
-          # the timestamp captured by the "Record deploy start time" step for
-          # workflow_dispatch (github.run_started_at is not a real context field
-          # and resolves to '' on manual runs).
+          # head_commit.timestamp is set only on push; on workflow_dispatch fall
+          # back to the "Record deploy start time" step (see its comment for why).
           DEPLOY_START_RAW: ${{ github.event.head_commit.timestamp || steps.deploy_start.outputs.ts }}
           S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
         run: |
