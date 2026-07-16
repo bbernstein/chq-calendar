@@ -26,6 +26,14 @@ describe('conceptsFor', () => {
   test('bare "theater" is not a surface (too ambiguous — only acronym/full name resolve to ctc)', () => {
     expect(conceptsFor('Theater').has('ctc')).toBe(false);
   });
+
+  test('surfaces match only as whole words, never glued inside a longer word', () => {
+    // "dance" inside "Attendance", "opera" inside "Operation" — the space-padded
+    // whole-phrase match must NOT resolve these to the dance/opera concepts.
+    expect(conceptsFor('Attendance').has('dance')).toBe(false);
+    expect(conceptsFor('Operation').has('opera')).toBe(false);
+    expect(conceptsFor('Attendance').size).toBe(0);
+  });
 });
 
 describe('conceptsInBody', () => {
