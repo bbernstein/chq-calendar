@@ -97,6 +97,7 @@ aws s3 sync "$BUILD_DIR/" "s3://$S3_BUCKET/" \
     --exclude "*.html" \
     --exclude "manifest.json" \
     --exclude "version.json" \
+    --exclude "sw.js" \
     --cache-control "public, max-age=31536000, immutable"
 
 # Pass 2 — always-revalidate files. `cp` applies the header unconditionally
@@ -118,6 +119,12 @@ fi
 if [ -f "$BUILD_DIR/version.json" ]; then
     aws s3 cp "$BUILD_DIR/version.json" "s3://$S3_BUCKET/version.json" \
         --content-type "application/json" \
+        --cache-control "no-cache"
+fi
+
+if [ -f "$BUILD_DIR/sw.js" ]; then
+    aws s3 cp "$BUILD_DIR/sw.js" "s3://$S3_BUCKET/sw.js" \
+        --content-type "text/javascript" \
         --cache-control "no-cache"
 fi
 

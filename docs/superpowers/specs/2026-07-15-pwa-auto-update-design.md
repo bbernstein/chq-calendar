@@ -41,6 +41,23 @@ This is caused by an `aws s3 sync` two-pass bug in the deploy
 The intended second-pass header (`max-age=3600`) was also weaker than an app
 shell warrants.
 
+### Existing service worker
+
+Production already registers a hand-written service worker,
+`frontend/public/sw.js` (cache `chqcal-v4`), registered inline in
+`index.html`. It uses network-first for HTML navigations and — because
+`.json` is not in its static-asset list — network-first for `version.json`
+too, and it already calls `skipWaiting()` + `clients.claim()` on
+install/activate. The immutable-header bug above also defeated the SW's
+network-first path: `fetch()` inside the SW still honors the browser's HTTP
+cache, so a network-first request for the shell was quietly served the
+year-long-cached copy instead of hitting the origin. Fixing the headers
+therefore repairs the SW's own update path, not just the no-SW case; the
+`version.json` + auto-reload mechanism below adds the deterministic
+in-session reload that the SW alone does not perform. This task also serves
+`sw.js` itself with `no-cache` (previously it fell into the immutable pass
+too) so future changes to the SW script propagate promptly.
+
 ### Honest constraint on already-installed users
 
 There is **no HTTP mechanism that instantly reaches a device which already
@@ -64,8 +81,9 @@ automatic from the corrected baseline onward.
 - Fixing the cache headers is the necessary root-cause fix: every future launch
   revalidates the shell and picks up new bundles.
 - A lightweight version check makes the update happen *while the app is
-  open/reopened* — deterministic, with no service-worker complexity or its
-  associated stale-cache failure modes.
+  open/reopened* — deterministic, without adding new service-worker
+  complexity or its associated stale-cache failure modes on top of the
+  existing `sw.js`.
 
 Rejected alternatives:
 
@@ -147,7 +165,9 @@ Behavior:
 
 ## Non-goals
 
-- No service worker / offline support.
+- No new/Workbox-managed service worker. The existing hand-written
+  `frontend/public/sw.js` stays as-is and is not restructured — this task
+  only fixes its cache header (Part 1) and does not change its behavior.
 - No mechanism to instantly reach devices already trapped on the year-long
   immutable copy — they recover automatically on the next iOS revalidation and
   are self-updating thereafter.

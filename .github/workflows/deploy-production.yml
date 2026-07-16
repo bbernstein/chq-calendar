@@ -422,6 +422,7 @@ jobs:
             --exclude "*.html" \
             --exclude "manifest.json" \
             --exclude "version.json" \
+            --exclude "sw.js" \
             --cache-control "public, max-age=31536000, immutable"
 
           # Pass 2 — always-revalidate files. `cp` re-uploads unconditionally (unlike
@@ -440,6 +441,10 @@ jobs:
 
           aws s3 cp out/version.json "s3://$BUCKET/version.json" \
             --content-type "application/json" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/sw.js "s3://$BUCKET/sw.js" \
+            --content-type "text/javascript" \
             --cache-control "no-cache"
 
           # Invalidate CloudFront cache
