@@ -134,15 +134,76 @@ describe('scorePair', () => {
     expect(r!.reasons).not.toContain('category-concept');
     expect(r!.reasons).not.toContain('category-token');
 
-    // Prove the body tier applied HALF credit, not full: the same pair with the
-    // program as a structured tag fires the concept tier (full 0.15) instead of
-    // the body tier (half 0.075), with every other signal identical. The score
-    // delta therefore equals exactly half the category weight. ('cso' is 3 chars,
-    // so adding it as a tag does not affect the people/title-token signal.)
-    const conceptSibling = scorePair({ ...a, tags: ['cso'] }, e);
-    expect(conceptSibling).not.toBeNull();
-    expect(conceptSibling!.reasons).toContain('category-concept');
-    expect(conceptSibling!.score - r!.score).toBeCloseTo(0.075, 4);
+    // Prove the body tier applied HALF credit, not full: the same pair with a
+    // program TOKEN in a structured category ("Classical" shares the token
+    // "classical" with the event's "…/Classical Concerts") fires the token tier
+    // (full 0.15) instead of the body tier (half 0.075), with every other signal
+    // identical. The score delta therefore equals exactly half the category
+    // weight. A token — not concept — sibling is used deliberately so the
+    // people+concept corroboration bonus doesn't perturb the delta (both this
+    // sibling and `r` have people but neither has category-concept).
+    const tokenSibling = scorePair({ ...a, categories: [...a.categories, 'Classical'] }, e);
+    expect(tokenSibling).not.toBeNull();
+    expect(tokenSibling!.reasons).toContain('category-token');
+    expect(tokenSibling!.reasons).not.toContain('category-concept');
+    expect(tokenSibling!.score - r!.score).toBeCloseTo(0.075, 4);
+  });
+
+  test('people + concept corroboration rescues a venue-changed event (Grgić/CSO regression)', () => {
+    // Real case: the CSO concert moved Amphitheater→Norton Hall after the
+    // Daily's preview ran, so the article still names the old venue and the
+    // venue signal (0.30) is gone. It is also a day-ahead preview (local
+    // pubDate the evening before), so time-of-day can't fire either. A
+    // performer/title match plus an exact-program (concept) match must still
+    // identify it: 0.35 people + 0.15 concept + 0.05 bonus + ~0.086 proximity.
+    const a = article({
+      title: 'Uplifting the Spirit: Grgic to perform guitar concerto with CSO',
+      categories: ['Chautauqua Symphony Orchestra', 'Amphitheater'],
+      tags: ['cso'],
+      pubDate: '2026-07-15T20:40:03',
+      excerptText: 'Mak Grgic takes the stage beside the Chautauqua Symphony Orchestra.',
+      bodyText: 'Together they perform a guitar concerto.',
+    });
+    const e = event({
+      id: '98400',
+      title: 'Chautauqua Symphony Orchestra with Mak Grgic, guitar',
+      startDate: '2026-07-16 20:00:00',
+      venue: { name: 'Norton Hall' },
+      category: 'Chautauqua Symphony Orchestra/Classical Concerts',
+      categories: undefined,
+      presenter: undefined,
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.reasons).toEqual(
+      expect.arrayContaining(['people', 'category-concept', 'people-concept-corroboration']),
+    );
+    expect(r!.reasons).not.toContain('venue-category');
+    expect(r!.reasons).not.toContain('venue-body');
+  });
+
+  test('concept match without a people match does NOT trigger the corroboration bonus', () => {
+    // Only venue + concept + proximity, no performer/title overlap. Must stay
+    // below threshold (0.30 + 0.15 + 0.10 = 0.55): the bonus requires BOTH
+    // people and concept, so it must not leak in on a concept-only match.
+    const a = article({
+      title: 'Season concert series announced',
+      categories: ['Chautauqua Symphony Orchestra', 'Amphitheater'],
+      tags: ['cso'],
+      excerptText: '',
+      bodyText: 'The orchestra returns this week.',
+      pubDate: '2026-07-16T06:00:00',
+    });
+    const e = event({
+      id: 'cso-noppl',
+      title: 'Toward a New World',
+      startDate: '2026-07-16T20:00:00',
+      venue: { name: 'Amphitheater' },
+      category: 'Chautauqua Symphony Orchestra/Classical Concerts',
+      categories: undefined,
+      presenter: undefined,
+    });
+    expect(scorePair(a, e)).toBeNull();
   });
 
   test('no category signal when taxonomies and body share no concept or token', () => {

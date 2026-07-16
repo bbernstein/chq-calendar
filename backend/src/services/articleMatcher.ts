@@ -15,7 +15,7 @@ import { conceptsFor, conceptsInBody } from './chqConcepts';
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 4;
+export const MATCHER_VERSION = 5;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -25,6 +25,9 @@ const WEIGHTS = {
   timeOfDay: 0.4,
   category: 0.15,
   proximityMax: 0.1,
+  // Bonus when a performer/title match AND an exact-program (concept) match
+  // co-fire — a strong joint identifier that survives a venue change.
+  peopleConceptBonus: 0.05,
 } as const;
 
 /** Event date must fall within [pubDate - RECAP_DAYS, pubDate + PREVIEW_DAYS]. */
@@ -186,6 +189,17 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
         reasons.push('category-body');
       }
     }
+  }
+
+  // Corroboration bonus: a performer/title match AND an exact-program (concept)
+  // match together identify an event with high confidence even when the venue
+  // disagrees — e.g. a concert moved indoors after the Daily's preview ran, so
+  // the article still names the old venue. Gated on BOTH signals, so it never
+  // rescues a weak single match: venue + concept without people is still
+  // 0.30 + 0.15 + 0.10 = 0.55 < 0.60.
+  if (reasons.includes('people') && reasons.includes('category-concept')) {
+    score += WEIGHTS.peopleConceptBonus;
+    reasons.push('people-concept-corroboration');
   }
 
   // Date proximity (tiebreaker between recurring events)
