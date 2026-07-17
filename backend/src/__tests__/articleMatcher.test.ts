@@ -114,7 +114,9 @@ describe('scorePair', () => {
     const r = scorePair(a, e);
     expect(r).not.toBeNull();
     expect(r!.score).toBeGreaterThan(MATCH_THRESHOLD);
-    expect(r!.reasons).toEqual(expect.arrayContaining(['venue-category', 'people']));
+    // 'venue-tag', not 'venue-category': "Amphitheater" is a post_tag here.
+    expect(r!.reasons).toEqual(expect.arrayContaining(['venue-tag', 'people']));
+    expect(r!.reasons).not.toContain('venue-category');
     expect(r!.kind).toBe('preview');
   });
 
@@ -278,6 +280,7 @@ describe('scorePair', () => {
       expect.arrayContaining(['people', 'category-concept', 'people-concept-corroboration']),
     );
     expect(r!.reasons).not.toContain('venue-category');
+    expect(r!.reasons).not.toContain('venue-tag');
     expect(r!.reasons).not.toContain('venue-body');
   });
 
