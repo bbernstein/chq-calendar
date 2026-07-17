@@ -118,6 +118,73 @@ describe('scorePair', () => {
     expect(r!.kind).toBe('preview');
   });
 
+  test('venue alias: Daily says "Hurlbut Sanctuary", event venue is "Hurlbut Church sanctuary" (CSG/Stillwater regression)', () => {
+    // Real case (event 98143 / post 49302): a Chautauqua Science Group weekly
+    // lecture. The events feed names the venue "Hurlbut Church sanctuary"; the
+    // Daily's preview drops the middle word ("Hurlbut Sanctuary"). Without the
+    // alias, venue-body can't fire on the whole phrase, leaving only people
+    // (0.35) + proximity ≈ 0.44 for a day-ahead preview — dropped.
+    const a = article({
+      title: 'JD Stillwater to discuss the interconnectedness of science with CSG',
+      categories: ['Community', 'Lectures', 'Special Lecture Previews'],
+      tags: ['Chautauqua Science Group'],
+      pubDate: '2026-07-13T20:00:00',
+      excerptText: 'JD Stillwater on the science of oneness.',
+      bodyText: 'He will share them with the Chautauqua Science Group at 9:15 a.m. today in Hurlbut Sanctuary.',
+    });
+    const e = event({
+      id: '98143',
+      title: 'Chautauqua Science Group Weekly Lecture. JD Stillwater: One Song: The Science of Oneness',
+      startDate: '2026-07-14 09:15:00',
+      venue: { name: 'Hurlbut Church sanctuary' },
+      category: 'Climate Change Initiative Program',
+      categories: [{ name: 'Climate Change Initiative Program' }],
+      presenter: undefined,
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.score).toBeGreaterThan(MATCH_THRESHOLD);
+    expect(r!.reasons).toEqual(expect.arrayContaining(['venue-body', 'people']));
+    expect(r!.kind).toBe('preview');
+  });
+
+  test('concept detection does NOT read the event title (guards against title-word false positives)', () => {
+    // Analysis lesson: feeding the event TITLE into concept detection makes a
+    // single generic program word ("opera", "symphony", "theater company") in a
+    // long title fire category-concept, and the people+concept corroboration
+    // bonus then pushes unrelated pairs over threshold — e.g. an author lecture
+    // matched 4 Chautauqua Theater Company play readings. Concepts must come
+    // only from structured category/tag fields, never the free-text title.
+    // Here the event's PROGRAM identity lives only in its title; its categories
+    // are generic. The article shares the "cso" concept (tag) AND enough title
+    // tokens to fire `people`, so if concepts were read from the title this pair
+    // would reach 0.35 + 0.15 + 0.05 bonus + proximity ≈ 0.63 and match. It must
+    // NOT: category-concept must not fire, and the pair must stay below 0.6.
+    const a = article({
+      title: 'Symphony Orchestra opens its season with Beethoven',
+      categories: [],
+      tags: ['cso'],
+      pubDate: '2026-07-15T20:40:00',
+      excerptText: 'A season-opening program.',
+      bodyText: 'A season-opening program of Beethoven.',
+    });
+    const e = event({
+      id: 'title-concept-guard',
+      title: 'Chautauqua Symphony Orchestra: Beethoven Symphony No. 9',
+      startDate: '2026-07-16T20:00:00',
+      venue: { name: 'Norton Hall' }, // not named in the article body -> no venue signal
+      category: 'Some Generic Program', // no concept, no token overlap
+      categories: undefined,
+      presenter: undefined,
+    });
+    const r = scorePair(a, e);
+    if (r) {
+      expect(r.reasons).not.toContain('category-concept');
+      expect(r.score).toBeLessThan(MATCH_THRESHOLD);
+    }
+    // (r === null is also a pass: below threshold means no match.)
+  });
+
   test('category-concept: article tag "cso" matches event "…/Classical Concerts" via concept', () => {
     const a = article({
       title: 'Grgic to perform guitar concerto',

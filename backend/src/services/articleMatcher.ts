@@ -15,7 +15,7 @@ import { conceptsFor, conceptsInBody } from './chqConcepts';
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 6;
+export const MATCHER_VERSION = 7;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -39,6 +39,11 @@ const VENUE_ALIASES: Record<string, string[]> = {
   amphitheater: ['amp', 'the amp', 'amphitheatre'],
   'elizabeth s lenna hall': ['lenna hall'],
   'bratton theater': ['bratton theatre'],
+  // The events feed names this venue "Hurlbut Church sanctuary"; the Daily
+  // drops the middle word ("Hurlbut Sanctuary") or the last ("Hurlbut Church").
+  // venue-body needs the whole phrase, so without the aliases a preview that
+  // names the venue is missed (e.g. the CSG weekly lecture, event 98143).
+  'hurlbut church sanctuary': ['hurlbut sanctuary', 'hurlbut church'],
 };
 
 const STOPWORDS = new Set([
