@@ -15,7 +15,7 @@ import { conceptsFor, conceptsInBody } from './chqConcepts';
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 5;
+export const MATCHER_VERSION = 7;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -39,6 +39,15 @@ const VENUE_ALIASES: Record<string, string[]> = {
   amphitheater: ['amp', 'the amp', 'amphitheatre'],
   'elizabeth s lenna hall': ['lenna hall'],
   'bratton theater': ['bratton theatre'],
+  // The events feed names this venue "Hurlbut Church sanctuary"; the Daily
+  // drops the middle word ("Hurlbut Sanctuary"). venue-body needs the whole
+  // phrase, so without the alias a preview that names the venue is missed
+  // (e.g. the CSG weekly lecture, event 98143). Only "hurlbut sanctuary" is
+  // aliased — NOT "hurlbut church": the feed also has "Hurlbut Marion Lawrance"
+  // and "Hurlbut Truesdale" rooms inside the same Hurlbut Church building, so
+  // the bare "church" form is ambiguous across those spaces. "sanctuary" is
+  // unique to this room.
+  'hurlbut church sanctuary': ['hurlbut sanctuary'],
 };
 
 const STOPWORDS = new Set([
@@ -125,12 +134,24 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
   const reasons: string[] = [];
   const normBody = ` ${normalize(`${article.excerptText} ${article.bodyText}`)} `;
 
-  // Venue
+  // Venue. The Daily files an event's venue as a structured taxonomy term, but
+  // inconsistently: sometimes a WP category ("Amphitheater" on a symphony
+  // preview), sometimes only a post_tag ("Amphitheater" on a morning-lecture
+  // preview — its categories are just Lectures/Morning Lecture). Check both, the
+  // same way the people and category signals already read article.tags —
+  // otherwise a venue named only in a tag is missed and, with no prose mention
+  // to fall back on, a 0.30 signal silently vanishes (event 98373). Categories
+  // and tags carry the same weight but push distinct reasons (like
+  // category-token vs category-concept) so the stored match state records which
+  // source a venue match relied on.
   const eventVenue = canonicalVenue(event.venue?.name ?? event.location ?? '');
   if (eventVenue) {
     if (article.categories.some(c => canonicalVenue(c) === eventVenue)) {
       score += WEIGHTS.venue;
       reasons.push('venue-category');
+    } else if (article.tags.some(c => canonicalVenue(c) === eventVenue)) {
+      score += WEIGHTS.venue;
+      reasons.push('venue-tag');
     } else if (venueMentioned(normBody, eventVenue)) {
       score += WEIGHTS.venue;
       reasons.push('venue-body');
