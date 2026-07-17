@@ -15,7 +15,7 @@ import { conceptsFor, conceptsInBody } from './chqConcepts';
  * Bump when weights, threshold, aliases, or signal logic change — forces a
  * one-time full recompute so scoring improvements apply retroactively.
  */
-export const MATCHER_VERSION = 5;
+export const MATCHER_VERSION = 6;
 export const MATCH_THRESHOLD = 0.6;
 export const MAX_LINKS_PER_EVENT = 4;
 
@@ -125,10 +125,16 @@ export function scorePair(article: StoredArticle, event: CalendarEventLite): Pai
   const reasons: string[] = [];
   const normBody = ` ${normalize(`${article.excerptText} ${article.bodyText}`)} `;
 
-  // Venue
+  // Venue. The Daily files an event's venue as a structured taxonomy term, but
+  // inconsistently: sometimes a WP category ("Amphitheater" on a symphony
+  // preview), sometimes only a post_tag ("Amphitheater" on a morning-lecture
+  // preview — its categories are just Lectures/Morning Lecture). Read BOTH, the
+  // same way the people and category signals already do (article.tags feeds
+  // both) — otherwise a venue named only in a tag is missed and, with no prose
+  // mention to fall back on, a 0.30 signal silently vanishes (event 98373).
   const eventVenue = canonicalVenue(event.venue?.name ?? event.location ?? '');
   if (eventVenue) {
-    if (article.categories.some(c => canonicalVenue(c) === eventVenue)) {
+    if ([...article.categories, ...article.tags].some(c => canonicalVenue(c) === eventVenue)) {
       score += WEIGHTS.venue;
       reasons.push('venue-category');
     } else if (venueMentioned(normBody, eventVenue)) {

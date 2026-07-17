@@ -87,6 +87,37 @@ describe('scorePair', () => {
     expect(r!.reasons).toEqual(expect.arrayContaining(['venue-body', 'time-of-day']));
   });
 
+  test('venue from a WP tag: Daily tags the venue ("Amphitheater") instead of categorizing it (Kosar/Tenpas regression)', () => {
+    // Real case (event 98373 / post 49511): a morning-lecture preview. The
+    // Daily files the venue as a post_tag ("Amphitheater"), NOT a category —
+    // its categories are only Lectures / Morning Lecture / Morning Lecture
+    // Previews — and the body never spells out "Amphitheater", so venue-body
+    // can't fire either. Without reading tags for the venue signal the pair
+    // scores only people (0.35) + proximity (~0.086) ≈ 0.44 and is dropped.
+    const a = article({
+      title: 'Kathryn Dunn Tenpas and Kevin R. Kosar to analyze factors at play in midterms',
+      categories: ['Lectures', 'Morning Lecture', 'Morning Lecture Previews'],
+      tags: ['Amphitheater', 'election', 'lecture', 'morning lecture', 'Politics & Policy'],
+      pubDate: '2026-07-16T20:01:31',
+      excerptText: 'Kevin R. Kosar and Kathryn Dunn Tenpas on the upcoming midterms.',
+      bodyText: 'With high levels of polarization among the electorate, the upcoming midterms are truly unique.',
+    });
+    const e = event({
+      id: '98373',
+      title: 'Kevin R. Kosar and Kathryn Dunn Tenpas',
+      startDate: '2026-07-17 10:45:00',
+      venue: { name: 'Amphitheater' },
+      category: 'Chautauqua Institution Program',
+      categories: [{ name: 'Chautauqua Lecture Series' }],
+      presenter: undefined,
+    });
+    const r = scorePair(a, e);
+    expect(r).not.toBeNull();
+    expect(r!.score).toBeGreaterThan(MATCH_THRESHOLD);
+    expect(r!.reasons).toEqual(expect.arrayContaining(['venue-category', 'people']));
+    expect(r!.kind).toBe('preview');
+  });
+
   test('category-concept: article tag "cso" matches event "…/Classical Concerts" via concept', () => {
     const a = article({
       title: 'Grgic to perform guitar concerto',
