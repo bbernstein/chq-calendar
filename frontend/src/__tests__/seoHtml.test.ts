@@ -62,3 +62,16 @@ describe('SEO: homepage', () => {
     expect(html).toMatch(/<meta\s+property="og:image"\s+content="https:\/\/www\.chqcal\.org\/[^"]+"/);
   });
 });
+
+describe('SEO: feedback page', () => {
+  const html = read('feedback/index.html');
+
+  it('declares its own canonical URL', () => {
+    expect(html).toMatch(/<link\s+rel="canonical"\s+href="https:\/\/www\.chqcal\.org\/feedback"\s*\/?>/);
+  });
+
+  it('has Open Graph and Twitter card tags', () => {
+    expect(html).toMatch(/<meta\s+property="og:title"\s+content="[^"]+"/);
+    expect(html).toMatch(/<meta\s+name="twitter:card"\s+content="summary/);
+  });
+});
