@@ -30,4 +30,11 @@ describe('buildSitemapXml', () => {
     expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
     expect(xml.trimEnd().endsWith('</urlset>')).toBe(true);
   });
+
+  it('XML-escapes reserved characters in paths (e.g. & in a query string)', () => {
+    const xml = buildSitemapXml(['/events?cat=music&week=1'], 'https://example.org');
+    expect(xml).toContain('<loc>https://example.org/events?cat=music&amp;week=1</loc>');
+    // A raw, unescaped ampersand would make the sitemap invalid XML.
+    expect(xml).not.toContain('music&week');
+  });
 });

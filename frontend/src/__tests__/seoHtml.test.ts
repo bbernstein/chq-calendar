@@ -1,9 +1,12 @@
 /// <reference types="vitest/globals" />
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'node:url';
 
-// vitest runs with cwd = frontend/, so entry HTML files resolve from there.
-const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8');
+// Resolve entry HTML relative to this test file (frontend/src/__tests__/),
+// so assertions are stable regardless of the process working directory.
+const FRONTEND_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const read = (rel: string) => readFileSync(join(FRONTEND_ROOT, rel), 'utf8');
 
 const GATED = [
   'admin/index.html',

@@ -11,12 +11,22 @@ export const SITE_ORIGIN = 'https://www.chqcal.org';
 // The only routes we want in the search index for Phase 1.
 export const PUBLIC_PATHS = ['/', '/feedback'] as const;
 
+// Escape the XML-significant characters that are legal in a URL (notably `&`
+// in query strings). Harmless for the hardcoded Phase 1 paths, but keeps the
+// output well-formed once Phase 2 adds dynamic/query-bearing event URLs.
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export function buildSitemapXml(
   paths: readonly string[],
   origin: string = SITE_ORIGIN,
 ): string {
   const urls = paths
-    .map((p) => `  <url>\n    <loc>${origin}${p}</loc>\n  </url>`)
+    .map((p) => `  <url>\n    <loc>${escapeXml(`${origin}${p}`)}</loc>\n  </url>`)
     .join('\n');
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
