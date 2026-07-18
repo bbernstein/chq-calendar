@@ -33,3 +33,32 @@ describe('SEO: index gating', () => {
     expect(read(f)).not.toMatch(/content="noindex/);
   });
 });
+
+describe('SEO: homepage', () => {
+  const html = read('index.html');
+
+  it('declares a canonical URL', () => {
+    expect(html).toMatch(/<link\s+rel="canonical"\s+href="https:\/\/www\.chqcal\.org\/"\s*\/?>/);
+  });
+
+  it('has crawlable <h1> fallback content inside #root', () => {
+    const root = html.match(/<div id="root">([\s\S]*?)<\/div>/);
+    expect(root).toBeTruthy();
+    expect(root![1]).toMatch(/<h1[^>]*>[\s\S]*Chautauqua[\s\S]*<\/h1>/);
+    expect(root![1]).toMatch(/<p[^>]*>[\s\S]+<\/p>/);
+  });
+
+  it('embeds valid app-level JSON-LD including a WebSite', () => {
+    const m = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    expect(m).toBeTruthy();
+    const data = JSON.parse(m![1]);
+    const types = (Array.isArray(data) ? data : [data]).map((d) => d['@type']);
+    expect(types).toContain('WebSite');
+    // Must NOT describe individual events in Phase 1.
+    expect(m![1]).not.toContain('"Event"');
+  });
+
+  it('has an absolute og:image', () => {
+    expect(html).toMatch(/<meta\s+property="og:image"\s+content="https:\/\/www\.chqcal\.org\/[^"]+"/);
+  });
+});

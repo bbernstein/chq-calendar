@@ -14,6 +14,27 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Chautauqua Calendar" />
     <meta name="twitter:description" content="Dynamic calendar for Chautauqua Institution season" />
+    <meta property="og:image" content="https://www.chqcal.org/icon-512.png" />
+    <meta name="twitter:image" content="https://www.chqcal.org/icon-512.png" />
+    <link rel="canonical" href="https://www.chqcal.org/" />
+    <script type="application/ld+json">
+    [
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Chautauqua Calendar",
+        "url": "https://www.chqcal.org/",
+        "description": "Filter, search, and export events from the Chautauqua Institution summer season."
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Chautauqua Calendar",
+        "url": "https://www.chqcal.org/",
+        "logo": "https://www.chqcal.org/icon-512.png"
+      }
+    ]
+    </script>
     <link rel="icon" type="image/svg+xml" href="/chq-calendar-icon-256.svg" />
     <link rel="shortcut icon" type="image/svg+xml" href="/chq-calendar-icon-256.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -22,7 +43,14 @@
     <link rel="dns-prefetch" href="https://www.chq.org" />
   </head>
   <body class="antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <h1>Chautauqua Calendar</h1>
+      <p>
+        Browse, search, filter, and export events from the Chautauqua
+        Institution summer season. Find talks, concerts, and worship by day,
+        week, category, or venue, and add them to your own calendar.
+      </p>
+    </div>
     <script type="module" src="/src/entries/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
