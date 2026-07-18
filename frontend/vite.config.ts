@@ -3,6 +3,7 @@ import preact from '@preact/preset-vite';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { execSync } from 'child_process';
+import { buildSitemapXml, PUBLIC_PATHS } from './src/lib/sitemap';
 
 // In MPA mode, Vite doesn't resolve bare paths like /feedback to /feedback/index.html.
 // This plugin adds that behavior so dev matches production (S3/CloudFront).
@@ -77,6 +78,21 @@ function emitVersionJson(version: string): PluginOption {
   };
 }
 
+// Emits out/sitemap.xml at build time from the canonical public route list.
+function emitSitemapXml(): PluginOption {
+  return {
+    name: 'emit-sitemap-xml',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'sitemap.xml',
+        source: buildSitemapXml(PUBLIC_PATHS),
+      });
+    },
+  };
+}
+
 const APP_VERSION = resolveAppVersion();
 
 // Proxy config shared between dev server and preview server.
@@ -106,7 +122,7 @@ const backendProxy = {
 
 export default defineConfig({
   appType: 'mpa',
-  plugins: [devServerMiddleware(), preact(), emitVersionJson(APP_VERSION)],
+  plugins: [devServerMiddleware(), preact(), emitVersionJson(APP_VERSION), emitSitemapXml()],
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
   },
