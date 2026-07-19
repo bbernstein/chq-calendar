@@ -380,15 +380,30 @@ is a persistent first-party visitor ID. This design is deliberately built so we 
 switch to it **without re-architecting** the pipeline, *if and when the owner is
 comfortable setting a cookie on user browsers*:
 
+- **Invariant that must hold either way:** the hourly `/cache/calendar-cache/*.json`
+  files stay **byte-identical and user-agnostic** — shared public data, cached and
+  served the same to everyone. No visitor ID is *ever* injected into a response body,
+  and the "content requests don't touch an application" boundary is preserved. The ID
+  lives only on the *request* side and in the logs, never in shared content.
 - **What gets added:** a small, random, non-PII visitor ID (e.g. a UUID) minted once
-  per browser and persisted. Two viable placements, decided at that time:
-  - a **first-party cookie** set by a viewer-response CloudFront Function (or by client
-    JS) — this is the primary planned approach; **the `cs-cookie` field is already in
-    `record_fields`, so it flows into the logs the moment the cookie exists, with no
-    delivery change**; or
-  - a **localStorage** ID echoed into a request (e.g. a query param on the
-    `/cache/*.json` fetch, or a `cf.logCustomData()` call) if we prefer to avoid
-    cookies entirely — captured via `viewer-request-log-data`, still no new infra.
+  per browser and persisted. Two clean placements, decided at that time:
+  - **First-party cookie (primary planned approach).** Set once — by a viewer-response
+    CloudFront Function or by client JS — scoped to the site domain. The browser then
+    attaches it automatically to every same-origin request, so **it needs no change to
+    how content is fetched**, and **the `cs-cookie` field is already in `record_fields`,
+    so it flows into the logs the moment the cookie exists**. To keep the shared cache
+    intact, the cache behaviors are configured to **exclude the cookie from the cache
+    key** (do not vary on it) — CloudFront still *logs* the cookie while serving the
+    same cached object to all users. Clean: the ID rides the request header, never the
+    response.
+  - **localStorage + a dedicated beacon (cookieless variant).** If we want to avoid
+    cookies entirely, the client mints/reads a localStorage ID and sends it on its own
+    **purpose-built beacon request** — e.g. `GET /px?v=<id>`, handled by a viewer-request
+    CloudFront Function that returns `204` (no origin hit) and records the ID via
+    `cf.logCustomData()` → `viewer-request-log-data`. This keeps the content requests
+    pure and makes the tracking *explicit and separate* rather than piggybacked. The
+    honest tradeoff vs. the cookie: it adds a small client snippet plus one beacon
+    route/function — a bit more surface, but no cookie and no touching the JSON.
 - **What changes downstream:** `visitor_key` switches from `md5(IP‖UA)` to the visitor
   ID (falling back to `md5(IP‖UA)` when the ID is absent — e.g. first-ever request or
   cookies disabled). Only the query definitions change; capture, bucket, table, and
