@@ -68,3 +68,13 @@ the editor to exclude obvious crawlers before running.
 
 Logging is free; Parquet + partition projection keep Athena scans at ~$0 for this
 volume. Raw logs auto-expire after 90 days; Athena results after 30 days.
+
+## Troubleshooting
+
+- **A query errors with `HIVE_BAD_DATA` (type incompatible with `string`):** a Glue
+  column type doesn't match the Parquet data — most likely `asn`. Change that column's
+  `type` in `infrastructure/traffic-analytics.tf` (`aws_glue_catalog_table.cf_logs`) and
+  re-apply. See the plan's Task 6 for detail.
+- **Queries return no rows and `aws s3 ls s3://<bucket>/cf/` is empty:** logs can lag
+  minutes–hours after first enabling; if still empty after a few hours, verify the S3
+  path matches the Glue table `location` (see plan Task 6, Step 4).

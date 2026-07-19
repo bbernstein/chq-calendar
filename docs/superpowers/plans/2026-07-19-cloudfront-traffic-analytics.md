@@ -850,6 +850,8 @@ In the Athena console (workgroup `chautauqua-calendar-traffic`):
 
 Expected: queries succeed (no column-not-found / type errors) and return sane, non-empty numbers.
 
+**If a query errors with `HIVE_BAD_DATA` / "... incompatible with type string":** a Parquet column's real type differs from the `string` declared in the Glue table. Most likely `asn` (used only by query 12) is emitted as `bigint`. Fix: change that column's `type` in `aws_glue_catalog_table.cf_logs` (e.g. `asn` → `bigint`), `terraform apply`, and if you changed `asn` adjust query 12 only if it compares `asn` as text (it currently just groups by it, so no change needed). The base fields (`sc_status`, etc.) are `string` per AWS's v2 Parquet DDL and should not need changes.
+
 - [ ] **Step 6: Push the branch and open a PR (do not merge)**
 
 ```bash

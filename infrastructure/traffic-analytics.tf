@@ -77,7 +77,7 @@ resource "aws_s3_bucket_policy" "cf_logs" {
             "aws:SourceAccount" = data.aws_caller_identity.current.account_id
           }
           ArnLike = {
-            "aws:SourceArn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:delivery-source:*"
+            "aws:SourceArn" = aws_cloudwatch_log_delivery_source.cf_access.arn
           }
         }
       }
