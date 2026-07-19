@@ -25,7 +25,7 @@ To get visitor-level numbers we must begin capturing a per-request signal (viewe
 IP + user-agent). This design does that with the lowest-effort, cookieless,
 fully-in-AWS approach:
 
-> **CloudFront standard access logs → S3 → Athena (saved queries run from the console).**
+> **CloudFront standard logging v2 → S3 (Parquet, partitioned) → Athena (saved queries run from the console).**
 
 This is **Phase A** of a staged plan. Phase A is a strict *subset* of the richer
 options, so nothing here is throwaway:
@@ -70,19 +70,21 @@ definitions are meaningful.
                  viewer request
                        │
                        ▼
-              ┌──────────────────┐
-              │    CloudFront    │  standard access logging enabled
-              │  (distribution)  │───────────────┐
-              └──────────────────┘               │ gzipped W3C logs
-                       │                          │ (minutes–hours delay)
-       serves HTML + /cache/*.json                ▼
-                       │                 ┌──────────────────┐
-                       ▼                 │  S3 log bucket    │  cf/ prefix
-                    browser              │  (private, 90-day │  lifecycle-expire
-                                         │   lifecycle)      │
+              ┌──────────────────┐        CloudWatch Logs vended-logs delivery
+              │    CloudFront    │  ┌──────────────────────────────────────┐
+              │  (distribution)  │──│ delivery source → destination →       │
+              └──────────────────┘  │ delivery  (log_type = ACCESS_LOGS)    │
+                       │            └──────────────────────────────────────┘
+       serves HTML + /cache/*.json               │ Parquet, hive-partitioned
+                       │                          │ cf/{yyyy}/{MM}/{dd}/  (min–hr delay)
+                       ▼                          ▼
+                    browser              ┌──────────────────┐
+                                         │  S3 log bucket    │  BucketOwnerEnforced
+                                         │  (private, no ACL │  (ACLs disabled),
+                                         │   90-day lifecycle)│  bucket-policy delivery
                                          └──────────────────┘
                                                   │
-                                    Glue catalog table over cf/ prefix
+                              Glue table (Parquet SerDe) + partition projection
                                                   │
                                                   ▼
                                          ┌──────────────────┐
@@ -97,9 +99,10 @@ definitions are meaningful.
 
 | Component | Purpose | Depends on |
 |-----------|---------|------------|
-| Log bucket | Durable, private store for raw CF logs; auto-expires after 90d | — |
-| `logging_config` on distribution | Turns on standard logging into the bucket | Log bucket |
-| Glue table | Schema over the raw logs so Athena can read them | Log bucket layout |
+| Log bucket | Durable, private (ACLs disabled) store for CF logs; auto-expires after 90d | — |
+| Bucket policy | Allows `delivery.logs.amazonaws.com` to write logs (no ACL) | Log bucket |
+| Log-delivery trio (source/destination/delivery) | Turns on logging v2 into the bucket, in Parquet + partitioned | Log bucket, bucket policy |
+| Glue table | Partitioned Parquet schema so Athena can read the logs | Log bucket layout |
 | Athena workgroup | Isolated query context + results location | Log bucket, Glue table |
 | Named queries | The metric definitions, one click each | Glue table |
 | Runbook | Human procedure + how to read the numbers | Athena workgroup |
@@ -110,32 +113,64 @@ Everything except the runbook is Terraform in `infrastructure/`.
 
 ## 4. Log Capture (Terraform)
 
+We use **CloudFront standard logging v2**, which delivers through the CloudWatch Logs
+"vended logs" delivery pipeline. Unlike legacy logging (ACL-based), v2 delivers via a
+**bucket policy**, so the bucket can disable ACLs entirely.
+
 **Log bucket** — new private bucket `chautauqua-calendar-cf-logs-<random>`:
 
 - `aws_s3_bucket_public_access_block` — all four blocks `true`.
-- **Object Ownership = `BucketOwnerPreferred`** (`aws_s3_bucket_ownership_controls`)
-  and an ACL granting the CloudFront log-delivery group `WRITE`/`READ_ACP`. Legacy
-  standard logging delivers via ACL, so the bucket must permit ACLs — it cannot be
-  `BucketOwnerEnforced`. This is the one place we deliberately keep ACLs on.
+- **Object Ownership = `BucketOwnerEnforced`** (`aws_s3_bucket_ownership_controls`) —
+  **ACLs fully disabled.** No ACL grants anywhere.
+- `aws_s3_bucket_policy` granting `delivery.logs.amazonaws.com` `s3:PutObject` into the
+  `cf/` prefix, conditioned on `aws:SourceAccount` (the account id) and the delivery
+  ARN (`aws:SourceArn`) to prevent cross-account log injection.
 - `aws_s3_bucket_lifecycle_configuration` — expire objects under `cf/` after
   **90 days** (raw IPs/cookies do not accumulate indefinitely). A second rule expires
   `athena-results/` after e.g. 30 days.
 
-**Distribution logging** — add to `frontend_distribution`:
+**Logging v2 delivery** — three CloudWatch Logs delivery resources (created in
+`us-east-1`, where the distribution's global logs are managed):
 
 ```hcl
-logging_config {
-  bucket          = aws_s3_bucket.cf_logs.bucket_domain_name
-  prefix          = "cf/"
-  include_cookies = true
+resource "aws_cloudwatch_log_delivery_source" "cf_access" {
+  name         = "chq-cf-access-logs"
+  resource_arn = aws_cloudfront_distribution.frontend_distribution.arn
+  log_type     = "ACCESS_LOGS"
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "cf_access_s3" {
+  name          = "chq-cf-access-logs-s3"
+  output_format = "parquet"
+  delivery_destination_configuration {
+    destination_resource_arn = aws_s3_bucket.cf_logs.arn
+  }
+}
+
+resource "aws_cloudwatch_log_delivery" "cf_access" {
+  delivery_source_name     = aws_cloudwatch_log_delivery_source.cf_access.name
+  delivery_destination_arn = aws_cloudwatch_log_delivery_destination.cf_access_s3.arn
+
+  s3_delivery_configuration {
+    suffix_path                = "cf/{yyyy}/{MM}/{dd}"
+    enable_hive_compatible_path = true
+  }
+
+  # Field selection (v2 replaces legacy include_cookies): capture exactly what
+  # the metrics need, including cs-cookie for forward-compat.
+  record_fields = [
+    "timestamp", "c-ip", "cs-method", "cs-uri-stem", "sc-status",
+    "cs-user-agent", "cs-referer", "cs-cookie", "x-edge-result-type",
+  ]
 }
 ```
 
-`include_cookies = true` is deliberate forward-compatibility: today the `cs(Cookie)`
-field will be empty on every request (the app sets no cookies), but the field is then
-already captured for a *future* iteration that introduces a session cookie — no
-Terraform change needed later. CloudFront logs cookies on all paths regardless of
-cache-behavior forwarding; see Privacy (§8) for why this is safe today.
+**Capturing cookies:** v2 replaces legacy's `include_cookies = true` with explicit
+field selection — including `cs-cookie` in `record_fields` is the equivalent. Today
+that field is empty on every request (the app sets no cookies), but it is captured now
+so a *future* session-cookie iteration needs no delivery change. See Privacy (§8) for
+why this is safe today. (Field selection is also a privacy win: we log only the fields
+listed above, nothing more.)
 
 ---
 
@@ -143,20 +178,21 @@ cache-behavior forwarding; see Privacy (§8) for why this is safe today.
 
 - **Glue database** (`aws_glue_catalog_database`) e.g. `chq_cloudfront_logs`.
 - **Glue table** (`aws_glue_catalog_table`) over `s3://<log-bucket>/cf/`, using the
-  AWS-published CloudFront standard-log DDL: `LazySimpleSerDe`, `field.delim = '\t'`,
-  `skip.header.line.count = '2'` (CloudFront prepends two `#Version`/`#Fields`
-  comment lines). Columns: `date`, `time`, `x_edge_location`, `sc_bytes`, `c_ip`,
-  `cs_method`, `cs_host`, `cs_uri_stem`, `sc_status`, `cs_referer`, `cs_user_agent`,
-  `cs_uri_query`, `cs_cookie`, `x_edge_result_type`, … (full 33-field W3C set).
+  **Parquet SerDe** (`org.apache.hadoop.hive.ql.io.parquet.*`). Columns follow the v2
+  Parquet field names for the selected `record_fields`: `timestamp`, `c_ip`,
+  `cs_method`, `cs_uri_stem`, `sc_status`, `cs_user_agent`, `cs_referer`, `cs_cookie`,
+  `x_edge_result_type` (the plan pins the exact Parquet column names AWS emits).
+- **Partitioned with partition projection.** Because v2 writes Hive-compatible paths
+  (`cf/year=…/month=…/day=…` via `enable_hive_compatible_path`), the table declares
+  `year`/`month`/`day` partition keys and uses Athena **partition projection**
+  (`projection.enabled = true`, date-range projection) — no crawler, no
+  `MSCK REPAIR`, and every query prunes to only the days it needs. This keeps scans
+  minimal as volume grows, so no future re-architecture is needed.
 - **Athena workgroup** (`aws_athena_workgroup`) e.g. `chq-traffic` with
   `result_configuration.output_location = s3://<log-bucket>/athena-results/`.
-- **Unpartitioned table.** Legacy standard logs encode the date in the *filename*,
-  not the S3 path, so Hive partition projection is awkward. At this site's volume
-  (a few MB/day) an unpartitioned full scan costs a fraction of a cent per query.
-  If volume ever makes scans costly, switch to standard-logging-v2 with Hive-
-  partitioned paths + partition projection. **YAGNI for Phase A.**
 - **Named queries** (`aws_athena_named_query`, one per §7 query) so each is one
-  click in the console.
+  click in the console. Time-windowed queries filter on the `year`/`month`/`day`
+  partition columns to stay cheap.
 
 ---
 
@@ -230,26 +266,32 @@ optional bot-filter line, so the runbook and the SQL stay in sync.
 
 ## 8. Privacy & Retention
 
-- **Cookies are indiscriminate but empty today.** `include_cookies = true` logs every
-  cookie on every path — but the app sets none and admin auth travels in the
-  `Authorization` header (not logged), so `cs(Cookie)` is `-` on every request. No
-  tokens leak. The field is captured now purely so future session-cookie work needs no
-  logging change.
+- **Only selected fields are logged.** v2 `record_fields` captures exactly the nine
+  fields the metrics need (§4) and nothing else.
+- **Cookies are captured but empty today.** `cs-cookie` is in `record_fields`, but the
+  app sets no cookies and admin auth travels in the `Authorization` header (not among
+  the selected fields, and not logged), so the cookie field is empty on every request.
+  No tokens leak. The field is captured now purely so future session-cookie work needs
+  no delivery change.
 - **Raw logs auto-expire after 90 days** (S3 lifecycle). Only whatever aggregates you
   choose to record persist longer.
 - **Aggregates are hashed** (`visitor_key` = md5 of IP+UA); we only ever look at
   counts, never export raw IPs.
-- **Log bucket is fully private** (public-access-block on; ACL grants only the
-  CloudFront log-delivery group + bucket owner).
+- **Log bucket is fully private with ACLs disabled** (`BucketOwnerEnforced`;
+  public-access-block on all four). Delivery is authorized by a scoped bucket policy
+  (`delivery.logs.amazonaws.com`, conditioned on source account + delivery ARN), not by
+  an ACL.
 
 ---
 
 ## 9. Cost
 
 - **Standard logging:** free (no per-request charge).
-- **S3 storage:** a few MB/day of gzipped logs → cents/month; capped by the 90-day
-  lifecycle.
-- **Athena:** $5/TB scanned. At MB-per-query this rounds to $0. Results bucket
+- **S3 storage:** a few MB/day of compressed Parquet → cents/month; capped by the
+  90-day lifecycle. (There is a small CloudWatch vended-logs delivery charge per GB
+  delivered — negligible at this volume.)
+- **Athena:** $5/TB scanned. Columnar Parquet + partition projection means queries
+  scan only the needed columns for the needed days, rounding to $0. Results bucket
   auto-expires.
 
 Effectively free at this site's scale.
@@ -272,9 +314,10 @@ Effectively free at this site's scale.
 
 **In scope (Phase A):**
 
-- Terraform in `infrastructure/`: log bucket (+ ownership/ACL, public-access-block,
-  lifecycle), `logging_config` on the distribution, Glue DB + table, Athena workgroup
-  + results location, named queries, Athena-console URL output.
+- Terraform in `infrastructure/`: log bucket (BucketOwnerEnforced, public-access-block,
+  bucket policy, lifecycle), the logging-v2 delivery trio
+  (source/destination/delivery), Glue DB + partitioned table, Athena workgroup +
+  results location, named queries, Athena-console URL output.
 - Runbook `docs/runbooks/traffic-analytics.md`.
 
 **Out of scope:**
@@ -288,16 +331,17 @@ Effectively free at this site's scale.
 
 1. `terraform validate` and `terraform plan` are clean.
 2. `terraform apply`.
-3. Wait for the first log files to appear under `s3://<log-bucket>/cf/` (minutes–hours).
-4. Run each named query in the Athena console; confirm sane, non-empty numbers.
-5. Confirm `cs_cookie` is `-` (as expected) and no `Authorization`/token data appears.
+3. Wait for the first Parquet files to appear under the partitioned
+   `s3://<log-bucket>/cf/…` path (minutes–hours).
+4. Run each named query in the Athena console; confirm sane, non-empty numbers and
+   that partition projection prunes correctly (query one day, check bytes scanned).
+5. Confirm `cs_cookie` is empty (as expected) and no `Authorization`/token data appears.
+6. Confirm the bucket has ACLs disabled (`BucketOwnerEnforced`) and is not public.
 
 ---
 
 ## Open Follow-ups (post-Phase-A)
 
 - Decide B vs C after reviewing a week of real data.
-- If log volume grows enough to matter, migrate to standard-logging-v2 with Hive
-  partitioning + Athena partition projection.
 - When a real session cookie is introduced, the cookie field is already captured;
   add session-oriented queries then.
