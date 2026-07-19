@@ -139,3 +139,110 @@ resource "aws_cloudwatch_log_delivery" "cf_access" {
 
   depends_on = [aws_s3_bucket_policy.cf_logs]
 }
+
+# --- Glue catalog: schema over the Parquet logs -------------------------------
+
+resource "aws_glue_catalog_database" "cf_logs" {
+  name = "chq_cloudfront_logs"
+}
+
+resource "aws_glue_catalog_table" "cf_logs" {
+  name          = "access_logs"
+  database_name = aws_glue_catalog_database.cf_logs.name
+  table_type    = "EXTERNAL_TABLE"
+
+  parameters = {
+    EXTERNAL                    = "TRUE"
+    classification              = "parquet"
+    "projection.enabled"        = "true"
+    "projection.year.type"      = "integer"
+    "projection.year.range"     = "2026,2035"
+    "projection.month.type"     = "integer"
+    "projection.month.range"    = "1,12"
+    "projection.month.digits"   = "2"
+    "projection.day.type"       = "integer"
+    "projection.day.range"      = "1,31"
+    "projection.day.digits"     = "2"
+    "storage.location.template" = "s3://${aws_s3_bucket.cf_logs.bucket}/cf/year=$${year}/month=$${month}/day=$${day}"
+  }
+
+  partition_keys {
+    name = "year"
+    type = "int"
+  }
+  partition_keys {
+    name = "month"
+    type = "int"
+  }
+  partition_keys {
+    name = "day"
+    type = "int"
+  }
+
+  storage_descriptor {
+    location      = "s3://${aws_s3_bucket.cf_logs.bucket}/cf/"
+    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+
+    ser_de_info {
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+    }
+
+    columns {
+      name = "date"
+      type = "string"
+    }
+    columns {
+      name = "time"
+      type = "string"
+    }
+    columns {
+      name = "c_ip"
+      type = "string"
+    }
+    columns {
+      name = "cs_method"
+      type = "string"
+    }
+    columns {
+      name = "cs_uri_stem"
+      type = "string"
+    }
+    columns {
+      name = "sc_status"
+      type = "string"
+    }
+    columns {
+      name = "cs_referer"
+      type = "string"
+    }
+    columns {
+      name = "cs_user_agent"
+      type = "string"
+    }
+    columns {
+      name = "cs_cookie"
+      type = "string"
+    }
+    columns {
+      name = "x_edge_result_type"
+      type = "string"
+    }
+    columns {
+      name = "ssl_protocol"
+      type = "string"
+    }
+    columns {
+      name = "ssl_cipher"
+      type = "string"
+    }
+    columns {
+      name = "asn"
+      type = "string"
+    }
+    columns {
+      name = "c_country"
+      type = "string"
+    }
+  }
+}
