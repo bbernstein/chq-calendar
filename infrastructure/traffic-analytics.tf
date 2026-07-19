@@ -12,6 +12,28 @@ resource "random_id" "cf_logs_suffix" {
 # query results (prefix athena-results/).
 resource "aws_s3_bucket" "cf_logs" {
   bucket = "${var.app_name}-cf-logs-${random_id.cf_logs_suffix.hex}"
+
+  # AWS provider v6 regression: an untagged bucket returns NoSuchTagSet on the
+  # GetBucketTagging read, which the provider misreads as "bucket deleted" and
+  # then proposes recreating it. At least one tag keeps the tag set non-empty so
+  # the read succeeds. Mirrors the frontend/cache buckets in main.tf (see PR #94).
+  tags = {
+    Name        = "${var.app_name}-cf-logs"
+    Environment = var.environment
+  }
+}
+
+# Explicit SSE-S3, matching the cache bucket convention (main.tf). This bucket
+# holds raw client IPs + user-agents for 90 days, so encryption-at-rest is
+# declared here rather than relying on the account-level default.
+resource "aws_s3_bucket_server_side_encryption_configuration" "cf_logs" {
+  bucket = aws_s3_bucket.cf_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "cf_logs" {
@@ -152,18 +174,24 @@ resource "aws_glue_catalog_table" "cf_logs" {
   table_type    = "EXTERNAL_TABLE"
 
   parameters = {
-    EXTERNAL                    = "TRUE"
-    classification              = "parquet"
-    "projection.enabled"        = "true"
-    "projection.year.type"      = "integer"
-    "projection.year.range"     = "2026,2035"
-    "projection.month.type"     = "integer"
-    "projection.month.range"    = "1,12"
-    "projection.month.digits"   = "2"
-    "projection.day.type"       = "integer"
-    "projection.day.range"      = "1,31"
-    "projection.day.digits"     = "2"
-    "storage.location.template" = "s3://${aws_s3_bucket.cf_logs.bucket}/cf/year=$${year}/month=$${month}/day=$${day}"
+    EXTERNAL       = "TRUE"
+    classification = "parquet"
+    # Match Parquet columns by NAME, not position, so the record_fields order
+    # (delivery) and this columns block can't silently misalign on a future edit.
+    # Athena's Parquet name-matching is case-insensitive, so our lowercase Glue
+    # names resolve the mixed-case Parquet names (cs_User_Agent, cs_Referer,
+    # cs_Cookie). Verified against live delivered data.
+    "parquet.column.index.access" = "false"
+    "projection.enabled"          = "true"
+    "projection.year.type"        = "integer"
+    "projection.year.range"       = "2026,2035"
+    "projection.month.type"       = "integer"
+    "projection.month.range"      = "1,12"
+    "projection.month.digits"     = "2"
+    "projection.day.type"         = "integer"
+    "projection.day.range"        = "1,31"
+    "projection.day.digits"       = "2"
+    "storage.location.template"   = "s3://${aws_s3_bucket.cf_logs.bucket}/cf/year=$${year}/month=$${month}/day=$${day}"
   }
 
   partition_keys {
@@ -291,6 +319,12 @@ output "traffic_analytics_athena_url" {
 }
 
 # 01 — Pageviews by day, split into page loads vs. data pulls.
+# COST NOTE: these one-click queries intentionally do NOT filter on the
+# year/month/day partition columns, so they scan the full retention window.
+# That is negligible at this volume, but to bound cost on a large/growing
+# dataset add a partition predicate in the console, e.g.:
+#   WHERE year = 2026 AND month = 7    -- prunes via partition projection
+# See docs/runbooks/traffic-analytics.md ("Cost & retention").
 resource "aws_athena_named_query" "pageviews_by_day" {
   name      = "01 - Pageviews by day (split by object)"
   database  = aws_glue_catalog_database.cf_logs.name

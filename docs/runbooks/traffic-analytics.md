@@ -69,6 +69,15 @@ the editor to exclude obvious crawlers before running.
 Logging is free; Parquet + partition projection keep Athena scans at ~$0 for this
 volume. Raw logs auto-expire after 90 days; Athena results after 30 days.
 
+The saved queries scan the full retention window (they don't filter on the
+`year`/`month`/`day` partition columns) — negligible at this volume. If the dataset
+ever grows enough to matter, narrow a query in the console by adding a partition
+predicate, which prunes via partition projection, e.g.:
+
+```sql
+... WHERE year = 2026 AND month = 7 AND <the query's existing filters>
+```
+
 ## Troubleshooting
 
 - **A query errors with `HIVE_BAD_DATA` (type incompatible with `string`):** a Glue
