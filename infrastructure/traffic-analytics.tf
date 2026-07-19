@@ -246,3 +246,254 @@ resource "aws_glue_catalog_table" "cf_logs" {
     }
   }
 }
+
+# --- Shared SQL fragments (DRY'd across the 12 named queries below) -----------
+#
+# Optional bot filter: every content query below may have the following added
+# after its WHERE predicate (uncomment/paste in the Athena console):
+#   AND NOT regexp_like(cs_user_agent, '(?i)bot|spider|crawl|slurp|preview|monitor')
+locals {
+  # Boolean predicate placed after WHERE in every content query.
+  cf_content_predicate = <<-SQL
+    cs_method = 'GET'
+      AND sc_status IN ('200','304')
+      AND (cs_uri_stem LIKE '%/' OR cs_uri_stem LIKE '%.html'
+           OR cs_uri_stem LIKE '/cache/calendar-cache/%.json')
+      AND cs_uri_stem NOT LIKE '/admin%'
+      AND cs_uri_stem NOT LIKE '/api%'
+      AND cs_uri_stem NOT LIKE '/auth%'
+  SQL
+
+  # SQL expression: per-visitor hash key (client IP + user-agent).
+  cf_visitor_key = "lower(to_hex(md5(to_utf8(c_ip || '|' || cs_user_agent))))"
+}
+
+# --- Athena workgroup + saved queries -----------------------------------------
+
+resource "aws_athena_workgroup" "traffic" {
+  name          = "${var.app_name}-traffic"
+  force_destroy = true
+
+  configuration {
+    enforce_workgroup_configuration = true
+    result_configuration {
+      output_location = "s3://${aws_s3_bucket.cf_logs.bucket}/athena-results/"
+    }
+  }
+}
+
+output "traffic_analytics_athena_url" {
+  # NOTE: output "description" must be a compile-time literal (no var/resource
+  # interpolation allowed by Terraform) — select the workgroup named
+  # aws_athena_workgroup.traffic.name (i.e. "<app_name>-traffic") in the console.
+  description = "Athena console query editor. Select the \"<app_name>-traffic\" workgroup (aws_athena_workgroup.traffic.name) before running a named query."
+  value       = "https://${var.aws_region}.console.aws.amazon.com/athena/home?region=${var.aws_region}#/query-editor"
+}
+
+# 01 — Pageviews by day, split into page loads vs. data pulls.
+resource "aws_athena_named_query" "pageviews_by_day" {
+  name      = "01 - Pageviews by day (split by object)"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    -- Optional bot filter: add
+    --   AND NOT regexp_like(cs_user_agent, '(?i)bot|spider|crawl|slurp|preview|monitor')
+    SELECT
+      "date" AS day,
+      CASE WHEN cs_uri_stem LIKE '/cache/calendar-cache/%.json'
+           THEN 'data-pull' ELSE 'page-load' END AS object_class,
+      COUNT(*) AS pageviews
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1, 2
+    ORDER BY day DESC, object_class;
+  SQL
+}
+
+# 02 — Pageviews by ISO week, split by object class.
+resource "aws_athena_named_query" "pageviews_by_week" {
+  name      = "02 - Pageviews by week (split by object)"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT
+      date_trunc('week', date_parse("date", '%Y-%m-%d')) AS week_start,
+      CASE WHEN cs_uri_stem LIKE '/cache/calendar-cache/%.json'
+           THEN 'data-pull' ELSE 'page-load' END AS object_class,
+      COUNT(*) AS pageviews
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1, 2
+    ORDER BY week_start DESC, object_class;
+  SQL
+}
+
+# 03 — Active visits by day = distinct (visitor, hour) pairs. The <=1/hr/browser proxy.
+resource "aws_athena_named_query" "active_visits_by_day" {
+  name      = "03 - Active visits by day (visitor-hour)"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT
+      "date" AS day,
+      COUNT(DISTINCT
+        ${local.cf_visitor_key} || '#' || substr("time",1,2)
+      ) AS active_visits
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1
+    ORDER BY day DESC;
+  SQL
+}
+
+# 04 — Active visits by week = distinct (visitor, day, hour).
+resource "aws_athena_named_query" "active_visits_by_week" {
+  name      = "04 - Active visits by week (visitor-hour)"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT
+      date_trunc('week', date_parse("date", '%Y-%m-%d')) AS week_start,
+      COUNT(DISTINCT
+        ${local.cf_visitor_key} || '#' || "date" || substr("time",1,2)
+      ) AS active_visits
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1
+    ORDER BY week_start DESC;
+  SQL
+}
+
+# 05 — Unique visitors by day.
+resource "aws_athena_named_query" "unique_visitors_by_day" {
+  name      = "05 - Unique visitors by day"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT
+      "date" AS day,
+      COUNT(DISTINCT ${local.cf_visitor_key}) AS unique_visitors
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1
+    ORDER BY day DESC;
+  SQL
+}
+
+# 06 — Unique visitors by week.
+resource "aws_athena_named_query" "unique_visitors_by_week" {
+  name      = "06 - Unique visitors by week"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT
+      date_trunc('week', date_parse("date", '%Y-%m-%d')) AS week_start,
+      COUNT(DISTINCT ${local.cf_visitor_key}) AS unique_visitors
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1
+    ORDER BY week_start DESC;
+  SQL
+}
+
+# 07 — Unique visitors season-to-date (single number).
+resource "aws_athena_named_query" "unique_visitors_season" {
+  name      = "07 - Unique visitors season-to-date"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT
+      COUNT(DISTINCT ${local.cf_visitor_key}) AS unique_visitors_season
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate};
+  SQL
+}
+
+# 08 — New vs returning by day (returning = visitor seen on an earlier date).
+resource "aws_athena_named_query" "new_vs_returning_by_day" {
+  name      = "08 - New vs returning by day"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    WITH visits AS (
+      SELECT DISTINCT
+        ${local.cf_visitor_key} AS visitor_key,
+        "date" AS day
+      FROM chq_cloudfront_logs.access_logs
+      WHERE ${local.cf_content_predicate}
+    ),
+    first_seen AS (
+      SELECT visitor_key, MIN(day) AS first_day FROM visits GROUP BY visitor_key
+    )
+    SELECT
+      v.day,
+      COUNT_IF(v.day = f.first_day) AS new_visitors,
+      COUNT_IF(v.day > f.first_day) AS returning_visitors
+    FROM visits v
+    JOIN first_seen f USING (visitor_key)
+    GROUP BY v.day
+    ORDER BY v.day DESC;
+  SQL
+}
+
+# 09 — Top pages by request count.
+resource "aws_athena_named_query" "top_pages" {
+  name      = "09 - Top pages"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT cs_uri_stem AS page, COUNT(*) AS requests
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1
+    ORDER BY requests DESC
+    LIMIT 50;
+  SQL
+}
+
+# 10 — Top referrers ('-' means no referrer).
+resource "aws_athena_named_query" "top_referrers" {
+  name      = "10 - Top referrers"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT cs_referer AS referrer, COUNT(*) AS requests
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+      AND cs_referer <> '-'
+    GROUP BY 1
+    ORDER BY requests DESC
+    LIMIT 50;
+  SQL
+}
+
+# 11 — Unique visitors by country (segmentation dimension).
+resource "aws_athena_named_query" "visitors_by_country" {
+  name      = "11 - Visitors by country"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT c_country AS country,
+      COUNT(DISTINCT ${local.cf_visitor_key}) AS unique_visitors
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1
+    ORDER BY unique_visitors DESC;
+  SQL
+}
+
+# 12 — Unique visitors by network/carrier (ASN). Reads how much of "unique" is one carrier-NAT pool.
+resource "aws_athena_named_query" "visitors_by_network" {
+  name      = "12 - Visitors by network/carrier (ASN)"
+  database  = aws_glue_catalog_database.cf_logs.name
+  workgroup = aws_athena_workgroup.traffic.name
+  query     = <<-SQL
+    SELECT asn,
+      COUNT(DISTINCT ${local.cf_visitor_key}) AS unique_visitors
+    FROM chq_cloudfront_logs.access_logs
+    WHERE ${local.cf_content_predicate}
+    GROUP BY 1
+    ORDER BY unique_visitors DESC
+    LIMIT 50;
+  SQL
+}
