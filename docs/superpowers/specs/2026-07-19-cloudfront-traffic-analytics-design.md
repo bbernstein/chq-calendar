@@ -143,7 +143,9 @@ resource "aws_cloudwatch_log_delivery_destination" "cf_access_s3" {
   name          = "chq-cf-access-logs-s3"
   output_format = "parquet"
   delivery_destination_configuration {
-    destination_resource_arn = aws_s3_bucket.cf_logs.arn
+    # `/cf` prefix on the destination ARN suppresses CloudFront's default
+    # AWSLogs/<acct>/CloudFront/ path, giving the predictable base s3://<bucket>/cf/.
+    destination_resource_arn = "${aws_s3_bucket.cf_logs.arn}/cf"
   }
 }
 
@@ -152,15 +154,16 @@ resource "aws_cloudwatch_log_delivery" "cf_access" {
   delivery_destination_arn = aws_cloudwatch_log_delivery_destination.cf_access_s3.arn
 
   s3_delivery_configuration {
-    suffix_path                = "cf/{yyyy}/{MM}/{dd}"
+    suffix_path                 = "{yyyy}/{MM}/{dd}"
     enable_hive_compatible_path = true
   }
 
   # Field selection (v2 replaces legacy include_cookies): capture exactly what
-  # the metrics need, plus a few cheap identity/segmentation signals.
+  # the metrics need, plus a few cheap identity/segmentation signals. Field names
+  # are the AWS API names — parenthesized fields log as underscored Parquet columns.
   record_fields = [
-    "timestamp", "c-ip", "cs-method", "cs-uri-stem", "sc-status",
-    "cs-user-agent", "cs-referer", "cs-cookie", "x-edge-result-type",
+    "date", "time", "c-ip", "cs-method", "cs-uri-stem", "sc-status",
+    "cs(Referer)", "cs(User-Agent)", "cs(Cookie)", "x-edge-result-type",
     # Identity / segmentation signals (near-zero cost, captured now):
     "asn", "c-country", "ssl-protocol", "ssl-cipher",
   ]
@@ -194,21 +197,27 @@ These are all standard-logging-v2 selectable fields — no functions, no extra i
 - **Glue database** (`aws_glue_catalog_database`) e.g. `chq_cloudfront_logs`.
 - **Glue table** (`aws_glue_catalog_table`) over `s3://<log-bucket>/cf/`, using the
   **Parquet SerDe** (`org.apache.hadoop.hive.ql.io.parquet.*`). Columns follow the v2
-  Parquet field names for the selected `record_fields`: `timestamp`, `c_ip`,
-  `cs_method`, `cs_uri_stem`, `sc_status`, `cs_user_agent`, `cs_referer`, `cs_cookie`,
-  `x_edge_result_type`, `asn`, `c_country`, `ssl_protocol`, `ssl_cipher` (the plan
-  pins the exact Parquet column names AWS emits).
+  Parquet field names for the selected `record_fields`: `date`, `time`, `c_ip`,
+  `cs_method`, `cs_uri_stem`, `sc_status`, `cs_referer`, `cs_user_agent`, `cs_cookie`,
+  `x_edge_result_type`, `asn`, `c_country`, `ssl_protocol`, `ssl_cipher` — all typed
+  `string`. The Parquet footer emits mixed-case names for the parenthesized fields
+  (`cs_Referer`, `cs_User_Agent`, `cs_Cookie`); the table sets
+  `parquet.column.index.access = "false"` so Athena matches columns by name
+  (case-insensitively) rather than by position.
 - **Partitioned with partition projection.** Because v2 writes Hive-compatible paths
   (`cf/year=…/month=…/day=…` via `enable_hive_compatible_path`), the table declares
   `year`/`month`/`day` partition keys and uses Athena **partition projection**
-  (`projection.enabled = true`, date-range projection) — no crawler, no
-  `MSCK REPAIR`, and every query prunes to only the days it needs. This keeps scans
-  minimal as volume grows, so no future re-architecture is needed.
+  (`projection.enabled = true`, date-range projection) — so partitions are
+  discovered with no crawler and no `MSCK REPAIR`. Adding a `year`/`month`/`day`
+  predicate to a query then prunes the scan, keeping cost controllable as volume
+  grows without any re-architecture.
 - **Athena workgroup** (`aws_athena_workgroup`) e.g. `chq-traffic` with
   `result_configuration.output_location = s3://<log-bucket>/athena-results/`.
 - **Named queries** (`aws_athena_named_query`, one per §7 query) so each is one
-  click in the console. Time-windowed queries filter on the `year`/`month`/`day`
-  partition columns to stay cheap.
+  click in the console. The Phase-A one-click queries do **not** filter on the
+  `year`/`month`/`day` partition columns — they scan the full retention window,
+  which is negligible at this volume. A partition predicate can be added in the
+  console to prune scans if the dataset grows (documented in the runbook).
 
 ---
 
