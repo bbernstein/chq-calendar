@@ -157,10 +157,12 @@ resource "aws_cloudwatch_log_delivery" "cf_access" {
   }
 
   # Field selection (v2 replaces legacy include_cookies): capture exactly what
-  # the metrics need, including cs-cookie for forward-compat.
+  # the metrics need, plus a few cheap identity/segmentation signals.
   record_fields = [
     "timestamp", "c-ip", "cs-method", "cs-uri-stem", "sc-status",
     "cs-user-agent", "cs-referer", "cs-cookie", "x-edge-result-type",
+    # Identity / segmentation signals (near-zero cost, captured now):
+    "asn", "c-country", "ssl-protocol", "ssl-cipher",
   ]
 }
 ```
@@ -172,6 +174,19 @@ so a *future* session-cookie iteration needs no delivery change. See Privacy (§
 why this is safe today. (Field selection is also a privacy win: we log only the fields
 listed above, nothing more.)
 
+**Extra identity/segmentation fields (folded in per design review):**
+
+- **`asn`** — viewer's network/carrier (autonomous system number). The most useful
+  extra signal for this phone-heavy traffic: it disambiguates many users behind one
+  carrier-NAT IP and enables carrier/network breakdowns. Captured as a **reporting
+  dimension**, *not* baked into `visitor_key` (see §6).
+- **`c-country`** — viewer country (IP geolocation). Free geographic segmentation.
+- **`ssl-protocol` / `ssl-cipher`** — coarse TLS-stack characteristics; captured now as
+  low-value tiebreaker entropy for a possible future keying experiment, unused by the
+  Phase-A metrics.
+
+These are all standard-logging-v2 selectable fields — no functions, no extra infra.
+
 ---
 
 ## 5. Query Layer (Terraform)
@@ -181,7 +196,8 @@ listed above, nothing more.)
   **Parquet SerDe** (`org.apache.hadoop.hive.ql.io.parquet.*`). Columns follow the v2
   Parquet field names for the selected `record_fields`: `timestamp`, `c_ip`,
   `cs_method`, `cs_uri_stem`, `sc_status`, `cs_user_agent`, `cs_referer`, `cs_cookie`,
-  `x_edge_result_type` (the plan pins the exact Parquet column names AWS emits).
+  `x_edge_result_type`, `asn`, `c_country`, `ssl_protocol`, `ssl_cipher` (the plan
+  pins the exact Parquet column names AWS emits).
 - **Partitioned with partition projection.** Because v2 writes Hive-compatible paths
   (`cf/year=…/month=…/day=…` via `enable_hive_compatible_path`), the table declares
   `year`/`month`/`day` partition keys and uses Athena **partition projection**
@@ -201,6 +217,15 @@ listed above, nothing more.)
 **`visitor_key`** = `lower(to_hex(md5(to_utf8(concat(c_ip, '|', cs_user_agent)))))`.
 Hashing means aggregate outputs never contain raw IPs. IP-only (`c_ip`) is a trivial
 variant if ever wanted.
+
+The key stays **IP + UA only.** `asn`, `c_country`, and the `ssl_*` fields are captured
+(§4) but are treated as **reporting dimensions** — you can group/segment by them (e.g.
+"unique visitors by carrier") — *not* folded into `visitor_key`. Rationale (§ design
+review): adding fingerprint entropy reduces NAT over-merging a little but makes the key
+more volatile across sessions, which worsens the dominant mobile error (IP churn
+over-splitting one user into many keys). The genuine fix for cross-session identity is
+a persistent client-side ID, which is the designated deferred next step (§ Open
+Follow-ups), not more passive entropy.
 
 **Content object** — the requests that represent real user activity:
 
@@ -258,6 +283,9 @@ All queries live in the `chq-traffic` workgroup against the Glue table. Shipped 
 6. **New vs returning by day** — first-seen-date self-comparison.
 7. **Top pages** — content object stems by request count.
 8. **Top referrers** — `cs_referer` by count.
+9. **Visitors by country** — unique visitors grouped by `c_country` (segmentation).
+10. **Visitors by network/carrier** — unique visitors grouped by `asn`; useful for
+    reading how much of the "unique" count is really one carrier-NAT pool on mobile.
 
 Each named query carries a comment header documenting its metric definition and the
 optional bot-filter line, so the runbook and the SQL stay in sync.
@@ -266,8 +294,10 @@ optional bot-filter line, so the runbook and the SQL stay in sync.
 
 ## 8. Privacy & Retention
 
-- **Only selected fields are logged.** v2 `record_fields` captures exactly the nine
-  fields the metrics need (§4) and nothing else.
+- **Only selected fields are logged.** v2 `record_fields` captures exactly the 13
+  fields listed in §4 (metrics + a few identity/segmentation signals) and nothing else.
+  `asn`/`c_country` are network- and country-level, not personally identifying beyond
+  the IP we already log.
 - **Cookies are captured but empty today.** `cs-cookie` is in `record_fields`, but the
   app sets no cookies and admin auth travels in the `Authorization` header (not among
   the selected fields, and not logged), so the cookie field is empty on every request.
@@ -342,6 +372,42 @@ Effectively free at this site's scale.
 
 ## Open Follow-ups (post-Phase-A)
 
-- Decide B vs C after reviewing a week of real data.
-- When a real session cookie is introduced, the cookie field is already captured;
-  add session-oriented queries then.
+### Designated next step — first-party visitor ID (cookie / localStorage)
+
+Passive IP+UA (even with `asn`) cannot reliably track a mobile user across sessions —
+IP churn splits one person into many keys. The **real fix, and the intended next step**,
+is a persistent first-party visitor ID. This design is deliberately built so we can
+switch to it **without re-architecting** the pipeline, *if and when the owner is
+comfortable setting a cookie on user browsers*:
+
+- **What gets added:** a small, random, non-PII visitor ID (e.g. a UUID) minted once
+  per browser and persisted. Two viable placements, decided at that time:
+  - a **first-party cookie** set by a viewer-response CloudFront Function (or by client
+    JS) — this is the primary planned approach; **the `cs-cookie` field is already in
+    `record_fields`, so it flows into the logs the moment the cookie exists, with no
+    delivery change**; or
+  - a **localStorage** ID echoed into a request (e.g. a query param on the
+    `/cache/*.json` fetch, or a `cf.logCustomData()` call) if we prefer to avoid
+    cookies entirely — captured via `viewer-request-log-data`, still no new infra.
+- **What changes downstream:** `visitor_key` switches from `md5(IP‖UA)` to the visitor
+  ID (falling back to `md5(IP‖UA)` when the ID is absent — e.g. first-ever request or
+  cookies disabled). Only the query definitions change; capture, bucket, table, and
+  workgroup are untouched. **Unique** and especially **returning** visitor counts
+  become reliable across IP changes.
+- **Privacy posture to settle then:** the ID is random and app-scoped (no cross-site
+  tracking); document it in a privacy note; the 90-day raw-log expiry still applies.
+
+This is why cookies are captured now (empty today) and why the visitor-key logic is
+isolated in the queries rather than the capture layer — the switch is a query change,
+not a migration.
+
+### Other deferred items
+
+- **Decide B vs C** (CloudWatch custom metrics vs admin-page dashboard) after reviewing
+  a week of real Phase-A data.
+- **Optional — JA3/TLS fingerprint experiment.** *Only if* Phase-A data shows NAT
+  over-merging is materially distorting unique counts, try logging a JA3 fingerprint
+  via a CloudFront Function + `cf.logCustomData()` → `viewer-request-log-data` (fits our
+  existing viewer-request functions; no Kinesis/Lambda@Edge). Note JA3 is a *group*
+  fingerprint (browser+OS+TLS stack), not per-user — a NAT-disambiguation booster, not
+  a substitute for the first-party ID above.
