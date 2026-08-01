@@ -8,6 +8,7 @@ struct EventDetailView: View {
     let event: Event
     let model: AppModel
 
+    @Environment(\.openURL) private var openURL
     @State private var isAddToCalendarPresented = false
 
     private var isFavorite: Bool { model.favorites.contains(event.id) }
@@ -94,13 +95,30 @@ struct EventDetailView: View {
                 image
                     .resizable()
                     .scaledToFill()
-            default:
+            case .failure:
+                imageFailurePlaceholder
+            case .empty:
                 ProgressView()
                     .frame(maxWidth: .infinity)
+            @unknown default:
+                imageFailurePlaceholder
             }
         }
         .frame(maxWidth: .infinity, maxHeight: 220)
         .clipped()
+    }
+
+    /// Shown when `AsyncImage` finishes with `.failure` (broken/404 URL,
+    /// decode error) — a static placeholder so the row reads as "finished,
+    /// no image" rather than hanging on an indefinite spinner.
+    private var imageFailurePlaceholder: some View {
+        Rectangle()
+            .fill(.quaternary)
+            .overlay {
+                Image(systemName: "photo")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+            }
     }
 
     private var titleSection: some View {
@@ -201,7 +219,9 @@ struct EventDetailView: View {
             .buttonStyle(.borderedProminent)
 
             if let pageURL = event.pageURL {
-                Link(destination: pageURL) {
+                Button {
+                    openURL(pageURL)
+                } label: {
                     Text("Open on chq.org")
                         .frame(maxWidth: .infinity)
                 }
