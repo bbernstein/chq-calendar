@@ -185,6 +185,18 @@ function HomeContent() {
       <footer className="bg-gray-800 text-white mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
           <p className="text-gray-400">&copy; {new Date().getFullYear()} Chautauqua Calendar by Bernie</p>
+          <p className="text-gray-500 text-sm mt-3 max-w-2xl mx-auto">
+            CHQ Calendar is an independent app and is not affiliated with, endorsed by, or
+            sponsored by Chautauqua Institution. Event information is drawn from publicly
+            posted listings; chq.org remains the authoritative source.
+          </p>
+          <p className="text-gray-400 text-sm mt-3">
+            <a href="/privacy" className="hover:text-white underline">Privacy</a>
+            <span className="mx-2" aria-hidden="true">·</span>
+            <a href="/support" className="hover:text-white underline">Support</a>
+            <span className="mx-2" aria-hidden="true">·</span>
+            <a href="/feedback" className="hover:text-white underline">Feedback</a>
+          </p>
         </div>
       </footer>
     </div>

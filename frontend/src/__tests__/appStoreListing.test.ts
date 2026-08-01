@@ -80,3 +80,25 @@ describe('App Store listing fields', () => {
     expect(fields.privacyPolicyUrl).toBe('https://www.chqcal.org/privacy');
   });
 });
+
+// The canonical disclaimer is duplicated across languages that can't share
+// a constant (JSON, TSX, Swift). These assertions are what stop the copies
+// from drifting apart — a drifted disclaimer weakens the Guideline 5.2.1
+// position that the whole submission rests on.
+describe('canonical disclaimer is duplicated verbatim', () => {
+  const repoRoot = resolve(__dirname, '../../..');
+  const sources = [
+    'frontend/src/app/privacy/page.tsx',
+    'frontend/src/app/support/page.tsx',
+    'frontend/src/app/page.tsx',
+  ];
+
+  // JSX splits long prose across lines, so compare on collapsed whitespace
+  // rather than requiring the literal string to survive the formatter.
+  const collapse = (s: string) => s.replace(/\s+/g, ' ');
+
+  it.each(sources)('%s contains the disclaimer', (relPath) => {
+    const source = collapse(readFileSync(resolve(repoRoot, relPath), 'utf8'));
+    expect(source).toContain(collapse(fields.disclaimer));
+  });
+});
