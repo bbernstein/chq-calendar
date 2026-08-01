@@ -49,11 +49,44 @@ udid=$(resolve_udid "$SIM")
 [ -n "$udid" ] || { echo "error: no simulator named '$SIM' found (check 'xcrun simctl list devices available')" >&2; exit 1; }
 echo "==> using $SIM ($udid)"
 
+# Recording/status-bar cleanup, reachable from every exit path.
+#
+# `read -r _` below returns non-zero on EOF (non-interactive invocation,
+# closed pipe, disconnected terminal) — under `set -e` that would exit the
+# script *before* the kill/wait line ever runs, orphaning the background
+# `simctl io recordVideo` process with no owner and no cleanup. This trap
+# makes stopping the recording (and clearing the status bar override)
+# reachable no matter how the script exits. It is idempotent: the normal
+# path below also stops the recording and clears the status bar, flips
+# these flags to done, and the EXIT trap that fires afterward finds
+# nothing left to do.
+recording_active=0
+status_bar_active=0
+cleanup() {
+  local rc=$?
+  if [ "$recording_active" = 1 ]; then
+    kill -INT "${RECORD_PID:-}" 2>/dev/null || true
+    wait "${RECORD_PID:-}" 2>/dev/null || true
+    recording_active=0
+  fi
+  if [ "$status_bar_active" = 1 ]; then
+    xcrun simctl status_bar "$udid" clear 2>/dev/null || true
+    status_bar_active=0
+  fi
+  return "$rc"
+}
+trap cleanup EXIT
+# SIGINT/SIGTERM don't implicitly terminate a script that traps them, so
+# turn them into an explicit exit — that in turn fires the EXIT trap above.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 xcrun simctl boot "$udid" 2>/dev/null || true
 xcrun simctl bootstatus "$udid" -b
 xcrun simctl status_bar "$udid" override \
   --time "9:41" --batteryState charged --batteryLevel 100 \
   --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3
+status_bar_active=1
 
 # Grant Calendar access *before* recording starts. The demo flow ends with
 # Add to Calendar, and iOS's system consent alert (owned by SpringBoard,
@@ -87,15 +120,29 @@ FLOW
 
 xcrun simctl io "$udid" recordVideo --codec h264 --force "$RAW" &
 RECORD_PID=$!
+recording_active=1
 read -r _
 kill -INT "$RECORD_PID" 2>/dev/null || true
 wait "$RECORD_PID" 2>/dev/null || true
+recording_active=0
 
 xcrun simctl status_bar "$udid" clear
+status_bar_active=0
 xcrun simctl privacy "$udid" revoke calendar "$BUNDLE_ID"
 
 duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$RAW")
 echo "Recorded ${duration}s"
+
+# Validate before handing anything to `bc`: ffprobe can exit 0 with an
+# empty stdout (bc then sees `(( "" ))`, which is 0/false — the guard
+# below would silently PASS a too-short or unreadable clip), and a
+# malformed value like "N/A" only happens to be rejected on some bc
+# builds by parsing stray letters as base-36 digits (bc 7.0.3 quirk) —
+# not a real check. Require a well-formed non-negative number first.
+if ! [[ "$duration" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "error: could not read a valid duration from the recording — the file may be truncated." >&2
+  exit 1
+fi
 
 # Trim to 30s max; Apple rejects anything longer. Shorter than 15s is also
 # rejected, so fail loudly rather than silently shipping a too-short clip.
