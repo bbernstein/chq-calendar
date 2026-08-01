@@ -92,16 +92,19 @@ struct EventDetailView: View {
         // `-uitest-show-add-to-calendar`. Both `onAppear` and `onChange` are
         // wired (see the analogous, more common case in `FilterBarView`) so
         // this fires regardless of whether the flag flips before or after
-        // this view mounts. Also, when reached via `-uitest-select-linked-event`
-        // / `-uitest-show-add-to-calendar`, auto-scrolls to the article-links
-        // section after a brief settle delay — `xcrun simctl` can't
-        // synthesize the swipe a real verification pass would use, so this
-        // is what makes that section's live rendering screenshot-checkable.
-        // Compiles out of Release builds entirely.
+        // this view mounts. Separately, `-uitest-scroll-to-articles` (used
+        // alongside `-uitest-select-linked-event`) scrolls to the
+        // article-links section after a brief settle delay — `xcrun simctl`
+        // can't synthesize the swipe a real verification pass would use, so
+        // this is what makes that section's live rendering
+        // screenshot-checkable. It's a separate launch argument (rather than
+        // firing for every linked-event launch) so a plain
+        // `-uitest-select-linked-event` launch still lands at the top of the
+        // detail view. Compiles out of Release builds entirely.
         .onAppear(perform: presentAddToCalendarIfNeeded)
         .onChange(of: model.uiTestShowAddToCalendar) { _, _ in presentAddToCalendarIfNeeded() }
         .task {
-            guard isUITestUsingLinkedEvent, !articleLinks.isEmpty else { return }
+            guard isUITestScrollingToArticles, !articleLinks.isEmpty else { return }
             try? await Task.sleep(for: .milliseconds(600))
             withAnimation { scrollProxy.scrollTo(Self.articleLinksAnchor, anchor: .top) }
         }
@@ -110,16 +113,14 @@ struct EventDetailView: View {
     }
 
     /// Anchor id for `articleLinksSection`, used by the DEBUG-only
-    /// auto-scroll hook below (`isUITestUsingLinkedEvent`) — declared
+    /// auto-scroll hook below (`isUITestScrollingToArticles`) — declared
     /// unconditionally since it's referenced from the always-compiled
     /// `.id(Self.articleLinksAnchor)` in `body`.
     private static let articleLinksAnchor = "article-links"
 
     #if DEBUG
-    private var isUITestUsingLinkedEvent: Bool {
-        let arguments = ProcessInfo.processInfo.arguments
-        return arguments.contains("-uitest-select-linked-event")
-            || arguments.contains("-uitest-show-add-to-calendar")
+    private var isUITestScrollingToArticles: Bool {
+        ProcessInfo.processInfo.arguments.contains("-uitest-scroll-to-articles")
     }
 
     private func presentAddToCalendarIfNeeded() {

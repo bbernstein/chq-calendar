@@ -22,10 +22,15 @@ struct EventListView: View {
     @Bindable var model: AppModel
     var selection: Binding<Event?>?
 
+    @State private var isAboutPresented = false
+
     var body: some View {
         content
             .navigationTitle("Chautauqua Calendar")
             .toolbar { toolbarContent }
+            .sheet(isPresented: $isAboutPresented) {
+                AboutView()
+            }
             .safeAreaInset(edge: .top) {
                 // Only shown once there's a snapshot to filter/count
                 // against — during initial launch (no snapshot yet) or the
@@ -154,6 +159,14 @@ struct EventListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                isAboutPresented = true
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .accessibilityLabel("About CHQ Calendar")
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 ForEach(model.years, id: \.self) { year in

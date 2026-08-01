@@ -1,0 +1,40 @@
+{
+  "devices": [
+    { "key": "iphone-6.9", "simulator": "iPhone 17 Pro Max", "width": 1320, "height": 2868 },
+    { "key": "ipad-13", "simulator": "iPad Pro 13-inch (M5)", "width": 2064, "height": 2752 }
+  ],
+  "shots": [
+    {
+      "id": "01-season",
+      "caption": "The whole season, one scroll.",
+      "launchArgs": [],
+      "settleSeconds": 6,
+      "deviceLaunchArgs": { "ipad-13": ["-uitest-select-linked-event"] }
+    },
+    {
+      "id": "02-filters",
+      "caption": "Narrow it to what you actually want.",
+      "launchArgs": ["-uitest-show-filters"],
+      "settleSeconds": 6,
+      "presentsModal": true,
+      "deviceLaunchArgs": { "ipad-13": ["-uitest-select-linked-event"] }
+    },
+    {
+      "id": "03-search",
+      "caption": "Search by name, venue, or presenter.",
+      "launchArgs": ["-uitest-search", "meditation"],
+      "settleSeconds": 6,
+      "deviceLaunchArgs": { "ipad-13": ["-uitest-select-linked-event"] }
+    },
+    { "id": "04-detail", "caption": "Every detail, in one place.", "launchArgs": ["-uitest-select-linked-event"], "settleSeconds": 6 },
+    { "id": "05-articles", "caption": "See what the Daily wrote about it.", "launchArgs": ["-uitest-select-linked-event", "-uitest-scroll-to-articles"], "settleSeconds": 6 },
+    {
+      "id": "06-calendar",
+      "caption": "Send it straight to your calendar.",
+      "launchArgs": ["-uitest-show-add-to-calendar"],
+      "settleSeconds": 6,
+      "needsCalendarAccess": true,
+      "presentsModal": true
+    }
+  ]
+}

@@ -137,6 +137,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         feedback: resolve(__dirname, 'feedback/index.html'),
+        privacy: resolve(__dirname, 'privacy/index.html'),
+        support: resolve(__dirname, 'support/index.html'),
         'admin-login': resolve(__dirname, 'admin/login/index.html'),
         admin: resolve(__dirname, 'admin/index.html'),
         'admin-feedback': resolve(__dirname, 'admin/feedback/index.html'),

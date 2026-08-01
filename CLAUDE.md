@@ -222,6 +222,52 @@ are reported but do not fail). New backend code must pass
 
 Coverage floor enforced via `.coverage-floor.json`; see `docs/coverage.md`.
 
+## App Store listing upkeep (iOS)
+
+The App Store listing is a deliverable, not a one-time setup. It goes
+stale silently — a screenshot showing a screen that no longer exists, or a
+description promising a removed feature, is a defect that reaches users
+before any test catches it.
+
+**The rule:** any PR touching `ios/ChqCalendar/Features/**`,
+`ios/ChqCalendar/App/**`, or `ios/ChqCalendar/Assets.xcassets/**` in a way
+a user can see must:
+
+1. Regenerate the affected screenshots:
+   ```bash
+   ios/Scripts/capture-screenshots.sh
+   python3 ios/Scripts/compose-screenshots.py
+   ```
+   Commit the updated `docs/app-store/screenshots.manifest.json` and
+   `docs/app-store/screenshots/review/` copies.
+2. Re-read `docs/app-store/listing-copy.md` and
+   `docs/app-store/listing-fields.json` for claims the change invalidates.
+   A description that promises a feature you removed is worse than a stale
+   screenshot.
+
+**Regenerated assets land in the repo at merge time; they upload at the
+next version submission.** This is a platform constraint, not a choice:
+metadata changes to an already-released version require creating a new
+version and submitting it for review. The one field changeable without a
+review cycle is **Promotional Text**, which is where time-sensitive
+messaging belongs.
+
+`.github/workflows/app-store-assets.yml` enforces this. If a change
+genuinely alters no pixel a user sees, opt out explicitly by putting
+`[skip-screenshots: <reason>]` in the PR description — a non-empty reason
+is required, so opting out is a recorded decision rather than silence.
+If you regenerated and the manifest did not change because the shot list
+in `ios/Scripts/screenshot-plan.json` does not cover the screen you
+touched, that is also a valid opt-out: `[skip-screenshots: regenerated,
+no covered shot changed]`.
+The guard checks that the manifest file itself changed since the PR's
+merge-base — that catches the honest mistake of forgetting to regenerate,
+but it is a git-diff check, not proof the change came from a real
+`compose-screenshots.py` run rather than a hand-edited JSON file.
+
+The upload procedure, and the App Store Connect icon troubleshooting
+steps, live in `docs/app-store/RELEASE_CHECKLIST.md`.
+
 ## Dependencies
 
 ### Production
