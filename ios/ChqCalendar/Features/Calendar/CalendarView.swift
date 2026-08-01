@@ -17,6 +17,16 @@ struct CalendarView: View {
             content
                 .navigationTitle("Chautauqua Calendar")
                 .toolbar { toolbarContent }
+                .safeAreaInset(edge: .top) {
+                    // Only shown once there's a snapshot to filter/count
+                    // against — during initial launch (no snapshot yet) or
+                    // the offline/error empty states, category/location
+                    // counts would be meaningless and the bar would just be
+                    // dead chrome above a loading spinner or banner.
+                    if model.snapshot != nil {
+                        FilterBarView(model: model)
+                    }
+                }
         }
         .searchable(text: $searchDraft, prompt: "Search events")
         .task(id: searchDraft) {

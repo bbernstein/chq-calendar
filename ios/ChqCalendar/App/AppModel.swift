@@ -270,6 +270,36 @@ final class AppModel {
         persistFilter()
     }
 
+    /// Toggles `name` (lowercased, matching how `EventFilter` compares
+    /// against `event.displayLocation?.lowercased()`) in
+    /// `filter.selectedLocations`.
+    func toggleLocation(_ name: String) {
+        let key = name.lowercased()
+        if filter.selectedLocations.contains(key) {
+            filter.selectedLocations.remove(key)
+        } else {
+            filter.selectedLocations.insert(key)
+        }
+        persistFilter()
+    }
+
+    /// Toggles `name` (lowercased, matching how `EventFilter` compares
+    /// against `event.filterTokens`) in `filter.selectedCategories`.
+    func toggleCategory(_ name: String) {
+        let key = name.lowercased()
+        if filter.selectedCategories.contains(key) {
+            filter.selectedCategories.remove(key)
+        } else {
+            filter.selectedCategories.insert(key)
+        }
+        persistFilter()
+    }
+
+    func toggleFavoritesOnly() {
+        filter.showFavoritesOnly.toggle()
+        persistFilter()
+    }
+
     /// Resets the persisted facets (scope/weeks/locations/categories/
     /// favorites-only) back to their defaults. `searchText`/`extraDays` are
     /// session-only and deliberately left untouched — clearing filters
