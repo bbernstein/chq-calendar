@@ -334,11 +334,36 @@ final class AppModel {
     /// is present; consumed (and reset) by `EventDetailView.onAppear`.
     var uiTestShowAddToCalendar = false
 
-    /// The first event in the current snapshot with at least one
-    /// Chautauquan Daily article link — the deterministic target for
-    /// `-uitest-select-linked-event` / `-uitest-show-add-to-calendar`.
+    /// The linked-content-richest event in the current snapshot — the
+    /// deterministic target for `-uitest-select-linked-event` /
+    /// `-uitest-show-add-to-calendar` / `-uitest-scroll-to-articles`.
+    ///
+    /// Deliberately picks the *richest* event with article links (longest
+    /// `details`, then most links) rather than merely the first one found.
+    /// The detail screenshot pair (`04-detail` / `05-articles`) only differs
+    /// by scroll position, and on iPad's wide `NavigationSplitView` detail
+    /// column, body text wraps into far fewer lines than on iPhone for the
+    /// same character count — a short-description event's full detail view
+    /// (hero image + metadata + description + links + buttons) can render
+    /// with no overflow at all, making `scrollTo` a no-op and the two shots
+    /// byte-identical. Picking the richest available content makes the
+    /// detail view reliably taller than the tallest on-screen viewport
+    /// across both device sizes, so the scroll always has somewhere to go.
     var uiTestFirstLinkedEvent: Event? {
-        snapshot?.events.first { !articleLinks(for: $0.id).isEmpty }
+        snapshot?.events
+            .filter { !articleLinks(for: $0.id).isEmpty }
+            .max { lhs, rhs in
+                uiTestContentWeight(lhs) < uiTestContentWeight(rhs)
+            }
+    }
+
+    /// Rough proxy for an event's rendered detail-view height: description
+    /// length dominates real-world variance (up to ~7000 characters seen in
+    /// production data) but a per-link weight is added so an event with many
+    /// short links isn't undervalued against one with a single long
+    /// description.
+    private func uiTestContentWeight(_ event: Event) -> Int {
+        (event.details?.count ?? 0) + articleLinks(for: event.id).count * 400
     }
     #endif
 }

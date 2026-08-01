@@ -19,6 +19,8 @@ DERIVED="$SCRIPT_DIR/out/DerivedData"
 BUNDLE_ID="org.chqcal.app"
 
 command -v jq >/dev/null || { echo "error: jq is required (brew install jq)" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "error: python3 is required for the post-capture quality check" >&2; exit 1; }
+python3 -c "import PIL" 2>/dev/null || { echo "error: Pillow is required (pip3 install Pillow)" >&2; exit 1; }
 # mapfile is a bash 4+ builtin; macOS still ships bash 3.2 at /bin/bash, so
 # fail with a clear message rather than "mapfile: command not found".
 if (( BASH_VERSINFO[0] < 4 )); then
@@ -75,7 +77,30 @@ for key in "${device_keys[@]}"; do
   app_path="$DERIVED/Build/Products/Debug-iphonesimulator/ChqCalendar.app"
   [ -d "$app_path" ] || { echo "error: build produced no app at $app_path" >&2; exit 1; }
 
-  xcrun simctl boot "$udid" 2>/dev/null || true
+  # Reset the simulator to a known-empty state before capturing anything.
+  #
+  # Why: iOS's system Calendar-consent alert (EKEventStore's write-only
+  # tier, triggered by 06-calendar) is owned by SpringBoard, not by our app.
+  # It survives `simctl terminate` + `simctl launch` of our app — once it's
+  # up, it sits on screen over every subsequent shot in the run, and over
+  # every subsequent run against the same simulator instance, until the
+  # simulator is rebooted or the alert is answered by a human tap. Neither
+  # a later `simctl privacy grant` nor `simctl privacy revoke` dismisses an
+  # alert that's already being displayed — they only change the TCC state
+  # that's consulted the *next* time the app asks (confirmed by direct
+  # testing: a stuck alert survived repeated grant/revoke/terminate/launch
+  # cycles and only cleared after erasing the simulator).
+  #
+  # `simctl erase` wipes this simulator instance back to first-boot state
+  # (all apps, settings, and any stuck system UI) — the only way to
+  # guarantee a run starts clean regardless of what a previous run (or a
+  # developer poking at the simulator by hand) left behind. Cost: ~20-40s
+  # per device and it discards anything else installed on that specific
+  # simulator instance. Given these are dedicated screenshot-capture
+  # simulators, that's the right trade — determinism over speed.
+  xcrun simctl shutdown "$udid" 2>/dev/null || true
+  xcrun simctl erase "$udid"
+  xcrun simctl boot "$udid"
   xcrun simctl bootstatus "$udid" -b
   # A clean, Apple-style status bar. Without this the shots carry a real
   # clock and a partial battery, which looks sloppy in the store listing.
@@ -83,10 +108,15 @@ for key in "${device_keys[@]}"; do
     --time "9:41" --batteryState charged --batteryLevel 100 \
     --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3
   xcrun simctl install "$udid" "$app_path"
-  # Pre-grant Calendar access so the 06-calendar shot captures the app's own
-  # Add to Calendar sheet instead of the one-time system permission alert
-  # (EventKit prompts on first write attempt on a fresh install/simulator).
-  xcrun simctl privacy "$udid" grant calendar "$BUNDLE_ID"
+
+  # Explicitly *deny* Calendar access before any shot runs. An explicitly
+  # denied authorization answers `requestWriteOnlyAccessToEvents()`
+  # immediately with `.denied` — no system prompt — which is what keeps
+  # 01-05 (none of which touch Calendar) deterministically clean even if a
+  # future code change adds an incidental EventKit call. Right before the
+  # one shot that actually needs the granted state (marked
+  # `needsCalendarAccess` in the plan, below), we flip this to `grant`.
+  xcrun simctl privacy "$udid" revoke calendar "$BUNDLE_ID"
 
   # Process substitution, NOT `jq ... | while`: a piped while loop runs in a
   # subshell, so the dimension check's `exit 1` below would abort only the
@@ -94,7 +124,12 @@ for key in "${device_keys[@]}"; do
   while read -r shot; do
     id=$(jq -r '.id' <<<"$shot")
     settle=$(jq -r '.settleSeconds' <<<"$shot")
+    needs_calendar=$(jq -r '.needsCalendarAccess // false' <<<"$shot")
     mapfile -t args < <(jq -r '.launchArgs[]?' <<<"$shot")
+
+    if [ "$needs_calendar" = "true" ]; then
+      xcrun simctl privacy "$udid" grant calendar "$BUNDLE_ID"
+    fi
 
     xcrun simctl terminate "$udid" "$BUNDLE_ID" 2>/dev/null || true
     xcrun simctl launch "$udid" "$BUNDLE_ID" "${args[@]+"${args[@]}"}" >/dev/null
@@ -115,16 +150,23 @@ for key in "${device_keys[@]}"; do
   done < <(jq -c '.shots[]' "$PLAN")
 
   xcrun simctl status_bar "$udid" clear
+
+  # Content sanity checks beyond pixel dimensions: no two shots in this set
+  # may be byte-identical (a scroll/state hook that silently no-op'd), and
+  # no shot may show the signature luminance drop of a system alert or
+  # other screen-dimming overlay. See check-screenshots.py for the method
+  # and thresholds. This is a hard gate — a run that produces unusable
+  # screenshots must not report success.
+  python3 "$SCRIPT_DIR/check-screenshots.py" --plan "$PLAN" "$out_dir"
+
   echo "==> $key done: $out_dir"
 done
 
-# Every shot in the current plan is fully automated via DEBUG launch hooks
-# (see CalendarView.applyUITestHooks / EventDetailView's UI-test hooks
-# section) — there is no tap/scroll automation available in this
-# environment, so any shot that still needed manual interaction would be
-# marked `"manual": true` with a `"manualNote"` in screenshot-plan.json.
-# This loop is what surfaces those notes at the end of a run so the next
-# person isn't rediscovering them by re-opening every PNG.
+# Prints any shots still marked "manual": true in the plan, with their
+# "manualNote", so a human bootstrapping a fresh checkout isn't stuck
+# rediscovering an interaction that isn't automatable from the command
+# line. Nothing in the current plan needs this (see screenshot-plan.json),
+# but the mechanism is kept for whatever hits it next.
 manual_notes=$(jq -r '.shots[] | select(.manual == true) | "  - \(.id): \(.manualNote // "manual interaction required, no note recorded")"' "$PLAN")
 if [ -n "$manual_notes" ]; then
   echo

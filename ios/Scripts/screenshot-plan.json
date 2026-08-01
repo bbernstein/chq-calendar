@@ -5,7 +5,7 @@
   ],
   "shots": [
     { "id": "01-season", "caption": "The whole season, one scroll.", "launchArgs": [], "settleSeconds": 6 },
-    { "id": "02-filters", "caption": "Narrow it to what you actually want.", "launchArgs": ["-uitest-show-filters"], "settleSeconds": 6 },
+    { "id": "02-filters", "caption": "Narrow it to what you actually want.", "launchArgs": ["-uitest-show-filters"], "settleSeconds": 6, "presentsModal": true },
     { "id": "03-search", "caption": "Search by name, venue, or presenter.", "launchArgs": ["-uitest-search", "meditation"], "settleSeconds": 6 },
     { "id": "04-detail", "caption": "Every detail, in one place.", "launchArgs": ["-uitest-select-linked-event"], "settleSeconds": 6 },
     { "id": "05-articles", "caption": "See what the Daily wrote about it.", "launchArgs": ["-uitest-select-linked-event", "-uitest-scroll-to-articles"], "settleSeconds": 6 },
@@ -14,8 +14,8 @@
       "caption": "Send it straight to your calendar.",
       "launchArgs": ["-uitest-show-add-to-calendar"],
       "settleSeconds": 6,
-      "manual": true,
-      "manualNote": "AddToCalendarView calls EKEventStore.requestWriteOnlyAccessToEvents(), which shows iOS's one-time 'Would like to add to your Calendar' system consent alert over the New Event screen. Confirmed by direct testing that `xcrun simctl privacy <device> grant calendar <bundle-id>` (and even `grant all`) does NOT pre-answer it in this Xcode/simulator runtime, and it reappears on every relaunch until a human taps a button — there is no simctl flag for the write-only-Calendar tier. Fix: boot the target simulator once, launch ChqCalendar, trigger Add to Calendar (e.g. relaunch with -uitest-show-add-to-calendar), and tap 'Allow' by hand. That answer persists in the simulator's TCC state, so it is a one-time bootstrap per simulator instance, not a per-run manual step — after it's answered once, capture-screenshots.sh captures this shot automatically like the rest."
+      "needsCalendarAccess": true,
+      "presentsModal": true
     }
   ]
 }
