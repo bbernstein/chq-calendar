@@ -1,0 +1,232 @@
+import Foundation
+import Testing
+@testable import ChqCalendar
+
+struct UserStateStoreTests {
+    /// A fresh, isolated `UserDefaults` suite per test so runs never collide.
+    private func makeDefaults() -> UserDefaults {
+        UserDefaults(suiteName: UUID().uuidString)!
+    }
+
+    // MARK: - DateScope
+
+    @Test func dateScopeRawValuesMatchWebParity() {
+        #expect(DateScope.next.rawValue == "next")
+        #expect(DateScope.today.rawValue == "today")
+        #expect(DateScope.thisWeek.rawValue == "this-week")
+        #expect(DateScope.all.rawValue == "all")
+    }
+
+    @Test func dateScopeLabels() {
+        #expect(DateScope.next.label == "Now")
+        #expect(DateScope.today.label == "Today")
+        #expect(DateScope.thisWeek.label == "This Week")
+        #expect(DateScope.all.label == "All")
+    }
+
+    // MARK: - FilterSelection.isDefault
+
+    @Test func defaultFilterSelectionIsDefault() {
+        #expect(FilterSelection().isDefault)
+    }
+
+    @Test func filterSelectionWithSearchTextOnlyIsStillDefault() {
+        var filter = FilterSelection()
+        filter.searchText = "opera"
+        #expect(filter.isDefault)
+    }
+
+    @Test func filterSelectionWithExtraDaysOnlyIsStillDefault() {
+        var filter = FilterSelection()
+        filter.extraDays = 3
+        #expect(filter.isDefault)
+    }
+
+    @Test func filterSelectionWithWeeksIsNotDefault() {
+        var filter = FilterSelection()
+        filter.selectedWeeks = [3]
+        #expect(!filter.isDefault)
+    }
+
+    @Test func filterSelectionWithNonNextScopeIsNotDefault() {
+        var filter = FilterSelection()
+        filter.dateScope = .today
+        #expect(!filter.isDefault)
+    }
+
+    // MARK: - FilterSelection.activeCount
+
+    @Test func activeCountIsZeroForDefault() {
+        #expect(FilterSelection().activeCount == 0)
+    }
+
+    @Test func activeCountIgnoresSearchText() {
+        var filter = FilterSelection()
+        filter.searchText = "opera"
+        #expect(filter.activeCount == 0)
+    }
+
+    @Test func activeCountCountsEachFacet() {
+        var filter = FilterSelection()
+        filter.selectedWeeks = [1, 2]
+        filter.selectedLocations = ["Amp"]
+        filter.selectedCategories = ["Music", "Lecture"]
+        filter.showFavoritesOnly = true
+        filter.dateScope = .thisWeek
+        // weeks(1 facet type but counts by .count) -> selectedWeeks.count=2
+        // + selectedLocations.count=1 + selectedCategories.count=2
+        // + favoritesOnly=1 + non-default scope=1 = 7
+        #expect(filter.activeCount == 7)
+    }
+
+    @Test func activeCountNonDefaultScopeCountsAsOne() {
+        var filter = FilterSelection()
+        filter.dateScope = .all
+        #expect(filter.activeCount == 1)
+    }
+
+    // MARK: - UserStateStore: filters round-trip
+
+    @Test func filtersRoundTripPreservesPersistedFacets() throws {
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        var filter = FilterSelection()
+        filter.selectedWeeks = [1, 4, 7]
+        filter.selectedLocations = ["Amp", "Hall of Philosophy"]
+        filter.selectedCategories = ["Music"]
+        filter.showFavoritesOnly = true
+        filter.dateScope = .thisWeek
+
+        store.saveFilters(filter)
+        let loaded = try #require(store.loadFilters())
+
+        #expect(loaded.selectedWeeks == [1, 4, 7])
+        #expect(loaded.selectedLocations == ["Amp", "Hall of Philosophy"])
+        #expect(loaded.selectedCategories == ["Music"])
+        #expect(loaded.showFavoritesOnly == true)
+        #expect(loaded.dateScope == .thisWeek)
+    }
+
+    @Test func filtersRoundTripDoesNotPersistSearchTextOrExtraDays() throws {
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        var filter = FilterSelection()
+        filter.searchText = "opera"
+        filter.extraDays = 5
+        filter.selectedWeeks = [2]
+
+        store.saveFilters(filter)
+        let loaded = try #require(store.loadFilters())
+
+        #expect(loaded.searchText == "")
+        #expect(loaded.extraDays == 0)
+        #expect(loaded.selectedWeeks == [2])
+    }
+
+    @Test func loadFiltersReturnsNilWhenNoneSaved() {
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        #expect(store.loadFilters() == nil)
+    }
+
+    @Test func filtersLoadAt29DaysStillReturnsValue() throws {
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        var filter = FilterSelection()
+        filter.selectedWeeks = [5]
+        store.saveFilters(filter)
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(29 * 24 * 3600) }
+        )
+        let loaded = try #require(laterStore.loadFilters())
+        #expect(loaded.selectedWeeks == [5])
+    }
+
+    @Test func filtersLoadAt31DaysReturnsNil() {
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        var filter = FilterSelection()
+        filter.selectedWeeks = [5]
+        store.saveFilters(filter)
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(31 * 24 * 3600) }
+        )
+        #expect(laterStore.loadFilters() == nil)
+    }
+
+    @Test func filtersLoadAtExactly30DaysReturnsNil() {
+        // Pins the boundary direction: spec is ">= 30 days expires", so the
+        // comparison inside loadFilters must be a strict `<` against the
+        // expiry window (not `<=`) — exactly 30*24*3600 seconds after save
+        // must already be treated as expired.
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        var filter = FilterSelection()
+        filter.selectedWeeks = [5]
+        store.saveFilters(filter)
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(30 * 24 * 3600) }
+        )
+        #expect(laterStore.loadFilters() == nil)
+    }
+
+    // MARK: - UserStateStore: favorites round-trip
+
+    @Test func favoritesRoundTrip() {
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        store.saveFavorites(["evt-1", "evt-2"])
+        #expect(store.loadFavorites() == ["evt-1", "evt-2"])
+    }
+
+    @Test func loadFavoritesReturnsEmptyWhenNoneSaved() {
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        #expect(store.loadFavorites() == [])
+    }
+
+    @Test func favoritesLoadAt29DaysStillReturnsValue() {
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        store.saveFavorites(["evt-9"])
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(29 * 24 * 3600) }
+        )
+        #expect(laterStore.loadFavorites() == ["evt-9"])
+    }
+
+    @Test func favoritesLoadAt31DaysReturnsEmpty() {
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        store.saveFavorites(["evt-9"])
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(31 * 24 * 3600) }
+        )
+        #expect(laterStore.loadFavorites() == [])
+    }
+
+    @Test func favoritesLoadAtExactly30DaysReturnsEmpty() {
+        // Same boundary-direction pin as filtersLoadAtExactly30DaysReturnsNil,
+        // for the favorites store.
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        store.saveFavorites(["evt-9"])
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(30 * 24 * 3600) }
+        )
+        #expect(laterStore.loadFavorites() == [])
+    }
+}
