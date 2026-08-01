@@ -123,6 +123,94 @@ struct AppModelTests {
         #expect(model.snapshot?.events.count == 5)
     }
 
+    /// The discriminating case for per-year dedupe scoping: switching to a
+    /// year with NO cache at all, while another year's non-forced refresh
+    /// is still in flight, must not be starved by that other year's
+    /// in-flight refresh — it needs to issue (and complete) its own fetch.
+    /// A global `isRefreshing`-only guard would incorrectly no-op this.
+    @Test func selectingCacheLessYearStartsOwnRefreshDespiteAnotherYearsInFlightRefresh() async {
+        let cache = MockCache()
+        // Year 2026 has a genuinely-stale (by real wall-clock) cache, so
+        // start() kicks off a background refresh for it. Year 2025 has NO
+        // cache entry at all.
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1-refreshed", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e3", for: .events(year: 2025))
+        await api.setSuspended(for: .events(year: 2025))
+
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let startTask = Task { await model.start() }
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(model.isRefreshing)
+        #expect(model.snapshot?.year == 2026)
+
+        // Switch to year 2025 (no cache) while 2026's refresh is still
+        // parked mid-fetch.
+        let selectTask = Task { await model.select(year: 2025) }
+        try? await Task.sleep(for: .milliseconds(150))
+
+        // 2025 has no cache, so it's showing nothing yet — but its own
+        // fetch must have actually been issued, not swallowed.
+        #expect(model.snapshot == nil)
+        #expect(model.phase == .launching)
+        let year2025Calls = await api.calls.filter {
+            if case .events(let year) = $0.resource, year == 2025 { return true }
+            return false
+        }
+        #expect(year2025Calls.count == 1)
+
+        // Resolve 2025's fetch: its own refresh completes and populates it.
+        await api.resume(for: .events(year: 2025))
+        await selectTask.value
+        #expect(model.snapshot?.year == 2025)
+
+        // Finally resolve 2026's late fetch: must be discarded, not
+        // clobbering the year-2025 snapshot now being viewed.
+        await api.resume(for: .events(year: 2026))
+        await startTask.value
+        #expect(model.snapshot?.year == 2025)
+    }
+
+    /// Pull-to-refresh (`force: true`) must proceed even while a non-forced
+    /// refresh for the same year is already in flight — the dedupe only
+    /// applies between non-forced calls.
+    @Test func forcedRefreshBypassesDedupeWhileSameYearNonForcedRefreshInFlight() async {
+        let cache = MockCache()
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache, ttl: 0)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let firstRefresh = Task { await model.refresh(force: false) }
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(model.isRefreshing)
+
+        // A forced refresh for the same year, while the first non-forced
+        // one is still in flight, must issue its own fetch rather than
+        // being deduped away.
+        let secondRefresh = Task { await model.refresh(force: true) }
+        try? await Task.sleep(for: .milliseconds(80))
+
+        await api.resume(for: .events(year: 2026))
+        await firstRefresh.value
+        await secondRefresh.value
+
+        let eventCalls = await api.calls.filter {
+            if case .events = $0.resource { return true }
+            return false
+        }
+        #expect(eventCalls.count == 2)
+        #expect(!model.isRefreshing)
+    }
+
     // MARK: - toggleFavorite
 
     @Test func toggleFavoritePersistsAcrossStoreInstances() {

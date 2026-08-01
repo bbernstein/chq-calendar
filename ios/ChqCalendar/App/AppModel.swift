@@ -55,6 +55,15 @@ final class AppModel {
     /// `foregrounded()` to detect a new deploy.
     private var lastSeenRemoteVersion: String?
 
+    /// Years with a non-forced `refresh(force:)` currently in flight. Scoped
+    /// per-year (rather than one global flag) so that switching to a year
+    /// with no cache while another year's refresh is still in flight can
+    /// start its own refresh instead of being starved by a same-process
+    /// dedupe check for an unrelated year. `isRefreshing` mirrors
+    /// `!refreshingYears.isEmpty` for the UI, which only needs to know
+    /// "is *anything* in flight."
+    private var refreshingYears: Set<Int> = []
+
     init(repository: EventRepository, store: UserStateStore, now: @escaping @Sendable () -> Date = { Date() }) {
         self.repository = repository
         self.store = store
@@ -161,19 +170,32 @@ final class AppModel {
     ///
     /// Two guards protect against races inherent in an `async` call that
     /// mutates shared state after an arbitrarily-long `await`:
-    /// - Reentrancy: a `refresh` already in flight makes any concurrent call
-    ///   a no-op, rather than starting a second overlapping network round
-    ///   trip.
+    /// - Reentrancy, scoped per-year: a non-forced `refresh` already in
+    ///   flight for `requestedYear` makes a second non-forced call for that
+    ///   *same* year a no-op, rather than starting a second overlapping
+    ///   network round trip. This is deliberately per-year rather than
+    ///   global — a global flag would let an in-flight refresh for year A
+    ///   silently starve a `select(year: B)` to a cache-less year B, since
+    ///   B's own follow-up refresh would no-op against A's still-in-flight
+    ///   one and B would be stuck showing nothing. A `force: true` call
+    ///   (pull-to-refresh) always bypasses the dedupe — user intent, and
+    ///   any resulting double-fetch is harmless (ETag-conditional).
     /// - Year affinity: `selectedYear` is captured as `requestedYear` before
     ///   the await. If the user switches years (via `select(year:)`) while
     ///   this call is still in flight, its eventual result — for a year
     ///   that's no longer selected — is discarded instead of clobbering
     ///   whatever `select(year:)` already put in `snapshot`.
     func refresh(force: Bool) async {
-        guard !isRefreshing else { return }
         let requestedYear = selectedYear
+        if !force && refreshingYears.contains(requestedYear) {
+            return
+        }
+        refreshingYears.insert(requestedYear)
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            refreshingYears.remove(requestedYear)
+            isRefreshing = !refreshingYears.isEmpty
+        }
 
         do {
             let result = try await repository.refresh(year: requestedYear, force: force)
