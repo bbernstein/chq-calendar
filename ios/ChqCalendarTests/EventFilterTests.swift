@@ -11,13 +11,13 @@ struct EventFilterTests {
         #expect(EventFilter.searchScore(event: kayak, term: "kayak") > 0)
     }
 
-    @Test func kayakFixtureScoresTitleAndDetailsBothWholeTermAndWordBonus() throws {
+    @Test func kayakFixtureScoresTitleAndDetailsBothTiersForSingleWord() throws {
         let envelope = try JSONDecoder().decode(EventEnvelope.self, from: fixtureData("events-sample"))
         let kayak = try #require(envelope.data.first { $0.id == "101037" })
-        // "kayak" is a single word longer than 2 chars, so it triggers both
-        // stages: whole-term (title +100, details +50 = 150) and the
-        // per-word bonus (title +10, details +5 = 15). No location/token/
-        // presenter hits for this term.
+        // There is no whole-phrase stage — "kayak" is scored as a single
+        // word against both tiers: base (title +100, details +50 = 150)
+        // and, since it's longer than 2 chars, the bonus tier (title +10,
+        // details +5 = 15). No location/token/presenter hits for this word.
         #expect(EventFilter.searchScore(event: kayak, term: "kayak") == 165)
     }
 
@@ -31,30 +31,33 @@ struct EventFilterTests {
         #expect(titleScore > detailsScore)
     }
 
-    @Test func wordBonusAppliesPerQualifyingWordEvenWithoutWholeTermMatch() throws {
+    @Test func multiWordQueryScoresOnlyTheMatchingWordKayakOrientation() throws {
         let envelope = try JSONDecoder().decode(EventEnvelope.self, from: fixtureData("events-sample"))
         let kayak = try #require(envelope.data.first { $0.id == "101037" })
-        // "kayak orientation" never appears as a whole-term substring
-        // anywhere, so only the per-word bonus for "kayak" (>2 chars)
-        // applies: title +10, details +5. "orientation" matches nothing.
-        #expect(EventFilter.searchScore(event: kayak, term: "kayak orientation") == 15)
+        // Every word is scored independently and summed — there's no
+        // whole-phrase requirement. "kayak" matches title+details on both
+        // tiers (100+50+10+5 = 165); "orientation" matches nothing
+        // anywhere, contributing 0. Total is exactly the single matching
+        // word's score.
+        #expect(EventFilter.searchScore(event: kayak, term: "kayak orientation") == 165)
     }
 
-    @Test func shortWordsBelowThreeCharsDoNotEarnWordBonus() {
+    @Test func shortWordsBelowThreeCharsSkipTheBonusTier() {
         let event = makeEvent(id: "e1", start: Date(), title: "An Event About Us")
-        // "us" is 2 chars, at-or-below the >2 threshold, so it should not
-        // contribute a word bonus; whole-term "us" still hits title though.
+        // "us" is 2 chars, at-or-below the >2 threshold, so only the base
+        // tier applies: title contains "us" -> +100. The bonus tier is
+        // skipped entirely for this word.
         let score = EventFilter.searchScore(event: event, term: "us")
         #expect(score == 100)
     }
 
-    @Test func filterTokenMatchesAreSummedPerTokenInWholeTermStage() {
+    @Test func filterTokenMatchesAreSummedPerTokenInBaseTierOnly() {
         let event = makeEvent(id: "e1", start: Date(), title: "Gathering", categories: ["Recreation"], tags: ["recreational sport"])
         // filterTokens = {"recreation", "recreational sport"} — both contain
-        // "recreat", so both +85 hits stack in the whole-term stage (170).
-        // "recreat" is also >2 chars, so the word-bonus stage's flat
-        // any-token +7 applies once on top (177) — it does not stack per
-        // token the way the whole-term stage does.
+        // "recreat", so both +85 hits stack in the base tier (170).
+        // "recreat" is also >2 chars, so the bonus tier's flat any-token +7
+        // applies once on top (177) — it does not stack per token the way
+        // the base tier does.
         let score = EventFilter.searchScore(event: event, term: "recreat")
         #expect(score == 85 + 85 + 7)
     }
@@ -112,6 +115,46 @@ struct EventFilterTests {
         let result = EventFilter.apply(sel, to: [withinGrace, outsideGrace], favorites: [], now: now, year: 2026, isCurrentYear: true)
 
         #expect(result.map(\.id) == ["grace"])
+    }
+
+    @Test func nextScopeGraceBoundaryIsInclusiveAtExactlyOneHourAgo() throws {
+        let now = try #require(ChqTime.parse("2026-07-10 09:00:00"))
+        let exactlyOneHourAgo = makeEvent(id: "boundary", start: now.addingTimeInterval(-3600))
+
+        let sel = FilterSelection(dateScope: .next)
+        let result = EventFilter.apply(sel, to: [exactlyOneHourAgo], favorites: [], now: now, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["boundary"])
+    }
+
+    @Test func nextScopeAdaptiveWindowIsComputedFromFullSetNotSearchFilteredSet() throws {
+        let now = try #require(ChqTime.parse("2026-07-10 09:00:00"))
+        let from = now.addingTimeInterval(-3600)
+
+        // 50 "Gathering" events spread across day 0 satisfy minCount
+        // immediately, fixing the adaptive window at day 0's end — but only
+        // one of them ("Kayak Tour") would survive a "kayak" search filter.
+        var events: [Event] = try (0..<50).map { i in
+            makeEvent(
+                id: "base\(i)",
+                start: try #require(ChqTime.calendar.date(byAdding: .minute, value: i, to: from)),
+                title: "Gathering \(i)"
+            )
+        }
+        let kayakEvent = makeEvent(id: "kayak", start: from.addingTimeInterval(60), title: "Kayak Tour")
+        events.append(kayakEvent)
+        // An event just past day 0 that a full-set adaptive window would
+        // exclude — if the window were instead computed from the
+        // search-narrowed set (only 1 "kayak" match, far below minCount, so
+        // the window would grow to reach the 90-day cap and wrongly
+        // include this), this event would incorrectly appear too.
+        let laterKayakEvent = makeEvent(id: "later-kayak", start: try #require(ChqTime.parse("2026-07-11 10:00:00")), title: "Kayak Trip")
+        events.append(laterKayakEvent)
+
+        let sel = FilterSelection(searchText: "kayak", dateScope: .next)
+        let result = EventFilter.apply(sel, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["kayak"])
     }
 
     @Test func extraDaysWidensNextWindowByWholeDays() throws {

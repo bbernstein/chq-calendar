@@ -43,9 +43,13 @@ nonisolated enum EventFilter {
 
         case .next:
             let from = now.addingTimeInterval(-3600)
-            let adaptiveEnd = adaptiveEndDate(events: result, from: from, minCount: 50)
+            // The adaptive window is sized against the *full* event set
+            // passed to `apply` — not the search-narrowed `result` — so an
+            // active search term doesn't shrink or grow the window itself;
+            // it only narrows what the window is applied to below.
+            let adaptiveEnd = adaptiveEndDate(events: events, from: from, minCount: 50)
             let end: Date
-            if sel.extraDays != 0, let advanced = ChqTime.calendar.date(byAdding: .day, value: sel.extraDays, to: adaptiveEnd) {
+            if sel.extraDays > 0, let advanced = ChqTime.calendar.date(byAdding: .day, value: sel.extraDays, to: adaptiveEnd) {
                 end = ChqTime.endOfDay(advanced)
             } else {
                 end = adaptiveEnd
@@ -88,13 +92,14 @@ nonisolated enum EventFilter {
     /// necessarily lowercased or trimmed). Higher is more relevant; `0`
     /// means "no match" — callers keep only events with `score > 0`.
     ///
-    /// Two passes:
-    /// 1. Whole-term substring match: title +100, location +90, each
-    ///    matching `filterToken` +85 (summed, so multiple token hits
-    ///    stack), details +50, presenter +25.
-    /// 2. Per-word bonus, for each word of the term longer than 2
-    ///    characters: title +10, location +9, *any* matching token +7
-    ///    (flat, not summed per token), details +5, presenter +3.
+    /// There is no whole-phrase stage: the term is lowercased and split on
+    /// spaces, and each word is scored independently, then summed. For
+    /// *every* word: title +100, location +90, each matching `filterToken`
+    /// +85 (summed, so multiple token hits stack), details +50, presenter
+    /// +25. Additionally, for words longer than 2 characters: title +10,
+    /// location +9, *any* matching token +7 (flat, not summed per token),
+    /// details +5, presenter +3. So a single word that's long enough gets
+    /// both tiers; a query is just the sum of its words' scores.
     static func searchScore(event: Event, term: String) -> Int {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return 0 }
@@ -106,19 +111,21 @@ nonisolated enum EventFilter {
         let presenter = event.presenter?.lowercased()
         let tokens = event.filterTokens
 
-        var score = 0
-
-        if title.contains(lowerTerm) { score += 100 }
-        if let location, location.contains(lowerTerm) { score += 90 }
-        for token in tokens where token.contains(lowerTerm) { score += 85 }
-        if let details, details.contains(lowerTerm) { score += 50 }
-        if let presenter, presenter.contains(lowerTerm) { score += 25 }
-
         let words = lowerTerm
             .components(separatedBy: .whitespacesAndNewlines)
-            .filter { $0.count > 2 }
+            .filter { !$0.isEmpty }
+
+        var score = 0
 
         for word in words {
+            if title.contains(word) { score += 100 }
+            if let location, location.contains(word) { score += 90 }
+            for token in tokens where token.contains(word) { score += 85 }
+            if let details, details.contains(word) { score += 50 }
+            if let presenter, presenter.contains(word) { score += 25 }
+
+            guard word.count > 2 else { continue }
+
             if title.contains(word) { score += 10 }
             if let location, location.contains(word) { score += 9 }
             if tokens.contains(where: { $0.contains(word) }) { score += 7 }
