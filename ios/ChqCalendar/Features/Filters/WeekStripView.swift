@@ -35,7 +35,7 @@ private struct WeekChip: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        let chip = Button(action: action) {
             Text("\(number)")
                 .font(.subheadline.weight(.semibold))
                 .frame(minWidth: 44, minHeight: 44)
@@ -51,12 +51,16 @@ private struct WeekChip: View {
                 }
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            if let theme {
-                themeMenuContent(theme)
-            }
-        }
         .accessibilityLabel(accessibilityLabel)
+
+        // Themeless weeks (shouldn't happen in practice, but the type is
+        // optional) get no context menu attached at all, rather than one
+        // with empty content.
+        if let theme {
+            chip.contextMenu { themeMenuContent(theme) }
+        } else {
+            chip
+        }
     }
 
     @ViewBuilder

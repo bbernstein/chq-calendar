@@ -278,6 +278,54 @@ struct AppModelTests {
         #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedWeeks.isEmpty == true)
     }
 
+    @Test func toggleLocationMutatesAndPersistsFilterLowercased() {
+        let defaults = makeDefaults()
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        model.toggleLocation("Hall Of Philosophy")
+        #expect(model.filter.selectedLocations == ["hall of philosophy"])
+        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedLocations == ["hall of philosophy"])
+
+        model.toggleLocation("Hall Of Philosophy")
+        #expect(model.filter.selectedLocations.isEmpty)
+        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedLocations.isEmpty == true)
+    }
+
+    @Test func toggleCategoryMutatesAndPersistsFilterLowercased() {
+        let defaults = makeDefaults()
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        model.toggleCategory("CSO")
+        #expect(model.filter.selectedCategories == ["cso"])
+        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedCategories == ["cso"])
+
+        model.toggleCategory("CSO")
+        #expect(model.filter.selectedCategories.isEmpty)
+        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedCategories.isEmpty == true)
+    }
+
+    @Test func toggleFavoritesOnlyMutatesAndPersistsFilter() {
+        let defaults = makeDefaults()
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        model.toggleFavoritesOnly()
+        #expect(model.filter.showFavoritesOnly)
+        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.showFavoritesOnly == true)
+
+        model.toggleFavoritesOnly()
+        #expect(!model.filter.showFavoritesOnly)
+        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.showFavoritesOnly == false)
+    }
+
     @Test func clearFiltersResetsFacetsButKeepsSearchTextAndExtraDays() {
         let defaults = makeDefaults()
         let model = AppModel(

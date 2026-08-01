@@ -105,7 +105,7 @@ private struct FilterChip: View {
             }
             .font(.subheadline.weight(.medium))
             .padding(.horizontal, 14)
-            .frame(minHeight: 44)
+            .frame(minWidth: 44, minHeight: 44)
             .foregroundStyle(isSelected ? .white : .primary)
             .background(
                 isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
