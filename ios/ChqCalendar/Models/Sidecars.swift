@@ -44,4 +44,9 @@ nonisolated struct WeeklyThemesFile: Decodable, Sendable {
 nonisolated struct YearsManifest: Decodable, Sendable {
     let years: [Int]
     let defaultYear: Int
+
+    init(years: [Int], defaultYear: Int) {
+        self.years = years
+        self.defaultYear = defaultYear
+    }
 }
