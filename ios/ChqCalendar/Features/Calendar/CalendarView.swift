@@ -94,9 +94,7 @@ struct CalendarView: View {
             await model.refresh(force: true)
         }
         .navigationDestination(for: Event.self) { event in
-            // Placeholder destination — replaced by the real event detail
-            // view in a later task.
-            Text(event.title)
+            EventDetailView(event: event, model: model)
         }
     }
 

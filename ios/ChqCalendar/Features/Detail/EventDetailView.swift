@@ -1,0 +1,284 @@
+import SwiftUI
+
+/// Full detail screen for a single event: hero image (when present), title
+/// with cancellation/reschedule badge, labeled metadata rows, description,
+/// category chips, related Chautauquan Daily article links, and actions
+/// (favorite, share, add to calendar, open on chq.org).
+struct EventDetailView: View {
+    let event: Event
+    let model: AppModel
+
+    @State private var isAddToCalendarPresented = false
+
+    private var isFavorite: Bool { model.favorites.contains(event.id) }
+    private var articleLinks: [ArticleLink] { model.articleLinks(for: event.id) }
+    private var visibleCategories: [String] {
+        event.categoryNames.filter { !$0.hasPrefix("Week ") }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if let imageURL = event.imageURL {
+                    heroImage(imageURL)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    titleSection
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        detailRow(icon: "clock") {
+                            Text(timeRangeText)
+                        }
+
+                        if event.displayLocation != nil || event.venueAddress != nil {
+                            detailRow(icon: "mappin.and.ellipse") {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if let location = event.displayLocation {
+                                        Text(DisplayNames.location(location))
+                                    }
+                                    if let address = event.venueAddress {
+                                        Text(address)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+
+                        if let presenter = event.presenter {
+                            detailRow(icon: "person") {
+                                Text(presenter)
+                            }
+                        }
+
+                        if let cost = event.cost {
+                            detailRow(icon: "ticket") {
+                                Text(cost)
+                            }
+                        }
+                    }
+
+                    if !visibleCategories.isEmpty {
+                        categoryChips
+                    }
+
+                    if let details = event.details, !details.isEmpty {
+                        descriptionSection(details)
+                    }
+
+                    if !articleLinks.isEmpty {
+                        articleLinksSection
+                    }
+
+                    actionButtons
+                }
+                .padding(.horizontal)
+            }
+            .padding(.bottom, 24)
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
+        .sheet(isPresented: $isAddToCalendarPresented) {
+            AddToCalendarView(event: event)
+        }
+    }
+
+    // MARK: - Sections
+
+    private func heroImage(_ url: URL) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            default:
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: 220)
+        .clipped()
+    }
+
+    private var titleSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(event.title)
+                .font(.largeTitle.bold())
+                .strikethrough(event.status == .cancelled)
+                .foregroundStyle(event.status == .cancelled ? .secondary : .primary)
+
+            statusBadge
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch event.status {
+        case .cancelled:
+            badge("Cancelled", color: .red)
+        case .rescheduled:
+            badge("Rescheduled", color: .orange)
+        case .scheduled:
+            EmptyView()
+        }
+    }
+
+    private func badge(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color, in: Capsule())
+    }
+
+    private var categoryChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(visibleCategories, id: \.self) { category in
+                    Text(DisplayNames.category(category))
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.secondary.opacity(0.15), in: Capsule())
+                }
+            }
+        }
+    }
+
+    private func descriptionSection(_ details: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(paragraphs(of: details).enumerated()), id: \.offset) { _, paragraph in
+                Text(paragraph)
+                    .font(.body)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var articleLinksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("In the Chautauquan Daily")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(articleLinks, id: \.url) { link in
+                    Link(destination: link.url) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "newspaper")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(link.title)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .multilineTextAlignment(.leading)
+                                Text("\(link.kind.rawValue) · \(formattedPubDate(link.pubDate))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var actionButtons: some View {
+        VStack(spacing: 10) {
+            Button {
+                isAddToCalendarPresented = true
+            } label: {
+                Label("Add to Calendar", systemImage: "calendar.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+
+            if let pageURL = event.pageURL {
+                Link(destination: pageURL) {
+                    Text("Open on chq.org")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                model.toggleFavorite(event.id)
+            } label: {
+                Image(systemName: isFavorite ? "star.fill" : "star")
+                    .foregroundStyle(isFavorite ? .yellow : .primary)
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            ShareLink(item: event.pageURL ?? Self.fallbackShareURL)
+        }
+    }
+
+    // MARK: - Formatting helpers
+
+    private var timeRangeText: String {
+        let day = ChqTime.dayTitle(for: event.start)
+        let startTime = ChqTime.timeString(for: event.start)
+        if event.end == event.start {
+            return "\(day) · \(startTime)"
+        }
+        let endTime = ChqTime.timeString(for: event.end)
+        return "\(day) · \(startTime) – \(endTime)"
+    }
+
+    private func paragraphs(of details: String) -> [String] {
+        details
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static let fallbackShareURL = URL(string: "https://www.chqcal.org")!
+
+    private static let pubDateInputFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = ChqTime.zone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let pubDateOutputFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = ChqTime.zone
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    private func formattedPubDate(_ raw: String) -> String {
+        guard let date = Self.pubDateInputFormatter.date(from: raw) else { return raw }
+        return Self.pubDateOutputFormatter.string(from: date)
+    }
+
+    @ViewBuilder
+    private func detailRow<Content: View>(
+        icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+            content()
+            Spacer(minLength: 0)
+        }
+    }
+}
