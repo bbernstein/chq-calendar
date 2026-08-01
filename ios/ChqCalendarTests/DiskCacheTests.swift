@@ -94,4 +94,34 @@ struct DiskCacheTests {
         cache.remove("nonexistent")
         #expect(cache.read("nonexistent") == nil)
     }
+
+    @Test func readReturnsNilWhenMetadataSidecarIsMissing() throws {
+        let cache = makeCache()
+        let payload = try #require("payload".data(using: .utf8))
+        cache.write("events", data: payload, etag: "abc123", fetchedAt: Date())
+
+        // Simulate a torn write (or a manual deletion) that leaves the
+        // payload behind with no metadata sidecar.
+        try FileManager.default.removeItem(at: cache.directory.appending(path: "events.meta.json"))
+
+        #expect(cache.read("events") == nil)
+    }
+
+    @Test func writeSanitizesPathTraversalKeyToStayInsideDirectory() throws {
+        let cache = makeCache()
+        let payload = try #require("payload".data(using: .utf8))
+
+        cache.write("../escape", data: payload, etag: nil, fetchedAt: Date())
+
+        let fm = FileManager.default
+        let namesInCacheDir = try fm.contentsOfDirectory(atPath: cache.directory.path)
+        #expect(namesInCacheDir.contains(".._escape.json"))
+        #expect(namesInCacheDir.contains(".._escape.meta.json"))
+
+        // Nothing escaped one level up into the parent (temp) directory.
+        let parentDir = cache.directory.deletingLastPathComponent()
+        let namesInParent = try fm.contentsOfDirectory(atPath: parentDir.path)
+        #expect(!namesInParent.contains("escape.json"))
+        #expect(!namesInParent.contains("escape.meta.json"))
+    }
 }

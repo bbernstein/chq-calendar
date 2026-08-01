@@ -50,6 +50,11 @@ nonisolated protocol DataCaching: Sendable {
 /// All methods tolerate a missing or corrupt cache directory/files: `read`
 /// returns `nil` rather than throwing, and `write`/`touch`/`remove` no-op on
 /// failure instead of propagating errors.
+///
+/// `key` is an internal cache identifier chosen by the caller (e.g.
+/// `"events-2026"`), not user input — but it is still sanitized before use
+/// as a filename component, so stray path separators (`/`, `..`) can never
+/// escape `directory`.
 nonisolated struct DiskCache: DataCaching {
     let directory: URL
 
@@ -76,12 +81,26 @@ nonisolated struct DiskCache: DataCaching {
         return decoder
     }()
 
+    /// Sanitizes `key` for use as a filename component: any character
+    /// outside `[A-Za-z0-9._-]` is replaced with `_`, so a key like
+    /// `"../escape"` can never resolve outside `directory`.
+    private func fileName(for key: String) -> String {
+        String(key.map { char in
+            switch char {
+            case "a"..."z", "A"..."Z", "0"..."9", ".", "_", "-":
+                return char
+            default:
+                return "_"
+            }
+        })
+    }
+
     private func payloadURL(for key: String) -> URL {
-        directory.appending(path: "\(key).json")
+        directory.appending(path: "\(fileName(for: key)).json")
     }
 
     private func metadataURL(for key: String) -> URL {
-        directory.appending(path: "\(key).meta.json")
+        directory.appending(path: "\(fileName(for: key)).meta.json")
     }
 
     func read(_ key: String) -> CacheEntry? {
@@ -103,6 +122,16 @@ nonisolated struct DiskCache: DataCaching {
             return
         }
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // Fail-safe ordering: remove the metadata sidecar *before* writing
+        // the new payload, and only write the new metadata *after* the
+        // payload write succeeds. Each of these three steps can fail
+        // independently (crash, disk full, etc.), but this ordering
+        // guarantees the only states an interruption can leave behind are
+        // "no metadata" (old or new payload present) — which `read`
+        // already treats as `nil` — never a *stale* metadata file paired
+        // with a *new* payload.
+        try? fm.removeItem(at: metadataURL(for: key))
         try? data.write(to: payloadURL(for: key), options: .atomic)
         try? metaData.write(to: metadataURL(for: key), options: .atomic)
     }
