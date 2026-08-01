@@ -121,6 +121,47 @@ nonisolated struct Event: Identifiable, Hashable, Sendable, Decodable {
 
         self.filterTokens = Set((self.tags + names).map { $0.lowercased() })
     }
+
+    /// Test/internal support: full memberwise initializer. `Event` normally
+    /// decodes exclusively via `init(from:)`; this exists so tests (and any
+    /// in-module code that needs to synthesize events) can construct values
+    /// directly without round-tripping through JSON. `filterTokens` is
+    /// derived the same way the decoder derives it, so callers don't need to
+    /// keep the two in sync by hand.
+    nonisolated init(
+        id: String,
+        title: String,
+        start: Date,
+        end: Date? = nil,
+        details: String? = nil,
+        displayLocation: String? = nil,
+        venueAddress: String? = nil,
+        categoryNames: [String] = [],
+        tags: [String] = [],
+        presenter: String? = nil,
+        cost: String? = nil,
+        pageURL: URL? = nil,
+        imageURL: URL? = nil,
+        status: EventStatus = .scheduled,
+        week: Int? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.start = start
+        self.end = end ?? start
+        self.details = details
+        self.displayLocation = displayLocation
+        self.venueAddress = venueAddress
+        self.categoryNames = categoryNames
+        self.tags = tags
+        self.presenter = presenter
+        self.cost = cost
+        self.pageURL = pageURL
+        self.imageURL = imageURL
+        self.status = status
+        self.week = week
+        self.filterTokens = Set((tags + categoryNames).map { $0.lowercased() })
+    }
 }
 
 /// Decodes a JSON array leniently: elements that fail to decode are skipped

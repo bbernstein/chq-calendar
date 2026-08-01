@@ -1,6 +1,42 @@
 import Foundation
 @testable import ChqCalendar
 
+/// Builds an `Event` directly (via `Event`'s internal memberwise
+/// initializer) for filter/grouping/display-name tests, without needing to
+/// round-trip through JSON. Only the fields a given test cares about need
+/// to be supplied — everything else defaults to an inert value.
+func makeEvent(
+    id: String,
+    start: Date,
+    title: String = "Test Event",
+    location: String? = nil,
+    categories: [String] = [],
+    tags: [String] = [],
+    details: String? = nil,
+    presenter: String? = nil,
+    end: Date? = nil,
+    week: Int? = nil,
+    status: EventStatus = .scheduled
+) -> Event {
+    Event(
+        id: id,
+        title: title,
+        start: start,
+        end: end,
+        details: details,
+        displayLocation: location,
+        venueAddress: nil,
+        categoryNames: categories,
+        tags: tags,
+        presenter: presenter,
+        cost: nil,
+        pageURL: nil,
+        imageURL: nil,
+        status: status,
+        week: week
+    )
+}
+
 /// Errors used to script `MockAPI` failures in tests.
 enum MockAPIError: Error, Sendable, Equatable {
     case unscripted(String)
