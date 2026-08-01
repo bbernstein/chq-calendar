@@ -114,8 +114,10 @@ actor EventRepository {
             }
             events = try decodeEvents(cachedEventsEntry.data)
         case .success(let data, let etag):
-            cache.write(eventsResource.cacheKey, data: data, etag: etag, fetchedAt: now)
+            // Decode before writing: a malformed 200 body must never
+            // overwrite a previously-good cached payload.
             events = try decodeEvents(data)
+            cache.write(eventsResource.cacheKey, data: data, etag: etag, fetchedAt: now)
         }
 
         return CalendarSnapshot(
@@ -149,8 +151,10 @@ actor EventRepository {
                     return manifest
                 }
             case .success(let data, let etag):
-                cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
+                // Decode before writing: a malformed 200 body must never
+                // overwrite a previously-good cached payload.
                 if let manifest = try? JSONDecoder().decode(YearsManifest.self, from: data) {
+                    cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
                     return manifest
                 }
             }

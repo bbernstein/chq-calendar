@@ -140,7 +140,73 @@ struct EventRepositoryTests {
             _ = try await repo.refresh(year: 2026, force: false)
             Issue.record("Expected refresh(year:force:) to throw when events fetch fails with no cache")
         } catch {
-            // Expected: the failure propagates rather than being swallowed.
+            #expect(error as? MockAPIError == .unscripted("events-down"))
+        }
+    }
+
+    // MARK: - decode-before-write (cache poisoning guard)
+
+    @Test func refreshThrowsAndLeavesCacheUntouchedWhenNewEventsPayloadIsGarbage() async throws {
+        let api = MockAPI()
+        let cache = MockCache()
+        let originalFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "events-etag-good", fetchedAt: originalFetchedAt)
+        let garbage = try #require("not valid json".data(using: .utf8))
+        await api.setSuccess(data: garbage, etag: "events-etag-garbage", for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache, ttl: 0)
+
+        do {
+            _ = try await repo.refresh(year: 2026, force: false)
+            Issue.record("Expected refresh(year:force:) to throw on undecodable events payload")
+        } catch {
+            #expect(error as? EventRepositoryError == .decodingFailed)
+        }
+
+        // The cache must be entirely untouched: same bytes, same etag, same fetchedAt.
+        let entry = try #require(cache.read("events-2026"))
+        #expect(entry.data == fixtureData("events-sample"))
+        #expect(entry.metadata.etag == "events-etag-good")
+        #expect(entry.metadata.fetchedAt == originalFetchedAt)
+
+        // And the disk-only read path still sees the old good data.
+        let cached = await repo.cachedSnapshot(year: 2026)
+        #expect(cached?.events.count == 5)
+    }
+
+    @Test func availableYearsReturnsCachedValueAndLeavesCacheUntouchedWhenNewYearsPayloadIsGarbage() async throws {
+        let api = MockAPI()
+        let cache = MockCache()
+        let originalFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("years", data: fixtureData("years"), etag: "years-etag-good", fetchedAt: originalFetchedAt)
+        let garbage = try #require("not valid json".data(using: .utf8))
+        await api.setSuccess(data: garbage, etag: "years-etag-garbage", for: .years)
+        // ttl: 0 so the cached copy isn't fresh and availableYears actually goes to the network.
+        let repo = EventRepository(api: api, cache: cache, ttl: 0)
+
+        let manifest = await repo.availableYears()
+
+        #expect(manifest.years == [2025, 2026, 2027])
+        #expect(manifest.defaultYear == 2026)
+
+        let entry = try #require(cache.read("years"))
+        #expect(entry.data == fixtureData("years"))
+        #expect(entry.metadata.etag == "years-etag-good")
+        #expect(entry.metadata.fetchedAt == originalFetchedAt)
+    }
+
+    // MARK: - 304 with no cached events
+
+    @Test func refreshThrowsNotModifiedWithoutCacheWhenEventsIs304AndCacheEmpty() async throws {
+        let api = MockAPI()
+        await api.setNotModified(for: .events(year: 2026))
+        let cache = MockCache()
+        let repo = EventRepository(api: api, cache: cache)
+
+        do {
+            _ = try await repo.refresh(year: 2026, force: false)
+            Issue.record("Expected refresh(year:force:) to throw notModifiedWithoutCache")
+        } catch {
+            #expect(error as? EventRepositoryError == .notModifiedWithoutCache)
         }
     }
 
