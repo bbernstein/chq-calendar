@@ -24,6 +24,14 @@ describe('buildSitemapXml', () => {
     expect(xml).not.toContain('/publish');
   });
 
+  it('includes the privacy and support pages required for App Store submission', () => {
+    expect(PUBLIC_PATHS).toContain('/privacy');
+    expect(PUBLIC_PATHS).toContain('/support');
+    const xml = buildSitemapXml(PUBLIC_PATHS);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/privacy</loc>`);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/support</loc>`);
+  });
+
   it('is well-formed XML with a urlset root', () => {
     const xml = buildSitemapXml(PUBLIC_PATHS);
     expect(xml.startsWith('<?xml')).toBe(true);
