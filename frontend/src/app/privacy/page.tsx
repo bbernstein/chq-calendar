@@ -57,13 +57,15 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section title="No Analytics or Tracking">
+          <Section title="No Analytics SDKs or Ad Tracking">
             <p>
-              The app and website contain no analytics SDKs and no
-              advertising identifiers. Neither one tracks you across other
-              apps or websites, and neither builds a profile of your
-              activity. There is nothing here to opt out of, because nothing
-              is collected in the first place.
+              The app and website contain no third-party analytics SDKs and
+              no advertising identifiers. Neither one tracks you across
+              other apps or websites in the sense Apple&rsquo;s App Tracking
+              Transparency framework means by tracking, and neither shows
+              you targeted ads. See &ldquo;How We Measure Site Traffic&rdquo;
+              below for the one place we do measure aggregate usage of the
+              website.
             </p>
           </Section>
 
@@ -99,14 +101,23 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section title="Standard Access Logs">
+          <Section title="How We Measure Site Traffic">
             <p>
-              Like virtually every website, chqcal.org&rsquo;s content
-              delivery network keeps standard operational access logs —
-              including IP addresses — for security and reliability, for
-              example to detect abuse or diagnose an outage. These logs are
-              not used for tracking, advertising, or profiling, and are not
-              linked to any user identity.
+              chqcal.org&rsquo;s content delivery network records the IP
+              address and user-agent string of every request it serves —
+              including requests made by the iOS app, which talks to this
+              same website — and retains those raw logs for 90 days. From
+              them we derive a pseudonymous, hashed visitor key and use it
+              to count unique visitors and tell new visitors from returning
+              ones, in aggregate, across days, weeks, and the season. This
+              is ordinary web traffic measurement: it is not used for
+              advertising, it involves no ad networks or data brokers, and
+              it is never sold or shared with anyone. It is not linked to
+              any account or real-world identity, because CHQ Calendar has
+              no accounts. If you would rather not be counted this way,
+              use a browser extension or network setting that hides your
+              IP address (a VPN, for example); we have no way to identify
+              or exempt individual requests otherwise.
             </p>
           </Section>
 

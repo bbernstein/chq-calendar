@@ -35,4 +35,30 @@ describe('PrivacyPage', () => {
     const link = screen.getByRole('link', { name: /support/i });
     expect(link.getAttribute('href')).toBe('/support');
   });
+
+  // Fix round 1: the page originally claimed CDN logs are "not used for
+  // tracking, advertising, or profiling" — false, per
+  // infrastructure/traffic-analytics.tf's cf_visitor_key derivation and the
+  // returning-visitor Athena queries. The page must not deny profiling.
+  it('does not deny that server-side traffic measurement is a form of profiling', () => {
+    render(<PrivacyPage />);
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/not\s+used\s+for\s+tracking,?\s+advertising,?\s+or\s+profiling/i);
+    expect(text).not.toMatch(/not\s+profiling/i);
+  });
+
+  it('discloses that IP addresses and user-agents are measured and retained 90 days', () => {
+    render(<PrivacyPage />);
+    const text = document.body.textContent ?? '';
+    expect(text).toMatch(/ip address/i);
+    expect(text).toMatch(/user-agent/i);
+    expect(text).toMatch(/90 days/i);
+  });
+
+  it('discloses aggregate visitor measurement is not used for advertising and is not sold or shared', () => {
+    render(<PrivacyPage />);
+    const text = document.body.textContent ?? '';
+    expect(text).toMatch(/not used for advertising/i);
+    expect(text).toMatch(/(sold or shared|shared or sold)/i);
+  });
 });
