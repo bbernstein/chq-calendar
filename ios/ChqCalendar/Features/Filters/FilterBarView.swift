@@ -50,7 +50,27 @@ struct FilterBarView: View {
         .sheet(isPresented: $isFilterSheetPresented) {
             FilterSheetView(model: model)
         }
+        #if DEBUG
+        // MARK: UI-test hooks (DEBUG only)
+        // Consumes the flag `CalendarView.applyUITestHooks` sets for
+        // `-uitest-show-filters`. Both `onAppear` (flag already true when
+        // this view first mounts) and `onChange` (this view was already
+        // mounted — e.g. from a warm cache — before `start()` finished and
+        // the flag flipped) are needed to catch either ordering. Compiles
+        // out of Release builds.
+        .onAppear(perform: presentFilterSheetIfNeeded)
+        .onChange(of: model.uiTestShowFilters) { _, _ in presentFilterSheetIfNeeded() }
+        #endif
     }
+
+    #if DEBUG
+    private func presentFilterSheetIfNeeded() {
+        if model.uiTestShowFilters {
+            model.uiTestShowFilters = false
+            isFilterSheetPresented = true
+        }
+    }
+    #endif
 
     /// All `DateScope` cases in a current-year season; only `.all` once the
     /// viewed year is no longer the current one (past/future seasons have

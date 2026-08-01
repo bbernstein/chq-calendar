@@ -27,6 +27,14 @@ struct CalendarView: View {
     /// pushes via `NavigationLink` instead.
     @State private var selectedEvent: Event?
 
+    #if DEBUG
+    /// Compact-mode-only: bound to `stackView`'s `NavigationStack` so
+    /// `-uitest-select-linked-event` can push a detail view programmatically
+    /// (see `applyUITestHooks` below). Unused in Release builds, where the
+    /// stack manages its own internal path as before.
+    @State private var path = NavigationPath()
+    #endif
+
     var body: some View {
         Group {
             if horizontalSizeClass == .regular {
@@ -42,6 +50,9 @@ struct CalendarView: View {
         }
         .task {
             await model.start()
+            #if DEBUG
+            applyUITestHooks()
+            #endif
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -51,10 +62,17 @@ struct CalendarView: View {
     }
 
     private var stackView: some View {
+        #if DEBUG
+        NavigationStack(path: $path) {
+            EventListView(model: model, selection: nil)
+        }
+        .searchable(text: $searchDraft, prompt: "Search events")
+        #else
         NavigationStack {
             EventListView(model: model, selection: nil)
         }
         .searchable(text: $searchDraft, prompt: "Search events")
+        #endif
     }
 
     private var splitView: some View {
@@ -71,4 +89,35 @@ struct CalendarView: View {
             }
         }
     }
+
+    #if DEBUG
+    // MARK: UI-test hooks (DEBUG only)
+
+    /// Honors `ProcessInfo.processInfo.arguments` after `model.start()`
+    /// reaches a settled phase, to make interactive states reachable for
+    /// screenshot-based verification — `xcrun simctl` can't synthesize taps.
+    /// This whole method (and its call site above) compiles out of Release
+    /// builds.
+    private func applyUITestHooks() {
+        let arguments = ProcessInfo.processInfo.arguments
+
+        if arguments.contains("-uitest-show-filters") {
+            model.uiTestShowFilters = true
+        }
+
+        let wantsLinkedEvent = arguments.contains("-uitest-select-linked-event")
+            || arguments.contains("-uitest-show-add-to-calendar")
+        guard wantsLinkedEvent, let event = model.uiTestFirstLinkedEvent else { return }
+
+        if horizontalSizeClass == .regular {
+            selectedEvent = event
+        } else {
+            path.append(event)
+        }
+
+        if arguments.contains("-uitest-show-add-to-calendar") {
+            model.uiTestShowAddToCalendar = true
+        }
+    }
+    #endif
 }

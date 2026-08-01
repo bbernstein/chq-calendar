@@ -316,4 +316,29 @@ final class AppModel {
     private func persistFilter() {
         store.saveFilters(filter)
     }
+
+    #if DEBUG
+    // MARK: UI-test hooks (DEBUG only)
+
+    /// Shared flags/lookups consumed by `CalendarView`, `FilterBarView`, and
+    /// `EventDetailView` to make interactive states reachable for
+    /// screenshot-based verification when `xcrun simctl` can't synthesize a
+    /// tap (see task-12 brief). This whole section compiles out of Release
+    /// builds.
+
+    /// Set by `CalendarView` on launch when `-uitest-show-filters` is
+    /// present; consumed (and reset) by `FilterBarView.onAppear`.
+    var uiTestShowFilters = false
+
+    /// Set by `CalendarView` on launch when `-uitest-show-add-to-calendar`
+    /// is present; consumed (and reset) by `EventDetailView.onAppear`.
+    var uiTestShowAddToCalendar = false
+
+    /// The first event in the current snapshot with at least one
+    /// Chautauquan Daily article link — the deterministic target for
+    /// `-uitest-select-linked-event` / `-uitest-show-add-to-calendar`.
+    var uiTestFirstLinkedEvent: Event? {
+        snapshot?.events.first { !articleLinks(for: $0.id).isEmpty }
+    }
+    #endif
 }
