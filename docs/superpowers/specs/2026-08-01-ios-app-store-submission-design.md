@@ -292,11 +292,21 @@ the file so limits are checked mechanically rather than by hand.
 | Marketing URL | `https://www.chqcal.org` |
 | Support URL | `https://www.chqcal.org/support` |
 | Privacy Policy URL | `https://www.chqcal.org/privacy` |
-| Copyright | `[account holder name]` — left as a placeholder in the repo, per the standing rule that personal names are not checked into git. Filled in directly in App Store Connect. |
+| Copyright | `© 2026 Bernard Bernstein` |
 
 The subtitle deliberately spends its first word on "Unofficial": it is the
 highest-visibility place to establish the 5.2.1 position, and it appears
 in search results.
+
+**On the author's name.** The project's standing rule keeps personal names
+out of the repository. The author has granted an explicit exception for
+attribution contexts — copyright notices, author credit, and registered
+owner fields — so the real name is used in those places rather than a
+placeholder. The exception is narrow: it covers crediting the author or
+registered owner, not personal contact details, and not incidental
+appearances of the name elsewhere in the codebase. The App Store copyright
+string must match the Apple Developer account holder name exactly; the
+release checklist carries that as a verification step.
 
 ### 6.2 Keywords (≤100 characters, comma-separated, no spaces)
 
