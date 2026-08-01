@@ -66,13 +66,13 @@ export default function SupportPage() {
 
           <Section title="Privacy">
             <p>
-              CHQ Calendar has no accounts, no analytics, and no tracking.
-              See our{' '}
+              CHQ Calendar has no accounts, no third-party analytics SDKs,
+              and no advertising trackers. The website does measure
+              aggregate traffic — see our{' '}
               <a className="link" href="/privacy">
                 privacy policy
               </a>{' '}
-              for the full details of what information (if any) is
-              collected.
+              for exactly what information is collected and how.
             </p>
           </Section>
 

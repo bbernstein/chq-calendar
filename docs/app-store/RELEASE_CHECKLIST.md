@@ -26,6 +26,15 @@ Related documents:
   build number — screenshots and previews should reflect what the submitted
   build actually looks like.
 
+  **No App Preview has been recorded yet, as of this writing.** It is
+  deliberately not scripted end-to-end: `ios/Scripts/record-preview.sh`
+  produces the encoded video, but a human still has to drive the demo flow
+  in the Simulator (or on a device, per Appendix B) while it captures —
+  faking that step was considered and correctly rejected. The App Preview
+  is optional; the listing is complete and submittable without one. Skip
+  the re-record instruction above, and Step 7's preview upload, until
+  someone actually records one.
+
 - [ ] **2. Bump the build number.**
   In `ios/ChqCalendar.xcodeproj/project.pbxproj`, increment
   `CURRENT_PROJECT_VERSION` in **both** app-target configuration blocks
@@ -72,9 +81,12 @@ Related documents:
 
 - [ ] **7. Upload screenshots and the preview; choose a poster frame.**
   Upload the iPhone 6.9" and iPad 13" screenshot sets produced in Step 1 to
-  their respective device-size slots, and upload the App Preview video.
-  Choose a poster frame for the preview (the still image shown before the
-  video plays) that reads clearly at thumbnail size.
+  their respective device-size slots. If an App Preview video exists (see
+  the note in Step 1 — none has been recorded as of this writing), upload
+  it and choose a poster frame (the still image shown before the video
+  plays) that reads clearly at thumbnail size. The App Preview is optional;
+  skip this part of the step and submit with screenshots alone if no
+  preview has been recorded.
 
 - [ ] **8. Paste copy from `listing-fields.json`.**
   Fill in every App Store Connect text field from
@@ -110,19 +122,6 @@ Related documents:
 
 - [ ] **11. Paste App Review Notes** from `listing-fields.json` →
   `reviewNotes` into **App Review Information → Notes**.
-
-  > **Known issue as of 2026-08-01:** the current `reviewNotes` text ends
-  > with the sentence *"The app collects no data."* This is now incorrect —
-  > the corrected App Privacy answer (Step 10, and
-  > `privacy-nutrition-label.md`) is that the app **does** declare Usage
-  > Data → Product Interaction (Not Linked to You, Not Used for Tracking),
-  > not "no data." Paste the field as-is if it has not yet been fixed, but
-  > this is a required follow-up to Task 1's `listing-fields.json`/
-  > `listing-copy.md` deliverable before submitting for real — a reviewer
-  > cross-checking the Notes against the App Privacy answers would see a
-  > direct contradiction. Fix the JSON (and re-run Step 3) before pasting,
-  > or at minimum confirm someone has before this checklist is used for an
-  > actual submission.
 
 - [ ] **12. Submit for review.**
 

@@ -30,4 +30,26 @@ describe('SupportPage', () => {
     render(<SupportPage />);
     expect(document.body.textContent ?? '').toMatch(/chq\.org/);
   });
+
+  // Fix round 2 (PR #149 final review): this page is App Store Connect's
+  // Support URL — the reviewer opens it — and it originally claimed "no
+  // accounts, no analytics, and no tracking," flatly contradicting the App
+  // Privacy declaration (Usage Data -> Product Interaction), the /privacy
+  // page's "How We Measure Site Traffic" section, and reviewNotes. It must
+  // not repeat that blanket claim, and must point to /privacy for the
+  // actual traffic-measurement details instead of hedging with "(if any)".
+  it('does not make a blanket no-analytics or no-tracking claim', () => {
+    render(<SupportPage />);
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/no analytics/i);
+    expect(text).not.toMatch(/no tracking/i);
+    expect(text).not.toMatch(/\(if any\)/i);
+  });
+
+  it('points to the privacy policy for how traffic is measured', () => {
+    render(<SupportPage />);
+    const text = document.body.textContent ?? '';
+    expect(text).toMatch(/aggregate traffic/i);
+    expect(text).toMatch(/privacy policy/i);
+  });
 });

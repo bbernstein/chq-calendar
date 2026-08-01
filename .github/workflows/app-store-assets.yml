@@ -111,5 +111,11 @@ jobs:
 
             [skip-screenshots: pure refactor, no visual change]
 
+          If you regenerated and the manifest did not change because the
+          shot list does not cover the screen you touched, that is also a
+          valid opt-out:
+
+            [skip-screenshots: regenerated, no covered shot changed]
+
           MSG
           exit 1

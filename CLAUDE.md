@@ -256,6 +256,10 @@ messaging belongs.
 genuinely alters no pixel a user sees, opt out explicitly by putting
 `[skip-screenshots: <reason>]` in the PR description — a non-empty reason
 is required, so opting out is a recorded decision rather than silence.
+If you regenerated and the manifest did not change because the shot list
+in `ios/Scripts/screenshot-plan.json` does not cover the screen you
+touched, that is also a valid opt-out: `[skip-screenshots: regenerated,
+no covered shot changed]`.
 The guard checks that the manifest file itself changed since the PR's
 merge-base — that catches the honest mistake of forgetting to regenerate,
 but it is a git-diff check, not proof the change came from a real
