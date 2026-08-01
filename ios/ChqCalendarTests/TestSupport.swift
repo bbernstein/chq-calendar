@@ -60,6 +60,7 @@ actor MockAPI: CalendarAPIClient {
 
     private(set) var calls: [Call] = []
     private var results: [String: Result<FetchResult, Error>] = [:]
+    private var neverResolvesKeys: Set<String> = []
 
     func setSuccess(data: Data, etag: String?, for resource: RemoteResource) {
         results[resource.cacheKey] = .success(.success(data: data, etag: etag))
@@ -73,8 +74,19 @@ actor MockAPI: CalendarAPIClient {
         results[resource.cacheKey] = .failure(error)
     }
 
+    /// Makes `fetch` suspend forever for `resource`, instead of ever
+    /// returning a scripted result. Used to prove a code path renders from
+    /// cache alone, without depending on (or waiting for) any network call
+    /// to complete.
+    func setNeverResolves(for resource: RemoteResource) {
+        neverResolvesKeys.insert(resource.cacheKey)
+    }
+
     func fetch(_ resource: RemoteResource, ifNoneMatch: String?, timeout: TimeInterval?) async throws -> FetchResult {
         calls.append(Call(resource: resource, ifNoneMatch: ifNoneMatch, timeout: timeout))
+        if neverResolvesKeys.contains(resource.cacheKey) {
+            try? await Task.sleep(nanoseconds: .max)
+        }
         guard let result = results[resource.cacheKey] else {
             throw MockAPIError.unscripted(resource.cacheKey)
         }
