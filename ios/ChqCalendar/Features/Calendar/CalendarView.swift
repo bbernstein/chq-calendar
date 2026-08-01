@@ -51,7 +51,7 @@ struct CalendarView: View {
         .task {
             await model.start()
             #if DEBUG
-            applyUITestHooks()
+            await applyUITestHooks()
             #endif
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -98,7 +98,21 @@ struct CalendarView: View {
     /// screenshot-based verification — `xcrun simctl` can't synthesize taps.
     /// This whole method (and its call site above) compiles out of Release
     /// builds.
-    private func applyUITestHooks() {
+    ///
+    /// `async` for one reason: on a simulator with no on-disk cache yet (a
+    /// freshly-erased capture run's very first launch), `model.start()`'s
+    /// article-links sidecar fetch races a short, best-effort timeout
+    /// (`EventRepository`'s `sidecarTimeout`, 3s in production) against a
+    /// genuinely cold network path — no DNS/TLS session to reuse the way a
+    /// same-process relaunch would have. Losing that race is silent by
+    /// design (sidecars degrade to "no links" rather than blocking the
+    /// whole snapshot), so `uiTestFirstLinkedEvent` can come back `nil` on
+    /// that first launch even though real linked events exist and the very
+    /// next launch finds them fine. Observed directly capturing screenshots:
+    /// identical launches of the same build, back to back, differed only in
+    /// whether this raced. The retry below forces one more full refresh
+    /// before giving up, which is enough to clear it in practice.
+    private func applyUITestHooks() async {
         let arguments = ProcessInfo.processInfo.arguments
 
         if arguments.contains("-uitest-show-filters") {
@@ -120,7 +134,16 @@ struct CalendarView: View {
 
         let wantsLinkedEvent = arguments.contains("-uitest-select-linked-event")
             || arguments.contains("-uitest-show-add-to-calendar")
-        guard wantsLinkedEvent, let event = model.uiTestFirstLinkedEvent else { return }
+        guard wantsLinkedEvent else { return }
+
+        if model.uiTestFirstLinkedEvent == nil {
+            // See the doc comment above: this is the cold-launch sidecar
+            // race, not "no linked events exist" — force one more full
+            // refresh (bypassing the just-fetched-so-skip-it fast path)
+            // before concluding there's really nothing to select.
+            await model.refresh(force: true)
+        }
+        guard let event = model.uiTestFirstLinkedEvent else { return }
 
         if horizontalSizeClass == .regular {
             selectedEvent = event

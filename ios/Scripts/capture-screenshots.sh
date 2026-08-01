@@ -9,6 +9,23 @@
 #
 # Usage:  ios/Scripts/capture-screenshots.sh [device-key ...]
 #         (no args = every device in screenshot-plan.json)
+#
+# screenshot-plan.json shot schema (per shot):
+#   "launchArgs"       - args passed on every device (required, may be []).
+#   "deviceLaunchArgs" - optional map of { "<device key>": [extra args] },
+#                        appended after "launchArgs" for that device only.
+#                        Use this when the same shot id needs to differ by
+#                        device — e.g. iPad's wider NavigationSplitView has
+#                        a detail column that a plain iPhone-oriented launch
+#                        leaves empty ("Select an event"/blank), so 01/02/03
+#                        add "-uitest-select-linked-event" only under
+#                        "ipad-13" to populate it, while iPhone (single
+#                        column, nothing to populate) launches with just
+#                        "launchArgs" as before. Order is launchArgs first,
+#                        then deviceLaunchArgs[<key>] — matters if a hook
+#                        reads "the argument that follows a flag" (e.g.
+#                        "-uitest-search <term>" — keep such flag+value
+#                        pairs together within whichever list they start in).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,6 +119,27 @@ for key in "${device_keys[@]}"; do
   xcrun simctl erase "$udid"
   xcrun simctl boot "$udid"
   xcrun simctl bootstatus "$udid" -b
+
+  # A freshly-erased simulator's *first* boot is also SpringBoard's first
+  # boot, and it occasionally surfaces a one-time onboarding banner (e.g.
+  # "Ready for Apple Intelligence", Spotlight suggestions) some seconds
+  # after `bootstatus -b` returns "booted" — observed directly: one capture
+  # run's 01-season.png (the very first shot taken after erase) came back
+  # with this banner overlaid across the top of the frame, on a run where
+  # an identical repeat produced a clean shot. These banners are ephemeral
+  # (SpringBoard auto-dismisses them after a few seconds) and there's no
+  # simctl API to pre-answer or suppress them the way `privacy` does for
+  # TCC prompts, and touch injection isn't available to swipe them away —
+  # so the only lever is time: idle here long enough that whatever fires
+  # has already appeared *and* auto-dismissed before the shot loop's first
+  # screenshot. This is a best-effort mitigation, not a guarantee (no fixed
+  # delay can be proven to outlast every future banner), but is (re-)caught
+  # if it recurs by check-screenshots.py's boxed-region signal for the
+  # non-modal shots it does cover; the top-band exemption in that check
+  # exists because ordinary header chrome lives there, so this timing fix
+  # is the primary defense for this specific failure mode.
+  sleep 20
+
   # A clean, Apple-style status bar. Without this the shots carry a real
   # clock and a partial battery, which looks sloppy in the store listing.
   xcrun simctl status_bar "$udid" override \
@@ -125,7 +163,13 @@ for key in "${device_keys[@]}"; do
     id=$(jq -r '.id' <<<"$shot")
     settle=$(jq -r '.settleSeconds' <<<"$shot")
     needs_calendar=$(jq -r '.needsCalendarAccess // false' <<<"$shot")
-    mapfile -t args < <(jq -r '.launchArgs[]?' <<<"$shot")
+    # Merge the device-agnostic launchArgs with this device's
+    # deviceLaunchArgs[key] (if any) — see the schema note at the top of
+    # this file. `--arg k "$key"` keys into the per-device map; `// []`
+    # makes the field fully optional so shots that don't need it need not
+    # mention it at all.
+    mapfile -t args < <(jq -r --arg k "$key" \
+      '(.launchArgs // []) + (.deviceLaunchArgs[$k] // []) | .[]' <<<"$shot")
 
     if [ "$needs_calendar" = "true" ]; then
       xcrun simctl privacy "$udid" grant calendar "$BUNDLE_ID"
@@ -146,6 +190,18 @@ for key in "${device_keys[@]}"; do
       echo "error: $id.png is $got, expected ${want_w}x${want_h}" >&2
       echo "       App Store Connect rejects off-size screenshots." >&2
       exit 1
+    fi
+
+    # Revoke immediately after the one shot that was granted access, back to
+    # the deterministic "denied" default set before this loop started. Without
+    # this, a shot inserted later in screenshot-plan.json (after the one
+    # marked needsCalendarAccess) would silently inherit the granted TCC
+    # state from this launch and could resurface the exact consent-alert bug
+    # fixed above — better to re-assert "denied" every time than to rely on
+    # ordering (today: needsCalendarAccess only fires on the last shot,
+    # 06-calendar, but this makes that ordering non-load-bearing).
+    if [ "$needs_calendar" = "true" ]; then
+      xcrun simctl privacy "$udid" revoke calendar "$BUNDLE_ID"
     fi
   done < <(jq -c '.shots[]' "$PLAN")
 
