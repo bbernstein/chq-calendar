@@ -178,6 +178,21 @@ Expected: FAIL — `ENOENT: no such file or directory` for `docs/app-store/listi
 
 Create `docs/app-store/listing-fields.json`:
 
+> **⚠️ SUPERSEDED — do not copy the `description` and `reviewNotes` values
+> below verbatim.** This blob was drafted before the project's privacy
+> posture was corrected. It contains two claims now known to be false:
+> `reviewNotes` ends with *"The app collects no data."*, and `description`
+> says *"No account. No ads. No tracking."* The CloudFront analytics
+> derives a pseudonymous visitor key from IP + user-agent and counts
+> returning visitors, so the App Privacy answer is `Usage Data → Product
+> Interaction` / Not Linked / Not Used for Tracking. See design spec §6.8.
+>
+> This wording already leaked once — plan → task brief → shipped code —
+> before a review caught it. The corrected values live in the committed
+> `docs/app-store/listing-fields.json`; read that file, not this block.
+> `frontend/src/__tests__/appStoreListing.test.ts` now asserts the false
+> claims cannot return.
+
 ```json
 {
   "appName": "CHQ Calendar",
