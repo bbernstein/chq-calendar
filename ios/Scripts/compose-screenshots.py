@@ -141,8 +141,19 @@ def git_sha() -> str:
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=REPO_ROOT, capture_output=True, text=True, check=True,
         ).stdout.strip()
-    except Exception:
+    except Exception as exc:
+        print(f"warning: git_sha() failed, recording appCommit as 'unknown': {exc}", file=sys.stderr)
         return "unknown"
+
+
+CONTENT_FIELDS = ("device", "id", "caption", "file", "width", "height", "sha256")
+
+
+def content_fingerprint(entries: list[dict]) -> list[tuple]:
+    """The subset of manifest fields that describe actual screenshot content,
+    order-insensitive, so metadata-only fields (capturedOn, appCommit) never
+    factor into whether the manifest is considered "changed"."""
+    return sorted(tuple(entry[field] for field in CONTENT_FIELDS) for entry in entries)
 
 
 def main() -> int:
@@ -189,6 +200,17 @@ def main() -> int:
             print(f"  {path}", file=sys.stderr)
         print("Run ios/Scripts/capture-screenshots.sh first.", file=sys.stderr)
         return 1
+
+    existing = None
+    if MANIFEST_PATH.exists():
+        try:
+            existing = json.loads(MANIFEST_PATH.read_text())
+        except Exception as exc:
+            print(f"warning: could not parse existing manifest, will rewrite: {exc}", file=sys.stderr)
+
+    if existing is not None and content_fingerprint(existing.get("screenshots", [])) == content_fingerprint(entries):
+        print(f"\nManifest unchanged ({len(entries)} screenshots identical): {MANIFEST_PATH.relative_to(REPO_ROOT)}")
+        return 0
 
     MANIFEST_PATH.write_text(json.dumps({
         "capturedOn": date.today().isoformat(),
