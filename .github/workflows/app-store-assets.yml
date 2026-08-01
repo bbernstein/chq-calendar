@@ -29,7 +29,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          # Diff against the merge-base, NOT github.event.pull_request.base.sha
+          # directly. base.sha is main's tip *at event time*, which keeps
+          # moving as other PRs merge. If another iOS PR merges to main
+          # (touching Features/ and regenerating the manifest) while this PR
+          # is still open, a diff against the live base tip would show the
+          # manifest as "changed" between base and head — even though this
+          # branch's own commits never touched it — and the guard would
+          # falsely PASS a PR with genuinely stale screenshots. Diffing
+          # against the merge-base isolates exactly this PR's own commits,
+          # regardless of what has landed on main since the branch point.
+          # Do not "simplify" this back to base.sha — that reintroduces the
+          # false-pass.
+          merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA") || {
+            echo "ERROR: could not compute a merge-base between $BASE_SHA and $HEAD_SHA." >&2
+            echo "Refusing to fall back to a base-tip diff, since that is exactly the comparison this guard must not trust. Check that fetch-depth: 0 is in effect and that both SHAs are reachable." >&2
+            exit 1
+          }
+
+          changed=$(git diff --name-only "$merge_base" "$HEAD_SHA")
 
           ui_changed=$(echo "$changed" | grep -E \
             '^ios/ChqCalendar/(Features|App)/|^ios/ChqCalendar/Assets\.xcassets/' || true)
@@ -42,15 +60,32 @@ jobs:
           echo "UI-affecting changes detected:"
           echo "$ui_changed" | sed 's/^/  /'
 
+          # Flatten to a single line before matching the opt-out: a PR body
+          # is arbitrary Markdown and may hard-wrap or soft-wrap inside the
+          # brackets. Multi-line grep is line-based, so an opt-out split
+          # across a literal newline would silently fail to match with the
+          # PR_BODY as-is. Flattening keeps the failure mode safe either
+          # way (worst case: the guard stays strict and asks for a
+          # one-line opt-out).
+          pr_body_flat=$(printf '%s' "$PR_BODY" | tr '\n' ' ')
+
           # Requires at least one non-whitespace character inside the
           # brackets, so `[skip-screenshots:]` and `[skip-screenshots:   ]`
           # do NOT satisfy the opt-out (a recorded reason is mandatory).
-          if echo "$PR_BODY" | grep -qE '\[skip-screenshots:[^]]*[^][:space:]][^]]*\]'; then
-            reason=$(echo "$PR_BODY" | grep -oE '\[skip-screenshots:[^]]*[^][:space:]][^]]*\]' | head -1)
+          if echo "$pr_body_flat" | grep -qE '\[skip-screenshots:[^]]*[^][:space:]][^]]*\]'; then
+            reason=$(echo "$pr_body_flat" | grep -oE '\[skip-screenshots:[^]]*[^][:space:]][^]]*\]' | head -1)
             echo "Opt-out present: $reason"
             exit 0
           fi
 
+          # NOTE on trust boundary: this only proves the manifest FILE
+          # differs between merge-base and head — it is a content-fingerprint
+          # check, not proof the change came from an honest
+          # compose-screenshots.py run rather than a hand-edit of the JSON.
+          # That is inherent to any git-diff-based guard; a determined
+          # author can always fake it. The value here is raising the floor
+          # for the honest-mistake case (forgetting to regenerate), not
+          # cryptographic attestation.
           if echo "$changed" | grep -qx 'docs/app-store/screenshots.manifest.json'; then
             echo "Screenshot manifest was regenerated."
             exit 0

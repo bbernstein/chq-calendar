@@ -256,6 +256,10 @@ messaging belongs.
 genuinely alters no pixel a user sees, opt out explicitly by putting
 `[skip-screenshots: <reason>]` in the PR description — a non-empty reason
 is required, so opting out is a recorded decision rather than silence.
+The guard checks that the manifest file itself changed since the PR's
+merge-base — that catches the honest mistake of forgetting to regenerate,
+but it is a git-diff check, not proof the change came from a real
+`compose-screenshots.py` run rather than a hand-edited JSON file.
 
 The upload procedure, and the App Store Connect icon troubleshooting
 steps, live in `docs/app-store/RELEASE_CHECKLIST.md`.
