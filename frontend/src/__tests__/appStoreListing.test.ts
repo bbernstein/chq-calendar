@@ -79,6 +79,28 @@ describe('App Store listing fields', () => {
     expect(fields.supportUrl).toBe('https://www.chqcal.org/support');
     expect(fields.privacyPolicyUrl).toBe('https://www.chqcal.org/privacy');
   });
+
+  // Regression coverage: reviewNotes must not contradict the corrected
+  // App Privacy posture (Usage Data / Product Interaction — Not Linked to
+  // You, Not Used for Tracking). "The app collects no data" and "not used
+  // for profiling" are both the specific wrong claims this project already
+  // made and corrected once; see docs/app-store/privacy-nutrition-label.md.
+  it('reviewNotes does not claim the app collects no data', () => {
+    expect(fields.reviewNotes.toLowerCase()).not.toContain('collects no data');
+  });
+
+  it('reviewNotes does not deny profiling', () => {
+    expect(fields.reviewNotes.toLowerCase()).not.toContain('not used for profiling');
+  });
+
+  it('reviewNotes discloses the aggregate visitor measurement', () => {
+    const lower = fields.reviewNotes.toLowerCase();
+    expect(lower, 'missing pseudonymous key disclosure').toContain('pseudonymous');
+    expect(lower, 'missing aggregate framing').toContain('aggregate');
+    expect(lower, 'missing unique/returning visitor disclosure').toContain(
+      'unique and returning visitors'
+    );
+  });
 });
 
 // The canonical disclaimer is duplicated across languages that can't share
