@@ -1,0 +1,80 @@
+name: App Store Assets
+
+# Guards the standing rule in CLAUDE.md: a PR that changes what the iOS app
+# looks like must also regenerate the App Store screenshots. Runs on Linux
+# because it is pure git-diff analysis — no Xcode involved.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+
+concurrency:
+  group: app-store-assets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshot-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check screenshots were refreshed for UI changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+          ui_changed=$(echo "$changed" | grep -E \
+            '^ios/ChqCalendar/(Features|App)/|^ios/ChqCalendar/Assets\.xcassets/' || true)
+
+          if [ -z "$ui_changed" ]; then
+            echo "No UI-affecting iOS changes. Nothing to check."
+            exit 0
+          fi
+
+          echo "UI-affecting changes detected:"
+          echo "$ui_changed" | sed 's/^/  /'
+
+          # Requires at least one non-whitespace character inside the
+          # brackets, so `[skip-screenshots:]` and `[skip-screenshots:   ]`
+          # do NOT satisfy the opt-out (a recorded reason is mandatory).
+          if echo "$PR_BODY" | grep -qE '\[skip-screenshots:[^]]*[^][:space:]][^]]*\]'; then
+            reason=$(echo "$PR_BODY" | grep -oE '\[skip-screenshots:[^]]*[^][:space:]][^]]*\]' | head -1)
+            echo "Opt-out present: $reason"
+            exit 0
+          fi
+
+          if echo "$changed" | grep -qx 'docs/app-store/screenshots.manifest.json'; then
+            echo "Screenshot manifest was regenerated."
+            exit 0
+          fi
+
+          cat >&2 <<'MSG'
+
+          ERROR: This PR changes the iOS app's UI but does not refresh the
+          App Store screenshots.
+
+          Per the "App Store listing upkeep (iOS)" rule in CLAUDE.md:
+
+            1. Regenerate:
+                 ios/Scripts/capture-screenshots.sh
+                 python3 ios/Scripts/compose-screenshots.py
+            2. Re-read docs/app-store/listing-copy.md for claims this
+               change invalidates.
+            3. Commit the updated docs/app-store/screenshots.manifest.json
+               and docs/app-store/screenshots/review/ copies.
+
+          If this change genuinely does not alter any pixel a user sees,
+          add an opt-out line to the PR description:
+
+            [skip-screenshots: pure refactor, no visual change]
+
+          MSG
+          exit 1
