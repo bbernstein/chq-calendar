@@ -75,7 +75,7 @@ struct EventListView: View {
                 }
             }
 
-            if model.filter.dateScope == .next {
+            if model.isCurrentYear && model.filter.dateScope == .next {
                 Button("Show next day") {
                     model.showNextDay()
                 }

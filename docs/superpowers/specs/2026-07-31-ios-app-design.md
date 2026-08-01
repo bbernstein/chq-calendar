@@ -134,3 +134,7 @@ CI: not wired into GitHub Actions in this phase (repo CI is Linux; iOS build req
 - **Naive dates vs. device timezone:** all parsing/grouping pinned to `America/New_York` via one `ChqTime` helper; tests run with a non-Eastern local zone to prove independence.
 - **5 MB feed on cellular:** ETag revalidation + 1 h TTL keeps re-downloads rare; decode ~1,600 events off-main (measured target < 300 ms on A15).
 - **Hand-authored pbxproj:** synchronized-folder format keeps it ~150 lines; verified by `xcodebuild build test` in the plan's first task before any feature code.
+
+## 12. Deliberate cuts (as-built notes)
+
+A handful of items scoped above were cut during implementation as YAGNI: filter-sheet recent-selections surfacing, the row-level add-to-calendar context action, scroll-to-top on clearing filters, and the cache-metadata `sourceVersion` field. None were load-bearing for the season-1 release and can be revisited if usage data motivates them. Native EventKit (`EKEventEditViewController`) replaced the originally-considered webcal/ICS export approach as planned.

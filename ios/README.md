@@ -15,7 +15,7 @@ iPhone/iPad app with offline caching and pull-to-refresh.
    **Team** (Xcode will provision automatically).
 4. **⌘R** to build and run.
 
-The project uses an Xcode 16+ **synchronized folder** group
+The project uses an Xcode 26+ **synchronized folder** group
 (`PBXFileSystemSynchronizedRootGroup`) for `ChqCalendar/` — new files added
 under that folder on disk (e.g. via `git`, or any editor) are picked up by
 Xcode automatically. No manual "Add Files to project" step, and no
