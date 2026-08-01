@@ -173,10 +173,17 @@ directory with `index.html` plus an entry in `vite.config.ts`
 
 A real privacy policy covering both the web app and the iOS app. Must
 state accurately what §6.8 declares to Apple: no accounts, no analytics
-SDKs, no advertising identifiers, no tracking; preferences and cached
-event data stay on the device; calendar access is write-only and only for
-events the user explicitly adds; the site's CDN keeps standard
-operational access logs.
+SDKs in the app itself, no advertising identifiers, no tracking in Apple's
+sense; preferences and cached event data stay on the device; calendar
+access is write-only and only for events the user explicitly adds.
+
+On server-side measurement, the page must be **honest rather than
+flattering**: the CDN records each request's IP address and user-agent,
+retains them 90 days, and derives a pseudonymous visitor key from them to
+count unique and returning visitors in aggregate. The page must NOT claim
+this is "not used for profiling" — see §6.8 for why that framing was wrong.
+It should say plainly what is measured, that it is aggregate, that it is
+never sold or shared, and that it is not linked to any identity.
 
 ### 4.2 `/support`
 
@@ -385,19 +392,57 @@ the private outreach say the same thing.
 Produced as `docs/app-store/privacy-nutrition-label.md` with the exact
 questionnaire answers.
 
-**Headline answer: Data Not Collected.** Verified against the source: no
+**Headline answer: Usage Data → Product Interaction, "Not Linked to You",
+"Not Used for Tracking".** Everything else is "Data Not Collected".
+
+> **Corrected 2026-08-01, mid-implementation.** This section originally
+> read "Data Not Collected" outright, on the reasoning that the CloudFront
+> access logs were operational only. A review of the Task 2 privacy page
+> checked that claim against the infrastructure and found it false. The
+> original wording is preserved here as a correction rather than silently
+> overwritten, because the same false claim was copied into the Task 2
+> brief and shipped to the privacy page before it was caught.
+
+**What is true of the app itself.** Verified against the source: no
 analytics or tracking SDKs, no accounts, no advertising identifiers,
 `URLSession` built on an `.ephemeral` configuration, preferences in
 `UserDefaults`, event data in an on-device disk cache, and `EKEventStore`
-used only to write events the user explicitly adds.
+used only to write events the user explicitly adds. The app transmits
+nothing beyond plain HTTPS GETs.
 
-**One documented judgment call.** The CloudFront distribution serving the
-app's JSON keeps access logs that include IP addresses (shipped in PR
-#145). Under Apple's definition this is not declarable collection — it is
-not linked to identity and is not used for tracking, advertising, or
-profiling. "Data Not Collected" is therefore correct. The reasoning is
-written down rather than left implicit so it can be defended if
-questioned.
+**What the server side does.** The CloudFront distribution serving the
+app's JSON (Phase A analytics, PR #145, live since 2026-07-19) is not
+merely operational logging:
+
+- `infrastructure/traffic-analytics.tf:296` derives
+  `cf_visitor_key = lower(to_hex(md5(to_utf8(c_ip || '|' || cs_user_agent))))`
+  — a pseudonymous per-visitor identifier.
+- Named Athena queries 05–08 and 12 compute unique visitors per
+  day/week/season, **new vs. returning** (a visitor seen on ≥2 days), and a
+  breakdown by network/carrier ASN.
+- Raw client IPs and user-agents are retained 90 days.
+- `ios/ChqCalendar/Data/CalendarAPI.swift:86` sets `baseURL` to
+  `https://www.chqcal.org`, so the app's own requests are in this pipeline.
+
+Deriving a visitor key and computing returning-visitor counts is
+behavioural measurement. Calling it "not profiling" was wrong.
+
+**Why the answer is nonetheless narrow.** Apple's definition of *Tracking*
+— linking with third-party data for advertising or sharing with a data
+broker — is not met: there is no ad tech, no third-party sharing, no
+cross-app or cross-site linkage, and no accounts to link to. The visitor
+key is not tied to any real-world identity. So the declaration is Usage
+Data, **Not Linked to You**, **Not Used for Tracking**. The store label
+becomes "Data Not Linked to You" rather than "No Data Collected".
+
+Over-declaring carries no rejection risk; under-declaring does. That
+asymmetry is the reason for the answer.
+
+**Consequences to keep in sync.** The `/privacy` page (§4.1) must describe
+aggregate traffic measurement honestly and must not repeat the "not used
+for profiling" claim. If the deferred first-party visitor-ID work ever
+ships, or if any account system lands, this answer must be revisited —
+a durable user ID would move the label to "Data Linked to You".
 
 ---
 
