@@ -31,7 +31,7 @@
 - **Language:** Swift, Swift 6 language mode, strict concurrency. No third-party dependencies.
 - **Devices:** iPhone + iPad (`TARGETED_DEVICE_FAMILY = 1,2`), all orientations on iPad, portrait-primary on iPhone.
 - **Appearance:** system light/dark (matches web's `prefers-color-scheme` behavior). Accent color `#5B7F95` (web brand/theme color).
-- **Bundle id:** `org.chqcal.calendar`. Display name **CHQ Calendar**. Simulator builds run unsigned (`CODE_SIGNING_ALLOWED=NO` in CI/CLI); Xcode users can select a personal team for device runs.
+- **Bundle id:** `org.chqcal.app` (originally `org.chqcal.calendar`, renamed during TestFlight setup — the original ID was stranded on a free Personal Team registration). Display name **CHQ Calendar**. Simulator builds run unsigned (`CODE_SIGNING_ALLOWED=NO` in CI/CLI); Xcode users can select a personal team for device runs.
 
 ## 4. Data contract (verified against production 2026-07-31)
 
