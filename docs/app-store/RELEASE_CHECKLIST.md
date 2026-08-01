@@ -26,14 +26,25 @@ Related documents:
   build number — screenshots and previews should reflect what the submitted
   build actually looks like.
 
-  **No App Preview has been recorded yet, as of this writing.** It is
-  deliberately not scripted end-to-end: `ios/Scripts/record-preview.sh`
-  produces the encoded video, but a human still has to drive the demo flow
-  in the Simulator (or on a device, per Appendix B) while it captures —
-  faking that step was considered and correctly rejected. The App Preview
-  is optional; the listing is complete and submittable without one. Skip
-  the re-record instruction above, and Step 7's preview upload, until
-  someone actually records one.
+  **A preview was recorded on 2026-08-01** and lives at
+  `ios/Scripts/out/preview/`. Recording is deliberately not scripted
+  end-to-end: `record-preview.sh` handles the capture and the encode, but
+  a human has to drive the demo flow in the Simulator (or on a device,
+  per Appendix B) while it runs. The App Preview is optional — the
+  listing is complete and submittable without one.
+
+  **Upload `iphone-6.9-safe.mp4`, not `iphone-6.9.mp4`.** The original
+  encode came out at a container duration of 30.024s. Apple's hard limit
+  is 30s, and the overshoot is an artifact of AAC frame granularity —
+  audio frames are ~23ms, so the last one spills past the video's exact
+  30.000s. `iphone-6.9-safe.mp4` is the same footage re-encoded to 29.5s
+  with identical stream properties (1320×2868, H.264, yuv420p, 30fps,
+  AAC). If you re-record, check the container duration with
+  `ffprobe -show_entries format=duration` and trim if it lands at or
+  above 30.
+
+  `raw.mov` in that directory is the uncompressed intermediate (~119 MB).
+  Safe to delete once the encode looks right.
 
 - [ ] **2. Bump the build number.**
   In `ios/ChqCalendar.xcodeproj/project.pbxproj`, increment
@@ -70,6 +81,71 @@ Related documents:
   App, then wait for the uploaded build to finish processing and attach it
   to that version via **Build → Add Build**.
 
+  App Store Connect's layout shifts between redesigns, so treat the
+  labels below as "look for something like this" rather than exact
+  strings. The sequence has been stable for years even when the wording
+  has not.
+
+  **5a. Wait for processing to finish.** After the Step 4 upload, the
+  build is unusable until Apple finishes processing it. Go to
+  **appstoreconnect.apple.com → Apps → CHQ Calendar → TestFlight** and
+  watch the build's status. It moves through *Processing* → *Ready to
+  Submit* (or *Ready to Test*). This usually takes 10–60 minutes. Apple
+  emails you when it completes — subject line resembles *"Version 1.0
+  (2) for CHQ Calendar has completed processing."* **Do not continue
+  until this finishes**; a still-processing build simply will not appear
+  in the picker in 5d, which is the single most common reason people
+  think this step is broken.
+
+  **5b. Open or create the version.** In the left sidebar of the app's
+  page there is a **iOS App** section listing versions.
+
+  - For a **first release**, App Store Connect usually pre-creates
+    **"1.0 Prepare for Submission"** as soon as the app record exists.
+    If you see it, click it and skip to 5c.
+  - If it is not there, click the **+** beside *iOS App* (labelled
+    something like **Add Version or Platform**), choose **iOS**, enter
+    the version number **1.0**, and confirm.
+
+  The version number here must match the build's `MARKETING_VERSION`
+  (currently `1.0`). A build whose marketing version is `1.0` can only
+  be attached to a `1.0` version — this is why 5d sometimes shows an
+  empty list even for a fully processed build.
+
+  **5c. Fill the metadata first (optional but easier).** Steps 7 and 8
+  populate screenshots and copy on this same page. Doing them before
+  attaching the build is fine and avoids scrolling past a half-filled
+  form later. The page saves independently of the build attachment.
+
+  **5d. Attach the build.** Scroll down the version page to the
+  **Build** section. Before any build is attached it shows a prompt
+  along the lines of *"Add the build that you want to submit"* with a
+  **+** or **Add Build** control.
+
+  1. Click it. A panel lists every processed build whose marketing
+     version matches this version.
+  2. **Pick build 2, not build 1.** Both are marketing version `1.0`,
+     so both may appear. Build 1 is the original TestFlight upload and
+     predates the sRGB icon profile, the export-compliance flag, the
+     Travel category, and the About screen. Build 2 is the one this
+     work produced. The picker shows the build number in parentheses:
+     `1.0 (2)`.
+  3. Confirm (**Done** / **Select**).
+  4. Click **Save** at the top right of the version page. The
+     attachment is not persisted until you save.
+
+  **5e. Verify it took.** The Build section should now show `1.0 (2)`
+  with the app icon beside it instead of the add-a-build prompt. That
+  icon appearing here is the first confirmation that Step 6 will pass.
+
+  **If the build list is empty in 5d**, work through these in order:
+  processing not finished (5a); marketing version mismatch between the
+  build and the version you created (5b); or the upload silently failed
+  — re-check Xcode's Organizer, where a failed distribution shows an
+  error rather than a delivered status. Export compliance is *not* a
+  cause here: `ITSAppUsesNonExemptEncryption = NO` is set in the
+  Info.plist, so no compliance prompt should block the build.
+
 - [ ] **6. Confirm the icon renders on the App Store tab.**
   After attaching the build, check that the app icon appears correctly on
   the version's App Store tab (not just in TestFlight). **A TestFlight-only
@@ -81,20 +157,47 @@ Related documents:
 
 - [ ] **7. Upload screenshots and the preview; choose a poster frame.**
   Upload the iPhone 6.9" and iPad 13" screenshot sets produced in Step 1 to
-  their respective device-size slots. If an App Preview video exists (see
-  the note in Step 1 — none has been recorded as of this writing), upload
-  it and choose a poster frame (the still image shown before the video
-  plays) that reads clearly at thumbnail size. The App Preview is optional;
-  skip this part of the step and submit with screenshots alone if no
-  preview has been recorded.
+  their respective device-size slots. The full-resolution files are in
+  `ios/Scripts/out/final/{iphone-6.9,ipad-13}/` — **not** the ~400px
+  copies in `docs/app-store/screenshots/review/`, which exist for PR
+  review and would be rejected as undersized.
+
+  Then upload the App Preview from `ios/Scripts/out/preview/` — see
+  Step 1 for which file — and choose a poster frame (the still shown
+  before the video plays) that reads clearly at thumbnail size. The
+  preview is optional; screenshots alone are a complete submission.
 
 - [ ] **8. Paste copy from `listing-fields.json`.**
-  Fill in every App Store Connect text field from
-  `docs/app-store/listing-fields.json`, using
-  `docs/app-store/listing-copy.md` for the field-to-location mapping
-  (name, subtitle, promotional text, keywords, description, what's new,
-  copyright, categories, marketing URL). Copy values verbatim — do not
-  paraphrase or re-type from memory.
+
+  **Render it to plain text first — do not paste out of the JSON.**
+
+  ```bash
+  python3 ios/Scripts/render-listing-copy.py
+  ```
+
+  `listing-fields.json` is machine-readable, so its three multi-line
+  values (`description`, `whatsNew`, `reviewNotes`) carry `\n` escapes.
+  Those are JSON syntax, not content: pasting them straight into an App
+  Store Connect text area puts a literal backslash-n on screen. The
+  other twelve fields are single-line and would paste fine, but render
+  them anyway so every field comes from one place.
+
+  The renderer writes one file per field to
+  `ios/Scripts/out/listing/` (gitignored, regenerated every run) with
+  real newlines, and re-checks Apple's character limits before writing.
+  Open each file and copy its whole contents. Start with the generated
+  `README.txt`; use `docs/app-store/listing-copy.md` for the
+  field-to-location mapping. Copy values verbatim — do not paraphrase or
+  re-type from memory.
+
+  Note that `reviewNotes` belongs in the **App Review Information**
+  section, not the localisation fields, and that categories and age
+  rating are pickers rather than text fields (their values are listed in
+  the generated `README.txt`).
+
+  The output directory matches fastlane `deliver`'s metadata layout, so
+  the same files can drive an automated upload later — see
+  Appendix C.
 
 - [ ] **9. Verify the copyright string matches the Apple Developer account
   holder name exactly.**
@@ -168,3 +271,55 @@ re-record it from a physically connected iPhone instead of the simulator:
 5. Run the resulting recording through the same `ffmpeg` encode step used
    inside `ios/Scripts/record-preview.sh` (matching resolution/codec/bitrate
    expectations) rather than uploading the QuickTime capture directly.
+
+## Appendix C — Automating the metadata upload (optional)
+
+Everything above assumes manual pasting, which is fine for one or two
+releases a year. If that becomes tedious, the listing text can be pushed
+to App Store Connect programmatically. Nothing here is required to ship.
+
+**What is already in place.** `ios/Scripts/render-listing-copy.py` writes
+`ios/Scripts/out/listing/` in fastlane `deliver`'s metadata layout —
+`en-US/description.txt`, `en-US/keywords.txt`,
+`review_information/notes.txt`, and so on. That directory is a valid
+`--metadata_path` as-is.
+
+**What is missing.**
+
+1. **fastlane.** Not installed. The system Ruby is 2.6.10, which fastlane
+   supports, but installing gems against the system Ruby needs `sudo` and
+   is generally regretted. Prefer a version manager (`rbenv`, `asdf`) or
+   Homebrew's Ruby, then `gem install fastlane`.
+2. **An App Store Connect API key.** In App Store Connect: **Users and
+   Access → Integrations → App Store Connect API → +**. Give it the
+   *App Manager* role. You get three things: an **Issuer ID**, a **Key
+   ID**, and a **`.p8` private key file that downloads exactly once**.
+   Store the `.p8` outside the repository and never commit it — it grants
+   write access to the developer account. Add it to `.gitignore` before
+   it lands anywhere near the tree.
+3. **A `Deliverfile`** for the settings that are not text files —
+   primary/secondary category, age-rating questionnaire answers, and the
+   app's bundle identifier.
+
+**Roughly what the run looks like:**
+
+```bash
+fastlane deliver \
+  --api_key_path /path/outside/repo/asc-key.json \
+  --metadata_path ios/Scripts/out/listing \
+  --screenshots_path ios/Scripts/out/final \
+  --skip_binary_upload
+```
+
+**Worth knowing before committing to this.** The App Privacy
+questionnaire (the nutrition label in
+`docs/app-store/privacy-nutrition-label.md`) is **not** covered by
+`deliver` and stays manual. Neither is the final "Submit for Review"
+click, which is deliberate. So automation removes the copy-pasting and
+the screenshot uploads, not the whole submission.
+
+**Also worth knowing:** the screenshot directory layout `deliver`
+expects is not identical to `ios/Scripts/out/final/<device-key>/`. It
+keys directories by its own device names. That mapping would need adding
+to `render-listing-copy.py` or handled by a `Deliverfile`, and has not
+been done — do not assume `--screenshots_path` works untouched.
