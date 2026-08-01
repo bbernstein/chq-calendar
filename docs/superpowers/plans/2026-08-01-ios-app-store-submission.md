@@ -1537,6 +1537,20 @@ git commit -m "feat(ios): scripted App Store preview video recording and encodin
 - Consumes: `docs/app-store/screenshots.manifest.json` (Task 8) and `docs/app-store/RELEASE_CHECKLIST.md` (Task 6).
 - Produces: enforcement. This task is verified by construction — the PR carrying this plan's work touches watched paths, so the job must fail without a manifest change and pass with one.
 
+**Why the guard can trust the manifest.** `compose-screenshots.py` rewrites
+`screenshots.manifest.json` **if and only if** a screenshot's content
+actually changed — when every entry's `sha256`, caption, and dimensions
+match what is already committed, it leaves the file byte-for-byte
+untouched rather than refreshing `capturedOn` and `appCommit`. That
+property is what makes "the manifest changed" mean "the screenshots
+changed."
+
+Without it the guard would be theatre: anyone could satisfy it by
+re-running the compositor, dirtying a date field, and refreshing nothing.
+So: do not weaken this job into "some file under `docs/app-store/` was
+touched", and if you ever change the compositor, do not make it
+unconditionally rewrite the manifest.
+
 - [ ] **Step 1: Write the CI guard**
 
 Create `.github/workflows/app-store-assets.yml`:
