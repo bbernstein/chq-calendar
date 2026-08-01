@@ -105,6 +105,19 @@ struct CalendarView: View {
             model.uiTestShowFilters = true
         }
 
+        // `-uitest-search <term>` reads the argument that follows it and
+        // commits it straight to `model.filter.searchText`. `searchDraft` is
+        // set too so the visible search field shows the term, but the
+        // committed value is written directly rather than left to the
+        // `.task(id: searchDraft)` debounce above — waiting on that debounce
+        // would race the screenshot script's fixed settle delay.
+        if let flagIndex = arguments.firstIndex(of: "-uitest-search"),
+           arguments.index(after: flagIndex) < arguments.endIndex {
+            let term = arguments[arguments.index(after: flagIndex)]
+            searchDraft = term
+            model.filter.searchText = term
+        }
+
         let wantsLinkedEvent = arguments.contains("-uitest-select-linked-event")
             || arguments.contains("-uitest-show-add-to-calendar")
         guard wantsLinkedEvent, let event = model.uiTestFirstLinkedEvent else { return }
