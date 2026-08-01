@@ -157,6 +157,25 @@ struct UserStateStoreTests {
         #expect(laterStore.loadFilters() == nil)
     }
 
+    @Test func filtersLoadAtExactly30DaysReturnsNil() {
+        // Pins the boundary direction: spec is ">= 30 days expires", so the
+        // comparison inside loadFilters must be a strict `<` against the
+        // expiry window (not `<=`) — exactly 30*24*3600 seconds after save
+        // must already be treated as expired.
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        var filter = FilterSelection()
+        filter.selectedWeeks = [5]
+        store.saveFilters(filter)
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(30 * 24 * 3600) }
+        )
+        #expect(laterStore.loadFilters() == nil)
+    }
+
     // MARK: - UserStateStore: favorites round-trip
 
     @Test func favoritesRoundTrip() {
@@ -192,6 +211,21 @@ struct UserStateStoreTests {
         let laterStore = UserStateStore(
             defaults: defaults,
             now: { saveTime.addingTimeInterval(31 * 24 * 3600) }
+        )
+        #expect(laterStore.loadFavorites() == [])
+    }
+
+    @Test func favoritesLoadAtExactly30DaysReturnsEmpty() {
+        // Same boundary-direction pin as filtersLoadAtExactly30DaysReturnsNil,
+        // for the favorites store.
+        let defaults = makeDefaults()
+        let saveTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        store.saveFavorites(["evt-9"])
+
+        let laterStore = UserStateStore(
+            defaults: defaults,
+            now: { saveTime.addingTimeInterval(30 * 24 * 3600) }
         )
         #expect(laterStore.loadFavorites() == [])
     }

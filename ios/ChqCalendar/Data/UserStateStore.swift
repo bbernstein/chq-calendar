@@ -104,7 +104,7 @@ nonisolated struct UserStateStore {
     }
 
     private let defaults: UserDefaults
-    private let now: () -> Date
+    private let now: @Sendable () -> Date
 
     private static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -118,7 +118,7 @@ nonisolated struct UserStateStore {
         return decoder
     }()
 
-    init(defaults: UserDefaults = .standard, now: @escaping () -> Date = { Date() }) {
+    init(defaults: UserDefaults = .standard, now: @escaping @Sendable () -> Date = { Date() }) {
         self.defaults = defaults
         self.now = now
     }
