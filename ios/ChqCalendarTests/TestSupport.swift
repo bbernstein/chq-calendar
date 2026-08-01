@@ -61,6 +61,8 @@ actor MockAPI: CalendarAPIClient {
     private(set) var calls: [Call] = []
     private var results: [String: Result<FetchResult, Error>] = [:]
     private var neverResolvesKeys: Set<String> = []
+    private var suspendedKeys: Set<String> = []
+    private var suspendedContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
 
     func setSuccess(data: Data, etag: String?, for resource: RemoteResource) {
         results[resource.cacheKey] = .success(.success(data: data, etag: etag))
@@ -82,10 +84,35 @@ actor MockAPI: CalendarAPIClient {
         neverResolvesKeys.insert(resource.cacheKey)
     }
 
+    /// Makes `fetch` suspend for `resource` until `resume(for:)` is called
+    /// for the same resource — a controllable version of
+    /// `setNeverResolves`, for tests that need to let an in-flight call
+    /// complete at a precise, chosen moment (e.g. proving a stale result is
+    /// discarded rather than merely never observed).
+    func setSuspended(for resource: RemoteResource) {
+        suspendedKeys.insert(resource.cacheKey)
+    }
+
+    /// Releases any `fetch` call(s) currently parked by `setSuspended(for:)`
+    /// for `resource`, letting them proceed to the scripted result (or
+    /// throw `.unscripted` if none was set).
+    func resume(for resource: RemoteResource) {
+        suspendedKeys.remove(resource.cacheKey)
+        let waiting = suspendedContinuations.removeValue(forKey: resource.cacheKey) ?? []
+        for continuation in waiting {
+            continuation.resume()
+        }
+    }
+
     func fetch(_ resource: RemoteResource, ifNoneMatch: String?, timeout: TimeInterval?) async throws -> FetchResult {
         calls.append(Call(resource: resource, ifNoneMatch: ifNoneMatch, timeout: timeout))
         if neverResolvesKeys.contains(resource.cacheKey) {
             try? await Task.sleep(nanoseconds: .max)
+        }
+        if suspendedKeys.contains(resource.cacheKey) {
+            await withCheckedContinuation { continuation in
+                suspendedContinuations[resource.cacheKey, default: []].append(continuation)
+            }
         }
         guard let result = results[resource.cacheKey] else {
             throw MockAPIError.unscripted(resource.cacheKey)

@@ -50,6 +50,79 @@ struct AppModelTests {
         #expect(model.dayGroups.isEmpty)
     }
 
+    // MARK: - refresh(force:) year affinity + reentrancy
+
+    /// A refresh started for year A (by `start()`) that's still in flight
+    /// when the user switches to year B must not clobber B's snapshot when
+    /// A's result finally arrives.
+    @Test func refreshDiscardsStaleYearResultAfterYearSwitchedDuringInFlightRefresh() async {
+        let cache = MockCache()
+        // Genuinely stale by real wall-clock time (`EventRepository.refresh`
+        // checks freshness via its own `Date()`), so `start()` actually
+        // kicks off a background refresh for year 2026.
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        cache.write("events-2025", data: fixtureData("events-sample"), etag: "e2", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1-refreshed", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let startTask = Task { await model.start() }
+        // Give start() time to load the stale 2026 cache, read the (cached,
+        // network-free) manifest, and reach the gated fetch inside its
+        // background refresh.
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(model.isRefreshing)
+        #expect(model.snapshot?.year == 2026)
+
+        // User switches years while the year-2026 refresh is still in flight.
+        await model.select(year: 2025)
+        #expect(model.snapshot?.year == 2025)
+
+        // Now let the stale year-2026 fetch complete. It must be discarded
+        // rather than clobbering the year-2025 snapshot now being viewed.
+        await api.resume(for: .events(year: 2026))
+        await startTask.value
+
+        #expect(model.snapshot?.year == 2025)
+        #expect(!model.isRefreshing)
+    }
+
+    /// A second `refresh` call made while one is already in flight must be
+    /// a no-op — not a second overlapping network round trip.
+    @Test func refreshGuardsAgainstConcurrentReentrancy() async {
+        let cache = MockCache()
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        // ttl: 0 so the cached-freshness short-circuit never applies —
+        // every `refresh(force:)` call genuinely reaches the network.
+        let repo = EventRepository(api: api, cache: cache, ttl: 0)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let firstRefresh = Task { await model.refresh(force: false) }
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(model.isRefreshing)
+
+        // While the first refresh is still parked mid-fetch, a second
+        // concurrent call must return immediately without its own fetch.
+        await model.refresh(force: false)
+
+        await api.resume(for: .events(year: 2026))
+        await firstRefresh.value
+
+        let eventCalls = await api.calls.filter {
+            if case .events = $0.resource { return true }
+            return false
+        }
+        #expect(eventCalls.count == 1)
+        #expect(model.snapshot?.events.count == 5)
+    }
+
     // MARK: - toggleFavorite
 
     @Test func toggleFavoritePersistsAcrossStoreInstances() {
@@ -137,6 +210,102 @@ struct AppModelTests {
         #expect(model.filter.searchText == "opera")
         #expect(model.filter.extraDays == 2)
         #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.isDefault == true)
+    }
+
+    // MARK: - foregrounded()
+    //
+    // Each of these pins the cache as genuinely stale by *real* wall-clock
+    // time (`EventRepository.refresh` freshness-checks via its own
+    // `Date()`), while giving the model an injected clock that treats it as
+    // fresh (`needsRefresh` returns false). That decouples the two possible
+    // triggers: if `foregrounded()` incorrectly decided to refresh anyway,
+    // it would produce a real, observable network call against the
+    // genuinely-stale cache — so an empty `eventCalls` here is real proof
+    // no refresh happened, not just a side effect of a fresh-cache
+    // short-circuit.
+
+    @Test func foregroundedDoesNotRefreshOnFirstRunWithNilVersionAndModelFreshCache() async {
+        let cache = MockCache()
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        let api = MockAPI() // `.version` unscripted -> remoteVersion() resolves to nil.
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { staleFetchedAt.addingTimeInterval(10) }
+        )
+
+        await model.foregrounded()
+
+        let eventCalls = await api.calls.filter {
+            if case .events = $0.resource { return true }
+            return false
+        }
+        #expect(eventCalls.isEmpty)
+    }
+
+    @Test func foregroundedRefreshesWhenRemoteVersionChanges() async throws {
+        let cache = MockCache()
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        let api = MockAPI()
+        let v1 = try #require("{\"version\":\"v1\"}".data(using: .utf8))
+        await api.setSuccess(data: v1, etag: nil, for: .version)
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { staleFetchedAt.addingTimeInterval(10) }
+        )
+
+        // First call only records v1 as the baseline — nothing to compare
+        // against yet, so no refresh.
+        await model.foregrounded()
+        var eventCalls = await api.calls.filter {
+            if case .events = $0.resource { return true }
+            return false
+        }
+        #expect(eventCalls.isEmpty)
+
+        // Second call sees a different deployed version. The model still
+        // believes the cache is fresh (its injected clock hasn't moved),
+        // so this alone must be what triggers the refresh.
+        let v2 = try #require("{\"version\":\"v2\"}".data(using: .utf8))
+        await api.setSuccess(data: v2, etag: nil, for: .version)
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e2", for: .events(year: 2026))
+
+        await model.foregrounded()
+
+        eventCalls = await api.calls.filter {
+            if case .events = $0.resource { return true }
+            return false
+        }
+        #expect(eventCalls.count == 1)
+    }
+
+    @Test func foregroundedDoesNotRefreshWhenModelFreshCacheAndVersionUnchanged() async throws {
+        let cache = MockCache()
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        let api = MockAPI()
+        let v1 = try #require("{\"version\":\"v1\"}".data(using: .utf8))
+        await api.setSuccess(data: v1, etag: nil, for: .version)
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { staleFetchedAt.addingTimeInterval(10) }
+        )
+
+        await model.foregrounded()
+        await model.foregrounded()
+
+        let eventCalls = await api.calls.filter {
+            if case .events = $0.resource { return true }
+            return false
+        }
+        #expect(eventCalls.isEmpty)
     }
 
     // MARK: - showNextDay

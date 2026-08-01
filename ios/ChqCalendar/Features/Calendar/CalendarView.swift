@@ -123,6 +123,7 @@ struct CalendarView: View {
             Button("Retry") {
                 Task { await model.refresh(force: true) }
             }
+            .disabled(model.isRefreshing)
         }
     }
 
@@ -135,6 +136,7 @@ struct CalendarView: View {
             Button("Retry") {
                 Task { await model.refresh(force: true) }
             }
+            .disabled(model.isRefreshing)
         }
     }
 

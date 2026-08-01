@@ -145,6 +145,7 @@ final class AppModel {
                 phase = .ready
             } else {
                 snapshot = nil
+                phase = .launching
             }
         }
 
@@ -157,16 +158,31 @@ final class AppModel {
     /// On success, replaces `snapshot` and marks `.ready`. On failure,
     /// existing data (if any) is preserved and `phase` stays `.ready`;
     /// only a snapshot-less failure moves `phase` to `.offline`.
+    ///
+    /// Two guards protect against races inherent in an `async` call that
+    /// mutates shared state after an arbitrarily-long `await`:
+    /// - Reentrancy: a `refresh` already in flight makes any concurrent call
+    ///   a no-op, rather than starting a second overlapping network round
+    ///   trip.
+    /// - Year affinity: `selectedYear` is captured as `requestedYear` before
+    ///   the await. If the user switches years (via `select(year:)`) while
+    ///   this call is still in flight, its eventual result — for a year
+    ///   that's no longer selected — is discarded instead of clobbering
+    ///   whatever `select(year:)` already put in `snapshot`.
     func refresh(force: Bool) async {
+        guard !isRefreshing else { return }
+        let requestedYear = selectedYear
         isRefreshing = true
         defer { isRefreshing = false }
 
         do {
-            let result = try await repository.refresh(year: selectedYear, force: force)
+            let result = try await repository.refresh(year: requestedYear, force: force)
+            guard requestedYear == selectedYear else { return }
             snapshot = result
             phase = .ready
             lastRefreshFailed = false
         } catch {
+            guard requestedYear == selectedYear else { return }
             lastRefreshFailed = true
             if snapshot == nil {
                 phase = .offline
