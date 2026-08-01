@@ -1,0 +1,114 @@
+{
+  "capturedOn": "2026-08-01",
+  "appCommit": "a91471a",
+  "screenshots": [
+    {
+      "device": "iphone-6.9",
+      "id": "01-season",
+      "caption": "The whole season, one scroll.",
+      "file": "ios/Scripts/out/final/iphone-6.9/01-season.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "cb915c3d15788109fcbe24e128590306125b9b9d1e11f6ac2d61853339ec9b10"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "02-filters",
+      "caption": "Narrow it to what you actually want.",
+      "file": "ios/Scripts/out/final/iphone-6.9/02-filters.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "5102d851a74fed764763629e106fcdb53a551ff0816f8eb5550c0cc760c2646c"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "03-search",
+      "caption": "Search by name, venue, or presenter.",
+      "file": "ios/Scripts/out/final/iphone-6.9/03-search.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "36557cb1356fe5b5949b830f627152ff2a160317c4e6c14d5ae9d97d0c1f7e31"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "04-detail",
+      "caption": "Every detail, in one place.",
+      "file": "ios/Scripts/out/final/iphone-6.9/04-detail.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "847fd4299c27b3bb27f6a4b6076ebf3a631783b8be40550a02c33b1ccb7b4a54"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "05-articles",
+      "caption": "See what the Daily wrote about it.",
+      "file": "ios/Scripts/out/final/iphone-6.9/05-articles.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "b71909d40f84d58e6683e40fa31e277f8a1ba8df14a5d42e7da70e09ff216046"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "06-calendar",
+      "caption": "Send it straight to your calendar.",
+      "file": "ios/Scripts/out/final/iphone-6.9/06-calendar.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "9b88f221ec1bf08d2cee3739dece07b2e1b502aeb563afebe3e03e1c206d4c8b"
+    },
+    {
+      "device": "ipad-13",
+      "id": "01-season",
+      "caption": "The whole season, one scroll.",
+      "file": "ios/Scripts/out/final/ipad-13/01-season.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "79c61367c6be821ce7521fdfb77880ad9a003e679a08994b1a7f9e89850eda00"
+    },
+    {
+      "device": "ipad-13",
+      "id": "02-filters",
+      "caption": "Narrow it to what you actually want.",
+      "file": "ios/Scripts/out/final/ipad-13/02-filters.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "e6b2ccc6c63ed677ecb15c08bf87a336e13526f44772f0f14c135c2e8d6bda9a"
+    },
+    {
+      "device": "ipad-13",
+      "id": "03-search",
+      "caption": "Search by name, venue, or presenter.",
+      "file": "ios/Scripts/out/final/ipad-13/03-search.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "8439e5b9ebc7b61a4c2552c11dc5b848a8f3027331a6534ead60f9a1919fd2fd"
+    },
+    {
+      "device": "ipad-13",
+      "id": "04-detail",
+      "caption": "Every detail, in one place.",
+      "file": "ios/Scripts/out/final/ipad-13/04-detail.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "8baf92376ff390a598c61300473879e92a76b22043054684abcf7087a715b748"
+    },
+    {
+      "device": "ipad-13",
+      "id": "05-articles",
+      "caption": "See what the Daily wrote about it.",
+      "file": "ios/Scripts/out/final/ipad-13/05-articles.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "941992a436004e1088e3aae43decd2bcf2b64ee63896e0149a52d2de1e257afb"
+    },
+    {
+      "device": "ipad-13",
+      "id": "06-calendar",
+      "caption": "Send it straight to your calendar.",
+      "file": "ios/Scripts/out/final/ipad-13/06-calendar.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "783271a2160841c1b25cf504e682673d5b5ea76f5e3c003730622e1e40659d96"
+    }
+  ]
+}
