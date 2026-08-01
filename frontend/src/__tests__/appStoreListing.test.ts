@@ -91,6 +91,7 @@ describe('canonical disclaimer is duplicated verbatim', () => {
     'frontend/src/app/privacy/page.tsx',
     'frontend/src/app/support/page.tsx',
     'frontend/src/app/page.tsx',
+    'ios/ChqCalendar/Features/About/AboutInfo.swift',
   ];
 
   // JSX splits long prose across lines, so compare on collapsed whitespace
