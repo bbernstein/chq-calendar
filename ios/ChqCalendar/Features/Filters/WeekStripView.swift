@@ -16,16 +16,34 @@ struct WeekStripView: View {
     @State private var hasScrolledToInitialWeek = false
 
     var body: some View {
-        ScrollViewReader { proxy in
+        // Read the clock, the year and the current week ONCE per render, and
+        // use those values for every chip and for `onAppear`.
+        //
+        // Both `referenceNow` and `model.currentWeek` call the model's clock
+        // on each access, and the un-cached versions were read per chip — so
+        // a single render took eighteen clock readings that were not required
+        // to agree with one another. Season weeks turn over at noon on
+        // Saturday, so a tick between two of those readings could render a
+        // strip with no `.current` week at all, or with `.current` and the
+        // "This Week" scope chip disagreeing.
+        //
+        // `currentWeek` also rebuilds all nine `SeasonWeek` structs per call
+        // (`SeasonCalendar.weeks(forYear:)`), so hoisting it turns eighty-one
+        // week constructions per render into nine.
+        let now = referenceNow
+        let year = model.selectedYear
+        let currentWeek = model.currentWeek
+
+        return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(1...9, id: \.self) { number in
                         WeekChip(
                             number: number,
                             isSelected: FilterChipState.isWeekSelected(
-                                number, selection: model.filter, currentWeek: model.currentWeek),
+                                number, selection: model.filter, currentWeek: currentWeek),
                             timeState: WeekStripState.timeState(
-                                week: number, now: referenceNow, year: model.selectedYear),
+                                week: number, now: now, year: year),
                             theme: model.theme(forWeek: number)
                         ) {
                             KeyboardDismisser.dismiss()
@@ -40,7 +58,7 @@ struct WeekStripView: View {
                 guard !hasScrolledToInitialWeek else { return }
                 hasScrolledToInitialWeek = true
                 guard let target = WeekStripState.initialScrollTarget(
-                    now: referenceNow, year: model.selectedYear
+                    now: now, year: year
                 ) else { return }
                 // No animation: this is the strip's starting position, not a
                 // transition the user should watch happen.
