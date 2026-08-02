@@ -2,12 +2,16 @@ import SwiftUI
 
 /// The one-touch filter bar mounted above the calendar list via
 /// `.safeAreaInset(edge: .top)`. Row 1 is a horizontally-scrolling row of
-/// date-scope chips, a favorites toggle, and a button that opens the full
-/// `FilterSheetView`; row 2 is `WeekStripView`. Pure view — every mutation
-/// calls straight through to `AppModel`, no local filter state.
+/// date-scope chips plus a favorites toggle; row 2 is `WeekStripView`;
+/// rows 3 and 4 are the venue and category `FacetRowView`s. Pure view —
+/// every mutation calls straight through to `AppModel`, no local filter
+/// state beyond which facet panel is open.
 struct FilterBarView: View {
     let model: AppModel
-    @State private var isFilterSheetPresented = false
+
+    /// At most one facet panel is open at a time — two 140pt panels plus
+    /// four rows would bury the list entirely.
+    @State private var expandedFacet: FilterFacet?
 
     var body: some View {
         VStack(spacing: 6) {
@@ -35,27 +39,24 @@ struct FilterBarView: View {
                         model.toggleFavoritesOnly()
                     }
                     .accessibilityLabel("Favorites, \(model.favorites.count)")
-
-                    FilterChip(
-                        label: "Filters",
-                        systemImage: "line.3.horizontal.decrease.circle",
-                        isSelected: false,
-                        badge: model.filter.activeCount > 0 ? model.filter.activeCount : nil
-                    ) {
-                        KeyboardDismisser.dismiss()
-                        isFilterSheetPresented = true
-                    }
                 }
                 .padding(.horizontal)
             }
 
             WeekStripView(model: model)
+
+            ForEach(FilterFacet.allCases) { facet in
+                FacetRowView(
+                    model: model,
+                    facet: facet,
+                    isExpanded: expandedFacet == facet
+                ) {
+                    expandedFacet = expandedFacet == facet ? nil : facet
+                }
+            }
         }
         .padding(.vertical, 6)
         .background(.bar)
-        .sheet(isPresented: $isFilterSheetPresented) {
-            FilterSheetView(model: model)
-        }
         #if DEBUG
         // MARK: UI-test hooks (DEBUG only)
         // Consumes the flag `CalendarView.applyUITestHooks` sets for
@@ -64,16 +65,19 @@ struct FilterBarView: View {
         // mounted — e.g. from a warm cache — before `start()` finished and
         // the flag flipped) are needed to catch either ordering. Compiles
         // out of Release builds.
-        .onAppear(perform: presentFilterSheetIfNeeded)
-        .onChange(of: model.uiTestShowFilters) { _, _ in presentFilterSheetIfNeeded() }
+        .onAppear(perform: expandFacetIfNeeded)
+        .onChange(of: model.uiTestShowFilters) { _, _ in expandFacetIfNeeded() }
         #endif
     }
 
     #if DEBUG
-    private func presentFilterSheetIfNeeded() {
+    /// `-uitest-show-filters` used to present the filter sheet; the sheet is
+    /// gone, so it now expands the Venues panel — the equivalent "show me
+    /// the filter UI" state for the App Store screenshot.
+    private func expandFacetIfNeeded() {
         if model.uiTestShowFilters {
             model.uiTestShowFilters = false
-            isFilterSheetPresented = true
+            expandedFacet = .venues
         }
     }
     #endif
@@ -93,20 +97,17 @@ private struct FilterChip: View {
     let label: String
     var systemImage: String?
     let isSelected: Bool
-    var badge: Int?
     let action: () -> Void
 
     init(
         label: String,
         systemImage: String? = nil,
         isSelected: Bool,
-        badge: Int? = nil,
         action: @escaping () -> Void
     ) {
         self.label = label
         self.systemImage = systemImage
         self.isSelected = isSelected
-        self.badge = badge
         self.action = action
     }
 
@@ -117,17 +118,6 @@ private struct FilterChip: View {
                     Image(systemName: systemImage)
                 }
                 Text(label)
-                if let badge {
-                    Text("\(badge)")
-                        .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .foregroundStyle(.white)
-                        .background(
-                            isSelected ? AnyShapeStyle(Color.white.opacity(0.3)) : AnyShapeStyle(Color.accentColor),
-                            in: Capsule()
-                        )
-                }
             }
             .font(.subheadline.weight(.medium))
             .padding(.horizontal, 14)

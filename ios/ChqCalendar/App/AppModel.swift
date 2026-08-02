@@ -32,7 +32,20 @@ final class AppModel {
 
     // MARK: - State
 
-    var snapshot: CalendarSnapshot?
+    var snapshot: CalendarSnapshot? {
+        didSet {
+            facetCounts = snapshot.map { FacetCounts.build(from: $0.events) } ?? .empty
+        }
+    }
+
+    /// Per-venue / per-category event counts for the current snapshot.
+    /// Recomputed only when `snapshot` changes — a full pass over ~1,500
+    /// events is far too expensive to redo on every view render.
+    private(set) var facetCounts: FacetCounts = .empty
+
+    /// The user's most-recently-used venue and category filters.
+    private(set) var recents: RecentFilters
+
     var phase: Phase = .launching
     var filter: FilterSelection
     var favorites: Set<String>
@@ -75,6 +88,7 @@ final class AppModel {
         self.now = now
         self.filter = store.loadFilters() ?? FilterSelection()
         self.favorites = store.loadFavorites()
+        self.recents = store.loadRecents()
         self.selectedYear = Self.placeholderYear
         self.defaultYear = Self.placeholderYear
     }
@@ -296,15 +310,82 @@ final class AppModel {
 
     /// Toggles `name` in `filter.selectedLocations`, storing the original
     /// casing and comparing case-insensitively — the web's `toggleInList`.
+    /// Selecting (not deselecting) also promotes `name` to the front of
+    /// recents, matching `useFilterState`'s TOGGLE_LOCATION case.
     func toggleLocation(_ name: String) {
+        let wasSelected = isSelected(name, in: .venues)
         filter.selectedLocations = Self.toggling(name, in: filter.selectedLocations)
+        if !wasSelected {
+            recents.locations = RecentFilters.adding(name, to: recents.locations)
+            store.saveRecents(recents)
+        }
         persistFilter()
     }
 
     /// Toggles `name` in `filter.selectedCategories`. See `toggleLocation`.
     func toggleCategory(_ name: String) {
+        let wasSelected = isSelected(name, in: .categories)
         filter.selectedCategories = Self.toggling(name, in: filter.selectedCategories)
+        if !wasSelected {
+            recents.categories = RecentFilters.adding(name, to: recents.categories)
+            store.saveRecents(recents)
+        }
         persistFilter()
+    }
+
+    // MARK: Facet-generic accessors
+    //
+    // `FacetRowView` is one view driving either facet, so it reaches the
+    // model through these rather than branching on the facet itself.
+
+    /// Every venue/category present in the current snapshot, original
+    /// casing, sorted by display name.
+    func available(_ facet: FilterFacet) -> [String] {
+        switch facet {
+        case .venues: return visibleLocations
+        case .categories: return visibleCategories
+        }
+    }
+
+    /// Named `recentNames` rather than `recents(_:)` so it can't be misread
+    /// against the `recents` property it reads from.
+    func recentNames(_ facet: FilterFacet) -> [String] {
+        switch facet {
+        case .venues: return recents.locations
+        case .categories: return recents.categories
+        }
+    }
+
+    func isSelected(_ name: String, in facet: FilterFacet) -> Bool {
+        let key = name.lowercased()
+        switch facet {
+        case .venues: return filter.selectedLocations.contains { $0.lowercased() == key }
+        case .categories: return filter.selectedCategories.contains { $0.lowercased() == key }
+        }
+    }
+
+    func toggle(_ name: String, in facet: FilterFacet) {
+        switch facet {
+        case .venues: toggleLocation(name)
+        case .categories: toggleCategory(name)
+        }
+    }
+
+    func count(for name: String, in facet: FilterFacet) -> Int {
+        let key = name.lowercased()
+        switch facet {
+        case .venues: return facetCounts.locations[key] ?? 0
+        case .categories: return facetCounts.categories[key] ?? 0
+        }
+    }
+
+    /// How many of `facet`'s values are currently selected, for the row
+    /// label ("Venues (2)").
+    func selectedCount(_ facet: FilterFacet) -> Int {
+        switch facet {
+        case .venues: return filter.selectedLocations.count
+        case .categories: return filter.selectedCategories.count
+        }
     }
 
     /// Removes every case-insensitive match of `name`, or appends `name`

@@ -542,4 +542,89 @@ struct AppModelTests {
         model.showNextDay()
         #expect(model.filter.extraDays == 2)
     }
+
+    // MARK: - Recents
+
+    @Test func selectingAFilterPushesItOntoRecents() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggleLocation("Amphitheater")
+        model.toggleCategory("CSO")
+
+        #expect(model.recents.locations == ["Amphitheater"])
+        #expect(model.recents.categories == ["CSO"])
+    }
+
+    @Test func deselectingDoesNotReorderRecents() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggleLocation("Amphitheater")
+        model.toggleLocation("Norton Hall")
+        #expect(model.recents.locations == ["Norton Hall", "Amphitheater"])
+
+        model.toggleLocation("Amphitheater")   // deselect
+        #expect(model.recents.locations == ["Norton Hall", "Amphitheater"])
+    }
+
+    @Test func recentsPersistAcrossModelInstances() {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()), store: store)
+        model.toggleLocation("Amphitheater")
+
+        let reborn = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+        #expect(reborn.recents.locations == ["Amphitheater"])
+    }
+
+    @Test func facetHelpersReadThroughToTheSelection() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggle("Amphitheater", in: .venues)
+        #expect(model.isSelected("amphitheater", in: .venues))
+        #expect(!model.isSelected("Amphitheater", in: .categories))
+        #expect(model.recentNames(.venues) == ["Amphitheater"])
+    }
+
+    // MARK: - facetCounts
+
+    /// `facetCounts` is maintained by `snapshot`'s `didSet`, and a `didSet`
+    /// never fires for a value `init` assigns — so this pins that the two
+    /// paths which actually populate `snapshot` both keep the counts in
+    /// step: a cold launch reading a cached snapshot, and a year switch to
+    /// a year with no cache (which must clear the counts rather than leave
+    /// the previous year's behind).
+    @Test func facetCountsTrackTheSnapshotAcrossLaunchAndYearSwitch() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        #expect(model.facetCounts == .empty)
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+        #expect(model.facetCounts.locations["sports club, waterfront"] == 1)
+
+        // 2025 has no cached snapshot and no scripted network response.
+        await model.select(year: 2025)
+        #expect(model.snapshot == nil)
+        #expect(model.facetCounts == .empty)
+    }
 }
