@@ -1,5 +1,17 @@
 import SwiftUI
 
+/// Publishes the event list's scroll offset up to `EventListView`.
+///
+/// `static let` rather than `static var`: a `let` satisfies the protocol's
+/// `{ get }` requirement and keeps the type Sendable under Swift 6 strict
+/// concurrency.
+private struct ScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 /// The day-grouped event list shared by both the compact (iPhone,
 /// `NavigationStack`) and regular (iPad, `NavigationSplitView`) layouts in
 /// `CalendarView`.
@@ -23,6 +35,11 @@ struct EventListView: View {
     var selection: Binding<Event?>?
 
     @State private var isAboutPresented = false
+    @State private var isFilterBarCollapsed = false
+    @State private var collapsePivot: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let scrollSpace = "eventList"
 
     var body: some View {
         content
@@ -42,7 +59,7 @@ struct EventListView: View {
                 // would be meaningless and the bar would just be dead
                 // chrome above a loading spinner or banner.
                 if model.snapshot != nil {
-                    FilterBarView(model: model)
+                    FilterBarView(model: model, isCollapsed: isFilterBarCollapsed)
                 }
             }
     }
@@ -73,6 +90,16 @@ struct EventListView: View {
         let filtered = days.reduce(0) { $0 + $1.events.count }
 
         return List(selection: selection) {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ScrollOffsetKey.self,
+                    value: -proxy.frame(in: .named(Self.scrollSpace)).minY
+                )
+            }
+            .frame(height: 0)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+
             if let countdownDays = model.countdownDays {
                 CountdownBanner(days: countdownDays)
             }
@@ -105,6 +132,20 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
+        .coordinateSpace(.named(Self.scrollSpace))
+        .onPreferenceChange(ScrollOffsetKey.self) { offset in
+            // `onPreferenceChange`'s action is @Sendable, so the hop back to
+            // the main actor is required to touch @State.
+            Task { @MainActor in
+                let next = FilterBarCollapse.next(
+                    isCollapsed: isFilterBarCollapsed, offset: offset, pivot: collapsePivot)
+                collapsePivot = next.pivot
+                guard next.isCollapsed != isFilterBarCollapsed else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    isFilterBarCollapsed = next.isCollapsed
+                }
+            }
+        }
         .refreshable {
             await model.refresh(force: true)
         }

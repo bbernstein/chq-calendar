@@ -9,6 +9,10 @@ import SwiftUI
 struct FilterBarView: View {
     let model: AppModel
 
+    /// When true, only the scope and week rows render — the bar's other
+    /// ~100pt is given back to the event list while the user is browsing.
+    var isCollapsed: Bool = false
+
     /// At most one facet panel is open at a time — two 140pt panels plus
     /// four rows would bury the list entirely.
     @State private var expandedFacet: FilterFacet?
@@ -45,22 +49,27 @@ struct FilterBarView: View {
 
             WeekStripView(model: model)
 
-            ForEach(FilterFacet.allCases) { facet in
-                FacetRowView(
-                    model: model,
-                    facet: facet,
-                    isExpanded: expandedFacet == facet
-                ) {
-                    expandedFacet = expandedFacet == facet ? nil : facet
+            if !isCollapsed {
+                ForEach(FilterFacet.allCases) { facet in
+                    FacetRowView(
+                        model: model,
+                        facet: facet,
+                        isExpanded: expandedFacet == facet
+                    ) {
+                        expandedFacet = expandedFacet == facet ? nil : facet
+                    }
                 }
-            }
 
-            if model.filter.hasFilters {
-                ResetFilterRow(model: model)
+                if model.filter.hasFilters {
+                    ResetFilterRow(model: model)
+                }
             }
         }
         .padding(.vertical, 6)
         .background(.bar)
+        .onChange(of: isCollapsed) { _, collapsed in
+            if collapsed { expandedFacet = nil }
+        }
         #if DEBUG
         // MARK: UI-test hooks (DEBUG only)
         // Consumes the flag `CalendarView.applyUITestHooks` sets for
