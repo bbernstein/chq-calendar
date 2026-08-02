@@ -68,6 +68,12 @@ the gap directly instead.
 
 ## 4. Smaller items, none blocking
 
+- `FacetRowView.recentsStrip` renders `model.recentNames(facet)` unconditionally,
+  without checking the name is still `available(facet)` for the currently
+  selected year/snapshot. Tapping a recent from a prior year that isn't present
+  this year is harmless (adds a no-op filter; `count(for:)` correctly shows 0),
+  but the chip carries no count and looks identical to a live one. From
+  PR #151's automated review — not a bug, small discoverability gap.
 - `FilterBarCollapseDriver.isSettling` is cleared by the collapse animation's
   completion handler, by a reset when the list is replaced, and on
   `scenePhase == .active`. A completion lost for any *other* reason while the

@@ -134,6 +134,21 @@ private struct FacetChip: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isSelected ? "\(label), selected" : label)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// The chip's visible count (`FacetChip(count:)`, shown only in the
+    /// expanded panel — `recentsStrip` always passes `nil`) is otherwise
+    /// invisible to VoiceOver, unlike `disclosureLabel`'s selected-count,
+    /// which is deliberately kept in its label for exactly this reason.
+    private var accessibilityLabel: String {
+        var parts = [label]
+        if let count {
+            parts.append("\(count) events")
+        }
+        if isSelected {
+            parts.append("selected")
+        }
+        return parts.joined(separator: ", ")
     }
 }

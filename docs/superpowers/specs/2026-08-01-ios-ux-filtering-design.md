@@ -1,6 +1,9 @@
 # iOS UX — Filtering, Week Strip, Active Filters, and Density
 
-**Status:** Design approved 2026-08-01. Not yet implemented.
+**Status:** Implemented. Shipped on `feat/ios-ux-filtering` (PR #151); see
+`docs/superpowers/plans/2026-08-01-ios-ux-filtering.md` for the task-by-task
+plan and `docs/plans/2026-08-02-ios-ux-filtering-follow-ups.md` for deferred
+follow-ups.
 **Scope:** `ios/ChqCalendar/**` only. No backend, frontend, or infrastructure changes.
 
 ## Problem

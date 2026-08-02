@@ -692,4 +692,78 @@ struct AppModelTests {
         #expect(model.snapshot == nil)
         #expect(model.facetCounts == .empty)
     }
+
+    // MARK: - legacy filter casing normalization
+
+    /// Prior to this branch, `selectedLocations`/`selectedCategories` were
+    /// persisted lowercased
+    /// (`UserStateStoreTests.legacyLowercasedPayloadStillDecodes` pins that
+    /// decoding such a payload still succeeds). Filtering has always been
+    /// correct regardless of casing, but `ActiveFilterChips.build` does an
+    /// exact-match lookup against the feed's own casing — so without this
+    /// fix, a user upgrading with a persisted lowercase selection would see
+    /// a raw lowercase chip (and lose the "CHQ Program" shortcut) until they
+    /// toggled the filter or hit "Clear all". This pins that the very first
+    /// snapshot after launch corrects it instead of waiting for the next
+    /// interaction.
+    @Test func snapshotArrivingCorrectsLegacyLowercasedFilterCasing() async throws {
+        let defaults = makeDefaults()
+        let legacy = """
+        {"dateScope":"next","selectedWeeks":[],\
+        "selectedLocations":["sports club, waterfront"],\
+        "selectedCategories":["chautauqua institution program"],\
+        "showFavoritesOnly":false,"lastSaved":"2026-08-01T12:00:00Z"}
+        """
+        defaults.set(Data(legacy.utf8), forKey: "chq-filters")
+
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        // Loaded exactly as persisted, lowercased, before any snapshot exists.
+        #expect(model.filter.selectedLocations == ["sports club, waterfront"])
+        #expect(model.filter.selectedCategories == ["chautauqua institution program"])
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+
+        #expect(model.filter.selectedLocations == ["Sports Club, Waterfront"])
+        #expect(model.filter.selectedCategories == ["Chautauqua Institution Program"])
+
+        // Corrected casing is written back, not just held in memory — a
+        // second launch before the next snapshot arrives must not regress.
+        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadFilters()
+        #expect(reloaded?.selectedLocations == ["Sports Club, Waterfront"])
+        #expect(reloaded?.selectedCategories == ["Chautauqua Institution Program"])
+    }
+
+    /// A selection with no case-insensitive match in the current snapshot —
+    /// e.g. a venue retired from this year's feed — must pass through
+    /// untouched rather than being dropped, corrupted, or endlessly
+    /// re-persisted.
+    @Test func nonMatchingSelectionIsLeftUntouchedBySnapshotArrival() async throws {
+        let defaults = makeDefaults()
+        var filter = FilterSelection()
+        filter.selectedLocations = ["Retired Venue"]
+        UserStateStore(defaults: defaults, now: { Date() }).saveFilters(filter)
+
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+
+        #expect(model.filter.selectedLocations == ["Retired Venue"])
+    }
 }

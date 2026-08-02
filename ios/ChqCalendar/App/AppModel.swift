@@ -35,6 +35,7 @@ final class AppModel {
     var snapshot: CalendarSnapshot? {
         didSet {
             facetCounts = snapshot.map { FacetCounts.build(from: $0.events) } ?? .empty
+            normalizePersistedFilterCasing()
         }
     }
 
@@ -448,6 +449,44 @@ final class AppModel {
 
     private func persistFilter() {
         store.saveFilters(filter)
+    }
+
+    /// Persisted `selectedLocations`/`selectedCategories` may carry different
+    /// casing than the feed currently serves — most concretely, a build
+    /// prior to this branch stored them lowercased (see
+    /// `UserStateStoreTests.legacyLowercasedPayloadStillDecodes`), and
+    /// `FilterSelection` now stores original casing instead, with
+    /// lowercasing applied only at the point of comparison
+    /// (`EventFilter.apply`, `isSelected`, `count(for:in:)`). Filtering
+    /// itself is correct either way, but `ActiveFilterChips.build` passes
+    /// the persisted string straight into `DisplayNames.location`/
+    /// `.category`, which do an *exact*-match lookup and silently fall
+    /// through unchanged on a case mismatch — so a lowercased legacy name
+    /// would render as a raw lowercase chip (and skip shortcuts like "Lenna
+    /// Hall"/"CSO") until the user toggled the filter off/on or hit "Clear
+    /// all". Called from `snapshot`'s `didSet` so this is corrected on the
+    /// very first launch after upgrading, not just after the next
+    /// interaction — `visibleLocations`/`visibleCategories` read the new
+    /// `snapshot` value, which `didSet` runs after assigning.
+    private func normalizePersistedFilterCasing() {
+        guard snapshot != nil else { return }
+        let normalizedLocations = Self.normalizedCasing(filter.selectedLocations, against: visibleLocations)
+        let normalizedCategories = Self.normalizedCasing(filter.selectedCategories, against: visibleCategories)
+        guard normalizedLocations != filter.selectedLocations || normalizedCategories != filter.selectedCategories else {
+            return
+        }
+        filter.selectedLocations = normalizedLocations
+        filter.selectedCategories = normalizedCategories
+        persistFilter()
+    }
+
+    /// Replaces each of `names` with the entry in `canonical` it
+    /// case-insensitively matches, if any — order and any non-matching
+    /// entries are preserved untouched.
+    private static func normalizedCasing(_ names: [String], against canonical: [String]) -> [String] {
+        guard !canonical.isEmpty else { return names }
+        let byLowercased = Dictionary(canonical.map { ($0.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
+        return names.map { byLowercased[$0.lowercased()] ?? $0 }
     }
 
     #if DEBUG
