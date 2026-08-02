@@ -1,53 +1,82 @@
 import SwiftUI
 
-/// The horizontal strip of 9 week chips ("1"–"9") shown as row 2 of
-/// `FilterBarView`. A tap toggles that week in `filter.selectedWeeks`; a
-/// long-press shows the week's theme (title, date range, description) in a
-/// context menu. The current week (if the viewed year is the current one)
-/// gets an additional accent ring regardless of selection state.
+/// The horizontal strip of 9 week chips ("1"–"9") shown as a row of
+/// `FilterBarView`. A tap selects that week (see `AppModel.selectWeek`); a
+/// long-press shows the week's theme in a context menu.
+///
+/// Chips are styled by `WeekTimeState` so a user mid-season can tell at a
+/// glance what is behind them, what week they are in, and what is ahead —
+/// and the strip scrolls the current week to the leading edge on first
+/// appearance rather than starting at week 1.
 struct WeekStripView: View {
     let model: AppModel
 
+    /// Guards the one-shot initial scroll so it can't fight the user's own
+    /// scrolling on subsequent re-renders.
+    @State private var hasScrolledToInitialWeek = false
+
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(1...9, id: \.self) { number in
-                    WeekChip(
-                        number: number,
-                        isSelected: FilterChipState.isWeekSelected(
-                            number, selection: model.filter, currentWeek: model.currentWeek),
-                        isCurrent: model.isCurrentYear && model.currentWeek == number,
-                        theme: model.theme(forWeek: number)
-                    ) {
-                        model.selectWeek(number)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(1...9, id: \.self) { number in
+                        WeekChip(
+                            number: number,
+                            isSelected: FilterChipState.isWeekSelected(
+                                number, selection: model.filter, currentWeek: model.currentWeek),
+                            timeState: WeekStripState.timeState(
+                                week: number, now: referenceNow, year: model.selectedYear),
+                            theme: model.theme(forWeek: number)
+                        ) {
+                            model.selectWeek(number)
+                        }
+                        .id(number)
                     }
                 }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
+            .onAppear {
+                guard !hasScrolledToInitialWeek else { return }
+                hasScrolledToInitialWeek = true
+                guard let target = WeekStripState.initialScrollTarget(
+                    now: referenceNow, year: model.selectedYear
+                ) else { return }
+                // No animation: this is the strip's starting position, not a
+                // transition the user should watch happen.
+                proxy.scrollTo(target, anchor: .leading)
+            }
         }
+    }
+
+    /// `nil` for a non-current year — see `WeekStripState`.
+    private var referenceNow: Date? {
+        model.isCurrentYear ? model.now() : nil
     }
 }
 
 private struct WeekChip: View {
     let number: Int
     let isSelected: Bool
-    let isCurrent: Bool
+    let timeState: WeekTimeState
     let theme: WeeklyTheme?
     let action: () -> Void
 
     var body: some View {
         let chip = Button(action: action) {
             Text("\(number)")
-                .font(.subheadline.weight(.semibold))
+                .font(.subheadline.weight(timeState == .current ? .bold : .semibold))
                 .frame(minWidth: 44, minHeight: 44)
-                .foregroundStyle(isSelected ? .white : .primary)
-                .background(
-                    isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
-                    in: Capsule()
-                )
+                .foregroundStyle(foreground)
+                .background(background, in: Capsule())
+                .opacity(timeState == .past && !isSelected ? 0.55 : 1)
                 .overlay {
-                    if isCurrent {
-                        Capsule().strokeBorder(.tint, lineWidth: 2)
+                    if timeState == .current {
+                        // Outset by 3pt so the ring stays visible when the
+                        // chip is *also* selected — otherwise an accent ring
+                        // on an accent fill disappears entirely.
+                        Capsule()
+                            .strokeBorder(.tint, lineWidth: 2)
+                            .padding(-3)
                     }
                 }
         }
@@ -64,6 +93,22 @@ private struct WeekChip: View {
         }
     }
 
+    private var foreground: some ShapeStyle {
+        if isSelected { return AnyShapeStyle(.white) }
+        switch timeState {
+        case .past: return AnyShapeStyle(.secondary)
+        case .current: return AnyShapeStyle(.tint)
+        case .upcoming: return AnyShapeStyle(.primary)
+        }
+    }
+
+    private var background: some ShapeStyle {
+        if isSelected { return AnyShapeStyle(Color.accentColor) }
+        return timeState == .past
+            ? AnyShapeStyle(.ultraThinMaterial)
+            : AnyShapeStyle(.thinMaterial)
+    }
+
     @ViewBuilder
     private func themeMenuContent(_ theme: WeeklyTheme) -> some View {
         Text(theme.title)
@@ -73,7 +118,13 @@ private struct WeekChip: View {
     }
 
     private var accessibilityLabel: String {
-        guard let theme else { return "Week \(number)" }
-        return "Week \(number): \(theme.title)"
+        let prefix: String
+        switch timeState {
+        case .past: prefix = "Week \(number), past"
+        case .current: prefix = "Week \(number), current week"
+        case .upcoming: prefix = "Week \(number)"
+        }
+        guard let theme else { return prefix }
+        return "\(prefix): \(theme.title)"
     }
 }

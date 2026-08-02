@@ -49,7 +49,12 @@ final class AppModel {
 
     private let repository: EventRepository
     private let store: UserStateStore
-    private let now: @Sendable () -> Date
+
+    /// The injected clock. Exposed (rather than private) so views computing
+    /// time-relative presentation — `WeekStripView`'s past/current styling —
+    /// use the same instant the filter pipeline does, and so tests can pin
+    /// both together.
+    let now: @Sendable () -> Date
 
     /// The most recent non-nil `remoteVersion()` observed, used by
     /// `foregrounded()` to detect a new deploy.
