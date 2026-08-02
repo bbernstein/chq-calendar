@@ -229,4 +229,40 @@ struct UserStateStoreTests {
         )
         #expect(laterStore.loadFavorites() == [])
     }
+
+    // MARK: - Selection storage (original casing, ordered)
+
+    @Test func selectionsRoundTripPreservingCasingAndOrder() {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        var filter = FilterSelection()
+        filter.selectedLocations = ["Amphitheater", "Elizabeth S. Lenna Hall"]
+        filter.selectedCategories = ["CSO", "CHQ Assembly"]
+
+        store.saveFilters(filter)
+        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadFilters()
+
+        #expect(reloaded?.selectedLocations == ["Amphitheater", "Elizabeth S. Lenna Hall"])
+        #expect(reloaded?.selectedCategories == ["CSO", "CHQ Assembly"])
+    }
+
+    /// Payloads written by the shipped build stored these as JSON arrays of
+    /// lowercased strings (they were `Set<String>`). Decoding must still
+    /// yield the selections rather than throwing and silently wiping them.
+    @Test func legacyLowercasedPayloadStillDecodes() throws {
+        let defaults = makeDefaults()
+        let legacy = """
+        {"dateScope":"next","selectedWeeks":[3],\
+        "selectedLocations":["amphitheater"],"selectedCategories":["cso"],\
+        "showFavoritesOnly":false,"lastSaved":"2026-08-01T12:00:00Z"}
+        """
+        defaults.set(Data(legacy.utf8), forKey: "chq-filters")
+
+        let now = try #require(ChqTime.parse("2026-08-02 12:00:00"))
+        let loaded = UserStateStore(defaults: defaults, now: { now }).loadFilters()
+
+        #expect(loaded?.selectedLocations == ["amphitheater"])
+        #expect(loaded?.selectedCategories == ["cso"])
+        #expect(loaded?.selectedWeeks == [3])
+    }
 }

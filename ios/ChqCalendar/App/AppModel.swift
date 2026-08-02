@@ -294,29 +294,28 @@ final class AppModel {
         persistFilter()
     }
 
-    /// Toggles `name` (lowercased, matching how `EventFilter` compares
-    /// against `event.displayLocation?.lowercased()`) in
-    /// `filter.selectedLocations`.
+    /// Toggles `name` in `filter.selectedLocations`, storing the original
+    /// casing and comparing case-insensitively — the web's `toggleInList`.
     func toggleLocation(_ name: String) {
-        let key = name.lowercased()
-        if filter.selectedLocations.contains(key) {
-            filter.selectedLocations.remove(key)
-        } else {
-            filter.selectedLocations.insert(key)
-        }
+        filter.selectedLocations = Self.toggling(name, in: filter.selectedLocations)
         persistFilter()
     }
 
-    /// Toggles `name` (lowercased, matching how `EventFilter` compares
-    /// against `event.filterTokens`) in `filter.selectedCategories`.
+    /// Toggles `name` in `filter.selectedCategories`. See `toggleLocation`.
     func toggleCategory(_ name: String) {
-        let key = name.lowercased()
-        if filter.selectedCategories.contains(key) {
-            filter.selectedCategories.remove(key)
-        } else {
-            filter.selectedCategories.insert(key)
-        }
+        filter.selectedCategories = Self.toggling(name, in: filter.selectedCategories)
         persistFilter()
+    }
+
+    /// Removes every case-insensitive match of `name`, or appends `name`
+    /// (original casing) when there is none. Appending — rather than
+    /// inserting — is what keeps the chip row in selection order.
+    private static func toggling(_ name: String, in list: [String]) -> [String] {
+        let key = name.lowercased()
+        if list.contains(where: { $0.lowercased() == key }) {
+            return list.filter { $0.lowercased() != key }
+        }
+        return list + [name]
     }
 
     func toggleFavoritesOnly() {

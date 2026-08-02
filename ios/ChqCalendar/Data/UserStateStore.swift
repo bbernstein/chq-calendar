@@ -28,8 +28,14 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
     var searchText: String = ""
     var dateScope: DateScope = .next
     var selectedWeeks: Set<Int> = []
-    var selectedLocations: Set<String> = []
-    var selectedCategories: Set<String> = []
+    /// Venue and category selections hold the feed's **original casing** in
+    /// selection order, matching the web's `selectedLocations` /
+    /// `selectedTags`. Comparison is lowercased at the point of use
+    /// (`EventFilter.apply`), not at the point of storage: the stored value
+    /// is what gets rendered as a chip label, and `DisplayNames` is an
+    /// exact-match dictionary keyed on the original casing.
+    var selectedLocations: [String] = []
+    var selectedCategories: [String] = []
     var showFavoritesOnly: Bool = false
     var extraDays: Int = 0
 
@@ -37,8 +43,8 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
         searchText: String = "",
         dateScope: DateScope = .next,
         selectedWeeks: Set<Int> = [],
-        selectedLocations: Set<String> = [],
-        selectedCategories: Set<String> = [],
+        selectedLocations: [String] = [],
+        selectedCategories: [String] = [],
         showFavoritesOnly: Bool = false,
         extraDays: Int = 0
     ) {
@@ -92,8 +98,8 @@ nonisolated struct UserStateStore {
     private struct PersistedFilters: Codable {
         var dateScope: DateScope
         var selectedWeeks: Set<Int>
-        var selectedLocations: Set<String>
-        var selectedCategories: Set<String>
+        var selectedLocations: [String]
+        var selectedCategories: [String]
         var showFavoritesOnly: Bool
         var lastSaved: Date
     }

@@ -22,7 +22,8 @@ struct FilterSheetView: View {
                         FilterRow(
                             displayName: DisplayNames.category(category),
                             count: categoryCounts[category.lowercased()] ?? 0,
-                            isSelected: model.filter.selectedCategories.contains(category.lowercased())
+                            isSelected: model.filter.selectedCategories
+                                .contains { $0.lowercased() == category.lowercased() }
                         ) {
                             model.toggleCategory(category)
                         }
@@ -34,7 +35,8 @@ struct FilterSheetView: View {
                         FilterRow(
                             displayName: DisplayNames.location(location),
                             count: locationCounts[location.lowercased()] ?? 0,
-                            isSelected: model.filter.selectedLocations.contains(location.lowercased())
+                            isSelected: model.filter.selectedLocations
+                                .contains { $0.lowercased() == location.lowercased() }
                         ) {
                             model.toggleLocation(location)
                         }

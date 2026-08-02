@@ -348,7 +348,7 @@ struct AppModelTests {
         #expect(model.filter.selectedWeeks.isEmpty)
     }
 
-    @Test func toggleLocationMutatesAndPersistsFilterLowercased() {
+    @Test func toggleLocationStoresOriginalCasingAndPersists() {
         let defaults = makeDefaults()
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
@@ -356,15 +356,18 @@ struct AppModelTests {
         )
 
         model.toggleLocation("Hall Of Philosophy")
-        #expect(model.filter.selectedLocations == ["hall of philosophy"])
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedLocations == ["hall of philosophy"])
+        #expect(model.filter.selectedLocations == ["Hall Of Philosophy"])
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.selectedLocations == ["Hall Of Philosophy"])
 
-        model.toggleLocation("Hall Of Philosophy")
+        // Removal is case-insensitive, matching the web's toggleInList.
+        model.toggleLocation("hall of philosophy")
         #expect(model.filter.selectedLocations.isEmpty)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedLocations.isEmpty == true)
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.selectedLocations.isEmpty == true)
     }
 
-    @Test func toggleCategoryMutatesAndPersistsFilterLowercased() {
+    @Test func toggleCategoryStoresOriginalCasingAndPersists() {
         let defaults = makeDefaults()
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
@@ -372,12 +375,23 @@ struct AppModelTests {
         )
 
         model.toggleCategory("CSO")
-        #expect(model.filter.selectedCategories == ["cso"])
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedCategories == ["cso"])
+        #expect(model.filter.selectedCategories == ["CSO"])
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.selectedCategories == ["CSO"])
 
-        model.toggleCategory("CSO")
+        model.toggleCategory("cso")
         #expect(model.filter.selectedCategories.isEmpty)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedCategories.isEmpty == true)
+    }
+
+    @Test func selectionsKeepInsertionOrder() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggleLocation("Norton Hall")
+        model.toggleLocation("Amphitheater")
+        #expect(model.filter.selectedLocations == ["Norton Hall", "Amphitheater"])
     }
 
     @Test func toggleFavoritesOnlyMutatesAndPersistsFilter() {

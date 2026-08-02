@@ -239,4 +239,51 @@ struct EventFilterTests {
 
         #expect(result.map(\.id) == ["far"])
     }
+
+    // MARK: - Case-insensitive venue/category matching
+
+    @Test func originalCasedSelectionMatchesLowercasedEventFields() throws {
+        let start = try #require(ChqTime.parse("2026-07-01 10:00:00"))
+        let events = [
+            makeEvent(id: "a", start: start, location: "Amphitheater", categories: ["CSO"]),
+            makeEvent(id: "b", start: start, location: "Norton Hall", categories: ["CLSC"]),
+        ]
+        var filter = FilterSelection(dateScope: .all)
+        filter.selectedLocations = ["Amphitheater"]
+
+        let result = EventFilter.apply(
+            filter, to: events, favorites: [], now: start, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["a"])
+    }
+
+    @Test func differentlyCasedDuplicateDoesNotNarrowFurther() throws {
+        let start = try #require(ChqTime.parse("2026-07-01 10:00:00"))
+        let events = [
+            makeEvent(id: "a", start: start, location: "Amphitheater"),
+            makeEvent(id: "b", start: start, location: "Norton Hall"),
+        ]
+        var filter = FilterSelection(dateScope: .all)
+        filter.selectedLocations = ["Amphitheater", "AMPHITHEATER"]
+
+        let result = EventFilter.apply(
+            filter, to: events, favorites: [], now: start, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["a"])
+    }
+
+    @Test func categorySelectionMatchesFilterTokensCaseInsensitively() throws {
+        let start = try #require(ChqTime.parse("2026-07-01 10:00:00"))
+        let events = [
+            makeEvent(id: "a", start: start, categories: ["CSO"]),
+            makeEvent(id: "b", start: start, categories: ["CLSC"]),
+        ]
+        var filter = FilterSelection(dateScope: .all)
+        filter.selectedCategories = ["CSO"]
+
+        let result = EventFilter.apply(
+            filter, to: events, favorites: [], now: start, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["a"])
+    }
 }
