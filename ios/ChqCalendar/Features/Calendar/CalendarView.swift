@@ -48,6 +48,20 @@ struct CalendarView: View {
             guard !Task.isCancelled else { return }
             model.filter.searchText = searchDraft
         }
+        // The other half of that binding. `clearAll()`, `clearNonDateFilters()`
+        // and `remove(.search)` all write `filter.searchText = ""` without
+        // going through the field, so without this the field keeps showing a
+        // term the model no longer has — and the next keystroke commits the
+        // stale draft, silently reapplying a filter the user just removed.
+        // (Before this branch, `clearFilters()` preserved `searchText`, so
+        // the two could not disagree.)
+        //
+        // The inequality guard is what keeps this from fighting the debounce
+        // above: the write the debounce makes is already equal, so it does
+        // not bounce back through here.
+        .onChange(of: model.filter.searchText) { _, committed in
+            if committed != searchDraft { searchDraft = committed }
+        }
         .task {
             await model.start()
             #if DEBUG

@@ -60,7 +60,25 @@ struct FilterBarView: View {
                     }
                 }
 
-                if model.filter.hasFilters {
+                // `hasNonDateFilters`, not `hasFilters`: the default
+                // `.next` scope makes `hasDateFilters` true on a fresh
+                // install, so `hasFilters` is true before the user has
+                // touched anything — while `ActiveFilterChips` deliberately
+                // emits no date or week chips (their own controls sit
+                // directly above). Gating on `hasFilters` therefore renders
+                // a solitary "Clear all" under two empty facet rows,
+                // permanently, in the app's default state.
+                //
+                // The web guards the same case as `hasFilters &&
+                // chips.length > 0` (`ActiveFilters.tsx`); it can afford
+                // `hasFilters` alone only because `buildActiveChips` does
+                // emit date and week chips. `hasNonDateFilters` is exactly
+                // "this selection produces at least one chip" — see
+                // `ActiveFilterChipsTests`, which pins the two together.
+                //
+                // "Clear all" stays reachable for date-only filtering: the
+                // `All` scope chip in row 1 does the same job.
+                if model.filter.hasNonDateFilters {
                     ResetFilterRow(model: model)
                 }
             }

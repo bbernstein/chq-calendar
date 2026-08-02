@@ -1,24 +1,5 @@
 import SwiftUI
 
-/// Which of the two orthogonal filter facets a `FacetRowView` drives.
-///
-/// "Venues" rather than the web's "Locations": every value in this list is
-/// a place an event happens, and the shorter word leaves more of the row
-/// for the chips that matter.
-enum FilterFacet: String, Identifiable, CaseIterable, Sendable {
-    case venues
-    case categories
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .venues: return "Venues"
-        case .categories: return "Categories"
-        }
-    }
-}
-
 /// One facet's row: a disclosure label, that facet's recently-used filters
 /// inline beside it, and — when expanded — the full list in place.
 ///

@@ -15,6 +15,21 @@ nonisolated struct ActiveFilterChip: Identifiable, Equatable, Sendable {
     let kind: Kind
     /// Display-ready: `DisplayNames` shortcut already applied.
     let label: String
+
+    /// What VoiceOver reads for the chip's remove button.
+    ///
+    /// The search chip's visible label is just the quoted term, which read
+    /// aloud on its own (`Remove filter "Burns"`) gives no clue which of the
+    /// four filter kinds is about to go. Mirrors the web, whose `FilterChip`
+    /// prefixes exactly this one kind: `Remove filter Search: "Burns"`
+    /// (`ActiveFilters.tsx`). Venue, category, and favorites chips carry
+    /// their own meaning in the label and take no prefix, there or here.
+    var accessibilityLabel: String {
+        switch kind {
+        case .search: return "Remove filter Search: \(label)"
+        case .location, .category, .favorites: return "Remove filter \(label)"
+        }
+    }
 }
 
 /// Builds the reset row's chip list from the selection alone.

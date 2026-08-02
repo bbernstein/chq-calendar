@@ -51,7 +51,7 @@ struct ResetFilterRow: View {
                         .background(Color.accentColor, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Remove filter \(chip.label)")
+                    .accessibilityLabel(chip.accessibilityLabel)
                 }
             }
             .padding(.horizontal)

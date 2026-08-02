@@ -31,19 +31,25 @@ struct EventListView: View {
     @State private var isFilterBarCollapsed = false
 
     @State private var collapseDriver = FilterBarCollapseDriver(
-        minimumHeadroomToCollapse: EventListView.collapsedBarHeightGiveBack + 40)
+        estimatedGiveBack: EventListView.estimatedCollapseGiveBack)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Roughly how much height collapsing hands back to the list — the
-    /// venue, category, and reset rows `FilterBarView` drops when
-    /// `isCollapsed`. Measured on a device: the list's top content inset
-    /// goes 330pt → 230pt across the transition. A collapse is refused
-    /// unless at least this much (plus a margin) of scrollable range
-    /// remains below the current position, so that giving it back can never
-    /// force the scroll view to move the content — see
-    /// `FilterBarCollapse.next`.
-    private static let collapsedBarHeightGiveBack: CGFloat = 100
+    /// A starting assumption for how much height collapsing hands back —
+    /// the venue, category, and reset rows `FilterBarView` drops when
+    /// `isCollapsed`. Used only until the driver has seen the bar settled in
+    /// both states and can measure the real figure; see
+    /// `FilterBarCollapseDriver`.
+    ///
+    /// 150 rather than 100 because the population this protects is the
+    /// filtered one. Instrumented iPhone 17 runs put the list's settled top
+    /// inset at 330 → 230 unfiltered (no reset row, so 100pt) but 380 → 230
+    /// whenever any filter is active (`log-B`, `log-C4`, `log-E`, `log-F`
+    /// — short, overflowing, panel-open, and tiny filtered lists), i.e.
+    /// 150pt. The 100pt figure a previous round recorded here came from the
+    /// one scenario with no reset row (`log-drag-smoke`, `log-A`, `log-RM`,
+    /// all unfiltered).
+    private static let estimatedCollapseGiveBack: CGFloat = 150
 
     /// How long the collapse/expand transition runs. Named because the
     /// driver's settle window is defined by this animation completing, not
@@ -163,6 +169,18 @@ struct EventListView: View {
                 // both branches, including the `nil` (Reduce Motion) one.
                 collapseDriver.settled()
             }
+        }
+        .onDisappear {
+            // This `List` is going away — results emptied to the
+            // no-matches state, a year switch clearing the snapshot, an
+            // offline banner replacing it. Two things must not outlive it:
+            // the settle gate (whose only other exit is the completion
+            // handler above, which cannot run for a view that no longer
+            // exists — that would wedge collapse for the rest of the
+            // session), and the previous geometry sample (which belongs to
+            // this list, not to whatever list comes next).
+            collapseDriver.reset()
+            isFilterBarCollapsed = false
         }
         .refreshable {
             await model.refresh(force: true)

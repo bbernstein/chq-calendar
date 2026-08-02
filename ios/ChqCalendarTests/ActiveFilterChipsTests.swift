@@ -62,4 +62,66 @@ struct ActiveFilterChipsTests {
         let ids = ActiveFilterChips.build(selection: filter).map(\.id)
         #expect(Set(ids).count == ids.count)
     }
+
+    // MARK: - what `FilterBarView` gates the reset row on
+
+    @Test func theDefaultSelectionHasFiltersButProducesNoChips() {
+        // The reason the reset row cannot be gated on `hasFilters`: a fresh
+        // install's `.next` scope *is* a date filter, but date and week are
+        // deliberately absent from the chip list (their own controls sit
+        // directly above it). Gating on `hasFilters` renders a solitary
+        // "Clear all" under two empty facet rows, permanently.
+        let fresh = FilterSelection()
+        #expect(fresh.hasFilters)
+        #expect(fresh.hasNonDateFilters == false)
+        #expect(ActiveFilterChips.build(selection: fresh).isEmpty)
+    }
+
+    @Test func hasNonDateFiltersIsExactlyWhetherAnyChipIsProduced() {
+        // `FilterBarView` gates the reset row on `hasNonDateFilters`; the
+        // row is "Clear all" plus these chips, so with no chips it is an
+        // orphan. The web writes the same guard as `hasFilters &&
+        // chips.length > 0`. Pinned across every field either predicate
+        // reads, so the two cannot drift apart.
+        var selections: [FilterSelection] = [
+            FilterSelection(),
+            FilterSelection(dateScope: .all),
+            FilterSelection(selectedWeeks: [6]),
+            FilterSelection(searchText: "Burns"),
+            FilterSelection(searchText: "   "),
+            FilterSelection(selectedLocations: ["Amphitheater"]),
+            FilterSelection(selectedCategories: ["CSO"]),
+            FilterSelection(showFavoritesOnly: true),
+        ]
+        selections.append(
+            FilterSelection(
+                searchText: "Burns", dateScope: .all, selectedWeeks: [6],
+                selectedLocations: ["Amphitheater"], selectedCategories: ["CSO"],
+                showFavoritesOnly: true))
+
+        for selection in selections {
+            let hasChips = !ActiveFilterChips.build(selection: selection).isEmpty
+            #expect(selection.hasNonDateFilters == hasChips)
+        }
+    }
+
+    // MARK: - VoiceOver
+
+    @Test func onlyTheSearchChipCarriesAKindPrefix() {
+        // `"Burns"` read on its own says nothing about which of the four
+        // filter kinds is about to be removed; every other chip's label is
+        // already the name of the thing. Mirrors the web's `FilterChip`,
+        // which prefixes exactly this one kind.
+        var filter = FilterSelection()
+        filter.searchText = "Burns"
+        filter.selectedLocations = ["Amphitheater"]
+        filter.showFavoritesOnly = true
+
+        let labels = ActiveFilterChips.build(selection: filter).map(\.accessibilityLabel)
+        #expect(labels == [
+            "Remove filter Search: \"Burns\"",
+            "Remove filter Amphitheater",
+            "Remove filter Favorites",
+        ])
+    }
 }

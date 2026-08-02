@@ -96,16 +96,21 @@ nonisolated struct ScrollGeometrySample: Equatable, Sendable {
 ///    which a bounce reads as `threshold`+ points of "scroll up" (expand)
 ///    followed by `threshold`+ points of settling back down (collapse).
 /// 2. **Collapsing into content that cannot absorb it.** Hiding the
-///    secondary rows hands ~100pt back to the list, which *shortens* the
-///    scrollable range by the same ~100pt. If the list is already within
+///    secondary rows hands their height back to the list, which *shortens*
+///    the scrollable range by the same amount. If the list is already within
 ///    that distance of its bottom, the scroll view has to clamp
 ///    `contentOffset` to stay in range — a real, if self-inflicted, scroll
 ///    upward, which then reads as the user scrolling up and expands the bar
 ///    again, which lengthens the range again, forever.
 ///    `minimumHeadroomToCollapse` refuses the collapse in exactly the
 ///    situations where that clamp would happen, so **a collapse never moves
-///    the content**. This covers the reported short-filtered-list
-///    oscillation and, as the same condition, the bottom of any list.
+///    the content — as long as the caller's figure is at least what the
+///    collapse really gives back**. That is not a constant: it is 100pt with
+///    no reset row, 150pt with one, ~140pt more again with a facet panel
+///    open (collapsing closes it too), and it scales with Dynamic Type. See
+///    `FilterBarCollapseDriver`, which measures it rather than assuming it.
+///    This covers the reported short-filtered-list oscillation and, as the
+///    same condition, the bottom of any list.
 nonisolated enum FilterBarCollapse {
     /// - Parameters:
     ///   - offset: `ScrollGeometrySample.offset` — 0 at the top, growing
@@ -193,6 +198,24 @@ nonisolated enum FilterBarCollapse {
 ///   any layout change and covers inset animations the driver did *not*
 ///   start — chiefly a facet panel opening, which grows the inset ~140pt
 ///   underneath a list nobody scrolled.
+///
+/// ## Why the head­room requirement is measured rather than configured
+///
+/// The gate above needs one number: how much height a collapse hands back.
+/// That number is not a property of the code, it is a property of what the
+/// bar is currently rendering — a reset row adds ~50pt, an open facet panel
+/// (which a collapse also closes) adds ~140pt more, and Dynamic Type scales
+/// every row. A constant measured once at one text size on one filter state
+/// is wrong for every other combination, and wrong in the unsafe direction
+/// for the taller ones.
+///
+/// So the driver reads it off the geometry it is already being handed: the
+/// top inset carries the bar's height, so the difference between the inset
+/// last seen while expanded and the inset last seen while collapsed *is*
+/// the give-back, in whatever state the bar is actually in. Only trustworthy
+/// samples (viewport-stable, non-zero inset) contribute, and until both
+/// states have been seen — i.e. before the first flip of a session — the
+/// caller's estimate stands in.
 @MainActor
 final class FilterBarCollapseDriver {
     /// The bar's current state. The view mirrors this into `@State` when
@@ -205,14 +228,43 @@ final class FilterBarCollapseDriver {
     private var pivot: CGFloat = 0
     private var isSettling = false
     private var previous: ScrollGeometrySample?
-    private let minimumHeadroomToCollapse: CGFloat
 
-    /// - Parameter minimumHeadroomToCollapse: see
-    ///   `FilterBarCollapse.next`. Must be at least the height collapsing
-    ///   gives back, or a collapse near the bottom of a list will move the
-    ///   content and undo itself.
-    init(minimumHeadroomToCollapse: CGFloat) {
-        self.minimumHeadroomToCollapse = minimumHeadroomToCollapse
+    private let estimatedGiveBack: CGFloat
+    private let headroomMargin: CGFloat
+
+    /// The top inset most recently observed from a trustworthy sample in
+    /// each state. Survives `reset()`: they describe the *bar*, which
+    /// outlives any one `List`.
+    private var insetTopWhileExpanded: CGFloat?
+    private var insetTopWhileCollapsed: CGFloat?
+
+    /// How much height collapsing hands back, as actually observed — `nil`
+    /// until the bar has been seen settled in both states.
+    var measuredGiveBack: CGFloat? {
+        guard let expanded = insetTopWhileExpanded,
+              let collapsed = insetTopWhileCollapsed,
+              expanded > collapsed
+        else { return nil }
+        return expanded - collapsed
+    }
+
+    /// The `minimumHeadroomToCollapse` this driver passes to
+    /// `FilterBarCollapse.next` — the measured give-back once known, the
+    /// caller's estimate until then, plus a margin either way.
+    var requiredHeadroom: CGFloat {
+        (measuredGiveBack ?? estimatedGiveBack) + headroomMargin
+    }
+
+    /// - Parameters:
+    ///   - estimatedGiveBack: what to assume collapsing gives back until the
+    ///     first flip makes it measurable. Err high: an over-estimate only
+    ///     refuses a collapse slightly nearer the bottom of a list, while an
+    ///     under-estimate is the oscillation this gate exists to prevent.
+    ///   - headroomMargin: added on top of the give-back, so a collapse
+    ///     leaves slack rather than landing exactly on the limit.
+    init(estimatedGiveBack: CGFloat, headroomMargin: CGFloat = 40) {
+        self.estimatedGiveBack = estimatedGiveBack
+        self.headroomMargin = headroomMargin
     }
 
     /// Feeds one geometry sample in.
@@ -229,6 +281,21 @@ final class FilterBarCollapseDriver {
 
         guard !isSettling else { return nil }
         guard let previous, previous.describesSameViewport(as: sample) else { return nil }
+
+        // Past both admissibility guards, so this sample's insets are the
+        // settled ones rather than a mid-transition reading. `> 0` rejects
+        // the `insetTop: 0` convention SwiftUI switches to while *any* inset
+        // animates — there is always a navigation bar, so a real top inset
+        // is never zero. Recorded before the offset check: a stationary list
+        // still teaches the driver what the bar currently costs.
+        if sample.insetTop > 0 {
+            if isCollapsed {
+                insetTopWhileCollapsed = sample.insetTop
+            } else {
+                insetTopWhileExpanded = sample.insetTop
+            }
+        }
+
         guard sample.offset != previous.offset else { return nil }
 
         let next = FilterBarCollapse.next(
@@ -236,7 +303,7 @@ final class FilterBarCollapseDriver {
             offset: sample.offset,
             pivot: pivot,
             validMax: sample.validMax,
-            minimumHeadroomToCollapse: minimumHeadroomToCollapse)
+            minimumHeadroomToCollapse: requiredHeadroom)
         pivot = next.pivot
 
         guard next.isCollapsed != isCollapsed else { return nil }
@@ -249,5 +316,33 @@ final class FilterBarCollapseDriver {
     /// re-admitting geometry samples.
     func settled() {
         isSettling = false
+    }
+
+    /// Drops everything tied to the `List` that produced it, for when that
+    /// list goes away — a filter that empties the results, a year switch, a
+    /// snapshot cleared mid-transition.
+    ///
+    /// Two distinct jobs, both of which the caller gets wrong by omission:
+    ///
+    /// 1. **Un-wedging.** `isSettling` is otherwise cleared only by the
+    ///    animation's own completion handler. If the animating view is torn
+    ///    down inside that window — `AppModel.select(year:)` clears the
+    ///    snapshot, and the filter bar is gated on the snapshot being
+    ///    non-nil — a completion that never runs would leave the driver
+    ///    dropping every sample for the rest of its life, silently disabling
+    ///    collapse for the session. This is a state-based escape rather than
+    ///    a watchdog timer on purpose: the absence of tuned durations is the
+    ///    point of the settle gate.
+    /// 2. **Not comparing two different lists.** `previous` is the whole
+    ///    basis of the viewport-stability rule, and a new list's first
+    ///    sample has nothing to do with the old list's last one.
+    ///
+    /// The give-back measurements deliberately survive: they describe the
+    /// filter bar, which is the same bar before and after.
+    func reset() {
+        isCollapsed = false
+        pivot = 0
+        isSettling = false
+        previous = nil
     }
 }

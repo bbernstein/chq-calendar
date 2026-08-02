@@ -215,6 +215,25 @@ struct FilterBarCollapseDriverTests {
         sample(offset - 230, 230, 86, 874, contentHeight)
     }
 
+    /// The same screen with a filter active, which adds `ResetFilterRow` to
+    /// the bar: the settled expanded top inset is 380 rather than 330, so
+    /// the collapse gives back 150pt rather than 100. Instrumented runs put
+    /// every filtered scenario here (`log-B`, `log-C4`, `log-E`, `log-F`)
+    /// and only the unfiltered ones at 330.
+    private func filteredExpanded(
+        offset: CGFloat, contentHeight: CGFloat = 90_000
+    ) -> ScrollGeometrySample {
+        sample(offset - 380, 380, 86, 874, contentHeight)
+    }
+
+    /// The filtered screen collapsed. The reset row is one of the rows the
+    /// collapse hides, so this is the same 230 as the unfiltered case.
+    private func filteredCollapsed(
+        offset: CGFloat, contentHeight: CGFloat = 90_000
+    ) -> ScrollGeometrySample {
+        sample(offset - 230, 230, 86, 874, contentHeight)
+    }
+
     /// The 26 geometry samples an iPhone 17 emitted between the frame that
     /// collapsed the bar and the first frame after the transition settled,
     /// copied verbatim from an instrumented run.
@@ -262,13 +281,13 @@ struct FilterBarCollapseDriverTests {
 
     @Test func theFirstSampleIsNeverActedOn() {
         // "Same viewport as the previous frame" needs a previous frame.
-        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         #expect(driver.received(settledExpanded(offset: 500)) == nil)
         #expect(driver.isCollapsed == false)
     }
 
     @Test func aSteadyDragCollapsesTheBarExactlyOnce() {
-        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         var flips = 0
         for offset in stride(from: CGFloat(0), through: 200, by: 10) {
             if driver.received(settledExpanded(offset: offset)) != nil {
@@ -285,7 +304,7 @@ struct FilterBarCollapseDriverTests {
         // nobody scrolled. The viewport differs from the previous frame, so
         // the sample is inadmissible and the panel is not closed out from
         // under the user by an auto-collapse.
-        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         _ = driver.received(settledExpanded(offset: 0))
         #expect(driver.received(settledExpanded(offset: 0)) == nil)
 
@@ -320,7 +339,7 @@ struct FilterBarCollapseDriverTests {
         // after the last frame. Zero further flips, not "fewer": every one
         // of those frames is inadmissible, so the bar cannot flip until the
         // transition it started has finished.
-        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         _ = driver.received(settledExpanded(offset: 0, contentHeight: 89_835))
         _ = driver.received(settledExpanded(offset: 26.7, contentHeight: 89_847.3))
         #expect(driver.received(settledExpanded(offset: 53.3, contentHeight: 89_847.3)) == true)
@@ -353,7 +372,7 @@ struct FilterBarCollapseDriverTests {
         // does.
         let midAnimation = { (offset: CGFloat) in self.sample(offset, 0, 86, 544, 90_000) }
 
-        let settling = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let settling = FilterBarCollapseDriver(estimatedGiveBack: 100)
         _ = settling.received(settledExpanded(offset: 0))
         #expect(settling.received(settledExpanded(offset: 400)) == true)
         _ = settling.received(midAnimation(400))
@@ -362,7 +381,7 @@ struct FilterBarCollapseDriverTests {
 
         // The identical frames, with the gate defeated the way a lapsed
         // cooldown defeats it, do flip the bar.
-        let notSettling = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let notSettling = FilterBarCollapseDriver(estimatedGiveBack: 100)
         _ = notSettling.received(settledExpanded(offset: 0))
         #expect(notSettling.received(settledExpanded(offset: 400)) == true)
         notSettling.settled()
@@ -380,7 +399,7 @@ struct FilterBarCollapseDriverTests {
             sample(offset - 230, 230, 86, 874, 2054.3)
         }
 
-        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         // Scroll down far enough to collapse, then let the transition settle.
         _ = driver.received(sample(0 - 330, 330, 86, 874, 2054.3))
         #expect(driver.received(sample(200 - 330, 330, 86, 874, 2054.3)) == true)
@@ -403,7 +422,7 @@ struct FilterBarCollapseDriverTests {
         // a collapse needs to leave behind. Swept top to bottom and back,
         // the bar must never flip at all: every collapse it could reach
         // would immediately clamp the content and undo itself.
-        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         let contentHeight: CGFloat = 874 - 330 - 86 + 120
         var offsets = Array(stride(from: CGFloat(0), through: 120, by: 10))
         offsets += offsets.reversed()
@@ -415,5 +434,142 @@ struct FilterBarCollapseDriverTests {
         }
         #expect(flips == 0)
         #expect(driver.isCollapsed == false)
+    }
+
+    // MARK: - the give-back is measured, not assumed
+    //
+    // The headroom gate's whole claim is "a collapse never moves the
+    // content", and that claim is only as good as the number it is given.
+    // A constant cannot be that number: the bar is 100pt taller collapsed
+    // with no reset row, 150 with one, ~140pt more again with a facet panel
+    // open, and every row scales with Dynamic Type. The driver reads the
+    // real figure off the top inset it is already handed.
+
+    @Test func theGiveBackIsUnknownUntilTheBarHasBeenSeenInBothStates() {
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 150, headroomMargin: 40)
+        #expect(driver.measuredGiveBack == nil)
+        #expect(driver.requiredHeadroom == 190)
+    }
+
+    @Test func theGiveBackIsLearnedFromTheInsetDeltaAcrossAFlip() {
+        // Deliberately seeded with the *unfiltered* estimate (100 -> 140
+        // required, which is what a previous round hardcoded) against
+        // filtered geometry, so only measurement can reach the right answer.
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100, headroomMargin: 40)
+        #expect(driver.requiredHeadroom == 140)
+
+        _ = driver.received(filteredExpanded(offset: 0))
+        #expect(driver.received(filteredExpanded(offset: 200)) == true)
+        driver.settled()
+        // First post-settle sample switches viewport (380 -> 230) so it is
+        // inadmissible; the second is the one that teaches the driver.
+        _ = driver.received(filteredCollapsed(offset: 200))
+        _ = driver.received(filteredCollapsed(offset: 210))
+
+        #expect(driver.measuredGiveBack == 150)
+        #expect(driver.requiredHeadroom == 190)
+    }
+
+    @Test func theLearnedGiveBackRefusesACollapseTheOldConstantWouldHaveAllowed() {
+        // Learn 150 on a long filtered list, then meet a short one: 210pt of
+        // scrollable range in total, so a collapse at 40pt down leaves 170pt
+        // of headroom. 140 admits that and the content is clamped 10pt up
+        // -- benign at the default text size, but at accessibility sizes two
+        // facet rows plus the reset row exceed 180 and the clamp exceeds the
+        // 40pt threshold, which is the short-content oscillation coming back.
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100, headroomMargin: 40)
+        _ = driver.received(filteredExpanded(offset: 0))
+        #expect(driver.received(filteredExpanded(offset: 200)) == true)
+        driver.settled()
+        _ = driver.received(filteredCollapsed(offset: 200))
+        _ = driver.received(filteredCollapsed(offset: 210))
+        #expect(driver.requiredHeadroom == 190)
+
+        // The measurement describes the bar, not the list, so it survives
+        // the list being replaced.
+        driver.reset()
+        #expect(driver.measuredGiveBack == 150)
+
+        let contentHeight: CGFloat = 874 - 380 - 86 + 210
+        var flips = 0
+        for offset in stride(from: CGFloat(0), through: 210, by: 10)
+        where driver.received(filteredExpanded(offset: offset, contentHeight: contentHeight)) != nil {
+            flips += 1
+        }
+        #expect(flips == 0)
+        #expect(driver.isCollapsed == false)
+
+        // And the same geometry under the superseded constant does collapse
+        // -- so the assertion above is about the measured number, not about
+        // the list being too short for any gate to allow it.
+        let underTheOldConstant = FilterBarCollapse.next(
+            isCollapsed: false, offset: 40, pivot: 0, validMax: 210,
+            minimumHeadroomToCollapse: 140)
+        #expect(underTheOldConstant.isCollapsed)
+    }
+
+    @Test func anInsetReadMidAnimationNeverPoisonsTheMeasurement() {
+        // SwiftUI reports `insetTop: 0` while any inset animates, folding it
+        // into `containerSize` instead. Two such frames in a row share a
+        // viewport, so the stability rule alone would admit them -- and a 0
+        // recorded as "the expanded inset" would compute a *negative*
+        // give-back and disable the gate entirely.
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 150, headroomMargin: 40)
+        _ = driver.received(sample(400, 0, 86, 544, 90_000))
+        _ = driver.received(sample(440, 0, 86, 544, 90_000))
+        #expect(driver.measuredGiveBack == nil)
+        #expect(driver.requiredHeadroom == 190)
+    }
+
+    // MARK: - reset (the list this driver was reading went away)
+
+    @Test func resetUnwedgesADriverWhoseAnimationCompletionNeverRan() {
+        // `isSettling` has exactly one other exit: the completion handler of
+        // the `withAnimation` the flip started. `AppModel.select(year:)`
+        // clears the snapshot for an uncached year, and the filter bar is
+        // gated on the snapshot being non-nil, so the animating view can be
+        // torn down inside that 0.2s window. If the completion is lost the
+        // driver drops every sample for the life of the view and collapse
+        // silently stops working for the session.
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
+        _ = driver.received(settledExpanded(offset: 0))
+        #expect(driver.received(settledExpanded(offset: 200)) == true)
+
+        // No `settled()`. Scrolling back to the very top would normally
+        // force the bar open; wedged, it does nothing.
+        _ = driver.received(settledCollapsed(offset: 200))
+        _ = driver.received(settledCollapsed(offset: 210))
+        #expect(driver.received(settledCollapsed(offset: 0)) == nil)
+        #expect(driver.isCollapsed)
+
+        driver.reset()
+        #expect(driver.isCollapsed == false)
+        _ = driver.received(settledExpanded(offset: 0))
+        _ = driver.received(settledExpanded(offset: 10))
+        #expect(driver.received(settledExpanded(offset: 200)) == true)
+    }
+
+    @Test func resetStopsANewListBeingComparedAgainstTheOldListsLastFrame() {
+        // The `List` is recreated whenever `EventListView.content` switches
+        // branch -- a filter that empties the results and then refills them,
+        // a year switch. Same viewport either side, so without a reset the
+        // new list's very first sample is diffed against the old list's last
+        // and read as a fling nobody performed.
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
+        _ = driver.received(settledExpanded(offset: 0))
+        _ = driver.received(settledExpanded(offset: 10))
+
+        driver.reset()
+        // Same viewport, different list: 600pt further down and a
+        // twentieth of the content. Acted on, that reads as a fling nobody
+        // performed, and collapses the bar over a list nobody has touched.
+        #expect(driver.received(settledExpanded(offset: 610, contentHeight: 5_000)) == nil)
+        #expect(driver.isCollapsed == false)
+
+        // From there the new list is tracked on its own terms, its first
+        // 40pt of travel measured from its own starting point.
+        _ = driver.received(settledExpanded(offset: 0, contentHeight: 5_000))
+        _ = driver.received(settledExpanded(offset: 20, contentHeight: 5_000))
+        #expect(driver.received(settledExpanded(offset: 60, contentHeight: 5_000)) == true)
     }
 }

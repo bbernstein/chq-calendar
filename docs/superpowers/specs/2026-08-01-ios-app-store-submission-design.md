@@ -13,8 +13,9 @@ sync with the app's UI.
 The native SwiftUI app (`ios/ChqCalendar.xcodeproj`) shipped to main via
 PRs #147 and #148 and is live in TestFlight under bundle id
 `org.chqcal.app` (team RX6EGLMU69). It has 123 unit tests, targets iOS
-17.0, and supports iPhone and iPad. It is not yet submitted to the App
-Store.
+18.0 (17.0 at the time this was written; raised on
+`feat/ios-ux-filtering` for `onScrollGeometryChange`), and supports iPhone
+and iPad. It is not yet submitted to the App Store.
 
 The trigger for this work was an observation that the app icon does not
 render on the App Store Connect page even though it renders correctly in
