@@ -1,5 +1,27 @@
 import SwiftUI
 
+/// The two numbers `onScrollGeometryChange` needs to tell a genuine scroll
+/// apart from an inset-only change (see `CollapseTracker` below).
+private struct ScrollProbe: Equatable {
+    var offset: CGFloat
+    var insetTop: CGFloat
+}
+
+/// Holds the collapse-decision pivot outside `@State`'s value semantics.
+///
+/// `onScrollGeometryChange`'s action fires on every frame of a drag; if the
+/// pivot lived in `@State` directly, every one of those frames would
+/// invalidate `EventListView`'s body — which reruns the whole
+/// filter+group pipeline (`model.dayGroups`, six `EventFilter` stages over
+/// ~1,637 events plus `EventGrouping.byDay`). Mutating a stored property of
+/// a reference type held by `@State` does not itself trigger a re-render;
+/// only the genuine `isFilterBarCollapsed` flip (still plain `@State`)
+/// should do that.
+@MainActor
+private final class CollapseTracker {
+    var pivot: CGFloat = 0
+}
+
 /// The day-grouped event list shared by both the compact (iPhone,
 /// `NavigationStack`) and regular (iPad, `NavigationSplitView`) layouts in
 /// `CalendarView`.
@@ -24,7 +46,7 @@ struct EventListView: View {
 
     @State private var isAboutPresented = false
     @State private var isFilterBarCollapsed = false
-    @State private var collapsePivot: CGFloat = 0
+    @State private var collapseTracker = CollapseTracker()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -61,18 +83,22 @@ struct EventListView: View {
             default:
                 ProgressView("Loading events…")
             }
-        } else if model.dayGroups.isEmpty {
-            noMatchesView
         } else {
-            list
+            // Bound once here rather than read separately by an `.isEmpty`
+            // check and then `list`: `model.dayGroups` reruns the whole
+            // filter+group pipeline on every access (six `EventFilter`
+            // stages over ~1,637 events plus `EventGrouping.byDay`), so
+            // reading it twice would cost two full passes per render.
+            let days = model.dayGroups
+            if days.isEmpty {
+                noMatchesView
+            } else {
+                list(days: days)
+            }
         }
     }
 
-    private var list: some View {
-        // Bound once: `model.dayGroups` reruns the whole filter pipeline on
-        // every access, so reading it for both the count and the sections
-        // would filter ~1,500 events twice per render.
-        let days = model.dayGroups
+    private func list(days: [DayGroup]) -> some View {
         let filtered = days.reduce(0) { $0 + $1.events.count }
 
         return List(selection: selection) {
@@ -108,20 +134,33 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+        .onScrollGeometryChange(for: ScrollProbe.self) { geometry in
+            ScrollProbe(offset: geometry.contentOffset.y, insetTop: geometry.contentInsets.top)
+        } action: { old, new in
+            // `contentInsets.top` is the *adjusted* top inset, which
+            // includes this view's own `.safeAreaInset(edge: .top)` filter
+            // bar — so it changes size whenever a facet panel opens/closes,
+            // not just when the list scrolls. Reacting to that would let the
+            // bar's own layout drive `FilterBarCollapse`: opening the Venues
+            // panel grows the inset by ~140pt, which alone crosses the
+            // collapse threshold and would auto-close the panel that just
+            // opened. Only a change in `offset` (the part UIKit attributes
+            // to an actual scroll) is allowed to reach the state machine;
+            // an inset-only change is ignored outright.
+            guard new.offset != old.offset else { return }
+            // This action closure isn't `@Sendable`, so it runs on whatever
+            // actor called this modifier (MainActor, since this is a view's
+            // body) — no manual actor hop is needed to touch `@State` here.
+            //
             // `contentOffset.y` is negative while the list rests against its
             // top inset (rubber-banded above content); adding the top inset
             // back in makes 0 mean "at the top" the way `FilterBarCollapse`
             // expects, matching the safe-area-inset-adjusted resting offset.
-            geometry.contentOffset.y + geometry.contentInsets.top
-        } action: { _, offset in
-            // Unlike `onPreferenceChange`'s action, this closure isn't
-            // `@Sendable` — it runs on the actor that called this modifier
-            // (MainActor, since this is a view's body), so no hop is needed
-            // to touch `@State` here.
             let next = FilterBarCollapse.next(
-                isCollapsed: isFilterBarCollapsed, offset: offset, pivot: collapsePivot)
-            collapsePivot = next.pivot
+                isCollapsed: isFilterBarCollapsed,
+                offset: new.offset + new.insetTop,
+                pivot: collapseTracker.pivot)
+            collapseTracker.pivot = next.pivot
             guard next.isCollapsed != isFilterBarCollapsed else { return }
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 isFilterBarCollapsed = next.isCollapsed

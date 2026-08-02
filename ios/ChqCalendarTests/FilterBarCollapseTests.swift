@@ -52,4 +52,19 @@ struct FilterBarCollapseTests {
         #expect(result.isCollapsed == false)
         #expect(result.pivot == 100)
     }
+
+    @Test func customThresholdOverridesTheDefault() {
+        // With threshold: 10 (not the default 40), 8pt of travel stays under
+        // it and 10pt reaches it — values that would both stay expanded
+        // under the default 40pt threshold, pinning that the parameter is
+        // actually honored rather than a `next(...)` call site always
+        // implicitly using 40.
+        let underThreshold = FilterBarCollapse.next(isCollapsed: false, offset: 8, pivot: 0, threshold: 10)
+        #expect(underThreshold.isCollapsed == false)
+        #expect(underThreshold.pivot == 0)
+
+        let atThreshold = FilterBarCollapse.next(isCollapsed: false, offset: 10, pivot: 0, threshold: 10)
+        #expect(atThreshold.isCollapsed)
+        #expect(atThreshold.pivot == 10)
+    }
 }
