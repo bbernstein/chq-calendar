@@ -31,7 +31,7 @@ struct AppModelTests {
         )
 
         Task { await model.start() }
-        try await Task.sleep(for: .milliseconds(150))
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
 
         #expect(model.phase == .ready)
         #expect(!model.dayGroups.isEmpty)
@@ -72,10 +72,12 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let startTask = Task { await model.start() }
-        // Give start() time to load the stale 2026 cache, read the (cached,
+        // Wait for start() to load the stale 2026 cache, read the (cached,
         // network-free) manifest, and reach the gated fetch inside its
         // background refresh.
-        try? await Task.sleep(for: .milliseconds(150))
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot?.year == 2026
+        }
         #expect(model.isRefreshing)
         #expect(model.snapshot?.year == 2026)
 
@@ -105,7 +107,7 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let firstRefresh = Task { await model.refresh(force: false) }
-        try? await Task.sleep(for: .milliseconds(80))
+        await waitUntil("first refresh becomes in-flight") { model.isRefreshing }
         #expect(model.isRefreshing)
 
         // While the first refresh is still parked mid-fetch, a second
@@ -147,14 +149,22 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let startTask = Task { await model.start() }
-        try? await Task.sleep(for: .milliseconds(150))
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot?.year == 2026
+        }
         #expect(model.isRefreshing)
         #expect(model.snapshot?.year == 2026)
 
         // Switch to year 2025 (no cache) while 2026's refresh is still
         // parked mid-fetch.
         let selectTask = Task { await model.select(year: 2025) }
-        try? await Task.sleep(for: .milliseconds(150))
+        await waitUntil("year-2025 fetch is issued") {
+            let calls = await api.calls.filter {
+                if case .events(let year) = $0.resource, year == 2025 { return true }
+                return false
+            }
+            return calls.count == 1
+        }
 
         // 2025 has no cache, so it's showing nothing yet — but its own
         // fetch must have actually been issued, not swallowed.
@@ -190,14 +200,20 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let firstRefresh = Task { await model.refresh(force: false) }
-        try? await Task.sleep(for: .milliseconds(80))
+        await waitUntil("first refresh becomes in-flight") { model.isRefreshing }
         #expect(model.isRefreshing)
 
         // A forced refresh for the same year, while the first non-forced
         // one is still in flight, must issue its own fetch rather than
         // being deduped away.
         let secondRefresh = Task { await model.refresh(force: true) }
-        try? await Task.sleep(for: .milliseconds(80))
+        await waitUntil("forced refresh issues its own fetch") {
+            let calls = await api.calls.filter {
+                if case .events = $0.resource { return true }
+                return false
+            }
+            return calls.count == 2
+        }
 
         await api.resume(for: .events(year: 2026))
         await firstRefresh.value
