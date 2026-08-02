@@ -54,29 +54,31 @@ measurement collapses at a 140pt requirement and refuses at 190pt. Strictly the
 safe direction (it cannot flicker), but it is a real behavior change and it
 interacts with item 1.
 
-## 3. Open verification — STILL OUTSTANDING
+## 3. Device verification — one item closed, one still open
 
-Neither item below has been verified. Both are supported by unit tests and
-code reading only; neither has been observed running.
+**Confirmed on device by the repository owner (2026-08-02):**
 
-- **The four flip-count scenarios** after the give-back change — specifically
-  the short-content case. A unit test pins that a ~200pt-overflow list
-  collapses at the old 140pt requirement and refuses at the shipping 190pt
-  one, so the behaviour change is real and measured. What is unverified is
-  whether it reads correctly in use, which a test cannot answer.
+- **Short-content collapse behaviour.** No problems reproducible with a
+  narrow filter. This closes the concern that the give-back change had
+  reintroduced the oscillation, or made the bar behave wrongly on a
+  barely-overflowing list. Note this is distinct from item 2 above: a list
+  under ~190pt of overflow still never collapses *at all*, which is the
+  deliberate trade tracked as #154, not a defect.
+- **Chip casing across year switches.** Venue and category casing survives
+  switching years and switching back, closing the year-switch path for the
+  normalisation added in `8e480f9`.
+
+**Still open:**
+
 - **The three search-keyboard dismissal triggers** (scroll / Return / chip
-  tap) from the branch's Task 3. Never observed. An early claim that touch
-  synthesis was impossible in this environment turned out to be false, so
-  this is cheaply checkable.
-
-Automated drag synthesis (CGEvents posted to the Simulator window) works but
-needs an unlocked screen; the machine locked mid-session when it was
-attempted.
-
-**What the repository owner *did* confirm on device (2026-08-02):** venue and
-category chip casing survives switching years and switching back. That closes
-the year-switch path for the normalisation added in `8e480f9` — it does not
-touch either item above, which are different code paths.
+  tap) from the branch's Task 3. Never observed; supported by code reading
+  only. All six filter-mutation sites call `KeyboardDismisser.dismiss()`,
+  and `.scrollDismissesKeyboard(.immediately)` plus `.onSubmit(of: .search)`
+  are present on all three `.searchable` attachments, so the wiring is
+  correct by inspection — but nobody has watched it work. An early claim
+  that touch synthesis was impossible in this environment turned out to be
+  false, so this is cheaply checkable: automated drag synthesis (CGEvents
+  posted to the Simulator window) works, it just needs an unlocked screen.
 
 > Two earlier commits (`60e818a`, `71d61a4`) recorded these two items as
 > confirmed on a physical device by the repository owner. That confirmation
