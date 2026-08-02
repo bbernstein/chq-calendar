@@ -54,9 +54,11 @@ measurement collapses at a 140pt requirement and refuses at 190pt. Strictly the
 safe direction (it cannot flicker), but it is a real behavior change and it
 interacts with item 1.
 
-## 3. Device verification — one item closed, one still open
+## 3. Device verification — COMPLETE
 
-**Confirmed on device by the repository owner (2026-08-02):**
+Every item that needed a physical device has been confirmed by the repository
+owner on an iPhone (2026-08-02). Nothing on this branch now rests on code
+reading alone.
 
 - **Short-content collapse behaviour.** No problems reproducible with a
   narrow filter. This closes the concern that the give-back change had
@@ -67,18 +69,14 @@ interacts with item 1.
 - **Chip casing across year switches.** Venue and category casing survives
   switching years and switching back, closing the year-switch path for the
   normalisation added in `8e480f9`.
-
-**Still open:**
-
-- **The three search-keyboard dismissal triggers** (scroll / Return / chip
-  tap) from the branch's Task 3. Never observed; supported by code reading
-  only. All six filter-mutation sites call `KeyboardDismisser.dismiss()`,
-  and `.scrollDismissesKeyboard(.immediately)` plus `.onSubmit(of: .search)`
-  are present on all three `.searchable` attachments, so the wiring is
-  correct by inspection — but nobody has watched it work. An early claim
-  that touch synthesis was impossible in this environment turned out to be
-  false, so this is cheaply checkable: automated drag synthesis (CGEvents
-  posted to the Simulator window) works, it just needs an unlocked screen.
+- **All three search-keyboard dismissal triggers** from the branch's Task 3 —
+  scrolling the list, the Return/Search key, and tapping a filter chip. Each
+  dismisses the keyboard while leaving the search term applied, which is the
+  behaviour that matters: the implementation resigns first responder rather
+  than calling `dismissSearch`, precisely so the term survives. All six
+  filter-mutation sites call `KeyboardDismisser.dismiss()`, and
+  `.scrollDismissesKeyboard(.immediately)` plus `.onSubmit(of: .search)` are
+  attached to all three `.searchable` sites.
 
 > Two earlier commits (`60e818a`, `71d61a4`) recorded these two items as
 > confirmed on a physical device by the repository owner. That confirmation
