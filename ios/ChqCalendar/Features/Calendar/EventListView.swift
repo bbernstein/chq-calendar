@@ -1,17 +1,5 @@
 import SwiftUI
 
-/// Publishes the event list's scroll offset up to `EventListView`.
-///
-/// `static let` rather than `static var`: a `let` satisfies the protocol's
-/// `{ get }` requirement and keeps the type Sendable under Swift 6 strict
-/// concurrency.
-private struct ScrollOffsetKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 /// The day-grouped event list shared by both the compact (iPhone,
 /// `NavigationStack`) and regular (iPad, `NavigationSplitView`) layouts in
 /// `CalendarView`.
@@ -38,8 +26,6 @@ struct EventListView: View {
     @State private var isFilterBarCollapsed = false
     @State private var collapsePivot: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let scrollSpace = "eventList"
 
     var body: some View {
         content
@@ -90,16 +76,6 @@ struct EventListView: View {
         let filtered = days.reduce(0) { $0 + $1.events.count }
 
         return List(selection: selection) {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: ScrollOffsetKey.self,
-                    value: -proxy.frame(in: .named(Self.scrollSpace)).minY
-                )
-            }
-            .frame(height: 0)
-            .listRowInsets(EdgeInsets())
-            .listRowSeparator(.hidden)
-
             if let countdownDays = model.countdownDays {
                 CountdownBanner(days: countdownDays)
             }
@@ -132,18 +108,23 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-        .coordinateSpace(.named(Self.scrollSpace))
-        .onPreferenceChange(ScrollOffsetKey.self) { offset in
-            // `onPreferenceChange`'s action is @Sendable, so the hop back to
-            // the main actor is required to touch @State.
-            Task { @MainActor in
-                let next = FilterBarCollapse.next(
-                    isCollapsed: isFilterBarCollapsed, offset: offset, pivot: collapsePivot)
-                collapsePivot = next.pivot
-                guard next.isCollapsed != isFilterBarCollapsed else { return }
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    isFilterBarCollapsed = next.isCollapsed
-                }
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            // `contentOffset.y` is negative while the list rests against its
+            // top inset (rubber-banded above content); adding the top inset
+            // back in makes 0 mean "at the top" the way `FilterBarCollapse`
+            // expects, matching the safe-area-inset-adjusted resting offset.
+            geometry.contentOffset.y + geometry.contentInsets.top
+        } action: { _, offset in
+            // Unlike `onPreferenceChange`'s action, this closure isn't
+            // `@Sendable` — it runs on the actor that called this modifier
+            // (MainActor, since this is a view's body), so no hop is needed
+            // to touch `@State` here.
+            let next = FilterBarCollapse.next(
+                isCollapsed: isFilterBarCollapsed, offset: offset, pivot: collapsePivot)
+            collapsePivot = next.pivot
+            guard next.isCollapsed != isFilterBarCollapsed else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                isFilterBarCollapsed = next.isCollapsed
             }
         }
         .refreshable {

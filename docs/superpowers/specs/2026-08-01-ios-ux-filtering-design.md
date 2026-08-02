@@ -450,9 +450,19 @@ nonisolated enum FilterBarCollapse {
 }
 ```
 
-Scroll offset reaches it from a zero-height `GeometryReader` in the list's first
-row publishing through a `PreferenceKey` — deliberately not
-`onScrollGeometryChange`, which is iOS 18+, while this app targets iOS 17.
+Scroll offset was first attempted via a zero-height `GeometryReader` in the
+list's first row publishing through a `PreferenceKey`, to avoid
+`onScrollGeometryChange` (iOS 18+) against what was then an iOS 17 floor.
+That approach shipped, then failed on a physical device: `List` recycles
+rows once they scroll out of view, so the sentinel row stops contributing
+its preference as soon as it scrolls off-screen, `onPreferenceChange` falls
+back to `ScrollOffsetKey.defaultValue` (0), and `FilterBarCollapse.next`
+reads that as "back at the top" — the bar never collapsed, even though the
+list content was visibly scrolling. The technique is reliable in a plain
+`ScrollView` (whose content isn't recycled) but not in `List`. The fix was
+to raise the deployment target to iOS 18.0 and use the supported
+`onScrollGeometryChange(for:of:action:)` API directly on the `List`
+instead.
 
 Transitions animate with `.easeInOut(duration: 0.2)`, suppressed under
 `accessibilityReduceMotion`. Collapse is a display concern only: no filter state

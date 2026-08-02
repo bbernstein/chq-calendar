@@ -6,16 +6,25 @@
 
 **Architecture:** All decision logic goes into `nonisolated` pure types under `ios/ChqCalendar/Domain/` so it can be unit-tested without a view host; SwiftUI views stay dumb and call straight through to `AppModel`. `AppModel` (`@MainActor`, `@Observable`) remains the single source of truth and the only thing that persists. The modal `FilterSheetView` is deleted and replaced by two inline, self-contained facet rows.
 
-**Tech Stack:** Swift 6, SwiftUI, Swift Testing (`@Test` / `#expect`), iOS 17 deployment target, Xcode 26.
+**Tech Stack:** Swift 6, SwiftUI, Swift Testing (`@Test` / `#expect`), iOS 18 deployment target (raised from iOS 17 during Task 7 — see Global Constraints), Xcode 26.
 
 **Spec:** `docs/superpowers/specs/2026-08-01-ios-ux-filtering-design.md`
 
 ## Global Constraints
 
 - **Branch:** `feat/ios-ux-filtering`. Never commit to `main`.
-- **Deployment target is iOS 17.0.** Do not use iOS 18+ API (`onScrollGeometryChange`, `onScrollPhaseChange`, `navigationSubtitle`). `Layout`, `ScrollViewReader`, `scrollDismissesKeyboard`, and `searchable` are all iOS 16/17-safe.
+- **Deployment target is iOS 18.0** (raised from 17.0 during the Task 7 fix
+  round — the plan originally targeted 17.0 and forbade iOS 18+ API here;
+  that constraint held through Task 7's first attempt, which used a
+  `GeometryReader`/`PreferenceKey` sentinel specifically to stay on iOS 17.
+  That sentinel failed on a physical device — `List` recycles offscreen
+  rows, so the sentinel stopped publishing once scrolled away and the
+  filter bar never collapsed. The deployment target was raised, with
+  explicit user approval, so `onScrollGeometryChange` (iOS 18+) could be
+  used directly instead. `onScrollPhaseChange` and `navigationSubtitle` are
+  now allowed too if a later task needs them.)
 - **Swift 6 language mode, strict concurrency.** Domain types are declared `nonisolated`. Static stored properties must be `let` (a `static let` satisfies a protocol's `static var … { get }` requirement).
-- **The Xcode project uses `PBXFileSystemSynchronizedRootGroup`** for both `ChqCalendar` and `ChqCalendarTests`. New `.swift` files under those directories are picked up automatically. **Never edit `project.pbxproj`.**
+- **The Xcode project uses `PBXFileSystemSynchronizedRootGroup`** for both `ChqCalendar` and `ChqCalendarTests`. New `.swift` files under those directories are picked up automatically. **Never edit `project.pbxproj`**, with one recorded exception: the Task 7 fix round bumped `IPHONEOS_DEPLOYMENT_TARGET` (Debug + Release) from 17.0 to 18.0, the one and only authorized edit to that file, explicitly scoped to those two lines.
 - **No UIKit imports in `Domain/` or `App/`.** `AppModel` must keep compiling and testing without a UI host. The one UIKit escape hatch lives in `Support/KeyboardDismisser.swift` and is called only from views.
 - **Test command** (run from the repo root):
   ```bash
