@@ -247,35 +247,89 @@ struct AppModelTests {
         #expect(model.snapshot?.year == 2025)
     }
 
-    // MARK: - setScope / toggleWeek / clearFilters
+    // MARK: - selectScope / selectWeek / clearFilters
 
-    @Test func setScopeMutatesAndPersistsFilter() {
-        let defaults = makeDefaults()
-        let model = AppModel(
+    /// Week 6 of the 2026 season is 08-01 12:00 → 08-08 12:00, so this
+    /// instant puts `model.currentWeek == 6`.
+    private func makeInSeasonModel(defaults: UserDefaults) throws -> AppModel {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        return AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
-            store: UserStateStore(defaults: defaults, now: { Date() })
+            store: UserStateStore(defaults: defaults, now: { Date() }),
+            now: { now }
         )
-
-        model.setScope(.thisWeek)
-
-        #expect(model.filter.dateScope == .thisWeek)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.dateScope == .thisWeek)
     }
 
-    @Test func toggleWeekMutatesAndPersistsFilter() {
+    @Test func selectScopeClearsWeeksAndPersists() throws {
         let defaults = makeDefaults()
-        let model = AppModel(
-            repository: EventRepository(api: MockAPI(), cache: MockCache()),
-            store: UserStateStore(defaults: defaults, now: { Date() })
-        )
-
-        model.toggleWeek(3)
+        let model = try makeInSeasonModel(defaults: defaults)
+        model.selectWeek(3)
         #expect(model.filter.selectedWeeks == [3])
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedWeeks == [3])
 
-        model.toggleWeek(3)
+        model.selectScope(.today)
+
+        #expect(model.filter.dateScope == .today)
         #expect(model.filter.selectedWeeks.isEmpty)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedWeeks.isEmpty == true)
+        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadFilters()
+        #expect(reloaded?.dateScope == .today)
+        #expect(reloaded?.selectedWeeks.isEmpty == true)
+    }
+
+    @Test func reselectingTheActiveScopeIsANoOp() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectScope(.today)
+        model.selectScope(.today)
+        #expect(model.filter.dateScope == .today)
+    }
+
+    @Test func selectingCurrentWeekBecomesThisWeekScope() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        #expect(model.currentWeek == 6)
+
+        model.selectWeek(6)
+
+        #expect(model.filter.dateScope == .thisWeek)
+        #expect(model.filter.selectedWeeks.isEmpty)
+        #expect(FilterChipState.isScopeSelected(
+            .thisWeek, selection: model.filter, currentWeek: model.currentWeek))
+        #expect(FilterChipState.isWeekSelected(
+            6, selection: model.filter, currentWeek: model.currentWeek))
+    }
+
+    @Test func selectingAnotherWeekWhileNowIsActiveReplacesTheScope() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        #expect(model.filter.dateScope == .next)
+
+        model.selectWeek(3)
+
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedWeeks == [3])
+    }
+
+    @Test func weeksAccumulateOnceScopeIsAll() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectWeek(3)
+        model.selectWeek(4)
+        #expect(model.filter.selectedWeeks == [3, 4])
+
+        model.selectWeek(3)
+        #expect(model.filter.selectedWeeks == [4])
+    }
+
+    @Test func deselectingTheLastWeekLeavesScopeAll() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectWeek(3)
+        model.selectWeek(3)
+        #expect(model.filter.selectedWeeks.isEmpty)
+        #expect(model.filter.dateScope == .all)
+    }
+
+    @Test func selectingCurrentWeekAgainStaysThisWeek() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectWeek(6)
+        model.selectWeek(6)
+        #expect(model.filter.dateScope == .thisWeek)
+        #expect(model.filter.selectedWeeks.isEmpty)
     }
 
     @Test func toggleLocationMutatesAndPersistsFilterLowercased() {
@@ -335,8 +389,8 @@ struct AppModelTests {
 
         model.filter.searchText = "opera"
         model.filter.extraDays = 2
-        model.toggleWeek(4)
-        model.setScope(.all)
+        model.selectWeek(4)
+        model.selectScope(.all)
         model.toggleFavorite("evt-1")
         model.filter.showFavoritesOnly = true
 

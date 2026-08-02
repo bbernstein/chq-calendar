@@ -16,9 +16,12 @@ struct FilterBarView: View {
                     ForEach(visibleScopes, id: \.self) { scope in
                         FilterChip(
                             label: scope.label,
-                            isSelected: model.isCurrentYear ? model.filter.dateScope == scope : true
+                            isSelected: model.isCurrentYear
+                                ? FilterChipState.isScopeSelected(
+                                    scope, selection: model.filter, currentWeek: model.currentWeek)
+                                : true
                         ) {
-                            model.setScope(scope)
+                            model.selectScope(scope)
                         }
                     }
 

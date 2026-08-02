@@ -256,13 +256,32 @@ final class AppModel {
         }
     }
 
-    func setScope(_ s: DateScope) {
-        filter.dateScope = s
+    /// Selects a date scope, clearing any week selection: the scope row and
+    /// the week strip are two ways of expressing one date range, never two
+    /// ranges to intersect.
+    ///
+    /// Re-tapping the active scope is a no-op. The web toggles back to
+    /// "all" here, but it has no All button; iOS does, so the scope row
+    /// behaves as a radio group instead.
+    func selectScope(_ scope: DateScope) {
+        guard filter.dateScope != scope || !filter.selectedWeeks.isEmpty else { return }
+        filter.dateScope = scope
+        filter.selectedWeeks = []
         persistFilter()
     }
 
-    func toggleWeek(_ n: Int) {
-        if filter.selectedWeeks.contains(n) {
+    /// Mirrors the web's `handleWeekTap` (frontend/src/hooks/useScrollState.ts).
+    func selectWeek(_ n: Int) {
+        if n == currentWeek, filter.selectedWeeks.isEmpty {
+            // The current week *is* "This Week" — same range, so store it as
+            // the scope and let both chips light up.
+            filter.dateScope = .thisWeek
+        } else if filter.dateScope != .all {
+            // A relative scope was active and the user picked a different
+            // week: the week replaces the scope rather than narrowing it.
+            filter.dateScope = .all
+            filter.selectedWeeks = [n]
+        } else if filter.selectedWeeks.contains(n) {
             filter.selectedWeeks.remove(n)
         } else {
             filter.selectedWeeks.insert(n)

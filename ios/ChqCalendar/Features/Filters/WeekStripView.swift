@@ -14,11 +14,12 @@ struct WeekStripView: View {
                 ForEach(1...9, id: \.self) { number in
                     WeekChip(
                         number: number,
-                        isSelected: model.filter.selectedWeeks.contains(number),
+                        isSelected: FilterChipState.isWeekSelected(
+                            number, selection: model.filter, currentWeek: model.currentWeek),
                         isCurrent: model.isCurrentYear && model.currentWeek == number,
                         theme: model.theme(forWeek: number)
                     ) {
-                        model.toggleWeek(number)
+                        model.selectWeek(number)
                     }
                 }
             }
