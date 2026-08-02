@@ -263,7 +263,7 @@ struct AppModelTests {
         #expect(model.snapshot?.year == 2025)
     }
 
-    // MARK: - selectScope / selectWeek / clearFilters
+    // MARK: - selectScope / selectWeek / clearAll / clearNonDateFilters
 
     /// Week 6 of the 2026 season is 08-01 12:00 → 08-08 12:00, so this
     /// instant puts `model.currentWeek == 6`.
@@ -410,7 +410,7 @@ struct AppModelTests {
         #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.showFavoritesOnly == false)
     }
 
-    @Test func clearFiltersResetsFacetsButKeepsSearchTextAndExtraDays() {
+    @Test func clearAllClearsEverythingIncludingTheSearchTerm() {
         let defaults = makeDefaults()
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
@@ -420,16 +420,60 @@ struct AppModelTests {
         model.filter.searchText = "opera"
         model.filter.extraDays = 2
         model.selectWeek(4)
-        model.selectScope(.all)
-        model.toggleFavorite("evt-1")
+        model.toggleLocation("Amphitheater")
         model.filter.showFavoritesOnly = true
 
-        model.clearFilters()
+        model.clearAll()
 
-        #expect(model.filter.isDefault)
-        #expect(model.filter.searchText == "opera")
-        #expect(model.filter.extraDays == 2)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.isDefault == true)
+        #expect(model.filter.searchText.isEmpty)
+        #expect(model.filter.extraDays == 0)
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedWeeks.isEmpty)
+        #expect(model.filter.selectedLocations.isEmpty)
+        #expect(!model.filter.showFavoritesOnly)
+        #expect(!model.filter.hasFilters)
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.hasFilters == false)
+    }
+
+    @Test func clearNonDateFiltersKeepsScopeAndWeeks() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.selectWeek(4)
+        model.filter.searchText = "opera"
+        model.toggleLocation("Amphitheater")
+        model.toggleCategory("CSO")
+        model.filter.showFavoritesOnly = true
+
+        model.clearNonDateFilters()
+
+        #expect(model.filter.selectedWeeks == [4])
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.searchText.isEmpty)
+        #expect(model.filter.selectedLocations.isEmpty)
+        #expect(model.filter.selectedCategories.isEmpty)
+        #expect(!model.filter.showFavoritesOnly)
+    }
+
+    @Test func removingAChipClearsJustThatFilter() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.filter.searchText = "Burns"
+        model.toggleLocation("Amphitheater")
+        model.toggleCategory("CSO")
+
+        let chips = ActiveFilterChips.build(selection: model.filter)
+        for chip in chips { model.remove(chip) }
+
+        #expect(model.filter.searchText.isEmpty)
+        #expect(model.filter.selectedLocations.isEmpty)
+        #expect(model.filter.selectedCategories.isEmpty)
     }
 
     // MARK: - foregrounded()

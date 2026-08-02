@@ -54,6 +54,10 @@ struct FilterBarView: View {
                     expandedFacet = expandedFacet == facet ? nil : facet
                 }
             }
+
+            if model.filter.hasFilters {
+                ResetFilterRow(model: model)
+            }
         }
         .padding(.vertical, 6)
         .background(.bar)

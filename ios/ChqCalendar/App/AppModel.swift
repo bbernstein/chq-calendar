@@ -404,13 +404,42 @@ final class AppModel {
         persistFilter()
     }
 
-    /// Resets the persisted facets (scope/weeks/locations/categories/
-    /// favorites-only) back to their defaults. `searchText`/`extraDays` are
-    /// session-only and deliberately left untouched — clearing filters
-    /// shouldn't also blow away what the user just typed.
-    func clearFilters() {
-        filter = FilterSelection(searchText: filter.searchText, extraDays: filter.extraDays)
+    /// "Show all events" — clears every filter, including the search term
+    /// and `extraDays`, and drops the scope to `.all`. Mirrors the web's
+    /// CLEAR_FILTERS.
+    ///
+    /// This deliberately clears `searchText`, which the previous
+    /// `clearFilters()` preserved. That preservation only made sense while
+    /// the term had no visible representation; now it is a chip in the reset
+    /// row and individually removable, so leaving it behind after "Clear
+    /// all" would be the surprising behavior.
+    func clearAll() {
+        filter = FilterSelection(dateScope: .all)
         persistFilter()
+    }
+
+    /// "Keep dates, show all" — clears search, venues, categories, and
+    /// favorites-only, leaving the date scope and week selection intact.
+    /// Mirrors the web's CLEAR_NON_DATE_FILTERS.
+    func clearNonDateFilters() {
+        filter.searchText = ""
+        filter.selectedLocations = []
+        filter.selectedCategories = []
+        filter.showFavoritesOnly = false
+        persistFilter()
+    }
+
+    /// Removes the single filter a reset-row chip represents.
+    ///
+    /// No `persistFilter()` here: the three toggles persist themselves, and
+    /// `searchText` is session-only and never written to disk.
+    func remove(_ chip: ActiveFilterChip) {
+        switch chip.kind {
+        case .search: filter.searchText = ""
+        case .location(let name): toggleLocation(name)
+        case .category(let name): toggleCategory(name)
+        case .favorites: toggleFavoritesOnly()
+        }
     }
 
     func showNextDay() {

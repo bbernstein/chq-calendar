@@ -67,6 +67,25 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
             && !showFavoritesOnly
             && dateScope == .next
     }
+
+    /// Whether a date range is narrowing the results. Mirrors the web's
+    /// `hasDateFilters`.
+    var hasDateFilters: Bool {
+        dateScope != .all || !selectedWeeks.isEmpty
+    }
+
+    /// Whether anything *other* than a date range is narrowing the results.
+    /// `searchText` is trimmed so a whitespace-only term — which matches
+    /// everything and produces no chip — doesn't count. Mirrors the web's
+    /// `hasNonDateFilters`.
+    var hasNonDateFilters: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !selectedLocations.isEmpty
+            || !selectedCategories.isEmpty
+            || showFavoritesOnly
+    }
+
+    var hasFilters: Bool { hasDateFilters || hasNonDateFilters }
 }
 
 /// The user's most-recently-used venue and category filters, so repeating a

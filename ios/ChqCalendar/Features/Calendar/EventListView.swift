@@ -66,15 +66,28 @@ struct EventListView: View {
     }
 
     private var list: some View {
-        List(selection: selection) {
-            if let days = model.countdownDays {
-                CountdownBanner(days: days)
+        // Bound once: `model.dayGroups` reruns the whole filter pipeline on
+        // every access, so reading it for both the count and the sections
+        // would filter ~1,500 events twice per render.
+        let days = model.dayGroups
+        let filtered = days.reduce(0) { $0 + $1.events.count }
+
+        return List(selection: selection) {
+            if let countdownDays = model.countdownDays {
+                CountdownBanner(days: countdownDays)
             }
             if model.lastRefreshFailed {
                 OfflineBanner()
             }
 
-            ForEach(model.dayGroups) { day in
+            if model.filter.hasFilters, let total = model.snapshot?.events.count {
+                Text("\(filtered.formatted()) of \(total.formatted()) events")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+
+            ForEach(days) { day in
                 Section {
                     ForEach(day.events) { event in
                         row(for: event)
@@ -131,7 +144,7 @@ struct EventListView: View {
             Label("No matching events", systemImage: "calendar.badge.exclamationmark")
         } actions: {
             Button("Clear Filters") {
-                model.clearFilters()
+                model.clearAll()
             }
         }
     }
