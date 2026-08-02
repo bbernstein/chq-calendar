@@ -327,8 +327,8 @@ final class FilterBarCollapseDriver {
     /// 1. **Un-wedging.** `isSettling` is otherwise cleared only by the
     ///    animation's own completion handler. If the animating view is torn
     ///    down inside that window — `AppModel.select(year:)` clears the
-    ///    snapshot, and the filter bar is gated on the snapshot being
-    ///    non-nil — a completion that never runs would leave the driver
+    ///    snapshot for an uncached year, which swaps the whole list out for
+    ///    a spinner — a completion that never runs would leave the driver
     ///    dropping every sample for the rest of its life, silently disabling
     ///    collapse for the session. This is a state-based escape rather than
     ///    a watchdog timer on purpose: the absence of tuned durations is the

@@ -82,14 +82,20 @@ struct EventListView: View {
     @ViewBuilder
     private var content: some View {
         if model.snapshot == nil {
-            switch model.phase {
-            case .offline:
-                offlineUnavailableView
-            case .failed(let message):
-                errorUnavailableView(message)
-            default:
-                ProgressView("Loading events…")
+            // Grouped so one `onAppear` covers all three phases; see
+            // `listWasReplaced` for why the replacement, rather than the
+            // `List`'s own `onDisappear`, is what resets collapse tracking.
+            Group {
+                switch model.phase {
+                case .offline:
+                    offlineUnavailableView
+                case .failed(let message):
+                    errorUnavailableView(message)
+                default:
+                    ProgressView("Loading events…")
+                }
             }
+            .onAppear(perform: listWasReplaced)
         } else {
             // Bound once here rather than read separately by an `.isEmpty`
             // check and then `list`: `model.dayGroups` reruns the whole
@@ -99,10 +105,33 @@ struct EventListView: View {
             let days = model.dayGroups
             if days.isEmpty {
                 noMatchesView
+                    .onAppear(perform: listWasReplaced)
             } else {
                 list(days: days)
             }
         }
+    }
+
+    /// Called the moment something other than the event list takes the
+    /// screen — the loading/offline/error states, or "No matching events".
+    /// Every way the `List` can be destroyed passes through one of those,
+    /// so this is exactly "the list this driver was reading is gone".
+    ///
+    /// **Not the `List`'s own `onDisappear`**, which would be the obvious
+    /// hook and is wrong: SwiftUI fires it when `EventDetailView` is pushed
+    /// onto the `NavigationStack` too (verified on the simulator — a push
+    /// logs `DISAPPEAR` from the list). Resetting there would re-open the
+    /// filter bar every time the user tapped an event and leave it open on
+    /// the way back, on a list still scrolled hundreds of points down.
+    ///
+    /// The two things this has to undo are described on
+    /// `FilterBarCollapseDriver.reset()`. `isFilterBarCollapsed` is cleared
+    /// alongside it so the view's mirror cannot disagree with the driver:
+    /// whatever list appears next starts at its own top, where the bar is
+    /// whole.
+    private func listWasReplaced() {
+        collapseDriver.reset()
+        isFilterBarCollapsed = false
     }
 
     private func list(days: [DayGroup]) -> some View {
@@ -169,18 +198,6 @@ struct EventListView: View {
                 // both branches, including the `nil` (Reduce Motion) one.
                 collapseDriver.settled()
             }
-        }
-        .onDisappear {
-            // This `List` is going away — results emptied to the
-            // no-matches state, a year switch clearing the snapshot, an
-            // offline banner replacing it. Two things must not outlive it:
-            // the settle gate (whose only other exit is the completion
-            // handler above, which cannot run for a view that no longer
-            // exists — that would wedge collapse for the rest of the
-            // session), and the previous geometry sample (which belongs to
-            // this list, not to whatever list comes next).
-            collapseDriver.reset()
-            isFilterBarCollapsed = false
         }
         .refreshable {
             await model.refresh(force: true)

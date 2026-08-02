@@ -526,11 +526,12 @@ struct FilterBarCollapseDriverTests {
     @Test func resetUnwedgesADriverWhoseAnimationCompletionNeverRan() {
         // `isSettling` has exactly one other exit: the completion handler of
         // the `withAnimation` the flip started. `AppModel.select(year:)`
-        // clears the snapshot for an uncached year, and the filter bar is
-        // gated on the snapshot being non-nil, so the animating view can be
-        // torn down inside that 0.2s window. If the completion is lost the
-        // driver drops every sample for the life of the view and collapse
-        // silently stops working for the session.
+        // clears the snapshot for an uncached year, which swaps the whole
+        // list out for a spinner, so the animating view can be torn down
+        // inside that 0.2s window. If the completion is lost the driver
+        // drops every sample for the life of the view and collapse silently
+        // stops working for the session. `EventListView.listWasReplaced`
+        // calls this from whatever takes the list's place.
         let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         _ = driver.received(settledExpanded(offset: 0))
         #expect(driver.received(settledExpanded(offset: 200)) == true)
@@ -551,8 +552,9 @@ struct FilterBarCollapseDriverTests {
 
     @Test func resetStopsANewListBeingComparedAgainstTheOldListsLastFrame() {
         // The `List` is recreated whenever `EventListView.content` switches
-        // branch -- a filter that empties the results and then refills them,
-        // a year switch. Same viewport either side, so without a reset the
+        // branch and back -- a filter that empties the results into "No
+        // matching events" and then refills them, a year switch through the
+        // loading state. Same viewport either side, so without a reset the
         // new list's very first sample is diffed against the old list's last
         // and read as a fling nobody performed.
         let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
