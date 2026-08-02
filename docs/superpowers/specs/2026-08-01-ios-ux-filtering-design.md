@@ -1,4 +1,4 @@
-# iOS UX — Filtering, Week Strip, and Top-of-Screen Density
+# iOS UX — Filtering, Week Strip, Active Filters, and Density
 
 **Status:** Design approved 2026-08-01. Not yet implemented.
 **Scope:** `ios/ChqCalendar/**` only. No backend, frontend, or infrastructure changes.
@@ -24,8 +24,13 @@ ways that cost the user time on every session:
 4. **~70pt of dead space** sits between the toolbar row and the filter chips.
 5. **Quick links are missing.** The web header offers Feedback, Programs, and
    Questions; iOS offers only an About sheet with Privacy / Support / CHQ.
-
-6. **The search keyboard never gets out of the way.** The system search field
+6. **Active filters are invisible and hard to undo.** The web lists every
+   active filter as a removable chip with a "Show all events" reset; iOS shows
+   only a numeric badge on the Filters chip, so removing one venue means
+   reopening the sheet and hunting for it. The search term is the worst case —
+   once the system search field collapses, nothing on screen says a term is
+   still narrowing the results.
+7. **The search keyboard never gets out of the way.** The system search field
    holds first responder for as long as a term is present, so half the screen is
    keyboard and the filter bar is unreachable without abandoning the search.
    Entering a term and then adjusting scope, week, or venue is a normal thing to
@@ -42,7 +47,7 @@ left as they are — only focus behavior changes.
 - No change to `EventFilter`'s pipeline order or search scoring.
 - No change to where the search field is presented, or to how matching works.
   It stays the standard `.searchable` field in its system-default position; only
-  when it holds keyboard focus changes.
+  its keyboard-focus behavior changes.
 - No change to persistence semantics. "Now" remains the default only when
   nothing is persisted, which is already how `FilterSelection()` and
   `UserStateStore.loadFilters()` behave.
@@ -187,17 +192,119 @@ the web's `addToRecent` calls in `useFilterState`'s `TOGGLE_TAG` /
 `TOGGLE_LOCATION` cases. Names are stored in their original display casing;
 comparison stays case-insensitive throughout.
 
-Two surfaces consume them:
+Two surfaces consume them: `FilterChipsRow` (section C2) and
+**`FilterSheetView`**, restructured to a type-to-filter field at the top
+matching against display names, a "Recent" section when non-empty, then
+**Venues**, then Categories. Venues move above Categories because venue is the
+more frequently repeated filter and the category list is long enough to bury it.
 
-- **`RecentFiltersRow`** — a new third row of `FilterBarView`, horizontally
-  scrolling, venues first then categories, each chip filled when that filter is
-  currently active. **The row is omitted entirely when both lists are empty**,
-  so a new user sees no dead space.
-- **`FilterSheetView`** — restructured to: a type-to-filter field at the top
-  matching against display names, a "Recent" section when non-empty, then
-  **Venues**, then Categories. Venues move above Categories because venue is the
-  more frequently repeated filter and the category list is long enough to bury
-  it.
+### C2. Active filters, merged with recents
+
+Active filters and recents occupy **one** row — the third and last row of
+`FilterBarView` — because they are two halves of the same gesture: chips to the
+left are on and tap to remove, chips to the right are off and tap to apply.
+
+```
+⊗ Clear all │ Keep dates │ "Burns" ×│ Amphitheater ×│ ┃ │Hall of Philosophy│ │CSO│
+└─ resets ──┘            └─ active (accent fill, ×) ─┘ ┃ └── recent (plain, tap to add) ──┘
+```
+
+Ordering: "Clear all" pill, then "Keep dates" when applicable, then active chips,
+a hairline divider, then recents. Recents that are *currently active* are omitted
+from the recents half — they already appear as active chips. The whole row is
+hidden when nothing is active and there are no recents.
+
+Date scope and week are deliberately **not** chips: their own controls sit
+directly above and already show selection, so a chip would be the same state
+rendered twice. They are still cleared by "Clear all". This is the one place the
+design departs from the web, where the date/week buttons and their chips are
+both visible; on a phone the duplicated row is not worth the height.
+
+A new `Domain/ActiveFilterChips.swift` builds the list as a pure function:
+
+```swift
+nonisolated struct ActiveFilterChip: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case search
+        case location(String)   // the lowercased key, for removal
+        case category(String)
+        case favorites
+    }
+    let id: String
+    let kind: Kind
+    let label: String           // display-cased, DisplayNames shortcut applied
+}
+
+nonisolated enum ActiveFilterChips {
+    /// Order mirrors the web's `buildActiveChips`: search, locations,
+    /// categories, favorites.
+    static func build(
+        selection: FilterSelection,
+        availableLocations: [String],
+        availableCategories: [String]
+    ) -> [ActiveFilterChip]
+}
+```
+
+The `available*` parameters are not optional convenience — they are required for
+correctness. `FilterSelection.selectedLocations` / `.selectedCategories` hold
+**lowercased** keys (that is what `EventFilter` compares against), while
+`DisplayNames.location(_:)` / `.category(_:)` are exact-match dictionaries keyed
+on the feed's original casing. Passing a lowercased key straight through would
+both miss the shortcut and render `elizabeth s. lenna hall` instead of
+`Lenna Hall`. So `build` resolves each key back to its original casing by
+case-insensitive lookup in `availableLocations` / `availableCategories` (which
+come from `DisplayNames.visibleLocations` / `.visibleCategories`, original
+casing) before applying the shortcut, falling back to the raw key when the
+current snapshot no longer contains it.
+
+A whitespace-only search produces no chip, matching the web's `searchTerm.trim()`
+guard in `buildActiveChips` and `hasNonDateFilters`.
+
+`FilterSelection` gains the two predicates the row's buttons key off, mirroring
+`useFilterState`:
+
+```swift
+var hasDateFilters: Bool     // dateScope != .all || !selectedWeeks.isEmpty
+var hasNonDateFilters: Bool  // trimmed search, locations, categories, or favorites-only
+var hasFilters: Bool         // either
+```
+
+Two reset actions on `AppModel`, replacing `clearFilters()`:
+
+```swift
+/// "Show all events" — clears every filter including the search term, and
+/// drops the scope to `.all`. Matches the web's CLEAR_FILTERS.
+func clearAll()
+
+/// "Keep dates, show all" — clears search, venues, categories, and
+/// favorites-only, leaving scope and weeks intact. Matches the web's
+/// CLEAR_NON_DATE_FILTERS. Surfaced only when both halves are active.
+func clearNonDateFilters()
+```
+
+This is a deliberate behavior change: today's `clearFilters()` preserves
+`searchText` and resets scope to `.next`. With the search term now visible and
+individually removable as its own chip, "Clear all" clearing it is the
+non-surprising reading, and it matches the web. The filter sheet's "Clear All
+Filters" button and the no-matches empty state both rewire to `clearAll()`.
+
+**Not in scope:** the web's `RECONCILE_FILTERS`, which drops selections absent
+from the newly loaded year's data. iOS has never had it, and the raw-key
+fallback above keeps a stale selection legible rather than crashing or blanking.
+Worth a follow-up, not worth widening this change.
+
+### C3. Match count
+
+When any filter is active, the first row of the list reads
+`412 of 1,470 events` as a secondary caption with its separator hidden, scrolling
+away with the content rather than consuming pinned height.
+
+The filtered count is derived from the **already-computed** `dayGroups` (summing
+`day.events.count`), not from a second `EventFilter.apply` call — `dayGroups`
+recomputes the entire pipeline on every access, so `EventListView` binds it to a
+local once and uses that local for both the count and the sections. The total is
+`snapshot.events.count`. Both are formatted with a grouping separator.
 
 ### D. Top-of-screen density
 
@@ -217,9 +324,13 @@ Chip hit targets stay at `minHeight: 44` — the density comes from the gaps, no
 from shrinking touch targets below the accessibility floor.
 
 The resulting layout, top to bottom: status bar, 44pt inline title bar
-(title left, year menu and ⋯ menu right), scope chips, week strip, recents row
-when non-empty, then the list. The `.searchable` field keeps its system-default
-position; only its focus behavior changes, per D2 below.
+(title left, year menu and ⋯ menu right), scope chips, week strip,
+`FilterChipsRow` when non-empty, then the list. The `.searchable` field keeps its
+system-default position; only its focus behavior changes, per D2 below.
+
+Three pinned filter rows is the ceiling. If the row heights measure taller than
+budgeted once assembled, the fix is tightening spacing further — not adding a
+fourth row.
 
 The first implementation task measures the band in the simulator before and
 after, to confirm the inline title accounts for the whole gap rather than only
@@ -297,7 +408,9 @@ domain types rather than view hierarchies. All tests use Swift Testing
 |---|---|
 | `FilterChipStateTests.swift` (new) | `.thisWeek` selected via both paths; `.thisWeek` *not* selected when the current week is one of several selected weeks; `.all` not selected while weeks are selected; nil `currentWeek` (out of season) |
 | `WeekStripStateTests.swift` (new) | `timeState` at each boundary (noon Saturday transitions), `nil` now → all `.upcoming`, `initialScrollTarget` before / during / after season and for a non-current year |
-| `AppModelTests.swift` (extend) | `selectScope` clears weeks; re-tapping the active scope is a no-op; current-week tap sets `.thisWeek`; non-current-week tap while `.next` yields `.all` + `[n]`; multi-week toggle accumulates; deselecting the last week leaves `.all`; recents push on select but not on deselect |
+| `AppModelTests.swift` (extend) | `selectScope` clears weeks; re-tapping the active scope is a no-op; current-week tap sets `.thisWeek`; non-current-week tap while `.next` yields `.all` + `[n]`; multi-week toggle accumulates; deselecting the last week leaves `.all`; recents push on select but not on deselect; `clearAll` clears the search term and sets `.all`; `clearNonDateFilters` clears search/venues/categories/favorites while leaving scope and weeks intact |
+| `ActiveFilterChipsTests.swift` (new) | Chip order matches the web's; empty selection yields none; whitespace-only search yields none; a lowercased key resolves to original casing **and** through the `DisplayNames` shortcut (`elizabeth s. lenna hall` → `Lenna Hall`); a key absent from the snapshot falls back to the raw key rather than vanishing |
+| `FilterSelectionTests.swift` (new) | `hasDateFilters` / `hasNonDateFilters` / `hasFilters` across each facet, including that a whitespace-only search counts as no filter |
 | `UserStateStoreTests.swift` (extend) | `RecentFilters` round-trip, MRU ordering, case-insensitive dedupe, cap at 10, 30-day expiry, and that a missing `chq-recents` key yields empty lists without disturbing `loadFilters` |
 | `AboutInfoTests.swift` (extend) | `quickLinks` ids, titles, and URLs |
 
@@ -312,15 +425,16 @@ than assumed.
 
 ## Sequencing
 
-One branch (`feat/ios-ux-filtering`), six commits:
+One branch (`feat/ios-ux-filtering`), seven commits:
 
 1. `FilterChipState` + `selectScope`/`selectWeek` + tests, wired into `FilterBarView` and `WeekStripView`
 2. `WeekStripState` + chip styling + auto-scroll + tests
 3. Inline title + filter-bar density + search keyboard dismissal
-4. `RecentFilters` persistence + `RecentFiltersRow` + `FilterSheetView` restructure + tests
-5. Quick-links menu + tests
-6. Screenshot regeneration + listing-copy review
+4. `RecentFilters` persistence + `FilterSheetView` restructure + tests
+5. `ActiveFilterChips` + `clearAll`/`clearNonDateFilters` + `FilterChipsRow` + match count + tests
+6. Quick-links menu + tests
+7. Screenshot regeneration + listing-copy review
 
-Commits 1–3 and 4–5 split cleanly into two PRs ("date filtering & header
-density", "recents & quick links") if review size warrants it; commit 6 lands
-with whichever PR is last.
+Commits 1–3 and 4–6 split cleanly into two PRs ("date filtering & header
+density", "filter chips, recents & quick links") if review size warrants it;
+commit 7 lands with whichever PR is last.
