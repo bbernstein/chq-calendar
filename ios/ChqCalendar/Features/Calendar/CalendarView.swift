@@ -67,11 +67,15 @@ struct CalendarView: View {
             EventListView(model: model, selection: nil)
         }
         .searchable(text: $searchDraft, prompt: "Search events")
+        .submitLabel(.search)
+        .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
         #else
         NavigationStack {
             EventListView(model: model, selection: nil)
         }
         .searchable(text: $searchDraft, prompt: "Search events")
+        .submitLabel(.search)
+        .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
         #endif
     }
 
@@ -79,6 +83,8 @@ struct CalendarView: View {
         NavigationSplitView {
             EventListView(model: model, selection: $selectedEvent)
                 .searchable(text: $searchDraft, prompt: "Search events")
+                .submitLabel(.search)
+                .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
         } detail: {
             NavigationStack {
                 if let selectedEvent {

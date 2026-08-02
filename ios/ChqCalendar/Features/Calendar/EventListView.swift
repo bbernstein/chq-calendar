@@ -26,7 +26,11 @@ struct EventListView: View {
 
     var body: some View {
         content
-            .navigationTitle("Chautauqua Calendar")
+            // Inline, and shortened to fit beside the year and overflow
+            // toolbar items. The large-title band was ~70pt of empty space
+            // above the filter bar with no title text ever drawn in it.
+            .navigationTitle("CHQ Calendar")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .sheet(isPresented: $isAboutPresented) {
                 AboutView()
@@ -87,6 +91,7 @@ struct EventListView: View {
             }
         }
         .listStyle(.plain)
+        .scrollDismissesKeyboard(.immediately)
         .refreshable {
             await model.refresh(force: true)
         }

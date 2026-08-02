@@ -28,6 +28,7 @@ struct WeekStripView: View {
                                 week: number, now: referenceNow, year: model.selectedYear),
                             theme: model.theme(forWeek: number)
                         ) {
+                            KeyboardDismisser.dismiss()
                             model.selectWeek(number)
                         }
                         .id(number)

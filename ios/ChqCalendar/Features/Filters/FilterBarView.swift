@@ -10,7 +10,7 @@ struct FilterBarView: View {
     @State private var isFilterSheetPresented = false
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(visibleScopes, id: \.self) { scope in
@@ -21,6 +21,7 @@ struct FilterBarView: View {
                                     scope, selection: model.filter, currentWeek: model.currentWeek)
                                 : true
                         ) {
+                            KeyboardDismisser.dismiss()
                             model.selectScope(scope)
                         }
                     }
@@ -30,6 +31,7 @@ struct FilterBarView: View {
                         systemImage: "star.fill",
                         isSelected: model.filter.showFavoritesOnly
                     ) {
+                        KeyboardDismisser.dismiss()
                         model.toggleFavoritesOnly()
                     }
                     .accessibilityLabel("Favorites, \(model.favorites.count)")
@@ -40,6 +42,7 @@ struct FilterBarView: View {
                         isSelected: false,
                         badge: model.filter.activeCount > 0 ? model.filter.activeCount : nil
                     ) {
+                        KeyboardDismisser.dismiss()
                         isFilterSheetPresented = true
                     }
                 }
@@ -48,7 +51,7 @@ struct FilterBarView: View {
 
             WeekStripView(model: model)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(.bar)
         .sheet(isPresented: $isFilterSheetPresented) {
             FilterSheetView(model: model)
