@@ -44,7 +44,10 @@ left as they are — only focus behavior changes.
 
 ## Non-goals
 
-- No change to `EventFilter`'s pipeline order or search scoring.
+- No change to `EventFilter`'s pipeline order, its stages, or its search
+  scoring. The one edit it takes is lowercasing the venue/category selection at
+  the comparison site (C2a), which changes where the lowercasing happens, not
+  what matches.
 - No change to where the search field is presented, or to how matching works.
   It stays the standard `.searchable` field in its system-default position; only
   its keyboard-focus behavior changes.
@@ -226,40 +229,68 @@ A new `Domain/ActiveFilterChips.swift` builds the list as a pure function:
 nonisolated struct ActiveFilterChip: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case search
-        case location(String)   // the lowercased key, for removal
+        case location(String)   // the stored name, passed back to toggle
         case category(String)
         case favorites
     }
     let id: String
     let kind: Kind
-    let label: String           // display-cased, DisplayNames shortcut applied
+    let label: String           // DisplayNames shortcut applied
 }
 
 nonisolated enum ActiveFilterChips {
     /// Order mirrors the web's `buildActiveChips`: search, locations,
     /// categories, favorites.
-    static func build(
-        selection: FilterSelection,
-        availableLocations: [String],
-        availableCategories: [String]
-    ) -> [ActiveFilterChip]
+    static func build(selection: FilterSelection) -> [ActiveFilterChip]
 }
 ```
 
-The `available*` parameters are not optional convenience — they are required for
-correctness. `FilterSelection.selectedLocations` / `.selectedCategories` hold
-**lowercased** keys (that is what `EventFilter` compares against), while
-`DisplayNames.location(_:)` / `.category(_:)` are exact-match dictionaries keyed
-on the feed's original casing. Passing a lowercased key straight through would
-both miss the shortcut and render `elizabeth s. lenna hall` instead of
-`Lenna Hall`. So `build` resolves each key back to its original casing by
-case-insensitive lookup in `availableLocations` / `availableCategories` (which
-come from `DisplayNames.visibleLocations` / `.visibleCategories`, original
-casing) before applying the shortcut, falling back to the raw key when the
-current snapshot no longer contains it.
-
 A whitespace-only search produces no chip, matching the web's `searchTerm.trim()`
 guard in `buildActiveChips` and `hasNonDateFilters`.
+
+### C2a. Selection storage — match the web
+
+`build` takes nothing but the selection because the stored names are already
+display-ready. That requires changing how `FilterSelection` holds them, adopting
+the web's model exactly:
+
+```swift
+// before                                  // after
+var selectedLocations: Set<String>         var selectedLocations: [String]
+var selectedCategories: Set<String>        var selectedCategories: [String]
+// lowercased keys, unordered              // original feed casing, selection order
+```
+
+Two defects motivate this beyond parity:
+
+- **Casing.** `DisplayNames.location(_:)` / `.category(_:)` are exact-match
+  dictionaries keyed on the feed's original casing. A chip built from a
+  lowercased key would both miss the shortcut and render
+  `elizabeth s. lenna hall` instead of `Lenna Hall`. The web never has this
+  problem because `toggleInList` stores the name as given and only lowercases
+  for comparison.
+- **Order.** `Set<String>` has no stable iteration order, so a chips row built
+  from it would reshuffle between renders. Arrays in selection order fix that
+  and make the tests deterministic.
+
+The lowercasing moves to the comparison sites, mirroring the web's
+`selectedTagsLowerSet` / `selectedLocationsLowerSet` memos:
+
+- `EventFilter.apply` builds `Set(sel.selectedLocations.map { $0.lowercased() })`
+  once per call (alongside the existing single `SeasonCalendar.weeks` hoist) and
+  matches against that. Pipeline order and search scoring are untouched.
+- `AppModel.toggleLocation(_:)` / `.toggleCategory(_:)` compare
+  case-insensitively, append the original-cased name, and remove
+  case-insensitively — the web's `toggleInList`.
+- `FilterSheetView`'s per-row `isSelected` checks become case-insensitive.
+
+**Persistence:** no migration is needed. `Set<String>` and `[String]` both encode
+as a JSON array, so an existing `chq-filters` payload decodes cleanly into the
+new type. Values saved by the current build are lowercased, so a returning user
+sees lowercase chip labels for already-selected venues until they toggle one,
+after which it is stored correctly. That is cosmetic, self-healing, and bounded
+by the store's existing 30-day expiry — not worth a migration path. A test pins
+the decode so the change can't silently drop a user's selections.
 
 `FilterSelection` gains the two predicates the row's buttons key off, mirroring
 `useFilterState`:
@@ -409,9 +440,10 @@ domain types rather than view hierarchies. All tests use Swift Testing
 | `FilterChipStateTests.swift` (new) | `.thisWeek` selected via both paths; `.thisWeek` *not* selected when the current week is one of several selected weeks; `.all` not selected while weeks are selected; nil `currentWeek` (out of season) |
 | `WeekStripStateTests.swift` (new) | `timeState` at each boundary (noon Saturday transitions), `nil` now → all `.upcoming`, `initialScrollTarget` before / during / after season and for a non-current year |
 | `AppModelTests.swift` (extend) | `selectScope` clears weeks; re-tapping the active scope is a no-op; current-week tap sets `.thisWeek`; non-current-week tap while `.next` yields `.all` + `[n]`; multi-week toggle accumulates; deselecting the last week leaves `.all`; recents push on select but not on deselect; `clearAll` clears the search term and sets `.all`; `clearNonDateFilters` clears search/venues/categories/favorites while leaving scope and weeks intact |
-| `ActiveFilterChipsTests.swift` (new) | Chip order matches the web's; empty selection yields none; whitespace-only search yields none; a lowercased key resolves to original casing **and** through the `DisplayNames` shortcut (`elizabeth s. lenna hall` → `Lenna Hall`); a key absent from the snapshot falls back to the raw key rather than vanishing |
+| `ActiveFilterChipsTests.swift` (new) | Chip order matches the web's (search → locations → categories → favorites) and follows selection order within each group; empty selection yields none; whitespace-only search yields none; `DisplayNames` shortcut applied (`Elizabeth S. Lenna Hall` → `Lenna Hall`); a name with no shortcut passes through unchanged |
+| `EventFilterTests.swift` (extend) | Venue/category matching is unchanged by the storage move: an original-cased selection still matches a lowercased `displayLocation`/`filterToken`, and a differently-cased duplicate does not double-narrow |
 | `FilterSelectionTests.swift` (new) | `hasDateFilters` / `hasNonDateFilters` / `hasFilters` across each facet, including that a whitespace-only search counts as no filter |
-| `UserStateStoreTests.swift` (extend) | `RecentFilters` round-trip, MRU ordering, case-insensitive dedupe, cap at 10, 30-day expiry, and that a missing `chq-recents` key yields empty lists without disturbing `loadFilters` |
+| `UserStateStoreTests.swift` (extend) | `RecentFilters` round-trip, MRU ordering, case-insensitive dedupe, cap at 10, 30-day expiry, and that a missing `chq-recents` key yields empty lists without disturbing `loadFilters`; plus a pinning test that a `chq-filters` payload written in the current `Set<String>` shape decodes into the new `[String]` fields without dropping selections |
 | `AboutInfoTests.swift` (extend) | `quickLinks` ids, titles, and URLs |
 
 Per `CLAUDE.md`, this changes `ios/ChqCalendar/Features/**` in user-visible
@@ -425,16 +457,20 @@ than assumed.
 
 ## Sequencing
 
-One branch (`feat/ios-ux-filtering`), seven commits:
+One branch (`feat/ios-ux-filtering`), eight commits:
 
 1. `FilterChipState` + `selectScope`/`selectWeek` + tests, wired into `FilterBarView` and `WeekStripView`
 2. `WeekStripState` + chip styling + auto-scroll + tests
 3. Inline title + filter-bar density + search keyboard dismissal
-4. `RecentFilters` persistence + `FilterSheetView` restructure + tests
-5. `ActiveFilterChips` + `clearAll`/`clearNonDateFilters` + `FilterChipsRow` + match count + tests
-6. Quick-links menu + tests
-7. Screenshot regeneration + listing-copy review
+4. Selection storage → original casing, ordered arrays (C2a), with the
+   lowercasing moved into `EventFilter` + tests. Lands before anything that
+   renders a name, since every later commit depends on the labels being
+   display-ready.
+5. `RecentFilters` persistence + `FilterSheetView` restructure + tests
+6. `ActiveFilterChips` + `clearAll`/`clearNonDateFilters` + `FilterChipsRow` + match count + tests
+7. Quick-links menu + tests
+8. Screenshot regeneration + listing-copy review
 
-Commits 1–3 and 4–6 split cleanly into two PRs ("date filtering & header
+Commits 1–3 and 4–7 split cleanly into two PRs ("date filtering & header
 density", "filter chips, recents & quick links") if review size warrants it;
-commit 7 lands with whichever PR is last.
+commit 8 lands with whichever PR is last.
