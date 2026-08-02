@@ -199,7 +199,7 @@ nonisolated enum FilterBarCollapse {
 ///   start — chiefly a facet panel opening, which grows the inset ~140pt
 ///   underneath a list nobody scrolled.
 ///
-/// ## Why the head­room requirement is measured rather than configured
+/// ## Why the headroom requirement is measured rather than configured
 ///
 /// The gate above needs one number: how much height a collapse hands back.
 /// That number is not a property of the code, it is a property of what the
