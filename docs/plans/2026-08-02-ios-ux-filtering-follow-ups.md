@@ -47,18 +47,24 @@ measurement collapses at a 140pt requirement and refuses at 190pt. Strictly the
 safe direction (it cannot flicker), but it is a real behavior change and it
 interacts with item 1.
 
-## 3. Open verification — needs a physical device or an unlocked Mac
+## 3. Open verification — RESOLVED 2026-08-02 on a physical device
 
-Automated drag synthesis works (CGEvents posted to the Simulator window), but
-requires an unlocked screen; the machine locked mid-session. Outstanding:
+Both items below were confirmed fixed by the branch owner on a physical
+iPhone, after PR #151 was opened. Automated drag synthesis (CGEvents posted
+to the Simulator window) also works for this kind of check and was the
+originally-planned fallback, but requires an unlocked screen; the machine
+locked mid-session when first attempted, so physical-device testing closed
+the gap directly instead.
 
 - **The four flip-count scenarios** after the give-back change — specifically
-  the short-content case. The question is "does it still collapse when it
-  should," which is not answerable by reading.
+  the short-content case. The question was "does it still collapse when it
+  should," which a unit test alone couldn't answer (it pins that a
+  ~200pt-overflow list collapses at the old 140pt requirement and refuses at
+  the shipping 190pt one, confirming the behavior change is real, but not
+  whether it feels right in use). Confirmed: collapses when it should.
 - **The three search-keyboard dismissal triggers** (scroll / Return / chip tap)
-  from the branch's Task 3. Never observed; verified by code reading only.
-  Earlier rounds claimed touch synthesis was impossible here — that claim was
-  false, so this is now cheaply checkable.
+  from the branch's Task 3. Previously verified by code reading only.
+  Confirmed working.
 
 ## 4. Smaller items, none blocking
 
