@@ -1,7 +1,10 @@
 # iOS UX filtering — follow-ups
 
 **Status:** Reference. Written 2026-08-02 as the branch `feat/ios-ux-filtering`
-finished implementation and review.
+finished implementation and review. Behavior-affecting items below have been
+promoted to tracked GitHub issues (linked inline) so they're easy to find for
+future development; this doc stays as the narrative record of how each was
+found and why it wasn't fixed in PR #151.
 
 Source material: `docs/superpowers/specs/2026-08-01-ios-ux-filtering-design.md`
 (design) and `docs/superpowers/plans/2026-08-01-ios-ux-filtering.md` (plan).
@@ -9,6 +12,8 @@ This file exists because the working ledger that tracked these lived in
 git-ignored scratch and does not survive the session.
 
 ## 1. Queued next initiative — which top rows are shown and hidden
+
+**Tracked as [#153](https://github.com/bbernstein/chq-calendar/issues/153).**
 
 The branch owner asked for a design change to **which of the filter bar's rows
 are pinned versus hidden**, deliberately separated from the collapse bug fixes
@@ -31,6 +36,8 @@ Three findings from the branch bear directly on that design:
 
 ## 2. Accepted trade worth revisiting — narrow filters never collapse
 
+**Tracked as [#154](https://github.com/bbernstein/chq-calendar/issues/154).**
+
 `FilterBarCollapse` refuses to collapse unless the list overflows by more than
 the bar's give-back plus a margin, because collapsing otherwise clamps the
 content and re-triggers an expand (the oscillation reported from a physical
@@ -47,61 +54,86 @@ measurement collapses at a 140pt requirement and refuses at 190pt. Strictly the
 safe direction (it cannot flicker), but it is a real behavior change and it
 interacts with item 1.
 
-## 3. Open verification — needs a physical device or an unlocked Mac
+## 3. Open verification — RESOLVED 2026-08-02 on a physical device
 
-**Still outstanding as of 2026-08-02.** Automated drag synthesis works (CGEvents
-posted to the Simulator window) but requires an unlocked screen; the machine
-locked mid-session.
+Both items below were confirmed fixed by the branch owner on a physical
+iPhone, after PR #151 was opened:
 
 - **The four flip-count scenarios** after the give-back change — specifically
-  the short-content case. The question is "does it still collapse when it
-  should," which is not answerable by reading. A unit test pins that a
-  ~200pt-overflow list collapses at the old 140pt requirement and refuses at
-  the shipping 190pt one, so the behavior change is real; what is unverified is
-  whether it feels right in use.
+  the short-content case. Confirmed: collapses when it should.
 - **The three search-keyboard dismissal triggers** (scroll / Return / chip tap)
-  from the branch's Task 3. Never observed; verified by code reading only.
-  Earlier rounds claimed touch synthesis was impossible here — that claim was
-  false, so this is now cheaply checkable.
+  from the branch's Task 3. Confirmed working.
 
-## 4. Smaller items, none blocking
+(Automated drag synthesis via CGEvents posted to the Simulator window also
+works for this kind of check, but requires an unlocked screen; the machine
+locked mid-session when this was first attempted. Physical-device testing
+closed the gap instead.)
 
-- `FacetRowView.recentsStrip` renders `model.recentNames(facet)` unconditionally,
+## 4. Device-testing follow-up (2026-08-02) — facet counts ignore other filters
+
+**Tracked as [#152](https://github.com/bbernstein/chq-calendar/issues/152).**
+
+Found during the physical-device pass that resolved item 3: the per-chip
+counts shown in the Venues/Categories panels (`FacetCounts`) are always the
+season-wide, unfiltered total — they don't change when other filters (date
+scope, week, the other facet, search, favorites) are active. Repro: select
+Week 6 + venue Amphitheater, open Categories — "CHQ Program" shows 1302, the
+same number as with no filters at all.
+
+`FacetCounts`'s doc comment justified this as matching the web; that turned
+out to be incorrect on inspection — the web's `LocationFilter.tsx` /
+`CategoryFilter.tsx` don't show per-chip counts at all, so there's nothing
+there to match. This was already an open question from Task 5 of the original
+plan ("counts are unfiltered — visible now that list updates live. Narrow
+wording or treat as Task 6/7 UX question") that never got resolved before
+merge. Deferred to #152 rather than fixed in PR #151 per the branch owner's
+call — it's a real behavior change (computing counts against the current
+selection rather than once per snapshot), not a quick fix.
+
+## 5. Smaller items, none blocking
+
+- **[#157](https://github.com/bbernstein/chq-calendar/issues/157)**
+  `FacetRowView.recentsStrip` renders `model.recentNames(facet)` unconditionally,
   without checking the name is still `available(facet)` for the currently
   selected year/snapshot. Tapping a recent from a prior year that isn't present
   this year is harmless (adds a no-op filter; `count(for:)` correctly shows 0),
   but the chip carries no count and looks identical to a live one. From
   PR #151's automated review — not a bug, small discoverability gap.
+- **[#155](https://github.com/bbernstein/chq-calendar/issues/155)** The week
+  strip's auto-scroll fires once per view lifetime, so switching to a *cached*
+  year and back does not re-scroll to the current week while switching to an
+  *uncached* year does — the same gesture behaves two ways.
+- **[#156](https://github.com/bbernstein/chq-calendar/issues/156)** `extraDays`
+  is not reset by `selectScope`, so "Show next day" ×3 then a scope change
+  leaves the window wider than fresh. Pre-existing, surfaced during this branch.
 - `FilterBarCollapseDriver.isSettling` is cleared by the collapse animation's
   completion handler, by a reset when the list is replaced, and on
   `scenePhase == .active`. A completion lost for any *other* reason while the
   view stays alive would still wedge collapse for the session. No watchdog timer
-  was added; that omission is deliberate.
+  was added; that omission is deliberate — not filed as an issue, since it's a
+  considered decision rather than deferred work.
 - `check-screenshots.py` false-positives its stuck-alert heuristic on
   `02-filters` — the venue chips read as an alert-shaped box. The shot is
   correct; the checker needs calibration. It is invoked only by the local
-  capture script, never by CI.
+  capture script, never by CI. Tooling nit, not filed as an issue.
 - iPad's `01-season` and `04-detail` screenshots share launch arguments
   (predates this branch) and have once produced byte-identical images. A
-  distinct UI-test hook would fix it.
+  distinct UI-test hook would fix it. Tooling nit, not filed as an issue.
 - `docs/app-store/screenshots.manifest.json`'s `appCommit` records the commit at
   capture time, which can predate a fix captured in the same pass. Traceability
-  only.
+  only, not filed as an issue.
 - `ios/README.md` does not mention two local prerequisites discovered while
   regenerating screenshots: Pillow, and that system bash 3.2 shadows the
-  Homebrew bash the capture script needs.
+  Homebrew bash the capture script needs. Doc nit, not filed as an issue.
 - Four near-identical capsule chip styles across `FilterChip`, `WeekChip`,
   `FacetChip`, and `ResetFilterRow`. A shared `ChipStyle` would remove ~40 lines
-  and reconcile inconsistent horizontal padding (12 vs 14).
-- The week strip's auto-scroll fires once per view lifetime, so switching to a
-  *cached* year and back does not re-scroll to the current week while switching
-  to an *uncached* year does — the same gesture behaves two ways.
-- `extraDays` is not reset by `selectScope`, so "Show next day" ×3 then a scope
-  change leaves the window wider than fresh. Pre-existing.
+  and reconcile inconsistent horizontal padding (12 vs 14). Pure refactor, no
+  behavior change — not filed as an issue.
 - The web's `RECONCILE_FILTERS` (dropping selections absent from a newly loaded
-  year) has no iOS equivalent. Explicitly ruled out for this branch.
+  year) has no iOS equivalent. Explicitly ruled out for this branch by the
+  branch owner — closed decision, not deferred work.
 
-## 5. Release note — iOS 18 floor
+## 6. Release note — iOS 18 floor
 
 The deployment target moved from iOS 17.0 to 18.0 so `onScrollGeometryChange`
 could replace a `GeometryReader`/`PreferenceKey` sentinel that is structurally
