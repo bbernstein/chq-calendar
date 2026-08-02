@@ -144,7 +144,7 @@ private struct FacetChip: View {
     private var accessibilityLabel: String {
         var parts = [label]
         if let count {
-            parts.append("\(count) events")
+            parts.append(count == 1 ? "1 event" : "\(count) events")
         }
         if isSelected {
             parts.append("selected")

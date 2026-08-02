@@ -691,6 +691,10 @@ struct AppModelTests {
         await model.select(year: 2025)
         #expect(model.snapshot == nil)
         #expect(model.facetCounts == .empty)
+        // `normalizePersistedFilterCasing`'s `guard snapshot != nil` early
+        // return must leave the selection alone rather than wiping or
+        // mangling it just because there's nothing to normalize against yet.
+        #expect(model.filter.selectedLocations == [venue])
     }
 
     // MARK: - legacy filter casing normalization
@@ -716,13 +720,21 @@ struct AppModelTests {
         """
         defaults.set(Data(legacy.utf8), forKey: "chq-filters")
 
+        // Pinned rather than the real wall clock: `lastSaved` above is a
+        // hardcoded date, and `UserStateStore.loadFilters()` rejects
+        // payloads 30+ days stale (see
+        // `UserStateStoreTests.legacyLowercasedPayloadStillDecodes`, which
+        // uses the same pattern). A real clock would make this test start
+        // failing in CI once 30 days had passed with no code change.
+        let now = try #require(ChqTime.parse("2026-08-02 12:00:00"))
+
         let cache = MockCache()
         cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
         let api = MockAPI()
         await api.setNeverResolves(for: .years)
         let model = AppModel(
             repository: EventRepository(api: api, cache: cache),
-            store: UserStateStore(defaults: defaults, now: { Date() })
+            store: UserStateStore(defaults: defaults, now: { now })
         )
 
         // Loaded exactly as persisted, lowercased, before any snapshot exists.
@@ -737,7 +749,9 @@ struct AppModelTests {
 
         // Corrected casing is written back, not just held in memory — a
         // second launch before the next snapshot arrives must not regress.
-        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadFilters()
+        // Reload with the same pinned clock: the write-back's `lastSaved`
+        // was stamped using `now` above, not the real wall clock.
+        let reloaded = UserStateStore(defaults: defaults, now: { now }).loadFilters()
         #expect(reloaded?.selectedLocations == ["Sports Club, Waterfront"])
         #expect(reloaded?.selectedCategories == ["Chautauqua Institution Program"])
     }
@@ -761,9 +775,60 @@ struct AppModelTests {
             store: UserStateStore(defaults: defaults, now: { Date() })
         )
 
+        // The guard at `AppModel.normalizePersistedFilterCasing` (only
+        // persisting when the normalized casing actually differs) is the
+        // only thing standing between "no match" and a write on every
+        // snapshot arrival — and therefore the only thing keeping
+        // `lastSaved` from being re-stamped (and the 30-day expiry reset)
+        // on every launch. Comparing the raw persisted bytes before and
+        // after pins both: no write at all, not just an unchanged value.
+        let before = defaults.data(forKey: "chq-filters")
+
         Task { await model.start() }
         await waitUntil("model reaches .ready phase") { model.phase == .ready }
 
         #expect(model.filter.selectedLocations == ["Retired Venue"])
+        let after = defaults.data(forKey: "chq-filters")
+        #expect(before == after)
+    }
+
+    /// Every other year-switch test in this file (`selectYearSwapsSnapshot`,
+    /// `facetCountsTrackTheSnapshotAcrossLaunchAndYearSwitch`,
+    /// `refreshDiscardsStaleYearResultAfterYearSwitchedDuringInFlightRefresh`,
+    /// `selectingCacheLessYearStartsOwnRefreshDespiteAnotherYearsInFlightRefresh`)
+    /// reuses the same `events-sample` fixture for both years, so casing can
+    /// never actually differ across years in any of them. This uses a
+    /// second fixture (`events-sample-alt-casing`, added alongside the
+    /// existing ones in `Fixtures/`) whose venue/category are the same
+    /// facets, spelled with different casing, so re-casing following the
+    /// year actually being viewed — rather than e.g. sticking with whatever
+    /// year first normalized it — is pinned rather than assumed.
+    @Test func normalizationFollowsTheYearBeingViewedAcrossASwitch() async throws {
+        let defaults = makeDefaults()
+        var filter = FilterSelection()
+        // Lowercased so it case-insensitively matches both years' feeds,
+        // whose display casing differs from each other and from this.
+        filter.selectedLocations = ["sports club, waterfront"]
+        UserStateStore(defaults: defaults, now: { Date() }).saveFilters(filter)
+
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("events-2025", data: fixtureData("events-sample-alt-casing"), etag: "e2", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+        #expect(model.filter.selectedLocations == ["Sports Club, Waterfront"])
+
+        await model.select(year: 2025)
+        #expect(model.filter.selectedLocations == ["SPORTS CLUB, WATERFRONT"])
+
+        await model.select(year: 2026)
+        #expect(model.filter.selectedLocations == ["Sports Club, Waterfront"])
     }
 }

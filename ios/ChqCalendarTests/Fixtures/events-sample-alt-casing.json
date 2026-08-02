@@ -1,0 +1,37 @@
+{
+  "data": [
+    {
+      "id": "301001",
+      "title": "Guided Kayak Eco Tour",
+      "description": "2025's feed serving the same venue/category with different casing than the 2026 fixture, so casing-normalization tests can tell the years apart.",
+      "startDate": "2025-07-27 12:45:00",
+      "endDate": "2025-07-27 13:45:00",
+      "timezone": "America/New_York",
+      "venue": {
+        "name": "SPORTS CLUB, WATERFRONT",
+        "id": 101025,
+        "showMap": true
+      },
+      "location": "SPORTS CLUB, WATERFRONT",
+      "categories": [
+        {
+          "name": "CHAUTAUQUA INSTITUTION PROGRAM",
+          "parent": 0,
+          "id": 387,
+          "taxonomy": "tribe_events_cat",
+          "slug": "chautauqua-institution-program"
+        }
+      ],
+      "tags": [
+        "sports club, waterfront",
+        "chautauqua-institution-program",
+        "chautauqua institution program"
+      ],
+      "category": "Recreation",
+      "url": "https://www.chq.org/event/guided-kayak-eco-tour-4/",
+      "cost": "$12",
+      "status": "publish",
+      "week": 5
+    }
+  ]
+}
