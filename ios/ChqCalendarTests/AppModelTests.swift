@@ -606,7 +606,7 @@ struct AppModelTests {
     /// step: a cold launch reading a cached snapshot, and a year switch to
     /// a year with no cache (which must clear the counts rather than leave
     /// the previous year's behind).
-    @Test func facetCountsTrackTheSnapshotAcrossLaunchAndYearSwitch() async {
+    @Test func facetCountsTrackTheSnapshotAcrossLaunchAndYearSwitch() async throws {
         let cache = MockCache()
         cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
         let api = MockAPI()
@@ -621,6 +621,27 @@ struct AppModelTests {
         Task { await model.start() }
         await waitUntil("model reaches .ready phase") { model.phase == .ready }
         #expect(model.facetCounts.locations["sports club, waterfront"] == 1)
+
+        // `count(for:in:)` is what the panel actually renders, and it has to
+        // lowercase: the name comes from `visibleLocations` in the feed's
+        // display casing, while the key is lowercased `displayLocation`.
+        // Drop that `.lowercased()` and every count in the panel silently
+        // reads 0, so assert through the accessor rather than the dictionary.
+        let venue = try #require(model.visibleLocations
+            .first { $0.lowercased() == "sports club, waterfront" })
+        #expect(venue != venue.lowercased(), "fixture venue must be display-cased")
+        #expect(model.count(for: venue, in: .venues) == 1)
+        #expect(model.count(for: "No Such Venue", in: .venues) == 0)
+
+        let category = try #require(model.visibleCategories.first)
+        #expect(model.count(for: category, in: .categories)
+            == model.facetCounts.categories[category.lowercased()])
+
+        // `selectedCount` drives the "(1)" in the row label.
+        #expect(model.selectedCount(.venues) == 0)
+        model.toggleLocation(venue)
+        #expect(model.selectedCount(.venues) == 1)
+        #expect(model.selectedCount(.categories) == 0)
 
         // 2025 has no cached snapshot and no scripted network response.
         await model.select(year: 2025)

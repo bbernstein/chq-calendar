@@ -63,9 +63,11 @@ struct FacetRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(
-            isExpanded ? "Hide all \(facet.title.lowercased())"
-                       : "Show all \(facet.title.lowercased())")
+        // `labelText` first, so the selected count a sighted user reads in
+        // the label ("Venues (2)") is not dropped by the override — the
+        // same reason `FacetChip` appends ", selected" rather than
+        // replacing its label.
+        .accessibilityLabel("\(labelText), \(isExpanded ? "hide" : "show") all")
     }
 
     private var labelText: String {
