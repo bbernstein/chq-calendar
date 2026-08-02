@@ -16,23 +16,28 @@ struct WeekStripView: View {
     @State private var hasScrolledToInitialWeek = false
 
     var body: some View {
-        // Read the clock, the year and the current week ONCE per render, and
-        // use those values for every chip and for `onAppear`.
+        // Read the clock, the year, the current week and the season ONCE per
+        // render, and use those values for every chip and for `onAppear`.
         //
-        // Both `referenceNow` and `model.currentWeek` call the model's clock
-        // on each access, and the un-cached versions were read per chip — so
-        // a single render took eighteen clock readings that were not required
-        // to agree with one another. Season weeks turn over at noon on
-        // Saturday, so a tick between two of those readings could render a
-        // strip with no `.current` week at all, or with `.current` and the
-        // "This Week" scope chip disagreeing.
+        // Correctness: both `referenceNow` and `model.currentWeek` call the
+        // model's clock on each access, and un-cached they were read per
+        // chip — eighteen clock readings per render, under no obligation to
+        // agree. Season weeks turn over at noon on Saturday, so a tick
+        // between two of them could render a strip with no `.current` week
+        // at all, or with `.current` and the "This Week" scope chip
+        // disagreeing about which week it is.
         //
-        // `currentWeek` also rebuilds all nine `SeasonWeek` structs per call
-        // (`SeasonCalendar.weeks(forYear:)`), so hoisting it turns eighty-one
-        // week constructions per render into nine.
+        // Cost: `SeasonCalendar.weeks(forYear:)` rebuilds all nine
+        // `SeasonWeek` structs on every call, and it was reached twice per
+        // chip — once inside `model.currentWeek`, once inside
+        // `WeekStripState.timeState(week:now:year:)`. Hoisting the clock
+        // alone would still leave nine rebuilds, since `timeState` builds
+        // its own season per call; passing the built season in via
+        // `timeState(week:now:weeks:)` is what actually removes them.
         let now = referenceNow
         let year = model.selectedYear
         let currentWeek = model.currentWeek
+        let weeks = SeasonCalendar.weeks(forYear: year)
 
         return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
@@ -43,7 +48,7 @@ struct WeekStripView: View {
                             isSelected: FilterChipState.isWeekSelected(
                                 number, selection: model.filter, currentWeek: currentWeek),
                             timeState: WeekStripState.timeState(
-                                week: number, now: now, year: year),
+                                week: number, now: now, weeks: weeks),
                             theme: model.theme(forWeek: number)
                         ) {
                             KeyboardDismisser.dismiss()

@@ -14,10 +14,22 @@ nonisolated enum WeekTimeState: Equatable, Sendable {
 /// relative to, so every week renders neutrally and the strip stays at
 /// week 1 rather than guessing.
 nonisolated enum WeekStripState {
+    /// Convenience for callers that only need one week's state. Builds the
+    /// season once and delegates.
+    ///
+    /// `WeekStripView` deliberately does NOT use this: it renders all nine
+    /// chips per pass, and this overload would rebuild the nine-week array
+    /// nine times. It hoists `SeasonCalendar.weeks(forYear:)` itself and
+    /// calls `timeState(week:now:weeks:)` instead.
     static func timeState(week n: Int, now: Date?, year: Int) -> WeekTimeState {
-        guard let now,
-              let week = SeasonCalendar.weeks(forYear: year).first(where: { $0.number == n })
-        else {
+        timeState(week: n, now: now, weeks: SeasonCalendar.weeks(forYear: year))
+    }
+
+    /// `timeState` against an already-built season, so a caller styling every
+    /// chip pays for `SeasonCalendar.weeks(forYear:)` once rather than once
+    /// per chip.
+    static func timeState(week n: Int, now: Date?, weeks: [SeasonWeek]) -> WeekTimeState {
+        guard let now, let week = weeks.first(where: { $0.number == n }) else {
             return .upcoming
         }
         if week.contains(now) { return .current }
