@@ -68,70 +68,72 @@ struct FilterBarCollapseTests {
         #expect(atThreshold.pivot == 10)
     }
 
-    // MARK: - overflow gate (short, heavily-filtered result sets)
+    // MARK: - headroom gate (a collapse must never move the content)
     //
-    // Reproduces the oscillation a human partner found on a physical
-    // device: filtering to ~6 events left the content barely taller than
-    // the viewport. Collapsing gave back more height than the content
-    // actually needed, `List` clamped `contentOffset` back toward the top,
-    // that clamp read as a genuine scroll-up to offset 0, and the
-    // `clamped <= 0` branch force-expanded again — collapse, clamp,
-    // expand, forever, with the last event unreachable.
+    // Hiding the secondary rows hands ~100pt back to the list, which
+    // shortens its scrollable range by the same ~100pt. If the list sits
+    // within that distance of its bottom, the scroll view must clamp
+    // `contentOffset` to stay in range — a real upward scroll, which reads
+    // as the user scrolling up, expands the bar, lengthens the range, and
+    // starts over. A human partner hit this on a physical device with a
+    // heavily-filtered ~6-event list. The gate refuses the collapse in
+    // exactly the cases where the clamp would happen.
 
-    @Test func insufficientOverflowNeverCollapses() {
-        // Content is only 60pt taller than the viewport; collapsing gives
-        // back 100pt (the `minimumOverflowToCollapse: 100` used here),
-        // which would swallow the overflow entirely. The offset alone
-        // clears the threshold, but the bar must stay expanded anyway.
+    @Test func refusesToCollapseWhenTheContentCannotAbsorbIt() {
+        // Only 60pt of range left below the current position; collapsing
+        // gives back 100. The offset alone clears the threshold, but the
+        // bar must stay expanded.
         let result = FilterBarCollapse.next(
-            isCollapsed: false, offset: 40, pivot: 0, overflow: 60, minimumOverflowToCollapse: 100)
+            isCollapsed: false, offset: 40, pivot: 0, validMax: 100, minimumHeadroomToCollapse: 100)
         #expect(result.isCollapsed == false)
         #expect(result.pivot == 0)
     }
 
-    @Test func overflowExactlyAtTheMinimumDoesNotCollapse() {
-        // The comparison is strict (`>`, not `>=`): overflow precisely
-        // equal to the minimum would leave zero spare room, still enough
-        // to sit right at the clamp edge.
+    @Test func headroomExactlyAtTheMinimumStillCollapses() {
+        // The comparison is `>=`: headroom exactly equal to what the
+        // collapse gives back is precisely enough for the content not to
+        // move. Callers pass a margin on top (see `EventListView`).
         let result = FilterBarCollapse.next(
-            isCollapsed: false, offset: 40, pivot: 0, overflow: 100, minimumOverflowToCollapse: 100)
-        #expect(result.isCollapsed == false)
-        #expect(result.pivot == 0)
-    }
-
-    @Test func sufficientOverflowCollapsesAsBefore() {
-        // Comfortably more overflow than the minimum — the ordinary case,
-        // behaving exactly as it did before this parameter existed.
-        let result = FilterBarCollapse.next(
-            isCollapsed: false, offset: 40, pivot: 0, overflow: 500, minimumOverflowToCollapse: 100)
+            isCollapsed: false, offset: 40, pivot: 0, validMax: 140, minimumHeadroomToCollapse: 100)
         #expect(result.isCollapsed)
         #expect(result.pivot == 40)
     }
 
-    @Test func alreadyCollapsedDoesNotReExpandWhenOverflowShrinks() {
-        // Asymmetric by design: the overflow gate only guards the
-        // expanded-to-collapsed transition. Once collapsed, a shrunk
-        // overflow (well under the minimum) must not force a re-expand —
-        // only scrolling up / reaching the top does, same as before this
-        // parameter existed. Re-checking every frame while collapsed would
-        // reintroduce the exact flip this parameter exists to prevent.
-        //
-        // offset/pivot are kept small (well inside the ~10pt of overflow
-        // this scenario has) so the *bottom clamp* added below can't also
-        // explain a "stays collapsed" result — an offset/pivot of, say,
-        // 300 with only 10pt of overflow isn't a physically reachable
-        // scroll position to begin with, and would rightly get corrected
-        // by the clamp instead. This test isolates the gate alone.
+    @Test func aLongListCollapsesAsBefore() {
         let result = FilterBarCollapse.next(
-            isCollapsed: true, offset: 5, pivot: 5, overflow: 10, minimumOverflowToCollapse: 100)
+            isCollapsed: false, offset: 40, pivot: 0, validMax: 5000, minimumHeadroomToCollapse: 100)
         #expect(result.isCollapsed)
-        #expect(result.pivot == 5)
+        #expect(result.pivot == 40)
     }
 
-    @Test func defaultOverflowParametersNeverBlockCollapse() {
-        // Callers that don't pass overflow/minimumOverflowToCollapse at
-        // all (every pre-existing test above) must see the exact old
-        // behavior — the gate defaults to a no-op.
+    @Test func theHeadroomGateFollowsThePositionNotJustTheListLength() {
+        // The same long list, but scrolled to within 60pt of its bottom:
+        // collapsing there would still clamp, so it is still refused. A
+        // gate written against total list length rather than remaining
+        // headroom would wrongly allow this one.
+        let result = FilterBarCollapse.next(
+            isCollapsed: false, offset: 4940, pivot: 4880, validMax: 5000,
+            minimumHeadroomToCollapse: 100)
+        #expect(result.isCollapsed == false)
+        #expect(result.pivot == 4880)
+    }
+
+    @Test func alreadyCollapsedDoesNotReExpandWhenHeadroomShrinks() {
+        // Asymmetric by design: the gate only guards the expanded ->
+        // collapsed transition. Once collapsed, vanishing headroom must not
+        // force a re-expand — only scrolling up / reaching the top does.
+        // Re-checking it every frame while collapsed would reintroduce the
+        // exact flip it exists to prevent.
+        let result = FilterBarCollapse.next(
+            isCollapsed: true, offset: 10, pivot: 10, validMax: 10, minimumHeadroomToCollapse: 100)
+        #expect(result.isCollapsed)
+        #expect(result.pivot == 10)
+    }
+
+    @Test func defaultGeometryParametersNeverBlockCollapse() {
+        // Callers that don't pass validMax/minimumHeadroomToCollapse at all
+        // (every test above this section) must see the plain offset/pivot
+        // behavior — both default to no-ops.
         let result = FilterBarCollapse.next(isCollapsed: false, offset: 40, pivot: 0)
         #expect(result.isCollapsed)
         #expect(result.pivot == 40)
@@ -139,50 +141,279 @@ struct FilterBarCollapseTests {
 
     // MARK: - bottom clamp (rubber-band overscroll at the end of the list)
     //
-    // A second human-partner repro, same root cause family: a list that
-    // genuinely overflows (no short-content gate involved) still flickers
-    // show/hide/show/hide right at the bottom. Overscrolling past the true
-    // end and bouncing back is `threshold`+ points of *apparent* scroll-up,
-    // which expands the bar; settling back down re-crosses the threshold
-    // and collapses it again. The existing top clamp (`max(offset, 0)`)
-    // already excludes the equivalent top-of-list case; these tests cover
-    // the equivalent ceiling at the bottom (`validMax = max(0, overflow) +
-    // insetTop`).
+    // Overscrolling past the true end and bouncing back is `threshold`+
+    // points of apparent scroll-up (expand) followed by `threshold`+ points
+    // of settling back down (collapse) — a flicker driven entirely by UIKit
+    // physics. The existing `max(offset, 0)` floor has always excluded the
+    // equivalent case at the top; `validMax` is the matching ceiling.
 
     @Test func offsetBeyondValidMaxClampsToValidMax() {
-        // overflow: 200, insetTop: 0 -> validMax = 200. 60pt of bottom
-        // overscroll (260) must produce the exact same result as resting
-        // right at the true end (200) with no overscroll at all.
+        // 60pt of bottom overscroll must produce the exact same result as
+        // resting right at the true end with no overscroll at all.
         let overscrolled = FilterBarCollapse.next(
-            isCollapsed: false, offset: 260, pivot: 0, overflow: 200, insetTop: 0)
+            isCollapsed: false, offset: 260, pivot: 0, validMax: 200)
         let atValidMax = FilterBarCollapse.next(
-            isCollapsed: false, offset: 200, pivot: 0, overflow: 200, insetTop: 0)
+            isCollapsed: false, offset: 200, pivot: 0, validMax: 200)
         #expect(overscrolled.isCollapsed == atValidMax.isCollapsed)
         #expect(overscrolled.pivot == atValidMax.pivot)
     }
 
     @Test func bottomBounceDoesNotFlipAnAlreadyCollapsedBar() {
-        // The exact sequence a human partner reproduced on a physical
-        // device: already collapsed and scrolled to the true end of a
-        // long, genuinely-overflowing list, overscroll 80pt past it, then
-        // bounce back down to exactly the true end. `isCollapsed` must
-        // hold `true` across all three steps -- without the clamp, step 3
-        // reads as scrolling up from the inflated peak the overscroll left
-        // in `pivot`, which crosses the un-collapse threshold and expands.
-        let overflow: CGFloat = 2000
-
+        // Already collapsed and scrolled to the true end of a long list,
+        // overscroll 80pt past it, then bounce back to exactly the end.
+        // Without the clamp, step 3 reads as scrolling up from the inflated
+        // peak the overscroll left in `pivot` and expands the bar.
         var state = FilterBarCollapse.next(
-            isCollapsed: true, offset: 2000, pivot: 2000, overflow: overflow, insetTop: 0)
+            isCollapsed: true, offset: 2000, pivot: 2000, validMax: 2000)
         #expect(state.isCollapsed)
 
         state = FilterBarCollapse.next(
-            isCollapsed: state.isCollapsed, offset: 2080, pivot: state.pivot,
-            overflow: overflow, insetTop: 0)
+            isCollapsed: state.isCollapsed, offset: 2080, pivot: state.pivot, validMax: 2000)
         #expect(state.isCollapsed)
 
         state = FilterBarCollapse.next(
-            isCollapsed: state.isCollapsed, offset: 2000, pivot: state.pivot,
-            overflow: overflow, insetTop: 0)
+            isCollapsed: state.isCollapsed, offset: 2000, pivot: state.pivot, validMax: 2000)
         #expect(state.isCollapsed)
+    }
+}
+
+// MARK: -
+
+/// Geometry-to-decision behavior: which samples the driver trusts, and how
+/// many times the bar is allowed to flip while its own collapse animation
+/// is perturbing the very geometry the decision reads.
+@MainActor
+struct FilterBarCollapseDriverTests {
+    /// Terser than the memberwise initializer for the long replay sequences
+    /// below. Argument order matches the device log's column order.
+    private func sample(
+        _ contentOffset: CGFloat,
+        _ insetTop: CGFloat,
+        _ insetBottom: CGFloat,
+        _ containerHeight: CGFloat,
+        _ contentHeight: CGFloat
+    ) -> ScrollGeometrySample {
+        ScrollGeometrySample(
+            contentOffset: contentOffset,
+            insetTop: insetTop,
+            insetBottom: insetBottom,
+            containerHeight: containerHeight,
+            contentHeight: contentHeight)
+    }
+
+    /// A settled, expanded iPhone 17 list scrolled `offset` points down, in
+    /// the geometry a device actually reports: 874pt container, 330pt top
+    /// inset (nav bar + filter bar), 86pt bottom inset (search field + home
+    /// indicator).
+    private func settledExpanded(offset: CGFloat, contentHeight: CGFloat = 90_000) -> ScrollGeometrySample {
+        sample(offset - 330, 330, 86, 874, contentHeight)
+    }
+
+    /// The same list once the bar has collapsed — the top inset is 100pt
+    /// smaller, which is the whole transition.
+    private func settledCollapsed(offset: CGFloat, contentHeight: CGFloat = 90_000) -> ScrollGeometrySample {
+        sample(offset - 230, 230, 86, 874, contentHeight)
+    }
+
+    /// The 26 geometry samples an iPhone 17 emitted between the frame that
+    /// collapsed the bar and the first frame after the transition settled,
+    /// copied verbatim from an instrumented run.
+    ///
+    /// They are the reason this driver exists. Frame 1
+    /// (`contentOffset: 0, insetTop: 0, containerHeight: 874`) is
+    /// self-inconsistent: the list was 53pt down, but under any reading
+    /// this frame says it is at the very top, and being at the top
+    /// force-expands the bar. Frames 2 onward switch convention entirely —
+    /// the inset moves out of `contentInsets` and into `containerSize`, so
+    /// `insetTop` reads 0 while `containerHeight` ramps 544 -> 639 as the
+    /// bar animates away.
+    private var collapseAnimationFrames: [ScrollGeometrySample] {
+        [
+            sample(0.0, 0.0, 86.0, 874.0, 89_847.3),
+            sample(53.3, 0.0, 86.0, 544.0, 89_847.3),
+            sample(160.0, 0.0, 86.0, 544.0, 89_847.3),
+            sample(160.0, 0.0, 86.0, 544.0, 89_859.7),
+            sample(213.3, 0.0, 86.0, 544.0, 89_859.7),
+            sample(213.3, 0.0, 86.0, 544.0, 89_876.3),
+            sample(240.0, 0.0, 86.0, 544.0, 89_876.3),
+            sample(240.0, 0.0, 85.8, 544.7, 89_876.3),
+            sample(240.0, 0.0, 86.0, 544.9, 89_876.3),
+            sample(253.3, 0.0, 86.0, 544.9, 89_876.3),
+            sample(253.3, 0.0, 86.0, 555.3, 89_876.3),
+            sample(253.3, 0.0, 86.0, 555.4, 89_888.7),
+            sample(306.7, 0.0, 86.0, 555.4, 89_888.7),
+            sample(306.7, 0.0, 86.0, 555.4, 89_905.3),
+            sample(333.3, 0.0, 86.0, 555.4, 89_905.3),
+            sample(333.3, 0.0, 86.0, 582.3, 89_905.3),
+            sample(333.3, 0.0, 86.0, 582.1, 89_905.3),
+            sample(346.7, 0.0, 86.0, 582.1, 89_905.3),
+            sample(373.3, 0.0, 86.0, 582.1, 89_905.3),
+            sample(373.3, 0.0, 86.0, 605.7, 89_905.3),
+            sample(373.3, 0.0, 86.0, 605.7, 89_934.3),
+            sample(386.7, 0.0, 86.0, 605.7, 89_934.3),
+            sample(402.3, 0.0, 85.8, 638.7, 89_934.3),
+            sample(402.3, 0.0, 86.0, 638.9, 89_934.3),
+            sample(452.0, 230.0, 86.0, 874.0, 89_934.3),
+            sample(452.0, 230.0, 86.0, 874.0, 89_992.3),
+        ]
+    }
+
+    // MARK: - sample admissibility
+
+    @Test func theFirstSampleIsNeverActedOn() {
+        // "Same viewport as the previous frame" needs a previous frame.
+        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        #expect(driver.received(settledExpanded(offset: 500)) == nil)
+        #expect(driver.isCollapsed == false)
+    }
+
+    @Test func aSteadyDragCollapsesTheBarExactlyOnce() {
+        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        var flips = 0
+        for offset in stride(from: CGFloat(0), through: 200, by: 10) {
+            if driver.received(settledExpanded(offset: offset)) != nil {
+                flips += 1
+                driver.settled()
+            }
+        }
+        #expect(flips == 1)
+        #expect(driver.isCollapsed)
+    }
+
+    @Test func anInsetOnlyChangeIsIgnored() {
+        // A facet panel opening grows the top inset ~140pt under a list
+        // nobody scrolled. The viewport differs from the previous frame, so
+        // the sample is inadmissible and the panel is not closed out from
+        // under the user by an auto-collapse.
+        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        _ = driver.received(settledExpanded(offset: 0))
+        #expect(driver.received(settledExpanded(offset: 0)) == nil)
+
+        let panelOpen = sample(-330, 470, 86, 874, 90_000)
+        #expect(driver.received(panelOpen) == nil)
+        #expect(driver.isCollapsed == false)
+    }
+
+    // MARK: - the feedback loop
+
+    @Test func theInconsistentMidAnimationFrameWouldForceTheBarBackOpen() {
+        // The frame a device emitted 66ms into a collapse, while the list
+        // was really 53pt down: `contentOffset: 0, insetTop: 0`, but a full
+        // 874pt container, matching neither the settled convention nor the
+        // mid-animation one. Read as a position it says "at the top", and
+        // at the top the bar always reopens. That single frame is the
+        // flicker, and no threshold can filter it — it is a 53pt lie in
+        // both of its terms at once.
+        let frame = collapseAnimationFrames[0]
+        #expect(frame.offset == 0)
+
+        let result = FilterBarCollapse.next(
+            isCollapsed: true, offset: frame.offset, pivot: 53.3,
+            validMax: frame.validMax, minimumHeadroomToCollapse: 140)
+        #expect(result.isCollapsed == false)
+    }
+
+    @Test func theCapturedCollapseAnimationProducesNoFurtherFlips() {
+        // All 26 frames of a real collapse transition, replayed after a
+        // genuine collapse with `settled()` called where `EventListView`
+        // calls it — from the animation's own completion handler, i.e.
+        // after the last frame. Zero further flips, not "fewer": every one
+        // of those frames is inadmissible, so the bar cannot flip until the
+        // transition it started has finished.
+        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        _ = driver.received(settledExpanded(offset: 0, contentHeight: 89_835))
+        _ = driver.received(settledExpanded(offset: 26.7, contentHeight: 89_847.3))
+        #expect(driver.received(settledExpanded(offset: 53.3, contentHeight: 89_847.3)) == true)
+
+        var extraFlips = 0
+        for frame in collapseAnimationFrames where driver.received(frame) != nil {
+            extraFlips += 1
+        }
+        #expect(extraFlips == 0)
+        #expect(driver.isCollapsed)
+
+        // And the driver is not wedged: once the animation reports
+        // completion, genuine scrolling is acted on again — here, scrolling
+        // back up past the threshold reopens the bar.
+        driver.settled()
+        _ = driver.received(settledCollapsed(offset: 452))
+        _ = driver.received(settledCollapsed(offset: 460))
+        #expect(driver.received(settledCollapsed(offset: 300)) == false)
+        #expect(driver.isCollapsed == false)
+    }
+
+    @Test func settlingBlocksFramesTheViewportCheckWouldLetThrough() {
+        // Isolates the settle gate from the viewport check, which would
+        // otherwise mask it. These two frames share a viewport, so the
+        // viewport check admits them — but it is the *garbage* viewport
+        // SwiftUI reports mid-transition (`insetTop: 0` with a 544pt
+        // container), under which the same list reads 330pt further down
+        // and its scrollable range 330pt shorter. Acting on them is exactly
+        // what a 300ms cooldown would eventually do; the settle gate never
+        // does.
+        let midAnimation = { (offset: CGFloat) in self.sample(offset, 0, 86, 544, 90_000) }
+
+        let settling = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        _ = settling.received(settledExpanded(offset: 0))
+        #expect(settling.received(settledExpanded(offset: 400)) == true)
+        _ = settling.received(midAnimation(400))
+        #expect(settling.received(midAnimation(100)) == nil)
+        #expect(settling.isCollapsed)
+
+        // The identical frames, with the gate defeated the way a lapsed
+        // cooldown defeats it, do flip the bar.
+        let notSettling = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        _ = notSettling.received(settledExpanded(offset: 0))
+        #expect(notSettling.received(settledExpanded(offset: 400)) == true)
+        notSettling.settled()
+        _ = notSettling.received(midAnimation(400))
+        #expect(notSettling.received(midAnimation(100)) == false)
+    }
+
+    @Test func aBottomBounceProducesNoFlips() {
+        // Week 6 + Amphitheater, flung into the end of the list, in the
+        // geometry the device reported: 2054.3pt of content, 230pt collapsed
+        // top inset, 86pt bottom inset — which puts the true bottom at
+        // offset 1496.3. The tail of the run overscrolls 83pt past it and
+        // decays back, values taken from the instrumented log.
+        func collapsed(at offset: CGFloat) -> ScrollGeometrySample {
+            sample(offset - 230, 230, 86, 874, 2054.3)
+        }
+
+        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        // Scroll down far enough to collapse, then let the transition settle.
+        _ = driver.received(sample(0 - 330, 330, 86, 874, 2054.3))
+        #expect(driver.received(sample(200 - 330, 330, 86, 874, 2054.3)) == true)
+        driver.settled()
+
+        var flips = 0
+        let bounce: [CGFloat] = [
+            1400, 1496.3, 1520, 1560, 1579, 1560, 1540, 1517.7, 1508.7,
+            1503.3, 1499.7, 1498, 1497.3, 1496.3,
+        ]
+        for offset in bounce where driver.received(collapsed(at: offset)) != nil {
+            flips += 1
+        }
+        #expect(flips == 0)
+        #expect(driver.isCollapsed)
+    }
+
+    @Test func aBarelyOverflowingListNeverCollapses() {
+        // A list whose whole scrollable range is 120pt — less than the 140
+        // a collapse needs to leave behind. Swept top to bottom and back,
+        // the bar must never flip at all: every collapse it could reach
+        // would immediately clamp the content and undo itself.
+        let driver = FilterBarCollapseDriver(minimumHeadroomToCollapse: 140)
+        let contentHeight: CGFloat = 874 - 330 - 86 + 120
+        var offsets = Array(stride(from: CGFloat(0), through: 120, by: 10))
+        offsets += offsets.reversed()
+
+        var flips = 0
+        for offset in offsets {
+            let probe = sample(offset - 330, 330, 86, 874, contentHeight)
+            if driver.received(probe) != nil { flips += 1 }
+        }
+        #expect(flips == 0)
+        #expect(driver.isCollapsed == false)
     }
 }

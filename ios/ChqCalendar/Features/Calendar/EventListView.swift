@@ -1,46 +1,5 @@
 import SwiftUI
 
-/// What `onScrollGeometryChange` needs to: tell a genuine scroll apart from
-/// an inset-only change (`offset`); decide whether there's enough
-/// scrollable content to safely collapse into, and clamp away rubber-band
-/// overscroll at either end of the list (`overflow`, `insetTop` — see
-/// `FilterBarCollapse.next`'s doc comment for how the three combine).
-private struct ScrollProbe: Equatable {
-    var offset: CGFloat
-    var insetTop: CGFloat
-    var overflow: CGFloat
-}
-
-/// Holds collapse-decision state outside `@State`'s value semantics.
-///
-/// `onScrollGeometryChange`'s action fires on every frame of a drag; if
-/// `pivot` lived in `@State` directly, every one of those frames would
-/// invalidate `EventListView`'s body — which reruns the whole
-/// filter+group pipeline (`model.dayGroups`, six `EventFilter` stages over
-/// ~1,637 events plus `EventGrouping.byDay`). Mutating a stored property of
-/// a reference type held by `@State` does not itself trigger a re-render;
-/// only the genuine `isFilterBarCollapsed` flip (still plain `@State`)
-/// should do that.
-///
-/// `lastFlipAt` exists to break a feedback loop confirmed on a physical
-/// device: `withAnimation`-ing the bar's own `isCollapsed` flip animates
-/// its `safeAreaInset`'s height, and `List` continuously auto-adjusts
-/// `contentOffset` throughout that 0.2s transition to keep the same
-/// content visually pinned — generating a cascade of intermediate
-/// `onScrollGeometryChange` events that are echoes of *our own* prior
-/// decision, not new scrolling. If any one of those intermediate frames
-/// independently re-crosses the collapse threshold (geometry mid-animation
-/// is not required to stay within a comfortable margin the way the
-/// settled start/end states are), its own `withAnimation` generates
-/// another cascade, which can flip back, and so on — observed directly as
-/// a continuous, non-settling show/hide flicker. See `EventListView`'s
-/// `onScrollGeometryChange` action for how the cooldown is applied.
-@MainActor
-private final class CollapseTracker {
-    var pivot: CGFloat = 0
-    var lastFlipAt: ContinuousClock.Instant?
-}
-
 /// The day-grouped event list shared by both the compact (iPhone,
 /// `NavigationStack`) and regular (iPad, `NavigationSplitView`) layouts in
 /// `CalendarView`.
@@ -64,23 +23,32 @@ struct EventListView: View {
     var selection: Binding<Event?>?
 
     @State private var isAboutPresented = false
+
+    /// Mirrors `collapseDriver.isCollapsed` so the bar re-renders on a
+    /// flip. The driver, not this, is the decision state — see
+    /// `FilterBarCollapseDriver`, which deliberately isn't observed so its
+    /// per-frame bookkeeping can't invalidate this body.
     @State private var isFilterBarCollapsed = false
-    @State private var collapseTracker = CollapseTracker()
+
+    @State private var collapseDriver = FilterBarCollapseDriver(
+        minimumHeadroomToCollapse: EventListView.collapsedBarHeightGiveBack + 40)
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// How much overflow must remain after collapsing for the collapse to
-    /// be worth it — the ~100pt `FilterBarView`'s own `isCollapsed` doc
-    /// comment gives back (venues + categories + reset rows), plus a 40pt
-    /// margin so a result set that overflows by just slightly more than
-    /// 100pt doesn't sit right at the edge where the clamp described in
-    /// `FilterBarCollapse.next` could still bite. Not measured live: doing
-    /// so would mean a second `GeometryReader`/`PreferenceKey` pair, and
-    /// the original Task 7 attempt already showed that technique is
-    /// fragile once `List` cell-recycling or SwiftUI's own layout timing
-    /// is involved (this row lives outside the `List`, in the
-    /// `safeAreaInset`, so recycling specifically wouldn't apply here —
-    /// but the added plumbing isn't worth it for a value this stable).
-    private static let minimumOverflowToCollapse: CGFloat = 140
+    /// Roughly how much height collapsing hands back to the list — the
+    /// venue, category, and reset rows `FilterBarView` drops when
+    /// `isCollapsed`. Measured on a device: the list's top content inset
+    /// goes 330pt → 230pt across the transition. A collapse is refused
+    /// unless at least this much (plus a margin) of scrollable range
+    /// remains below the current position, so that giving it back can never
+    /// force the scroll view to move the content — see
+    /// `FilterBarCollapse.next`.
+    private static let collapsedBarHeightGiveBack: CGFloat = 100
+
+    /// How long the collapse/expand transition runs. Named because the
+    /// driver's settle window is defined by this animation completing, not
+    /// by any separately-tuned duration.
+    private static let collapseAnimationDuration: TimeInterval = 0.2
 
     var body: some View {
         content
@@ -167,54 +135,33 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-        .onScrollGeometryChange(for: ScrollProbe.self) { geometry in
-            ScrollProbe(
-                offset: geometry.contentOffset.y,
+        .onScrollGeometryChange(for: ScrollGeometrySample.self) { geometry in
+            ScrollGeometrySample(
+                contentOffset: geometry.contentOffset.y,
                 insetTop: geometry.contentInsets.top,
-                overflow: geometry.contentSize.height - geometry.containerSize.height)
-        } action: { old, new in
-            // `contentInsets.top` is the *adjusted* top inset, which
-            // includes this view's own `.safeAreaInset(edge: .top)` filter
-            // bar — so it changes size whenever a facet panel opens/closes,
-            // not just when the list scrolls. Reacting to that would let the
-            // bar's own layout drive `FilterBarCollapse`: opening the Venues
-            // panel grows the inset by ~140pt, which alone crosses the
-            // collapse threshold and would auto-close the panel that just
-            // opened. Only a change in `offset` (the part UIKit attributes
-            // to an actual scroll) is allowed to reach the state machine;
-            // an inset-only change is ignored outright.
-            guard new.offset != old.offset else { return }
+                insetBottom: geometry.contentInsets.bottom,
+                containerHeight: geometry.containerSize.height,
+                contentHeight: geometry.contentSize.height)
+        } action: { _, sample in
             // This action closure isn't `@Sendable`, so it runs on whatever
             // actor called this modifier (MainActor, since this is a view's
             // body) — no manual actor hop is needed to touch `@State` here.
             //
-            // `contentOffset.y` is negative while the list rests against its
-            // top inset (rubber-banded above content); adding the top inset
-            // back in makes 0 mean "at the top" the way `FilterBarCollapse`
-            // expects, matching the safe-area-inset-adjusted resting offset.
-            let next = FilterBarCollapse.next(
-                isCollapsed: isFilterBarCollapsed,
-                offset: new.offset + new.insetTop,
-                pivot: collapseTracker.pivot,
-                overflow: new.overflow,
-                insetTop: new.insetTop,
-                minimumOverflowToCollapse: Self.minimumOverflowToCollapse)
-            collapseTracker.pivot = next.pivot
-            guard next.isCollapsed != isFilterBarCollapsed else { return }
-            // Cooldown against re-flipping too soon after our own last
-            // flip — see `CollapseTracker.lastFlipAt`'s doc comment for the
-            // feedback-loop this breaks. 300ms comfortably exceeds the
-            // 0.2s collapse/expand animation below, so by the time this
-            // guard next allows a flip, `List`'s auto-compensation cascade
-            // from the *previous* flip has fully settled and any further
-            // geometry change reflects real scrolling.
-            let now = ContinuousClock.now
-            if let lastFlipAt = collapseTracker.lastFlipAt, now - lastFlipAt < .milliseconds(300) {
-                return
-            }
-            collapseTracker.lastFlipAt = now
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                isFilterBarCollapsed = next.isCollapsed
+            // Every decision, including which samples to trust at all,
+            // lives in the driver; see its doc comment for why animating
+            // the bar makes raw geometry unreadable while it animates.
+            guard let collapsed = collapseDriver.received(sample) else { return }
+            withAnimation(
+                reduceMotion ? nil : .easeInOut(duration: Self.collapseAnimationDuration),
+                completionCriteria: .removed
+            ) {
+                isFilterBarCollapsed = collapsed
+            } completion: {
+                // The settle window *is* the animation: geometry is
+                // re-admitted the moment this transition is fully removed,
+                // never before and never on a timer. Verified to fire on
+                // both branches, including the `nil` (Reduce Motion) one.
+                collapseDriver.settled()
             }
         }
         .refreshable {
