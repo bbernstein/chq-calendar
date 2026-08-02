@@ -219,12 +219,22 @@ struct EventListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                isAboutPresented = true
+            Menu {
+                ForEach(AboutInfo.quickLinks) { link in
+                    SwiftUI.Link(destination: link.url) {
+                        Label(link.title, systemImage: "arrow.up.right.square")
+                    }
+                }
+                Divider()
+                Button {
+                    isAboutPresented = true
+                } label: {
+                    Label("About", systemImage: "info.circle")
+                }
             } label: {
-                Image(systemName: "info.circle")
+                Image(systemName: "ellipsis.circle")
             }
-            .accessibilityLabel("About CHQ Calendar")
+            .accessibilityLabel("More")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
