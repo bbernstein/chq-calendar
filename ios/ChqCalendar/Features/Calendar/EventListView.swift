@@ -35,6 +35,21 @@ struct EventListView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Belt-and-braces for the same wedge `reset()` guards against (see
+    /// `FilterBarCollapseDriver.reset()`), from a different trigger: the
+    /// `withAnimation(completionCriteria: .removed)` completion that clears
+    /// `isSettling` runs after the 0.2s collapse/expand animation, and if the
+    /// app is backgrounded inside that window, UIKit/SwiftUI does not
+    /// guarantee the completion still fires while the scene is suspended.
+    /// The view itself isn't torn down by backgrounding, so `listWasReplaced`
+    /// never runs either — nothing else would un-wedge the driver on return.
+    /// Deliberately just `settled()`, not `reset()`: coming back from the
+    /// background shouldn't force the bar back open or forget the measured
+    /// give-back, only clear a possibly-stuck settling flag. No timer, no
+    /// tuned duration — see `FilterBarCollapseDriver`'s doc comment for why
+    /// that absence is the point.
+    @Environment(\.scenePhase) private var scenePhase
+
     /// A starting assumption for how much height collapsing hands back —
     /// the venue, category, and reset rows `FilterBarView` drops when
     /// `isCollapsed`. Used only until the driver has seen the bar settled in
@@ -75,6 +90,11 @@ struct EventListView: View {
                 // chrome above a loading spinner or banner.
                 if model.snapshot != nil {
                     FilterBarView(model: model, isCollapsed: isFilterBarCollapsed)
+                }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    collapseDriver.settled()
                 }
             }
     }

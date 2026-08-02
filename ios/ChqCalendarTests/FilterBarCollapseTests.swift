@@ -313,6 +313,23 @@ struct FilterBarCollapseDriverTests {
         #expect(driver.isCollapsed == false)
     }
 
+    /// Companion to `anInsetOnlyChangeIsIgnored` at `estimatedGiveBack: 150`
+    /// — `EventListView.estimatedCollapseGiveBack`, what the app actually
+    /// ships with, rather than the superseded 100 the regression tests above
+    /// were seeded with. No behavioral difference from the mechanism test:
+    /// this scenario is rejected by the viewport-stability admissibility
+    /// gate before `FilterBarCollapse.next` (and therefore the headroom
+    /// check) ever runs, so the give-back estimate is never consulted here.
+    @Test func anInsetOnlyChangeIsIgnoredAtTheProductionGiveBack() {
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 150)
+        _ = driver.received(settledExpanded(offset: 0))
+        #expect(driver.received(settledExpanded(offset: 0)) == nil)
+
+        let panelOpen = sample(-330, 470, 86, 874, 90_000)
+        #expect(driver.received(panelOpen) == nil)
+        #expect(driver.isCollapsed == false)
+    }
+
     // MARK: - the feedback loop
 
     @Test func theInconsistentMidAnimationFrameWouldForceTheBarBackOpen() {
@@ -336,9 +353,12 @@ struct FilterBarCollapseDriverTests {
         // All 26 frames of a real collapse transition, replayed after a
         // genuine collapse with `settled()` called where `EventListView`
         // calls it — from the animation's own completion handler, i.e.
-        // after the last frame. Zero further flips, not "fewer": every one
-        // of those frames is inadmissible, so the bar cannot flip until the
-        // transition it started has finished.
+        // after the last frame. Demonstrates that replaying real captured
+        // animation frames produces no extra flips; it does not by itself
+        // pin *why* — that the settle gate specifically blocks them is
+        // `settlingBlocksFramesTheViewportCheckWouldLetThrough`, which
+        // isolates the gate from the viewport check that would otherwise
+        // mask its absence.
         let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
         _ = driver.received(settledExpanded(offset: 0, contentHeight: 89_835))
         _ = driver.received(settledExpanded(offset: 26.7, contentHeight: 89_847.3))
@@ -417,6 +437,36 @@ struct FilterBarCollapseDriverTests {
         #expect(driver.isCollapsed)
     }
 
+    /// Companion to `aBottomBounceProducesNoFlips` at `estimatedGiveBack:
+    /// 150` — the production default — rather than the superseded 100. No
+    /// behavioral difference: the initial collapse happens 1396.3pt of
+    /// headroom above the true bottom (`validMax` 1596.3 minus offset 200),
+    /// which clears either required headroom (140 or 190) with enormous
+    /// margin, and the headroom gate is only consulted on the expanded ->
+    /// collapsed transition — the bounce sweep that follows is already
+    /// collapsed, so the give-back estimate plays no further part in it.
+    @Test func aBottomBounceProducesNoFlipsAtTheProductionGiveBack() {
+        func collapsed(at offset: CGFloat) -> ScrollGeometrySample {
+            sample(offset - 230, 230, 86, 874, 2054.3)
+        }
+
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 150)
+        _ = driver.received(sample(0 - 330, 330, 86, 874, 2054.3))
+        #expect(driver.received(sample(200 - 330, 330, 86, 874, 2054.3)) == true)
+        driver.settled()
+
+        var flips = 0
+        let bounce: [CGFloat] = [
+            1400, 1496.3, 1520, 1560, 1579, 1560, 1540, 1517.7, 1508.7,
+            1503.3, 1499.7, 1498, 1497.3, 1496.3,
+        ]
+        for offset in bounce where driver.received(collapsed(at: offset)) != nil {
+            flips += 1
+        }
+        #expect(flips == 0)
+        #expect(driver.isCollapsed)
+    }
+
     @Test func aBarelyOverflowingListNeverCollapses() {
         // A list whose whole scrollable range is 120pt — less than the 140
         // a collapse needs to leave behind. Swept top to bottom and back,
@@ -434,6 +484,58 @@ struct FilterBarCollapseDriverTests {
         }
         #expect(flips == 0)
         #expect(driver.isCollapsed == false)
+    }
+
+    /// Companion to `aBarelyOverflowingListNeverCollapses` at
+    /// `estimatedGiveBack: 150` — the production default — rather than the
+    /// superseded 100. No behavioral difference: this scenario's 120pt
+    /// range is chosen to sit below *both* the old (140) and production
+    /// (190) required headroom, so the gate refuses every collapse either
+    /// way. See `theShortFilteredListBoundaryCollapsesAtTheOldEstimateButNotAtProduction`
+    /// below for a range picked specifically to sit between the two, which
+    /// is where the estimate actually matters.
+    @Test func aBarelyOverflowingListNeverCollapsesAtTheProductionGiveBack() {
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 150)
+        let contentHeight: CGFloat = 874 - 330 - 86 + 120
+        var offsets = Array(stride(from: CGFloat(0), through: 120, by: 10))
+        offsets += offsets.reversed()
+
+        var flips = 0
+        for offset in offsets {
+            let probe = sample(offset - 330, 330, 86, 874, contentHeight)
+            if driver.received(probe) != nil { flips += 1 }
+        }
+        #expect(flips == 0)
+        #expect(driver.isCollapsed == false)
+    }
+
+    /// The actual boundary the task's open item asks about: a filtered list
+    /// with 200pt of genuine overflow — long enough that the *superseded*
+    /// estimate (100 -> 140 required headroom) lets the first collapse
+    /// attempt through, but short of what the *production* estimate (150 ->
+    /// 190 required) allows. This is the shape of the original short-content
+    /// bug report: a first collapse attempt on a freshly filtered list,
+    /// before the driver has measured anything real, so the estimate is all
+    /// that governs the decision.
+    ///
+    /// Finding: the production configuration is measurably stricter here.
+    /// This specific list collapses under the old estimate and does not
+    /// under production's. That is very plausibly the intended, safer
+    /// outcome — 150 is closer to what a filtered bar actually gives back,
+    /// per `EventListView.estimatedCollapseGiveBack`'s doc comment — but
+    /// it is also exactly the behavior difference the owner is checking on
+    /// a physical device, so it is pinned here rather than assumed benign.
+    @Test func theShortFilteredListBoundaryCollapsesAtTheOldEstimateButNotAtProduction() {
+        let contentHeight: CGFloat = 658  // validMax 200 under the expanded viewport below
+
+        let oldEstimate = FilterBarCollapseDriver(estimatedGiveBack: 100)
+        _ = oldEstimate.received(settledExpanded(offset: 0, contentHeight: contentHeight))
+        #expect(oldEstimate.received(settledExpanded(offset: 40, contentHeight: contentHeight)) == true)
+
+        let productionEstimate = FilterBarCollapseDriver(estimatedGiveBack: 150)
+        _ = productionEstimate.received(settledExpanded(offset: 0, contentHeight: contentHeight))
+        #expect(productionEstimate.received(settledExpanded(offset: 40, contentHeight: contentHeight)) == nil)
+        #expect(productionEstimate.isCollapsed == false)
     }
 
     // MARK: - the give-back is measured, not assumed
@@ -548,6 +650,40 @@ struct FilterBarCollapseDriverTests {
         _ = driver.received(settledExpanded(offset: 0))
         _ = driver.received(settledExpanded(offset: 10))
         #expect(driver.received(settledExpanded(offset: 200)) == true)
+    }
+
+    @Test func settledAloneUnwedgesADriverWithoutForgettingItsState() {
+        // The other trigger for a lost `withAnimation` completion: the app
+        // is backgrounded inside the 0.2s collapse/expand animation and the
+        // completion handler that clears `isSettling` never runs while the
+        // scene is suspended. Unlike the torn-down-list case `reset()`
+        // guards, the view itself survives backgrounding, so `EventListView`
+        // calls the driver's bare `settled()` — not `reset()` — when
+        // `scenePhase` returns to `.active`. That must clear the wedge
+        // exactly like `resetUnwedgesADriverWhoseAnimationCompletionNeverRan`
+        // above, but without discarding `isCollapsed`, `pivot`, or the
+        // measured give-back the way `reset()` would.
+        let driver = FilterBarCollapseDriver(estimatedGiveBack: 100)
+        _ = driver.received(settledExpanded(offset: 0))
+        #expect(driver.received(settledExpanded(offset: 200)) == true)
+
+        // No `settled()` call — the completion was lost. Wedged, further
+        // samples (even ones that would normally force the bar open at the
+        // top) do nothing.
+        #expect(driver.received(settledCollapsed(offset: 0)) == nil)
+        #expect(driver.isCollapsed)
+
+        // The scenePhase hook's actual call: `settled()` alone.
+        driver.settled()
+
+        // State survives — this is not a reset.
+        #expect(driver.isCollapsed)
+
+        // And the driver is un-wedged: a genuine scroll back to the top now
+        // reopens the bar.
+        _ = driver.received(settledCollapsed(offset: 200))
+        #expect(driver.received(settledCollapsed(offset: 0)) == false)
+        #expect(driver.isCollapsed == false)
     }
 
     @Test func resetStopsANewListBeingComparedAgainstTheOldListsLastFrame() {

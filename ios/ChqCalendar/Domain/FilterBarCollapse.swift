@@ -81,8 +81,10 @@ nonisolated struct ScrollGeometrySample: Equatable, Sendable {
 /// Decides whether the filter bar's secondary rows (venues, categories,
 /// reset) are hidden, from the event list's scroll offset.
 ///
-/// The `threshold` hysteresis is the whole point: a ~100pt layout change
-/// must not fire on a few points of finger jitter. `pivot` records where
+/// The `threshold` hysteresis is the whole point: a layout change of
+/// however many points the bar's rows are currently worth — roughly 100pt
+/// unfiltered, ~150pt with filters, more with a facet panel open — must not
+/// fire on a few points of finger jitter. `pivot` records where
 /// the current direction began, and the state flips only once the offset
 /// has travelled `threshold` points away from it.
 ///

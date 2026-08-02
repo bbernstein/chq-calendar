@@ -10,7 +10,10 @@ struct FilterBarView: View {
     let model: AppModel
 
     /// When true, only the scope and week rows render — the bar's other
-    /// ~100pt is given back to the event list while the user is browsing.
+    /// rows are given back to the event list while the user is browsing.
+    /// How much space that is isn't fixed: roughly 100pt with no filters
+    /// active, ~150pt with filters, and more still with a facet panel open
+    /// — see `FilterBarCollapseDriver`, which measures it at runtime.
     var isCollapsed: Bool = false
 
     /// At most one facet panel is open at a time — two 140pt panels plus
