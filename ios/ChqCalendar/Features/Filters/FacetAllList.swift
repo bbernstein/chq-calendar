@@ -72,11 +72,20 @@ struct FacetAllList: View {
                 // Render the checkmark unconditionally but fade it out when
                 // unselected, so the reserved 16pt column keeps every row's
                 // text aligned regardless of selection state.
+                //
+                // `.accessibilityHidden(true)` is required alongside the
+                // opacity toggle: `Image(systemName:)` carries an implicit
+                // VoiceOver label, so without this VoiceOver would announce
+                // "checkmark" on every row — redundant when selected, and
+                // actively misleading when not. The row's real selection
+                // signal for VoiceOver is the `.accessibilityAddTraits`
+                // below, not this glyph.
                 Image(systemName: "checkmark")
                     .font(.footnote.weight(.bold))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 16)
                     .opacity(model.isSelected(name, in: facet) ? 1 : 0)
+                    .accessibilityHidden(true)
                 Text(displayName(name))
                     .foregroundStyle(.primary)
                 Spacer()
