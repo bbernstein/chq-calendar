@@ -64,9 +64,9 @@ struct WeekStripStateTests {
 
     // MARK: - timeState(week:now:weeks:) — the pre-built-season overload
 
-    /// The overload `WeekStripView` actually calls must agree with the
-    /// convenience one for every week, or the strip would style differently
-    /// than the rest of the app reasons about it.
+    /// The pre-built-season overload must agree with the convenience one for
+    /// every week, or a strip built on it would style differently than the
+    /// rest of the app reasons about it.
     @Test func prebuiltSeasonOverloadAgreesWithTheYearOverload() throws {
         let weeks = SeasonCalendar.weeks(forYear: 2026)
         for instant in ["2026-06-01 09:00:00", "2026-08-01 12:00:00",

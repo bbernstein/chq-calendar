@@ -95,7 +95,8 @@ final class AppModel {
     private let store: UserStateStore
 
     /// The injected clock. Exposed (rather than private) so views computing
-    /// time-relative presentation — `WeekStripView`'s past/current styling —
+    /// time-relative presentation — `DateFilterSheet`'s past/current week
+    /// styling —
     /// use the same instant the filter pipeline does, and so tests can pin
     /// both together.
     let now: @Sendable () -> Date
@@ -366,7 +367,7 @@ final class AppModel {
 
     // MARK: Facet-generic accessors
     //
-    // `FacetRowView` is one view driving either facet, so it reaches the
+    // `FacetChipCloud` is one view driving either facet, so it reaches the
     // model through these rather than branching on the facet itself.
 
     /// Every venue/category present in the current snapshot, original
@@ -543,14 +544,17 @@ final class AppModel {
     #if DEBUG
     // MARK: UI-test hooks (DEBUG only)
 
-    /// Shared flags/lookups consumed by `CalendarView`, `FilterBarView`, and
+    /// Shared flags/lookups consumed by `CalendarView`, `EventListView`, and
     /// `EventDetailView` to make interactive states reachable for
     /// screenshot-based verification when `xcrun simctl` can't synthesize a
     /// tap (see task-12 brief). This whole section compiles out of Release
     /// builds.
 
     /// Set by `CalendarView` on launch when `-uitest-show-filters` is
-    /// present; consumed (and reset) by `FilterBarView.onAppear`.
+    /// present. Its consumer — the four-row `FilterBarView` — is gone; the
+    /// flag is deliberately kept for the follow-up task that rewires it to
+    /// present `FilterSheet` from `EventListView`, so nothing reads it right
+    /// now.
     var uiTestShowFilters = false
 
     /// Set by `CalendarView` on launch when `-uitest-show-add-to-calendar`

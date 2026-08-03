@@ -90,9 +90,8 @@ struct EventDetailView: View {
         // MARK: UI-test hooks (DEBUG only)
         // Consumes the flag `CalendarView.applyUITestHooks` sets for
         // `-uitest-show-add-to-calendar`. Both `onAppear` and `onChange` are
-        // wired (see the analogous, more common case in `FilterBarView`) so
-        // this fires regardless of whether the flag flips before or after
-        // this view mounts. Separately, `-uitest-scroll-to-articles` (used
+        // wired so this fires regardless of whether the flag flips before or
+        // after this view mounts. Separately, `-uitest-scroll-to-articles` (used
         // alongside `-uitest-select-linked-event`) scrolls to the
         // article-links section after a brief settle delay — `xcrun simctl`
         // can't synthesize the swipe a real verification pass would use, so
