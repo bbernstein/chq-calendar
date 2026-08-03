@@ -34,25 +34,55 @@ final class AppModel {
 
     var snapshot: CalendarSnapshot? {
         didSet {
-            facetCounts = snapshot.map { FacetCounts.build(from: $0.events) } ?? .empty
             normalizePersistedFilterCasing()
+            rebuildFacetCounts()
         }
     }
 
-    /// Per-venue / per-category event counts for the current snapshot.
-    /// Recomputed only when `snapshot` changes — a full pass over ~1,500
-    /// events is far too expensive to redo on every view render.
+    /// Per-venue / per-category event counts for the current selection.
+    ///
+    /// Rebuilt only when an input actually changes — the snapshot, the
+    /// filter, the favorites set, or the year — never on render. Each
+    /// rebuild is two `EventFilter.apply` passes over the snapshot (see
+    /// `FacetCounts`), which is affordable at that cadence and would not be
+    /// per-render.
     private(set) var facetCounts: FacetCounts = .empty
 
     /// The user's most-recently-used venue and category filters.
     private(set) var recents: RecentFilters
 
     var phase: Phase = .launching
-    var filter: FilterSelection
-    var favorites: Set<String>
-    var selectedYear: Int
+
+    var filter: FilterSelection {
+        didSet {
+            guard filter != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
+    var favorites: Set<String> {
+        didSet {
+            guard favorites != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
+    var selectedYear: Int {
+        didSet {
+            guard selectedYear != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
     var years: [Int] = []
-    var defaultYear: Int
+
+    var defaultYear: Int {
+        didSet {
+            guard defaultYear != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
     var isRefreshing: Bool = false
 
     /// Set whenever a `refresh(force:)` call fails. Distinct from `phase`,
@@ -449,6 +479,27 @@ final class AppModel {
 
     private func persistFilter() {
         store.saveFilters(filter)
+    }
+
+    /// Recomputes `facetCounts` against the current selection.
+    ///
+    /// `normalizePersistedFilterCasing()` can mutate `filter`, whose own
+    /// `didSet` calls back into here — so loading a snapshot may rebuild
+    /// twice. That is one extra pass, once, on snapshot load; the result is
+    /// identical either way, and suppressing it would need a re-entrancy
+    /// flag that costs more clarity than the pass costs time.
+    private func rebuildFacetCounts() {
+        guard let snapshot else {
+            facetCounts = .empty
+            return
+        }
+        facetCounts = FacetCounts.build(
+            events: snapshot.events,
+            selection: filter,
+            favorites: favorites,
+            now: now(),
+            year: selectedYear,
+            isCurrentYear: isCurrentYear)
     }
 
     /// Persisted `selectedLocations`/`selectedCategories` may carry different

@@ -664,6 +664,16 @@ struct AppModelTests {
 
         Task { await model.start() }
         await waitUntil("model reaches .ready phase") { model.phase == .ready }
+
+        // Facet counts now respect the current selection (#152), and the
+        // model's default filter is `dateScope: .next` evaluated against the
+        // real system clock — so a count asserted under the default filter
+        // would be a flaky, date-dependent value rather than the fixed
+        // fixture total this test is pinning. Switch to `.all` so the counts
+        // below are season-wide and stable, which is all this test actually
+        // means to assert: that `facetCounts` tracks the snapshot across a
+        // cold launch and a year switch.
+        model.filter = FilterSelection(dateScope: .all)
         #expect(model.facetCounts.locations["sports club, waterfront"] == 1)
 
         // `count(for:in:)` is what the panel actually renders, and it has to
