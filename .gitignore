@@ -79,3 +79,6 @@ github-secrets.json
 # App Store screenshot/preview generation (regenerable; see ios/Scripts/)
 ios/Scripts/out/
 ios/Scripts/__pycache__/
+
+# Superpowers brainstorming scratch
+.superpowers/
