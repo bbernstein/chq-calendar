@@ -15,7 +15,7 @@ import SwiftUI
 ///   mode since nothing ever pushes a value.
 ///
 /// Everything else — the loading/offline/error/no-matches states, the
-/// countdown/offline banners, the floating filter bar overlay, and
+/// countdown/offline banners, the bottom-bar filter controls, and
 /// `refreshable` — is identical between the two layouts, which is the whole
 /// point of sharing this view.
 struct EventListView: View {
@@ -26,38 +26,6 @@ struct EventListView: View {
 
     /// Which pill's sheet is up, if any.
     @State private var activeSheet: FilterBarSheet?
-
-    /// Drives the bar's expanded/compact state from the scroll stream.
-    /// Not `@Observable` — it is fed from a scroll callback and its own
-    /// bookkeeping must not invalidate this body.
-    @State private var barPresentation = BarPresentation()
-
-    /// Mirrors `barPresentation.state` so the bar re-renders on a change.
-    @State private var barState: BarState = .expanded
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Height reserved at the bottom of the list for the floating bar.
-    ///
-    /// **Constant by design.** The bar is an overlay and this margin never
-    /// changes, so the list's geometry is unaffected by the bar's state —
-    /// which is what makes the whole collapse-oscillation problem
-    /// unreachable rather than merely mitigated. `@ScaledMetric` so the
-    /// reservation grows with Dynamic Type; it still does not vary with
-    /// scroll position, which is the property that matters.
-    ///
-    /// 76 dominates the bar's real footprint at every Dynamic Type size.
-    /// `FloatingFilterBar` measures `pillHeight + 6 + 6` (its own vertical
-    /// padding) `+ 10` (its bottom padding) = `pillHeight + 22`, and
-    /// `BarPill.pillHeight` is `@ScaledMetric(relativeTo: .subheadline)`
-    /// from a 44pt base — the *same* text style this metric scales against,
-    /// so both sides move by the identical factor `s`. The reservation wins
-    /// whenever `76s > 44s + 22`, i.e. `s > 0.6875`; the smallest factor
-    /// `.subheadline` ever produces is `xSmall` at 12/15 = 0.8. At the
-    /// default size that is 76 vs 66 (10pt of clearance) and at
-    /// `.accessibility5` roughly 223 vs 151, so the headroom widens rather
-    /// than narrows as text grows. Do not make this depend on `barState`.
-    @ScaledMetric(relativeTo: .subheadline) private var barReservedHeight: CGFloat = 76
 
     private enum FilterBarSheet: String, Identifiable {
         case date
@@ -80,30 +48,6 @@ struct EventListView: View {
                 switch sheet {
                 case .date: DateFilterSheet(model: model)
                 case .filters: FilterSheet(model: model)
-                }
-            }
-            .overlay(alignment: .bottom) {
-                // Only once there is a snapshot to filter against — during
-                // launch or the offline/error states the pills would
-                // summarise nothing.
-                if model.snapshot != nil {
-                    FloatingFilterBar(
-                        dateLabel: DateFilterLabel.text(
-                            for: model.filter,
-                            seasonWeekCount: SeasonCalendar.weeks(
-                                forYear: model.selectedYear).count),
-                        filterCount: ActiveFilterCount.value(for: model.filter),
-                        state: barState,
-                        onDate: {
-                            KeyboardDismisser.dismiss()
-                            activeSheet = .date
-                        },
-                        onFilters: {
-                            KeyboardDismisser.dismiss()
-                            activeSheet = .filters
-                        })
-                    .animation(
-                        reduceMotion ? nil : .easeInOut(duration: 0.2), value: barState)
                 }
             }
     }
@@ -170,19 +114,14 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-        .contentMargins(.bottom, barReservedHeight, for: .scrollContent)
-        .onScrollGeometryChange(for: ScrollSample.self) { geometry in
-            ScrollSample(
-                offset: geometry.contentOffset.y,
-                insetTop: geometry.contentInsets.top)
-        } action: { _, sample in
-            // This action closure isn't `@Sendable`, so it runs on whatever
-            // actor called this modifier (MainActor, since this is a view's
-            // body) — no manual actor hop is needed to touch `@State` here.
-            guard let next = barPresentation.received(
-                offset: sample.offset, insetTop: sample.insetTop) else { return }
-            barState = next
-        }
+        // No `contentMargins(.bottom, …)` here on purpose. The bottom bar is
+        // a real toolbar, so the system puts its height into the scroll
+        // view's own content insets — measured at 86.0pt on iPhone 17 /
+        // iOS 26.1 with nothing of ours contributing to it. That is a
+        // stronger version of the guarantee the hand-rolled reservation used
+        // to provide: the inset is owned by the navigation container, not by
+        // any state of ours, so nothing we render can shift the list
+        // vertically. Adding a margin back would double-count the bar.
         .refreshable {
             await model.refresh(force: true)
         }
@@ -253,8 +192,98 @@ struct EventListView: View {
         }
     }
 
+    /// The date pill's label. Never abbreviates — it is precisely the thing
+    /// a scrolling user wants to keep reading.
+    private var dateLabel: String {
+        DateFilterLabel.text(
+            for: model.filter,
+            seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count)
+    }
+
+    private var filterCount: Int { ActiveFilterCount.value(for: model.filter) }
+
+    private var filtersAccessibilityLabel: String {
+        filterCount == 0
+            ? "Filters, none active. Double tap to change."
+            : "Filters, \(filterCount) active. Double tap to change."
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // The two filter controls live in the navigation container's bottom
+        // bar rather than in a floating overlay of our own. On the iOS 26
+        // SDK this app builds against, `.searchable` is itself rendered as a
+        // bottom-anchored floating field, so an overlay bar and the search
+        // field were two separate things competing for the same edge (and
+        // the overlay sat on top of list text). Bottom-bar toolbar items and
+        // the search field are laid out by the system as one group, which is
+        // both the platform idiom and the only way the two can coexist.
+        //
+        // Only once there is a snapshot to filter against — during launch or
+        // the offline/error states the pills would summarise nothing. The
+        // search field is unaffected by this condition; it is the system's.
+        if model.snapshot != nil {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button {
+                    KeyboardDismisser.dismiss()
+                    activeSheet = .date
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "calendar")
+                        // `fixedSize` so this text wins any competition for
+                        // width against the search field beside it: the date
+                        // label is the one thing in the bar that must never
+                        // abbreviate. The system search item is designed to
+                        // minimise to a magnifier when space is tight, so it
+                        // is the correct thing to yield. Longest value this
+                        // can take is `DateFilterLabel`'s "Weeks 1, 3, 5".
+                        Text(dateLabel)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .accessibilityLabel("Date range: \(dateLabel). Double tap to change.")
+
+                Button {
+                    KeyboardDismisser.dismiss()
+                    activeSheet = .filters
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "line.3.horizontal.decrease")
+                        Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityLabel(filtersAccessibilityLabel)
+            }
+            // **Required on iOS 26, not decorative.** Declaring *any*
+            // `.bottomBar` content on the iOS 26 runtime makes the app own
+            // that bar, and the system search field — which on iOS 26 is
+            // itself bottom-anchored — then disappears entirely rather than
+            // sharing it. Verified by screenshot: with the group above and
+            // without these two items, launching with `-uitest-search opera`
+            // filtered the list but drew no search field and no magnifier
+            // anywhere on screen, leaving search unreachable. These items put
+            // it back, to the right of the pills, as one group.
+            //
+            // Deployment target stays 18.0; this is an availability-guarded
+            // adoption, not a floor change. On the iOS 18 runtime the branch
+            // is skipped and `.searchable` renders under the navigation bar,
+            // which is where it has always gone there — no conflict to
+            // resolve, so nothing to declare.
+            //
+            // Known benign log on iOS 26: "Ignoring
+            // searchBarPlacementBarButtonItem because its vending navigation
+            // item does not match the view controller's", twice at launch.
+            // SwiftUI vends two `UINavigationItem`s that share the same
+            // `searchController`. Placing `.searchable` on this view instead
+            // of on the enclosing container was tried and did not change the
+            // count; the field renders in the bottom bar either way.
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 ForEach(AboutInfo.quickLinks) { link in
@@ -291,10 +320,4 @@ struct EventListView: View {
             }
         }
     }
-}
-
-/// The two numbers `BarPresentation` needs from the scroll stream.
-private struct ScrollSample: Equatable {
-    let offset: CGFloat
-    let insetTop: CGFloat
 }

@@ -100,9 +100,9 @@ struct DateFilterSheet: View {
     }
 }
 
-/// A selectable pill inside a sheet. Distinct from `FloatingFilterBar`'s
-/// `BarPill`, which is a control that opens something rather than a value
-/// that toggles.
+/// A selectable pill inside a sheet. Distinct from the bottom-bar buttons
+/// in `EventListView`, which are controls that open something rather than
+/// values that toggle.
 struct SheetChip: View {
     let label: String
     var count: Int?
