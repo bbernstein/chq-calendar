@@ -52,4 +52,21 @@ struct AboutInfoTests {
     @Test func everyLinkHasATitle() {
         #expect(AboutInfo.links.allSatisfy { !$0.title.isEmpty })
     }
+
+    // MARK: - quickLinks
+
+    @Test func quickLinksMatchTheWebHeader() {
+        #expect(AboutInfo.quickLinks.map(\.id) == ["feedback", "programs", "questions"])
+        #expect(AboutInfo.quickLinks.map(\.title) == ["Feedback", "Programs", "Questions"])
+        #expect(AboutInfo.quickLinks.map { $0.url.absoluteString } == [
+            "https://www.chqcal.org/feedback",
+            "https://programs.chq.org/",
+            "https://questions.chq.org/",
+        ])
+    }
+
+    @Test func quickLinksAreDistinctFromTheAboutSheetLinks() {
+        let aboutIDs = Set(AboutInfo.links.map(\.id))
+        #expect(Set(AboutInfo.quickLinks.map(\.id)).isDisjoint(with: aboutIDs))
+    }
 }

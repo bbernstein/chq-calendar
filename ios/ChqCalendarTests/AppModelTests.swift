@@ -31,7 +31,7 @@ struct AppModelTests {
         )
 
         Task { await model.start() }
-        try await Task.sleep(for: .milliseconds(150))
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
 
         #expect(model.phase == .ready)
         #expect(!model.dayGroups.isEmpty)
@@ -72,10 +72,12 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let startTask = Task { await model.start() }
-        // Give start() time to load the stale 2026 cache, read the (cached,
+        // Wait for start() to load the stale 2026 cache, read the (cached,
         // network-free) manifest, and reach the gated fetch inside its
         // background refresh.
-        try? await Task.sleep(for: .milliseconds(150))
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot?.year == 2026
+        }
         #expect(model.isRefreshing)
         #expect(model.snapshot?.year == 2026)
 
@@ -105,7 +107,7 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let firstRefresh = Task { await model.refresh(force: false) }
-        try? await Task.sleep(for: .milliseconds(80))
+        await waitUntil("first refresh becomes in-flight") { model.isRefreshing }
         #expect(model.isRefreshing)
 
         // While the first refresh is still parked mid-fetch, a second
@@ -147,14 +149,22 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let startTask = Task { await model.start() }
-        try? await Task.sleep(for: .milliseconds(150))
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot?.year == 2026
+        }
         #expect(model.isRefreshing)
         #expect(model.snapshot?.year == 2026)
 
         // Switch to year 2025 (no cache) while 2026's refresh is still
         // parked mid-fetch.
         let selectTask = Task { await model.select(year: 2025) }
-        try? await Task.sleep(for: .milliseconds(150))
+        await waitUntil("year-2025 fetch is issued") {
+            let calls = await api.calls.filter {
+                if case .events(let year) = $0.resource, year == 2025 { return true }
+                return false
+            }
+            return calls.count == 1
+        }
 
         // 2025 has no cache, so it's showing nothing yet — but its own
         // fetch must have actually been issued, not swallowed.
@@ -190,14 +200,20 @@ struct AppModelTests {
         let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
 
         let firstRefresh = Task { await model.refresh(force: false) }
-        try? await Task.sleep(for: .milliseconds(80))
+        await waitUntil("first refresh becomes in-flight") { model.isRefreshing }
         #expect(model.isRefreshing)
 
         // A forced refresh for the same year, while the first non-forced
         // one is still in flight, must issue its own fetch rather than
         // being deduped away.
         let secondRefresh = Task { await model.refresh(force: true) }
-        try? await Task.sleep(for: .milliseconds(80))
+        await waitUntil("forced refresh issues its own fetch") {
+            let calls = await api.calls.filter {
+                if case .events = $0.resource { return true }
+                return false
+            }
+            return calls.count == 2
+        }
 
         await api.resume(for: .events(year: 2026))
         await firstRefresh.value
@@ -247,38 +263,92 @@ struct AppModelTests {
         #expect(model.snapshot?.year == 2025)
     }
 
-    // MARK: - setScope / toggleWeek / clearFilters
+    // MARK: - selectScope / selectWeek / clearAll / clearNonDateFilters
 
-    @Test func setScopeMutatesAndPersistsFilter() {
-        let defaults = makeDefaults()
-        let model = AppModel(
+    /// Week 6 of the 2026 season is 08-01 12:00 → 08-08 12:00, so this
+    /// instant puts `model.currentWeek == 6`.
+    private func makeInSeasonModel(defaults: UserDefaults) throws -> AppModel {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        return AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
-            store: UserStateStore(defaults: defaults, now: { Date() })
+            store: UserStateStore(defaults: defaults, now: { Date() }),
+            now: { now }
         )
+    }
 
-        model.setScope(.thisWeek)
+    @Test func selectScopeClearsWeeksAndPersists() throws {
+        let defaults = makeDefaults()
+        let model = try makeInSeasonModel(defaults: defaults)
+        model.selectWeek(3)
+        #expect(model.filter.selectedWeeks == [3])
+
+        model.selectScope(.today)
+
+        #expect(model.filter.dateScope == .today)
+        #expect(model.filter.selectedWeeks.isEmpty)
+        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadFilters()
+        #expect(reloaded?.dateScope == .today)
+        #expect(reloaded?.selectedWeeks.isEmpty == true)
+    }
+
+    @Test func reselectingTheActiveScopeIsANoOp() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectScope(.today)
+        model.selectScope(.today)
+        #expect(model.filter.dateScope == .today)
+    }
+
+    @Test func selectingCurrentWeekBecomesThisWeekScope() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        #expect(model.currentWeek == 6)
+
+        model.selectWeek(6)
 
         #expect(model.filter.dateScope == .thisWeek)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.dateScope == .thisWeek)
-    }
-
-    @Test func toggleWeekMutatesAndPersistsFilter() {
-        let defaults = makeDefaults()
-        let model = AppModel(
-            repository: EventRepository(api: MockAPI(), cache: MockCache()),
-            store: UserStateStore(defaults: defaults, now: { Date() })
-        )
-
-        model.toggleWeek(3)
-        #expect(model.filter.selectedWeeks == [3])
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedWeeks == [3])
-
-        model.toggleWeek(3)
         #expect(model.filter.selectedWeeks.isEmpty)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedWeeks.isEmpty == true)
+        #expect(FilterChipState.isScopeSelected(
+            .thisWeek, selection: model.filter, currentWeek: model.currentWeek))
+        #expect(FilterChipState.isWeekSelected(
+            6, selection: model.filter, currentWeek: model.currentWeek))
     }
 
-    @Test func toggleLocationMutatesAndPersistsFilterLowercased() {
+    @Test func selectingAnotherWeekWhileNowIsActiveReplacesTheScope() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        #expect(model.filter.dateScope == .next)
+
+        model.selectWeek(3)
+
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedWeeks == [3])
+    }
+
+    @Test func weeksAccumulateOnceScopeIsAll() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectWeek(3)
+        model.selectWeek(4)
+        #expect(model.filter.selectedWeeks == [3, 4])
+
+        model.selectWeek(3)
+        #expect(model.filter.selectedWeeks == [4])
+    }
+
+    @Test func deselectingTheLastWeekLeavesScopeAll() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectWeek(3)
+        model.selectWeek(3)
+        #expect(model.filter.selectedWeeks.isEmpty)
+        #expect(model.filter.dateScope == .all)
+    }
+
+    @Test func selectingCurrentWeekAgainStaysThisWeek() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.selectWeek(6)
+        model.selectWeek(6)
+        #expect(model.filter.dateScope == .thisWeek)
+        #expect(model.filter.selectedWeeks.isEmpty)
+    }
+
+    @Test func toggleLocationStoresOriginalCasingAndPersists() {
         let defaults = makeDefaults()
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
@@ -286,15 +356,18 @@ struct AppModelTests {
         )
 
         model.toggleLocation("Hall Of Philosophy")
-        #expect(model.filter.selectedLocations == ["hall of philosophy"])
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedLocations == ["hall of philosophy"])
+        #expect(model.filter.selectedLocations == ["Hall Of Philosophy"])
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.selectedLocations == ["Hall Of Philosophy"])
 
-        model.toggleLocation("Hall Of Philosophy")
+        // Removal is case-insensitive, matching the web's toggleInList.
+        model.toggleLocation("hall of philosophy")
         #expect(model.filter.selectedLocations.isEmpty)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedLocations.isEmpty == true)
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.selectedLocations.isEmpty == true)
     }
 
-    @Test func toggleCategoryMutatesAndPersistsFilterLowercased() {
+    @Test func toggleCategoryStoresOriginalCasingAndPersists() {
         let defaults = makeDefaults()
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
@@ -302,12 +375,23 @@ struct AppModelTests {
         )
 
         model.toggleCategory("CSO")
-        #expect(model.filter.selectedCategories == ["cso"])
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedCategories == ["cso"])
+        #expect(model.filter.selectedCategories == ["CSO"])
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.selectedCategories == ["CSO"])
 
-        model.toggleCategory("CSO")
+        model.toggleCategory("cso")
         #expect(model.filter.selectedCategories.isEmpty)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.selectedCategories.isEmpty == true)
+    }
+
+    @Test func selectionsKeepInsertionOrder() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggleLocation("Norton Hall")
+        model.toggleLocation("Amphitheater")
+        #expect(model.filter.selectedLocations == ["Norton Hall", "Amphitheater"])
     }
 
     @Test func toggleFavoritesOnlyMutatesAndPersistsFilter() {
@@ -326,7 +410,7 @@ struct AppModelTests {
         #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.showFavoritesOnly == false)
     }
 
-    @Test func clearFiltersResetsFacetsButKeepsSearchTextAndExtraDays() {
+    @Test func clearAllClearsEverythingIncludingTheSearchTerm() {
         let defaults = makeDefaults()
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
@@ -335,17 +419,61 @@ struct AppModelTests {
 
         model.filter.searchText = "opera"
         model.filter.extraDays = 2
-        model.toggleWeek(4)
-        model.setScope(.all)
-        model.toggleFavorite("evt-1")
+        model.selectWeek(4)
+        model.toggleLocation("Amphitheater")
         model.filter.showFavoritesOnly = true
 
-        model.clearFilters()
+        model.clearAll()
 
-        #expect(model.filter.isDefault)
-        #expect(model.filter.searchText == "opera")
-        #expect(model.filter.extraDays == 2)
-        #expect(UserStateStore(defaults: defaults, now: { Date() }).loadFilters()?.isDefault == true)
+        #expect(model.filter.searchText.isEmpty)
+        #expect(model.filter.extraDays == 0)
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedWeeks.isEmpty)
+        #expect(model.filter.selectedLocations.isEmpty)
+        #expect(!model.filter.showFavoritesOnly)
+        #expect(!model.filter.hasFilters)
+        #expect(UserStateStore(defaults: defaults, now: { Date() })
+            .loadFilters()?.hasFilters == false)
+    }
+
+    @Test func clearNonDateFiltersKeepsScopeAndWeeks() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.selectWeek(4)
+        model.filter.searchText = "opera"
+        model.toggleLocation("Amphitheater")
+        model.toggleCategory("CSO")
+        model.filter.showFavoritesOnly = true
+
+        model.clearNonDateFilters()
+
+        #expect(model.filter.selectedWeeks == [4])
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.searchText.isEmpty)
+        #expect(model.filter.selectedLocations.isEmpty)
+        #expect(model.filter.selectedCategories.isEmpty)
+        #expect(!model.filter.showFavoritesOnly)
+    }
+
+    @Test func removingAChipClearsJustThatFilter() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.filter.searchText = "Burns"
+        model.toggleLocation("Amphitheater")
+        model.toggleCategory("CSO")
+
+        let chips = ActiveFilterChips.build(selection: model.filter)
+        for chip in chips { model.remove(chip) }
+
+        #expect(model.filter.searchText.isEmpty)
+        #expect(model.filter.selectedLocations.isEmpty)
+        #expect(model.filter.selectedCategories.isEmpty)
     }
 
     // MARK: - foregrounded()
@@ -457,5 +585,250 @@ struct AppModelTests {
         #expect(model.filter.extraDays == 1)
         model.showNextDay()
         #expect(model.filter.extraDays == 2)
+    }
+
+    // MARK: - Recents
+
+    @Test func selectingAFilterPushesItOntoRecents() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggleLocation("Amphitheater")
+        model.toggleCategory("CSO")
+
+        #expect(model.recents.locations == ["Amphitheater"])
+        #expect(model.recents.categories == ["CSO"])
+    }
+
+    @Test func deselectingDoesNotReorderRecents() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggleLocation("Amphitheater")
+        model.toggleLocation("Norton Hall")
+        #expect(model.recents.locations == ["Norton Hall", "Amphitheater"])
+
+        model.toggleLocation("Amphitheater")   // deselect
+        #expect(model.recents.locations == ["Norton Hall", "Amphitheater"])
+    }
+
+    @Test func recentsPersistAcrossModelInstances() {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()), store: store)
+        model.toggleLocation("Amphitheater")
+
+        let reborn = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+        #expect(reborn.recents.locations == ["Amphitheater"])
+    }
+
+    @Test func facetHelpersReadThroughToTheSelection() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        model.toggle("Amphitheater", in: .venues)
+        #expect(model.isSelected("amphitheater", in: .venues))
+        #expect(!model.isSelected("Amphitheater", in: .categories))
+        #expect(model.recentNames(.venues) == ["Amphitheater"])
+    }
+
+    // MARK: - facetCounts
+
+    /// `facetCounts` is maintained by `snapshot`'s `didSet`, and a `didSet`
+    /// never fires for a value `init` assigns — so this pins that the two
+    /// paths which actually populate `snapshot` both keep the counts in
+    /// step: a cold launch reading a cached snapshot, and a year switch to
+    /// a year with no cache (which must clear the counts rather than leave
+    /// the previous year's behind).
+    @Test func facetCountsTrackTheSnapshotAcrossLaunchAndYearSwitch() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+
+        #expect(model.facetCounts == .empty)
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+        #expect(model.facetCounts.locations["sports club, waterfront"] == 1)
+
+        // `count(for:in:)` is what the panel actually renders, and it has to
+        // lowercase: the name comes from `visibleLocations` in the feed's
+        // display casing, while the key is lowercased `displayLocation`.
+        // Drop that `.lowercased()` and every count in the panel silently
+        // reads 0, so assert through the accessor rather than the dictionary.
+        let venue = try #require(model.visibleLocations
+            .first { $0.lowercased() == "sports club, waterfront" })
+        #expect(venue != venue.lowercased(), "fixture venue must be display-cased")
+        #expect(model.count(for: venue, in: .venues) == 1)
+        #expect(model.count(for: "No Such Venue", in: .venues) == 0)
+
+        let category = try #require(model.visibleCategories.first)
+        #expect(model.count(for: category, in: .categories)
+            == model.facetCounts.categories[category.lowercased()])
+
+        // `selectedCount` drives the "(1)" in the row label.
+        #expect(model.selectedCount(.venues) == 0)
+        model.toggleLocation(venue)
+        #expect(model.selectedCount(.venues) == 1)
+        #expect(model.selectedCount(.categories) == 0)
+
+        // 2025 has no cached snapshot and no scripted network response.
+        await model.select(year: 2025)
+        #expect(model.snapshot == nil)
+        #expect(model.facetCounts == .empty)
+        // `normalizePersistedFilterCasing`'s `guard snapshot != nil` early
+        // return must leave the selection alone rather than wiping or
+        // mangling it just because there's nothing to normalize against yet.
+        #expect(model.filter.selectedLocations == [venue])
+    }
+
+    // MARK: - legacy filter casing normalization
+
+    /// Prior to this branch, `selectedLocations`/`selectedCategories` were
+    /// persisted lowercased
+    /// (`UserStateStoreTests.legacyLowercasedPayloadStillDecodes` pins that
+    /// decoding such a payload still succeeds). Filtering has always been
+    /// correct regardless of casing, but `ActiveFilterChips.build` does an
+    /// exact-match lookup against the feed's own casing — so without this
+    /// fix, a user upgrading with a persisted lowercase selection would see
+    /// a raw lowercase chip (and lose the "CHQ Program" shortcut) until they
+    /// toggled the filter or hit "Clear all". This pins that the very first
+    /// snapshot after launch corrects it instead of waiting for the next
+    /// interaction.
+    @Test func snapshotArrivingCorrectsLegacyLowercasedFilterCasing() async throws {
+        let defaults = makeDefaults()
+        let legacy = """
+        {"dateScope":"next","selectedWeeks":[],\
+        "selectedLocations":["sports club, waterfront"],\
+        "selectedCategories":["chautauqua institution program"],\
+        "showFavoritesOnly":false,"lastSaved":"2026-08-01T12:00:00Z"}
+        """
+        defaults.set(Data(legacy.utf8), forKey: "chq-filters")
+
+        // Pinned rather than the real wall clock: `lastSaved` above is a
+        // hardcoded date, and `UserStateStore.loadFilters()` rejects
+        // payloads 30+ days stale (see
+        // `UserStateStoreTests.legacyLowercasedPayloadStillDecodes`, which
+        // uses the same pattern). A real clock would make this test start
+        // failing in CI once 30 days had passed with no code change.
+        let now = try #require(ChqTime.parse("2026-08-02 12:00:00"))
+
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: defaults, now: { now })
+        )
+
+        // Loaded exactly as persisted, lowercased, before any snapshot exists.
+        #expect(model.filter.selectedLocations == ["sports club, waterfront"])
+        #expect(model.filter.selectedCategories == ["chautauqua institution program"])
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+
+        #expect(model.filter.selectedLocations == ["Sports Club, Waterfront"])
+        #expect(model.filter.selectedCategories == ["Chautauqua Institution Program"])
+
+        // Corrected casing is written back, not just held in memory — a
+        // second launch before the next snapshot arrives must not regress.
+        // Reload with the same pinned clock: the write-back's `lastSaved`
+        // was stamped using `now` above, not the real wall clock.
+        let reloaded = UserStateStore(defaults: defaults, now: { now }).loadFilters()
+        #expect(reloaded?.selectedLocations == ["Sports Club, Waterfront"])
+        #expect(reloaded?.selectedCategories == ["Chautauqua Institution Program"])
+    }
+
+    /// A selection with no case-insensitive match in the current snapshot —
+    /// e.g. a venue retired from this year's feed — must pass through
+    /// untouched rather than being dropped, corrupted, or endlessly
+    /// re-persisted.
+    @Test func nonMatchingSelectionIsLeftUntouchedBySnapshotArrival() async throws {
+        let defaults = makeDefaults()
+        var filter = FilterSelection()
+        filter.selectedLocations = ["Retired Venue"]
+        UserStateStore(defaults: defaults, now: { Date() }).saveFilters(filter)
+
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        // The guard at `AppModel.normalizePersistedFilterCasing` (only
+        // persisting when the normalized casing actually differs) is the
+        // only thing standing between "no match" and a write on every
+        // snapshot arrival — and therefore the only thing keeping
+        // `lastSaved` from being re-stamped (and the 30-day expiry reset)
+        // on every launch. Comparing the raw persisted bytes before and
+        // after pins both: no write at all, not just an unchanged value.
+        let before = defaults.data(forKey: "chq-filters")
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+
+        #expect(model.filter.selectedLocations == ["Retired Venue"])
+        let after = defaults.data(forKey: "chq-filters")
+        #expect(before == after)
+    }
+
+    /// Every other year-switch test in this file (`selectYearSwapsSnapshot`,
+    /// `facetCountsTrackTheSnapshotAcrossLaunchAndYearSwitch`,
+    /// `refreshDiscardsStaleYearResultAfterYearSwitchedDuringInFlightRefresh`,
+    /// `selectingCacheLessYearStartsOwnRefreshDespiteAnotherYearsInFlightRefresh`)
+    /// reuses the same `events-sample` fixture for both years, so casing can
+    /// never actually differ across years in any of them. This uses a
+    /// second fixture (`events-sample-alt-casing`, added alongside the
+    /// existing ones in `Fixtures/`) whose venue/category are the same
+    /// facets, spelled with different casing, so re-casing following the
+    /// year actually being viewed — rather than e.g. sticking with whatever
+    /// year first normalized it — is pinned rather than assumed.
+    @Test func normalizationFollowsTheYearBeingViewedAcrossASwitch() async throws {
+        let defaults = makeDefaults()
+        var filter = FilterSelection()
+        // Lowercased so it case-insensitively matches both years' feeds,
+        // whose display casing differs from each other and from this.
+        filter.selectedLocations = ["sports club, waterfront"]
+        UserStateStore(defaults: defaults, now: { Date() }).saveFilters(filter)
+
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("events-2025", data: fixtureData("events-sample-alt-casing"), etag: "e2", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setNeverResolves(for: .years)
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: defaults, now: { Date() })
+        )
+
+        Task { await model.start() }
+        await waitUntil("model reaches .ready phase") { model.phase == .ready }
+        #expect(model.filter.selectedLocations == ["Sports Club, Waterfront"])
+
+        await model.select(year: 2025)
+        #expect(model.filter.selectedLocations == ["SPORTS CLUB, WATERFRONT"])
+
+        await model.select(year: 2026)
+        #expect(model.filter.selectedLocations == ["Sports Club, Waterfront"])
     }
 }

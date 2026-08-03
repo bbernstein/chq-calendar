@@ -26,6 +26,16 @@ enum AboutInfo {
         Link(id: "chq", title: "Chautauqua Institution", url: URL(string: "https://www.chq.org")!),
     ]
 
+    /// Destinations surfaced directly from the calendar toolbar, matching
+    /// the web header's buttons (frontend/src/components/layout/Header.tsx).
+    /// Kept separate from `links`, which are the About sheet's legal and
+    /// attribution links.
+    static let quickLinks: [Link] = [
+        Link(id: "feedback", title: "Feedback", url: URL(string: "https://www.chqcal.org/feedback")!),
+        Link(id: "programs", title: "Programs", url: URL(string: "https://programs.chq.org/")!),
+        Link(id: "questions", title: "Questions", url: URL(string: "https://questions.chq.org/")!),
+    ]
+
     /// Formats the marketing version and build number for display.
     ///
     /// Blank strings are treated as missing: a bundle key present but empty

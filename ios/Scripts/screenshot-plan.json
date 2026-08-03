@@ -16,7 +16,6 @@
       "caption": "Narrow it to what you actually want.",
       "launchArgs": ["-uitest-show-filters"],
       "settleSeconds": 6,
-      "presentsModal": true,
       "deviceLaunchArgs": { "ipad-13": ["-uitest-select-linked-event"] }
     },
     {

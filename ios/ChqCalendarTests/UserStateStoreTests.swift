@@ -54,37 +54,6 @@ struct UserStateStoreTests {
         #expect(!filter.isDefault)
     }
 
-    // MARK: - FilterSelection.activeCount
-
-    @Test func activeCountIsZeroForDefault() {
-        #expect(FilterSelection().activeCount == 0)
-    }
-
-    @Test func activeCountIgnoresSearchText() {
-        var filter = FilterSelection()
-        filter.searchText = "opera"
-        #expect(filter.activeCount == 0)
-    }
-
-    @Test func activeCountCountsEachFacet() {
-        var filter = FilterSelection()
-        filter.selectedWeeks = [1, 2]
-        filter.selectedLocations = ["Amp"]
-        filter.selectedCategories = ["Music", "Lecture"]
-        filter.showFavoritesOnly = true
-        filter.dateScope = .thisWeek
-        // weeks(1 facet type but counts by .count) -> selectedWeeks.count=2
-        // + selectedLocations.count=1 + selectedCategories.count=2
-        // + favoritesOnly=1 + non-default scope=1 = 7
-        #expect(filter.activeCount == 7)
-    }
-
-    @Test func activeCountNonDefaultScopeCountsAsOne() {
-        var filter = FilterSelection()
-        filter.dateScope = .all
-        #expect(filter.activeCount == 1)
-    }
-
     // MARK: - UserStateStore: filters round-trip
 
     @Test func filtersRoundTripPreservesPersistedFacets() throws {
@@ -228,5 +197,97 @@ struct UserStateStoreTests {
             now: { saveTime.addingTimeInterval(30 * 24 * 3600) }
         )
         #expect(laterStore.loadFavorites() == [])
+    }
+
+    // MARK: - Selection storage (original casing, ordered)
+
+    @Test func selectionsRoundTripPreservingCasingAndOrder() {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        var filter = FilterSelection()
+        filter.selectedLocations = ["Amphitheater", "Elizabeth S. Lenna Hall"]
+        filter.selectedCategories = ["CSO", "CHQ Assembly"]
+
+        store.saveFilters(filter)
+        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadFilters()
+
+        #expect(reloaded?.selectedLocations == ["Amphitheater", "Elizabeth S. Lenna Hall"])
+        #expect(reloaded?.selectedCategories == ["CSO", "CHQ Assembly"])
+    }
+
+    /// Payloads written by the shipped build stored these as JSON arrays of
+    /// lowercased strings (they were `Set<String>`). Decoding must still
+    /// yield the selections rather than throwing and silently wiping them.
+    @Test func legacyLowercasedPayloadStillDecodes() throws {
+        let defaults = makeDefaults()
+        let legacy = """
+        {"dateScope":"next","selectedWeeks":[3],\
+        "selectedLocations":["amphitheater"],"selectedCategories":["cso"],\
+        "showFavoritesOnly":false,"lastSaved":"2026-08-01T12:00:00Z"}
+        """
+        defaults.set(Data(legacy.utf8), forKey: "chq-filters")
+
+        let now = try #require(ChqTime.parse("2026-08-02 12:00:00"))
+        let loaded = UserStateStore(defaults: defaults, now: { now }).loadFilters()
+
+        #expect(loaded?.selectedLocations == ["amphitheater"])
+        #expect(loaded?.selectedCategories == ["cso"])
+        #expect(loaded?.selectedWeeks == [3])
+    }
+
+    // MARK: - RecentFilters
+
+    @Test func addingPutsNewestFirst() {
+        var list: [String] = []
+        list = RecentFilters.adding("Amphitheater", to: list)
+        list = RecentFilters.adding("Norton Hall", to: list)
+        #expect(list == ["Norton Hall", "Amphitheater"])
+    }
+
+    @Test func addingMovesAnExistingEntryToTheFrontWithoutDuplicating() {
+        let list = RecentFilters.adding(
+            "amphitheater", to: ["Norton Hall", "Amphitheater", "Lenna Hall"])
+        #expect(list == ["amphitheater", "Norton Hall", "Lenna Hall"])
+    }
+
+    @Test func addingCapsAtTen() {
+        var list = (1...10).map { "Venue \($0)" }
+        list = RecentFilters.adding("Venue 11", to: list)
+        #expect(list.count == 10)
+        #expect(list.first == "Venue 11")
+        #expect(!list.contains("Venue 10"))
+    }
+
+    @Test func recentsRoundTrip() {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        store.saveRecents(RecentFilters(locations: ["Amphitheater"], categories: ["CSO"]))
+
+        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadRecents()
+        #expect(reloaded.locations == ["Amphitheater"])
+        #expect(reloaded.categories == ["CSO"])
+    }
+
+    @Test func missingRecentsKeyYieldsEmptyAndLeavesFiltersAlone() {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        var filter = FilterSelection()
+        filter.selectedWeeks = [2]
+        store.saveFilters(filter)
+
+        let reloaded = UserStateStore(defaults: defaults, now: { Date() })
+        #expect(reloaded.loadRecents() == RecentFilters())
+        #expect(reloaded.loadFilters()?.selectedWeeks == [2])
+    }
+
+    @Test func recentsExpireAfterThirtyDays() throws {
+        let defaults = makeDefaults()
+        let saved = try #require(ChqTime.parse("2026-06-01 12:00:00"))
+        UserStateStore(defaults: defaults, now: { saved })
+            .saveRecents(RecentFilters(locations: ["Amphitheater"], categories: []))
+
+        let muchLater = saved.addingTimeInterval(31 * 24 * 3600)
+        #expect(UserStateStore(defaults: defaults, now: { muchLater }).loadRecents()
+            == RecentFilters())
     }
 }

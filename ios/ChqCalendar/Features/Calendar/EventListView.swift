@@ -24,9 +24,60 @@ struct EventListView: View {
 
     @State private var isAboutPresented = false
 
+    /// Mirrors `collapseDriver.isCollapsed` so the bar re-renders on a
+    /// flip. The driver, not this, is the decision state — see
+    /// `FilterBarCollapseDriver`, which deliberately isn't observed so its
+    /// per-frame bookkeeping can't invalidate this body.
+    @State private var isFilterBarCollapsed = false
+
+    @State private var collapseDriver = FilterBarCollapseDriver(
+        estimatedGiveBack: EventListView.estimatedCollapseGiveBack)
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Belt-and-braces for the same wedge `reset()` guards against (see
+    /// `FilterBarCollapseDriver.reset()`), from a different trigger: the
+    /// `withAnimation(completionCriteria: .removed)` completion that clears
+    /// `isSettling` runs after the 0.2s collapse/expand animation, and if the
+    /// app is backgrounded inside that window, UIKit/SwiftUI does not
+    /// guarantee the completion still fires while the scene is suspended.
+    /// The view itself isn't torn down by backgrounding, so `listWasReplaced`
+    /// never runs either — nothing else would un-wedge the driver on return.
+    /// Deliberately just `settled()`, not `reset()`: coming back from the
+    /// background shouldn't force the bar back open or forget the measured
+    /// give-back, only clear a possibly-stuck settling flag. No timer, no
+    /// tuned duration — see `FilterBarCollapseDriver`'s doc comment for why
+    /// that absence is the point.
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// A starting assumption for how much height collapsing hands back —
+    /// the venue, category, and reset rows `FilterBarView` drops when
+    /// `isCollapsed`. Used only until the driver has seen the bar settled in
+    /// both states and can measure the real figure; see
+    /// `FilterBarCollapseDriver`.
+    ///
+    /// 150 rather than 100 because the population this protects is the
+    /// filtered one. Instrumented iPhone 17 runs put the list's settled top
+    /// inset at 330 → 230 unfiltered (no reset row, so 100pt) but 380 → 230
+    /// whenever any filter is active (`log-B`, `log-C4`, `log-E`, `log-F`
+    /// — short, overflowing, panel-open, and tiny filtered lists), i.e.
+    /// 150pt. The 100pt figure a previous round recorded here came from the
+    /// one scenario with no reset row (`log-drag-smoke`, `log-A`, `log-RM`,
+    /// all unfiltered).
+    private static let estimatedCollapseGiveBack: CGFloat = 150
+
+    /// How long the collapse/expand transition runs. Named because the
+    /// driver's settle window is defined by this animation completing, not
+    /// by any separately-tuned duration.
+    private static let collapseAnimationDuration: TimeInterval = 0.2
+
     var body: some View {
         content
-            .navigationTitle("Chautauqua Calendar")
+            // Inline, and shortened to fit beside the year and overflow
+            // toolbar items. The large-title band was ~70pt of empty space
+            // above the filter bar with no title text ever drawn in it.
+            .navigationTitle("CHQ Calendar")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .sheet(isPresented: $isAboutPresented) {
                 AboutView()
@@ -38,7 +89,12 @@ struct EventListView: View {
                 // would be meaningless and the bar would just be dead
                 // chrome above a loading spinner or banner.
                 if model.snapshot != nil {
-                    FilterBarView(model: model)
+                    FilterBarView(model: model, isCollapsed: isFilterBarCollapsed)
+                }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    collapseDriver.settled()
                 }
             }
     }
@@ -46,31 +102,77 @@ struct EventListView: View {
     @ViewBuilder
     private var content: some View {
         if model.snapshot == nil {
-            switch model.phase {
-            case .offline:
-                offlineUnavailableView
-            case .failed(let message):
-                errorUnavailableView(message)
-            default:
-                ProgressView("Loading events…")
+            // Grouped so one `onAppear` covers all three phases; see
+            // `listWasReplaced` for why the replacement, rather than the
+            // `List`'s own `onDisappear`, is what resets collapse tracking.
+            Group {
+                switch model.phase {
+                case .offline:
+                    offlineUnavailableView
+                case .failed(let message):
+                    errorUnavailableView(message)
+                default:
+                    ProgressView("Loading events…")
+                }
             }
-        } else if model.dayGroups.isEmpty {
-            noMatchesView
+            .onAppear(perform: listWasReplaced)
         } else {
-            list
+            // Bound once here rather than read separately by an `.isEmpty`
+            // check and then `list`: `model.dayGroups` reruns the whole
+            // filter+group pipeline on every access (six `EventFilter`
+            // stages over ~1,637 events plus `EventGrouping.byDay`), so
+            // reading it twice would cost two full passes per render.
+            let days = model.dayGroups
+            if days.isEmpty {
+                noMatchesView
+                    .onAppear(perform: listWasReplaced)
+            } else {
+                list(days: days)
+            }
         }
     }
 
-    private var list: some View {
-        List(selection: selection) {
-            if let days = model.countdownDays {
-                CountdownBanner(days: days)
+    /// Called the moment something other than the event list takes the
+    /// screen — the loading/offline/error states, or "No matching events".
+    /// Every way the `List` can be destroyed passes through one of those,
+    /// so this is exactly "the list this driver was reading is gone".
+    ///
+    /// **Not the `List`'s own `onDisappear`**, which would be the obvious
+    /// hook and is wrong: SwiftUI fires it when `EventDetailView` is pushed
+    /// onto the `NavigationStack` too (verified on the simulator — a push
+    /// logs `DISAPPEAR` from the list). Resetting there would re-open the
+    /// filter bar every time the user tapped an event and leave it open on
+    /// the way back, on a list still scrolled hundreds of points down.
+    ///
+    /// The two things this has to undo are described on
+    /// `FilterBarCollapseDriver.reset()`. `isFilterBarCollapsed` is cleared
+    /// alongside it so the view's mirror cannot disagree with the driver:
+    /// whatever list appears next starts at its own top, where the bar is
+    /// whole.
+    private func listWasReplaced() {
+        collapseDriver.reset()
+        isFilterBarCollapsed = false
+    }
+
+    private func list(days: [DayGroup]) -> some View {
+        let filtered = days.reduce(0) { $0 + $1.events.count }
+
+        return List(selection: selection) {
+            if let countdownDays = model.countdownDays {
+                CountdownBanner(days: countdownDays)
             }
             if model.lastRefreshFailed {
                 OfflineBanner()
             }
 
-            ForEach(model.dayGroups) { day in
+            if model.filter.hasFilters, let total = model.snapshot?.events.count {
+                Text("\(filtered.formatted()) of \(total.formatted()) events")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+
+            ForEach(days) { day in
                 Section {
                     ForEach(day.events) { event in
                         row(for: event)
@@ -87,6 +189,36 @@ struct EventListView: View {
             }
         }
         .listStyle(.plain)
+        .scrollDismissesKeyboard(.immediately)
+        .onScrollGeometryChange(for: ScrollGeometrySample.self) { geometry in
+            ScrollGeometrySample(
+                contentOffset: geometry.contentOffset.y,
+                insetTop: geometry.contentInsets.top,
+                insetBottom: geometry.contentInsets.bottom,
+                containerHeight: geometry.containerSize.height,
+                contentHeight: geometry.contentSize.height)
+        } action: { _, sample in
+            // This action closure isn't `@Sendable`, so it runs on whatever
+            // actor called this modifier (MainActor, since this is a view's
+            // body) — no manual actor hop is needed to touch `@State` here.
+            //
+            // Every decision, including which samples to trust at all,
+            // lives in the driver; see its doc comment for why animating
+            // the bar makes raw geometry unreadable while it animates.
+            guard let collapsed = collapseDriver.received(sample) else { return }
+            withAnimation(
+                reduceMotion ? nil : .easeInOut(duration: Self.collapseAnimationDuration),
+                completionCriteria: .removed
+            ) {
+                isFilterBarCollapsed = collapsed
+            } completion: {
+                // The settle window *is* the animation: geometry is
+                // re-admitted the moment this transition is fully removed,
+                // never before and never on a timer. Verified to fire on
+                // both branches, including the `nil` (Reduce Motion) one.
+                collapseDriver.settled()
+            }
+        }
         .refreshable {
             await model.refresh(force: true)
         }
@@ -126,7 +258,7 @@ struct EventListView: View {
             Label("No matching events", systemImage: "calendar.badge.exclamationmark")
         } actions: {
             Button("Clear Filters") {
-                model.clearFilters()
+                model.clearAll()
             }
         }
     }
@@ -160,12 +292,22 @@ struct EventListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                isAboutPresented = true
+            Menu {
+                ForEach(AboutInfo.quickLinks) { link in
+                    SwiftUI.Link(destination: link.url) {
+                        Label(link.title, systemImage: "arrow.up.right.square")
+                    }
+                }
+                Divider()
+                Button {
+                    isAboutPresented = true
+                } label: {
+                    Label("About", systemImage: "info.circle")
+                }
             } label: {
-                Image(systemName: "info.circle")
+                Image(systemName: "ellipsis.circle")
             }
-            .accessibilityLabel("About CHQ Calendar")
+            .accessibilityLabel("More")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {

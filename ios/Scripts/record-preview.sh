@@ -105,8 +105,10 @@ cat <<'FLOW'
 Recording starts now. Drive this flow in the simulator, unhurried:
 
   1. Scroll the season list a little                      (~3s)
-  2. Open the filter sheet, tap a category and a venue     (~6s)
-  3. Dismiss, then search for a presenter or event name    (~5s)
+  2. Tap "Venues" to expand it, tap a venue, then tap
+     "Categories" and tap a category                       (~6s)
+  3. Collapse the panel, then search for a presenter or
+     event name                                            (~5s)
   4. Open an event's detail view, scroll to the article links (~5s)
   5. Tap Add to Calendar, show the sheet                   (~4s)
 

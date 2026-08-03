@@ -1,5 +1,46 @@
 import Foundation
+import Testing
 @testable import ChqCalendar
+
+/// Polls `condition` on the main actor every `pollInterval` until it
+/// returns `true`, or fails the test if `timeout` elapses first.
+///
+/// `AppModelTests` synchronizes with `Task`s it starts but doesn't
+/// directly `await` (e.g. `Task { await model.start() }`) by waiting for
+/// the state that `Task` is expected to eventually produce. A **fixed**
+/// `Task.sleep` used for that purpose is inherently racy: Swift Testing
+/// runs suites in parallel, and under full-suite load a fixed wait can
+/// elapse before the awaited state has actually settled — producing a
+/// failure that has nothing to do with the production code under test.
+/// `waitUntil` polls instead of guessing a duration, so it stays correct
+/// regardless of scheduler load. Do not reintroduce fixed sleeps to
+/// synchronize with an expected state change; if a new async test needs
+/// to wait for something to happen, poll for it with this helper instead.
+///
+/// This is **not** appropriate for proving a negative ("this must NOT
+/// happen") — polling can only detect that a condition became true, never
+/// that it stayed false forever, so tests asserting an absence should
+/// keep a bounded `Task.sleep` before asserting.
+@MainActor
+func waitUntil(
+    _ description: String,
+    timeout: Duration = .seconds(5),
+    pollInterval: Duration = .milliseconds(10),
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ condition: () async -> Bool
+) async {
+    let deadline = ContinuousClock.now + timeout
+    while true {
+        if await condition() {
+            return
+        }
+        if ContinuousClock.now >= deadline {
+            Issue.record("Timed out waiting for: \(description)", sourceLocation: sourceLocation)
+            return
+        }
+        try? await Task.sleep(for: pollInterval)
+    }
+}
 
 /// Builds an `Event` directly (via `Event`'s internal memberwise
 /// initializer) for filter/grouping/display-name tests, without needing to

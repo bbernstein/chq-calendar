@@ -85,8 +85,8 @@ ChqCalendar/
 │   ├── DiskCache.swift          # On-disk cache: payload + {etag,fetchedAt}
 │   ├── EventRepository.swift    # actor: fetch→decode→cache orchestration,
 │   │                             # stale-while-revalidate policy
-│   └── UserStateStore.swift     # Persists filters/favorites (UserDefaults),
-│                                 # 30-day expiry
+│   └── UserStateStore.swift     # Persists filters/favorites/recents
+│                                 # (UserDefaults), 30-day expiry
 ├── Domain/
 │   ├── EventFilter.swift        # Search/date/week/location/category logic
 │   ├── EventGrouping.swift      # Groups events into day-keyed DayGroups
@@ -98,7 +98,7 @@ ChqCalendar/
 │   │                             # EventRow
 │   ├── Detail/                  # EventDetailView, AddToCalendarView
 │   │                             # (EventKit integration)
-│   ├── Filters/                 # FilterBarView, FilterSheetView,
+│   ├── Filters/                 # FilterBarView, FacetRowView,
 │   │                             # WeekStripView
 │   └── Shared/                  # Banners.swift (countdown/offline banners)
 ├── Models/

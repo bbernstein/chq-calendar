@@ -32,7 +32,21 @@ final class AppModel {
 
     // MARK: - State
 
-    var snapshot: CalendarSnapshot?
+    var snapshot: CalendarSnapshot? {
+        didSet {
+            facetCounts = snapshot.map { FacetCounts.build(from: $0.events) } ?? .empty
+            normalizePersistedFilterCasing()
+        }
+    }
+
+    /// Per-venue / per-category event counts for the current snapshot.
+    /// Recomputed only when `snapshot` changes — a full pass over ~1,500
+    /// events is far too expensive to redo on every view render.
+    private(set) var facetCounts: FacetCounts = .empty
+
+    /// The user's most-recently-used venue and category filters.
+    private(set) var recents: RecentFilters
+
     var phase: Phase = .launching
     var filter: FilterSelection
     var favorites: Set<String>
@@ -49,7 +63,12 @@ final class AppModel {
 
     private let repository: EventRepository
     private let store: UserStateStore
-    private let now: @Sendable () -> Date
+
+    /// The injected clock. Exposed (rather than private) so views computing
+    /// time-relative presentation — `WeekStripView`'s past/current styling —
+    /// use the same instant the filter pipeline does, and so tests can pin
+    /// both together.
+    let now: @Sendable () -> Date
 
     /// The most recent non-nil `remoteVersion()` observed, used by
     /// `foregrounded()` to detect a new deploy.
@@ -70,6 +89,7 @@ final class AppModel {
         self.now = now
         self.filter = store.loadFilters() ?? FilterSelection()
         self.favorites = store.loadFavorites()
+        self.recents = store.loadRecents()
         self.selectedYear = Self.placeholderYear
         self.defaultYear = Self.placeholderYear
     }
@@ -256,13 +276,32 @@ final class AppModel {
         }
     }
 
-    func setScope(_ s: DateScope) {
-        filter.dateScope = s
+    /// Selects a date scope, clearing any week selection: the scope row and
+    /// the week strip are two ways of expressing one date range, never two
+    /// ranges to intersect.
+    ///
+    /// Re-tapping the active scope is a no-op. The web toggles back to
+    /// "all" here, but it has no All button; iOS does, so the scope row
+    /// behaves as a radio group instead.
+    func selectScope(_ scope: DateScope) {
+        guard filter.dateScope != scope || !filter.selectedWeeks.isEmpty else { return }
+        filter.dateScope = scope
+        filter.selectedWeeks = []
         persistFilter()
     }
 
-    func toggleWeek(_ n: Int) {
-        if filter.selectedWeeks.contains(n) {
+    /// Mirrors the web's `handleWeekTap` (frontend/src/hooks/useScrollState.ts).
+    func selectWeek(_ n: Int) {
+        if n == currentWeek, filter.selectedWeeks.isEmpty {
+            // The current week *is* "This Week" — same range, so store it as
+            // the scope and let both chips light up.
+            filter.dateScope = .thisWeek
+        } else if filter.dateScope != .all {
+            // A relative scope was active and the user picked a different
+            // week: the week replaces the scope rather than narrowing it.
+            filter.dateScope = .all
+            filter.selectedWeeks = [n]
+        } else if filter.selectedWeeks.contains(n) {
             filter.selectedWeeks.remove(n)
         } else {
             filter.selectedWeeks.insert(n)
@@ -270,29 +309,95 @@ final class AppModel {
         persistFilter()
     }
 
-    /// Toggles `name` (lowercased, matching how `EventFilter` compares
-    /// against `event.displayLocation?.lowercased()`) in
-    /// `filter.selectedLocations`.
+    /// Toggles `name` in `filter.selectedLocations`, storing the original
+    /// casing and comparing case-insensitively — the web's `toggleInList`.
+    /// Selecting (not deselecting) also promotes `name` to the front of
+    /// recents, matching `useFilterState`'s TOGGLE_LOCATION case.
     func toggleLocation(_ name: String) {
-        let key = name.lowercased()
-        if filter.selectedLocations.contains(key) {
-            filter.selectedLocations.remove(key)
-        } else {
-            filter.selectedLocations.insert(key)
+        let wasSelected = isSelected(name, in: .venues)
+        filter.selectedLocations = Self.toggling(name, in: filter.selectedLocations)
+        if !wasSelected {
+            recents.locations = RecentFilters.adding(name, to: recents.locations)
+            store.saveRecents(recents)
         }
         persistFilter()
     }
 
-    /// Toggles `name` (lowercased, matching how `EventFilter` compares
-    /// against `event.filterTokens`) in `filter.selectedCategories`.
+    /// Toggles `name` in `filter.selectedCategories`. See `toggleLocation`.
     func toggleCategory(_ name: String) {
-        let key = name.lowercased()
-        if filter.selectedCategories.contains(key) {
-            filter.selectedCategories.remove(key)
-        } else {
-            filter.selectedCategories.insert(key)
+        let wasSelected = isSelected(name, in: .categories)
+        filter.selectedCategories = Self.toggling(name, in: filter.selectedCategories)
+        if !wasSelected {
+            recents.categories = RecentFilters.adding(name, to: recents.categories)
+            store.saveRecents(recents)
         }
         persistFilter()
+    }
+
+    // MARK: Facet-generic accessors
+    //
+    // `FacetRowView` is one view driving either facet, so it reaches the
+    // model through these rather than branching on the facet itself.
+
+    /// Every venue/category present in the current snapshot, original
+    /// casing, sorted by display name.
+    func available(_ facet: FilterFacet) -> [String] {
+        switch facet {
+        case .venues: return visibleLocations
+        case .categories: return visibleCategories
+        }
+    }
+
+    /// Named `recentNames` rather than `recents(_:)` so it can't be misread
+    /// against the `recents` property it reads from.
+    func recentNames(_ facet: FilterFacet) -> [String] {
+        switch facet {
+        case .venues: return recents.locations
+        case .categories: return recents.categories
+        }
+    }
+
+    func isSelected(_ name: String, in facet: FilterFacet) -> Bool {
+        let key = name.lowercased()
+        switch facet {
+        case .venues: return filter.selectedLocations.contains { $0.lowercased() == key }
+        case .categories: return filter.selectedCategories.contains { $0.lowercased() == key }
+        }
+    }
+
+    func toggle(_ name: String, in facet: FilterFacet) {
+        switch facet {
+        case .venues: toggleLocation(name)
+        case .categories: toggleCategory(name)
+        }
+    }
+
+    func count(for name: String, in facet: FilterFacet) -> Int {
+        let key = name.lowercased()
+        switch facet {
+        case .venues: return facetCounts.locations[key] ?? 0
+        case .categories: return facetCounts.categories[key] ?? 0
+        }
+    }
+
+    /// How many of `facet`'s values are currently selected, for the row
+    /// label ("Venues (2)").
+    func selectedCount(_ facet: FilterFacet) -> Int {
+        switch facet {
+        case .venues: return filter.selectedLocations.count
+        case .categories: return filter.selectedCategories.count
+        }
+    }
+
+    /// Removes every case-insensitive match of `name`, or appends `name`
+    /// (original casing) when there is none. Appending — rather than
+    /// inserting — is what keeps the chip row in selection order.
+    private static func toggling(_ name: String, in list: [String]) -> [String] {
+        let key = name.lowercased()
+        if list.contains(where: { $0.lowercased() == key }) {
+            return list.filter { $0.lowercased() != key }
+        }
+        return list + [name]
     }
 
     func toggleFavoritesOnly() {
@@ -300,13 +405,42 @@ final class AppModel {
         persistFilter()
     }
 
-    /// Resets the persisted facets (scope/weeks/locations/categories/
-    /// favorites-only) back to their defaults. `searchText`/`extraDays` are
-    /// session-only and deliberately left untouched — clearing filters
-    /// shouldn't also blow away what the user just typed.
-    func clearFilters() {
-        filter = FilterSelection(searchText: filter.searchText, extraDays: filter.extraDays)
+    /// "Show all events" — clears every filter, including the search term
+    /// and `extraDays`, and drops the scope to `.all`. Mirrors the web's
+    /// CLEAR_FILTERS.
+    ///
+    /// This deliberately clears `searchText`, which the previous
+    /// `clearFilters()` preserved. That preservation only made sense while
+    /// the term had no visible representation; now it is a chip in the reset
+    /// row and individually removable, so leaving it behind after "Clear
+    /// all" would be the surprising behavior.
+    func clearAll() {
+        filter = FilterSelection(dateScope: .all)
         persistFilter()
+    }
+
+    /// "Keep dates, show all" — clears search, venues, categories, and
+    /// favorites-only, leaving the date scope and week selection intact.
+    /// Mirrors the web's CLEAR_NON_DATE_FILTERS.
+    func clearNonDateFilters() {
+        filter.searchText = ""
+        filter.selectedLocations = []
+        filter.selectedCategories = []
+        filter.showFavoritesOnly = false
+        persistFilter()
+    }
+
+    /// Removes the single filter a reset-row chip represents.
+    ///
+    /// No `persistFilter()` here: the three toggles persist themselves, and
+    /// `searchText` is session-only and never written to disk.
+    func remove(_ chip: ActiveFilterChip) {
+        switch chip.kind {
+        case .search: filter.searchText = ""
+        case .location(let name): toggleLocation(name)
+        case .category(let name): toggleCategory(name)
+        case .favorites: toggleFavoritesOnly()
+        }
     }
 
     func showNextDay() {
@@ -315,6 +449,44 @@ final class AppModel {
 
     private func persistFilter() {
         store.saveFilters(filter)
+    }
+
+    /// Persisted `selectedLocations`/`selectedCategories` may carry different
+    /// casing than the feed currently serves — most concretely, a build
+    /// prior to this branch stored them lowercased (see
+    /// `UserStateStoreTests.legacyLowercasedPayloadStillDecodes`), and
+    /// `FilterSelection` now stores original casing instead, with
+    /// lowercasing applied only at the point of comparison
+    /// (`EventFilter.apply`, `isSelected`, `count(for:in:)`). Filtering
+    /// itself is correct either way, but `ActiveFilterChips.build` passes
+    /// the persisted string straight into `DisplayNames.location`/
+    /// `.category`, which do an *exact*-match lookup and silently fall
+    /// through unchanged on a case mismatch — so a lowercased legacy name
+    /// would render as a raw lowercase chip (and skip shortcuts like "Lenna
+    /// Hall"/"CSO") until the user toggled the filter off/on or hit "Clear
+    /// all". Called from `snapshot`'s `didSet` so this is corrected on the
+    /// very first launch after upgrading, not just after the next
+    /// interaction — `visibleLocations`/`visibleCategories` read the new
+    /// `snapshot` value, which `didSet` runs after assigning.
+    private func normalizePersistedFilterCasing() {
+        guard snapshot != nil else { return }
+        let normalizedLocations = Self.normalizedCasing(filter.selectedLocations, against: visibleLocations)
+        let normalizedCategories = Self.normalizedCasing(filter.selectedCategories, against: visibleCategories)
+        guard normalizedLocations != filter.selectedLocations || normalizedCategories != filter.selectedCategories else {
+            return
+        }
+        filter.selectedLocations = normalizedLocations
+        filter.selectedCategories = normalizedCategories
+        persistFilter()
+    }
+
+    /// Replaces each of `names` with the entry in `canonical` it
+    /// case-insensitively matches, if any — order and any non-matching
+    /// entries are preserved untouched.
+    private static func normalizedCasing(_ names: [String], against canonical: [String]) -> [String] {
+        guard !canonical.isEmpty else { return names }
+        let byLowercased = Dictionary(canonical.map { ($0.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
+        return names.map { byLowercased[$0.lowercased()] ?? $0 }
     }
 
     #if DEBUG

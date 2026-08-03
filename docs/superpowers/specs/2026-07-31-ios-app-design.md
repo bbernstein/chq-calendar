@@ -27,7 +27,7 @@
 
 - **Xcode project:** `ios/ChqCalendar.xcodeproj`, hand-authored in the Xcode 16+ `PBXFileSystemSynchronizedRootGroup` format (objectVersion 77) so the pbxproj is small and files added on disk appear automatically in Xcode.
 - **Targets:** `ChqCalendar` (app), `ChqCalendarTests` (unit tests, Swift Testing framework).
-- **Deployment target:** iOS 17.0 (enables `@Observable`, `NavigationSplitView` refinements, `ContentUnavailableView`; covers all devices Apple still supports).
+- **Deployment target:** iOS 18.0 (raised from 17.0 during the 2026-08-01 iOS UX filtering plan's Task 7 fix round, to use `onScrollGeometryChange` for filter-bar collapse tracking after a `List`-recycling bug ruled out the iOS-17-safe `GeometryReader`/`PreferenceKey` sentinel approach; enables `@Observable`, `NavigationSplitView` refinements, `ContentUnavailableView`; covers all devices Apple still supports).
 - **Language:** Swift, Swift 6 language mode, strict concurrency. No third-party dependencies.
 - **Devices:** iPhone + iPad (`TARGETED_DEVICE_FAMILY = 1,2`), all orientations on iPad, portrait-primary on iPhone.
 - **Appearance:** system light/dark (matches web's `prefers-color-scheme` behavior). Accent color `#5B7F95` (web brand/theme color).

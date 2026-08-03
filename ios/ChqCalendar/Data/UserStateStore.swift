@@ -21,15 +21,21 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
 /// The user's current filter/search state for the event list.
 ///
 /// `searchText` and `extraDays` are session-only: they affect what's shown
-/// right now but are deliberately excluded from `isDefault`/`activeCount`
+/// right now but are deliberately excluded from `isDefault`
 /// and are never persisted by `UserStateStore` (matches web intent — a
 /// fresh app launch always starts with an empty search box).
 nonisolated struct FilterSelection: Codable, Equatable, Sendable {
     var searchText: String = ""
     var dateScope: DateScope = .next
     var selectedWeeks: Set<Int> = []
-    var selectedLocations: Set<String> = []
-    var selectedCategories: Set<String> = []
+    /// Venue and category selections hold the feed's **original casing** in
+    /// selection order, matching the web's `selectedLocations` /
+    /// `selectedTags`. Comparison is lowercased at the point of use
+    /// (`EventFilter.apply`), not at the point of storage: the stored value
+    /// is what gets rendered as a chip label, and `DisplayNames` is an
+    /// exact-match dictionary keyed on the original casing.
+    var selectedLocations: [String] = []
+    var selectedCategories: [String] = []
     var showFavoritesOnly: Bool = false
     var extraDays: Int = 0
 
@@ -37,8 +43,8 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
         searchText: String = "",
         dateScope: DateScope = .next,
         selectedWeeks: Set<Int> = [],
-        selectedLocations: Set<String> = [],
-        selectedCategories: Set<String> = [],
+        selectedLocations: [String] = [],
+        selectedCategories: [String] = [],
         showFavoritesOnly: Bool = false,
         extraDays: Int = 0
     ) {
@@ -62,15 +68,41 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
             && dateScope == .next
     }
 
-    /// Count of active, non-search facets: each selected week/location/
-    /// category counts individually, favorites-only counts as one, and a
-    /// non-default date scope counts as one (regardless of which scope).
-    var activeCount: Int {
-        selectedWeeks.count
-            + selectedLocations.count
-            + selectedCategories.count
-            + (showFavoritesOnly ? 1 : 0)
-            + (dateScope != .next ? 1 : 0)
+    /// Whether a date range is narrowing the results. Mirrors the web's
+    /// `hasDateFilters`.
+    var hasDateFilters: Bool {
+        dateScope != .all || !selectedWeeks.isEmpty
+    }
+
+    /// Whether anything *other* than a date range is narrowing the results.
+    /// `searchText` is trimmed so a whitespace-only term — which matches
+    /// everything and produces no chip — doesn't count. Mirrors the web's
+    /// `hasNonDateFilters`.
+    var hasNonDateFilters: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !selectedLocations.isEmpty
+            || !selectedCategories.isEmpty
+            || showFavoritesOnly
+    }
+
+    var hasFilters: Bool { hasDateFilters || hasNonDateFilters }
+}
+
+/// The user's most-recently-used venue and category filters, so repeating a
+/// filter is one tap instead of a trip through a picker.
+///
+/// Persisted state but *not* filter input: `EventFilter` never sees this.
+/// Names carry the feed's original casing, matching `FilterSelection`.
+nonisolated struct RecentFilters: Codable, Equatable, Sendable {
+    var locations: [String] = []
+    var categories: [String] = []
+
+    /// `item` moved to the front, any case-insensitive duplicate removed,
+    /// truncated to `max`. The web's `addToRecent`, plus case-insensitive
+    /// matching so "CSO" and "cso" can't both occupy a slot.
+    static func adding(_ item: String, to list: [String], max: Int = 10) -> [String] {
+        let key = item.lowercased()
+        return ([item] + list.filter { $0.lowercased() != key }).prefix(max).map { $0 }
     }
 }
 
@@ -85,6 +117,7 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
 nonisolated struct UserStateStore {
     private static let filtersKey = "chq-filters"
     private static let favoritesKey = "chq-favorites"
+    private static let recentsKey = "chq-recents"
     private static let expiry: TimeInterval = 30 * 24 * 3600
 
     /// The subset of `FilterSelection` that's actually persisted —
@@ -92,14 +125,19 @@ nonisolated struct UserStateStore {
     private struct PersistedFilters: Codable {
         var dateScope: DateScope
         var selectedWeeks: Set<Int>
-        var selectedLocations: Set<String>
-        var selectedCategories: Set<String>
+        var selectedLocations: [String]
+        var selectedCategories: [String]
         var showFavoritesOnly: Bool
         var lastSaved: Date
     }
 
     private struct PersistedFavorites: Codable {
         var ids: Set<String>
+        var lastSaved: Date
+    }
+
+    private struct PersistedRecents: Codable {
+        var recents: RecentFilters
         var lastSaved: Date
     }
 
@@ -177,5 +215,26 @@ nonisolated struct UserStateStore {
         let persisted = PersistedFavorites(ids: ids, lastSaved: now())
         guard let data = try? Self.encoder.encode(persisted) else { return }
         defaults.set(data, forKey: Self.favoritesKey)
+    }
+
+    /// Loads the persisted recents, or empty ones if nothing was saved or
+    /// the saved state is 30+ days old. Stored under its own key rather
+    /// than inside `PersistedFilters` so adding it can't affect decoding of
+    /// an existing filters payload.
+    func loadRecents() -> RecentFilters {
+        guard
+            let data = defaults.data(forKey: Self.recentsKey),
+            let persisted = try? Self.decoder.decode(PersistedRecents.self, from: data),
+            now().timeIntervalSince(persisted.lastSaved) < Self.expiry
+        else {
+            return RecentFilters()
+        }
+        return persisted.recents
+    }
+
+    func saveRecents(_ recents: RecentFilters) {
+        let persisted = PersistedRecents(recents: recents, lastSaved: now())
+        guard let data = try? Self.encoder.encode(persisted) else { return }
+        defaults.set(data, forKey: Self.recentsKey)
     }
 }

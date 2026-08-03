@@ -70,15 +70,21 @@ nonisolated enum EventFilter {
             result = result.filter { event in selected.contains { $0.contains(event.start) } }
         }
 
+        // Lowercased once per call rather than per event — mirrors the web's
+        // `selectedLocationsLowerSet` / `selectedTagsLowerSet` memos. The
+        // selection itself stores original casing so it can be rendered as
+        // chip labels; only the comparison is case-folded.
         if !sel.selectedLocations.isEmpty {
+            let selected = Set(sel.selectedLocations.map { $0.lowercased() })
             result = result.filter { event in
                 guard let location = event.displayLocation?.lowercased() else { return false }
-                return sel.selectedLocations.contains(location)
+                return selected.contains(location)
             }
         }
 
         if !sel.selectedCategories.isEmpty {
-            result = result.filter { !sel.selectedCategories.isDisjoint(with: $0.filterTokens) }
+            let selected = Set(sel.selectedCategories.map { $0.lowercased() })
+            result = result.filter { !selected.isDisjoint(with: $0.filterTokens) }
         }
 
         if sel.showFavoritesOnly {
