@@ -10,8 +10,8 @@ import SwiftUI
 /// That is not cosmetic: `EventListView` reserves a constant bottom content
 /// margin for this bar, and a height change here would move the list under
 /// the user mid-scroll, which is exactly the failure mode the previous
-/// `safeAreaInset` bar had. A 44pt minimum is also the accessibility floor
-/// for a touch target, so the constraint costs nothing.
+/// `safeAreaInset` bar had. The invariant has to hold at every Dynamic Type
+/// size, not just the default one — see `BarPill.pillHeight` for how.
 struct FloatingFilterBar: View {
     let dateLabel: String
     let filterCount: Int
@@ -62,6 +62,25 @@ private struct BarPill: View {
     let isProminent: Bool
     let action: () -> Void
 
+    /// A fixed, Dynamic-Type-scaled pill height, applied identically
+    /// whether or not `label` is present.
+    ///
+    /// `.frame(minHeight: 44)` is only a floor: at accessibility text
+    /// sizes the `.subheadline` label (rendered only when `label != nil`)
+    /// has a line height that exceeds 44pt on its own, so the expanded
+    /// pill would grow past the floor while the compact pill — whose
+    /// tallest content is the smaller `.footnote` icon — would not, and
+    /// the two states would end up different heights. `@ScaledMetric`
+    /// relative to `.subheadline` scales this value in lockstep with that
+    /// same text style's Dynamic Type curve, so the 44pt base (chosen to
+    /// clear the accessibility minimum touch target at the default size)
+    /// stays proportionally ahead of the label's line height at every
+    /// size, not just the default one. Applying it as an exact
+    /// `.frame(height:)` — not another `minHeight` — makes both branches
+    /// resolve to the identical value regardless of which optional
+    /// content they render.
+    @ScaledMetric(relativeTo: .subheadline) private var pillHeight: CGFloat = 44
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
@@ -83,7 +102,7 @@ private struct BarPill: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(minHeight: 44)
+            .frame(height: pillHeight)
             .foregroundStyle(isProminent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .background(
                 isProminent
@@ -126,4 +145,26 @@ private struct BarPill: View {
                 onDate: {}, onFilters: {})
         }
     }
+}
+
+/// Both states stacked together at an accessibility Dynamic Type size, so
+/// the equal-height invariant is inspectable by a human, not just asserted
+/// in a doc comment. Expanded and compact should render at the identical
+/// pill height here, exactly as they do at the default size above — only
+/// the width of the filter pill (and the wrapping of its longer label)
+/// should differ.
+#Preview("Accessibility Dynamic Type") {
+    ZStack {
+        Color.gray.opacity(0.3)
+        VStack(spacing: 16) {
+            Spacer()
+            FloatingFilterBar(
+                dateLabel: "Weeks 4\u{2013}6", filterCount: 3, state: .expanded,
+                onDate: {}, onFilters: {})
+            FloatingFilterBar(
+                dateLabel: "Now", filterCount: 0, state: .compact,
+                onDate: {}, onFilters: {})
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
