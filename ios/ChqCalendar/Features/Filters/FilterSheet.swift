@@ -39,7 +39,12 @@ struct FilterSheet: View {
             .toolbar {
                 if !chips.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Clear All") { model.clearNonDateFilters() }
+                        // Clears search, venues, categories, and favorites —
+                        // deliberately NOT the date scope or week selection,
+                        // which have their own pill and sheet. Keep this
+                        // scoped to `clearNonDateFilters()`; don't "fix" it
+                        // to also reset dates.
+                        Button("Clear Filters") { model.clearNonDateFilters() }
                     }
                 }
             }
