@@ -31,11 +31,21 @@ struct DateFilterSheet: View {
                             ForEach(visibleScopes, id: \.self) { scope in
                                 SheetChip(
                                     label: scope.label,
-                                    isSelected: model.isCurrentYear
-                                        ? FilterChipState.isScopeSelected(
-                                            scope, selection: model.filter,
-                                            currentWeek: model.currentWeek)
-                                        : true
+                                    // Always defer to `FilterChipState`, even
+                                    // when `visibleScopes` has collapsed to
+                                    // the lone `.all` chip for a non-current
+                                    // year: a week selection made in another
+                                    // year survives `AppModel.select(year:)`
+                                    // (it doesn't clear the filter), and only
+                                    // `FilterChipState.isScopeSelected` knows
+                                    // that a non-empty `selectedWeeks` means
+                                    // "All" is *not* selected. Hardcoding
+                                    // `true` here previously let this one
+                                    // chip and the week grid both show as
+                                    // checked at once.
+                                    isSelected: FilterChipState.isScopeSelected(
+                                        scope, selection: model.filter,
+                                        currentWeek: model.currentWeek)
                                 ) {
                                     model.selectScope(scope)
                                 }
@@ -43,22 +53,20 @@ struct DateFilterSheet: View {
                         }
                     }
 
-                    if model.isCurrentYear || !weekNumbers.isEmpty {
-                        section("Weeks") {
-                            LazyVGrid(
-                                columns: Array(
-                                    repeating: GridItem(.flexible(), spacing: 8), count: 3),
-                                spacing: 8
-                            ) {
-                                ForEach(weekNumbers, id: \.self) { number in
-                                    SheetChip(
-                                        label: "Week \(number)",
-                                        isSelected: FilterChipState.isWeekSelected(
-                                            number, selection: model.filter,
-                                            currentWeek: model.currentWeek)
-                                    ) {
-                                        model.selectWeek(number)
-                                    }
+                    section("Weeks") {
+                        LazyVGrid(
+                            columns: Array(
+                                repeating: GridItem(.flexible(), spacing: 8), count: 3),
+                            spacing: 8
+                        ) {
+                            ForEach(weekNumbers, id: \.self) { number in
+                                SheetChip(
+                                    label: "Week \(number)",
+                                    isSelected: FilterChipState.isWeekSelected(
+                                        number, selection: model.filter,
+                                        currentWeek: model.currentWeek)
+                                ) {
+                                    model.selectWeek(number)
                                 }
                             }
                         }
