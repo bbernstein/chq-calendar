@@ -57,6 +57,27 @@ workflows run on Linux runners (frontend/backend only); Xcode requires
 macOS, and a macOS runner for this project has been deliberately deferred.
 Run the commands above locally before pushing changes under `ios/`.
 
+### Screenshot scripts
+
+`ios/Scripts/capture-screenshots.sh` and
+`ios/Scripts/compose-screenshots.py` (see the "App Store listing upkeep"
+rule in the root `CLAUDE.md`) have two local prerequisites that are easy to
+hit and not obvious from the scripts' own output:
+
+- **Pillow.** `compose-screenshots.py` imports `PIL` to frame/caption the
+  raw screenshots. Install with `pip3 install Pillow` (or via whatever
+  Python environment `python3` resolves to) if it isn't already present —
+  check with `python3 -c "import PIL"`.
+- **`capture-screenshots.sh` needs Homebrew's bash, not the system one.**
+  Its shebang is `#!/usr/bin/env bash`, which resolves to whatever `bash`
+  is first on `PATH`. macOS ships bash 3.2 at `/usr/bin/bash` for licensing
+  reasons; if `/usr/bin` precedes Homebrew's bin directory on `PATH`, the
+  system bash silently shadows the (much newer) Homebrew bash the script
+  is written against. Confirm with `bash --version` — Homebrew's bash is
+  5.x — and fix the ordering (or invoke the script with an explicit
+  `/opt/homebrew/bin/bash ios/Scripts/capture-screenshots.sh`) rather than
+  editing the shebang.
+
 ## Architecture
 
 The app is a small, single-module SwiftUI client structured around one
@@ -70,8 +91,45 @@ views render directly — there's no separate view-model layer per screen.
 Views live under `Features/`, one folder per screen area; `EventListView`
 (under `Features/Calendar/`) is shared between the two navigation
 containers `CalendarView` picks between (`NavigationStack` on iPhone,
-`NavigationSplitView` on iPad) so the list, filter bar, search, and
-loading/offline/empty states never diverge between form factors.
+`NavigationSplitView` on iPad) so the list, bottom-bar filter controls,
+search, and loading/offline/empty states never diverge between form
+factors.
+
+### Filter chrome
+
+There is no dedicated filter-bar view. `EventListView` puts two controls —
+a date-range button (label from `Domain/DateFilterLabel.swift`, e.g. "Now"
+or "Weeks 4–6") and a `Filters (n)` button (count from
+`Domain/ActiveFilterCount.swift`) — into a single
+`ToolbarItemGroup(placement: .bottomBar)`, alongside the system search
+field. Tapping either button presents one of two sheets,
+`Features/Filters/DateFilterSheet.swift` (scope chips + week grid) or
+`Features/Filters/FilterSheet.swift` (active-filter chips, venue/category
+chip clouds, favorites, `Clear Filters`), both at `.medium`/`.large`
+detents with `presentationBackgroundInteraction` enabled up through
+`.medium` so the list stays visible and live behind the sheet.
+`Domain/FacetCounts.swift` recomputes venue/category counts against the
+*current* selection (each facet's own dimension excluded) whenever the
+selection, favorites, or snapshot changes — not once per snapshot — so a
+facet count can never read the season-wide total after another filter has
+narrowed the list.
+
+**This bottom-bar layout exists because of an iOS 26 SDK quirk, not
+preference.** On iOS 26, `.searchable` renders as its own bottom-anchored
+floating field rather than docking under the navigation bar as it does on
+iOS 18 — the original design for this branch assumed the older placement
+and, when combined with a separate floating filter bar, produced two
+stacked floating bars overlapping the list. Worse, once an app declares
+*any* `.bottomBar` toolbar content on iOS 26, the system search field
+disappears entirely unless the app also declares
+`DefaultToolbarItem(kind: .search, placement: .bottomBar)` — confirmed by
+screenshot: without it, search filtered the list but drew no visible field
+anywhere. `EventListView`'s toolbar has a small
+`if #available(iOS 26.0, *)` block that adds that item so search rejoins
+the group. Net effect: on iOS 18 the search field sits under the
+navigation bar with the date/filter pills in the bottom bar; on iOS 26 all
+three share one bottom-bar group. The deployment target stays 18.0 either
+way — this is an availability-guarded adoption, not a floor change.
 
 ```
 ChqCalendar/
@@ -91,15 +149,20 @@ ChqCalendar/
 │   ├── EventFilter.swift        # Search/date/week/location/category logic
 │   ├── EventGrouping.swift      # Groups events into day-keyed DayGroups
 │   ├── SeasonCalendar.swift     # Week-number math for the summer season
-│   └── DisplayNames.swift       # Category/location display-name mapping
+│   ├── DisplayNames.swift       # Category/location display-name mapping
+│   ├── FacetCounts.swift        # Venue/category counts vs. current
+│   │                             # selection, own dimension excluded
+│   ├── DateFilterLabel.swift    # Date pill's summary text ("Now",
+│   │                             # "Weeks 4–6", ...)
+│   └── ActiveFilterCount.swift  # Filter pill's badge count
 ├── Features/
 │   ├── Calendar/                # CalendarView (root), EventListView
-│   │                             # (shared list/filter-bar/empty-states),
-│   │                             # EventRow
+│   │                             # (shared list, bottom-bar filter
+│   │                             # controls, empty-states), EventRow
 │   ├── Detail/                  # EventDetailView, AddToCalendarView
 │   │                             # (EventKit integration)
-│   ├── Filters/                 # FilterBarView, FacetRowView,
-│   │                             # WeekStripView
+│   ├── Filters/                 # DateFilterSheet, FilterSheet,
+│   │                             # FacetChipCloud, FacetAllList
 │   └── Shared/                  # Banners.swift (countdown/offline banners)
 ├── Models/
 │   ├── Event.swift               # Event (Decodable, Hashable), custom
