@@ -551,10 +551,9 @@ final class AppModel {
     /// builds.
 
     /// Set by `CalendarView` on launch when `-uitest-show-filters` is
-    /// present. Its consumer — the four-row `FilterBarView` — is gone; the
-    /// flag is deliberately kept for the follow-up task that rewires it to
-    /// present `FilterSheet` from `EventListView`, so nothing reads it right
-    /// now.
+    /// present. Its original consumer — the four-row `FilterBarView` — is
+    /// gone; it is now consumed by `EventListView`, which presents
+    /// `FilterSheet` (and resets the flag) on `onAppear`/`onChange`.
     var uiTestShowFilters = false
 
     /// Set by `CalendarView` on launch when `-uitest-show-add-to-calendar`

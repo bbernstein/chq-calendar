@@ -50,7 +50,28 @@ struct EventListView: View {
                 case .filters: FilterSheet(model: model)
                 }
             }
+            #if DEBUG
+            .onAppear(perform: presentFilterSheetIfNeeded)
+            .onChange(of: model.uiTestShowFilters) { _, _ in presentFilterSheetIfNeeded() }
+            #endif
     }
+
+    #if DEBUG
+    // MARK: UI-test hooks (DEBUG only)
+
+    /// `-uitest-show-filters` used to expand `FilterBarView`'s Venues panel.
+    /// That view is gone, so the equivalent "show me the filter UI" state is
+    /// now the filter sheet. Both `onAppear` (flag already true when this
+    /// view mounts, e.g. a warm cache where `start()` finished before the
+    /// view appeared) and `onChange` (view mounted before `start()` flipped
+    /// the flag, e.g. a cold launch) are needed to catch either ordering.
+    private func presentFilterSheetIfNeeded() {
+        if model.uiTestShowFilters {
+            model.uiTestShowFilters = false
+            activeSheet = .filters
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var content: some View {
