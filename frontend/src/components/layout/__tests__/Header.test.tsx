@@ -24,7 +24,7 @@ describe('Header navigation', () => {
     // gated behind the "More" toggle, so exactly one Questions button exists.
     const questions = screen.getByRole('button', { name: 'Questions' });
     fireEvent.click(questions);
-    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank');
+    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank', 'noopener,noreferrer');
   });
 
   it('renders the Questions button in the mobile dropdown', () => {
@@ -38,7 +38,7 @@ describe('Header navigation', () => {
     expect(questions).toHaveLength(2);
 
     fireEvent.click(questions[1]);
-    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank');
+    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank', 'noopener,noreferrer');
   });
 
   it('renders the Bus & Tram Tracker button in the desktop nav', () => {
@@ -47,7 +47,7 @@ describe('Header navigation', () => {
 
     const tracker = screen.getByRole('button', { name: 'Bus & Tram Tracker' });
     fireEvent.click(tracker);
-    expect(openSpy).toHaveBeenCalledWith('https://busandtramtracker.chq.org', '_blank');
+    expect(openSpy).toHaveBeenCalledWith('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer');
   });
 
   it('renders the Bus & Tram Tracker button in the mobile dropdown', () => {
@@ -59,6 +59,6 @@ describe('Header navigation', () => {
     expect(trackers).toHaveLength(2);
 
     fireEvent.click(trackers[1]);
-    expect(openSpy).toHaveBeenCalledWith('https://busandtramtracker.chq.org', '_blank');
+    expect(openSpy).toHaveBeenCalledWith('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer');
   });
 });
