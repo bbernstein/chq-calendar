@@ -19,6 +19,21 @@ struct WeekThemePopover: View {
     }
 
     var body: some View {
+        // `UIPopoverPresentationController` derives its content size by
+        // asking this hierarchy for its *ideal* size before it ever gets
+        // presented — a separate, earlier layout pass than the one that
+        // renders it on screen. A `maxWidth` alone leaves that ideal-size
+        // pass free to measure `Text` at its unconstrained (single-line)
+        // width, so it reports a short ideal height back; the render pass
+        // then clamps to 280pt and wraps to three lines, which no longer fit
+        // the frame the popover already committed to. A definite `width`
+        // makes both passes measure at the same 280pt, so the wrap the
+        // render pass produces is the wrap the size query already accounted
+        // for. `fixedSize` on the outer stack (not just the title `Text`)
+        // makes sure that full wrapped height — header line, however many
+        // lines the title takes, and the link — is what gets reported,
+        // rather than a height the presentation later proposes and this
+        // view silently accepts.
         VStack(alignment: .leading, spacing: 8) {
             Text(headerLine)
                 .font(.caption2.weight(.semibold))
@@ -27,7 +42,6 @@ struct WeekThemePopover: View {
 
             Text(summary.title)
                 .font(.subheadline.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
 
             Link(destination: Self.themesURL) {
                 HStack(spacing: 3) {
@@ -39,7 +53,8 @@ struct WeekThemePopover: View {
             }
         }
         .padding(16)
-        .frame(maxWidth: 280, alignment: .leading)
+        .frame(width: 280, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
         .presentationCompactAdaptation(.popover)
     }
 }
