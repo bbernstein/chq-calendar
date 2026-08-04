@@ -18,10 +18,15 @@
 #                        device — e.g. iPad's wider NavigationSplitView has
 #                        a detail column that a plain iPhone-oriented launch
 #                        leaves empty ("Select an event"/blank), so 01/02/03
-#                        add "-uitest-select-linked-event" only under
-#                        "ipad-13" to populate it, while iPhone (single
-#                        column, nothing to populate) launches with just
-#                        "launchArgs" as before. Order is launchArgs first,
+#                        populate it only under "ipad-13", while iPhone
+#                        (single column, nothing to populate) launches with
+#                        just "launchArgs" as before. 02/03 use
+#                        "-uitest-select-linked-event"; 01 uses
+#                        "-uitest-select-event-index 1" instead, because
+#                        04-detail already selects index 0 and on iPad both
+#                        columns are always visible — sharing the flag made
+#                        01 and 04 byte-identical captures. Order is
+#                        launchArgs first,
 #                        then deviceLaunchArgs[<key>] — matters if a hook
 #                        reads "the argument that follows a flag" (e.g.
 #                        "-uitest-search <term>" — keep such flag+value

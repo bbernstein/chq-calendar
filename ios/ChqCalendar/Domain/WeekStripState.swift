@@ -7,20 +7,28 @@ nonisolated enum WeekTimeState: Equatable, Sendable {
     case upcoming
 }
 
-/// Pure inputs for how `WeekStripView` styles and scrolls its nine chips.
+/// Pure inputs for how a week strip styles and scrolls its nine chips.
 ///
 /// `now` is optional throughout: callers pass `nil` when the viewed year
 /// isn't the current one. A past or future season has no "now" to be
 /// relative to, so every week renders neutrally and the strip stays at
 /// week 1 rather than guessing.
+///
+/// **Currently referenced by nothing but its own tests.** Its only caller
+/// was `WeekStripView`, deleted when the four-row filter bar was replaced by
+/// the floating bar; `DateFilterSheet` renders weeks without past/current
+/// styling today. Kept deliberately rather than deleted alongside the view:
+/// the season-relative week logic is the non-obvious part and is worth
+/// having on hand if that styling returns. Delete it in its own change, not
+/// as a side effect of one about chrome.
 nonisolated enum WeekStripState {
     /// Convenience for callers that only need one week's state. Builds the
     /// season once and delegates.
     ///
-    /// `WeekStripView` deliberately does NOT use this: it renders all nine
-    /// chips per pass, and this overload would rebuild the nine-week array
-    /// nine times. It hoists `SeasonCalendar.weeks(forYear:)` itself and
-    /// calls `timeState(week:now:weeks:)` instead.
+    /// A caller rendering all nine chips per pass should NOT use this: it
+    /// would rebuild the nine-week array nine times. Hoist
+    /// `SeasonCalendar.weeks(forYear:)` and call
+    /// `timeState(week:now:weeks:)` instead.
     static func timeState(week n: Int, now: Date?, year: Int) -> WeekTimeState {
         timeState(week: n, now: now, weeks: SeasonCalendar.weeks(forYear: year))
     }

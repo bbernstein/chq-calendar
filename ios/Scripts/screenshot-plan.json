@@ -9,13 +9,14 @@
       "caption": "The whole season, one scroll.",
       "launchArgs": [],
       "settleSeconds": 6,
-      "deviceLaunchArgs": { "ipad-13": ["-uitest-select-linked-event"] }
+      "deviceLaunchArgs": { "ipad-13": ["-uitest-select-event-index", "1"] }
     },
     {
       "id": "02-filters",
       "caption": "Narrow it to what you actually want.",
       "launchArgs": ["-uitest-show-filters"],
       "settleSeconds": 6,
+      "presentsModal": true,
       "deviceLaunchArgs": { "ipad-13": ["-uitest-select-linked-event"] }
     },
     {

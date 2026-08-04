@@ -1,32 +1,137 @@
-import Foundation
 import Testing
+import Foundation
 @testable import ChqCalendar
 
 struct FacetCountsTests {
-    @Test func countsLocationsAndCategoriesLowercased() throws {
-        let start = try #require(ChqTime.parse("2026-07-01 10:00:00"))
-        let events = [
-            makeEvent(id: "a", start: start, location: "Amphitheater", categories: ["CSO"]),
-            makeEvent(id: "b", start: start, location: "Amphitheater", categories: ["CSO"]),
-            makeEvent(id: "c", start: start, location: "Norton Hall", categories: ["CLSC"]),
+    /// A fixed instant inside the 2026 season. `isCurrentYear: false` is
+    /// passed everywhere below, which forces `EventFilter` to treat any
+    /// time-relative scope as `.all` — so these tests exercise the facet
+    /// logic without depending on the wall clock.
+    private func date(_ string: String) throws -> Date {
+        try #require(ChqTime.parse(string))
+    }
+
+    private func sample() throws -> [Event] {
+        [
+            makeEvent(id: "1", start: try date("2026-07-01 10:00:00"),
+                      title: "Opening Recital", location: "Amphitheater", categories: ["Music"]),
+            makeEvent(id: "2", start: try date("2026-07-02 10:00:00"),
+                      title: "Event 2", location: "Amphitheater", categories: ["Lectures"]),
+            makeEvent(id: "3", start: try date("2026-07-03 10:00:00"),
+                      title: "Event 3", location: "Norton Hall", categories: ["Music"]),
+            makeEvent(id: "4", start: try date("2026-08-10 10:00:00"),
+                      title: "Event 4", location: "Norton Hall", categories: ["Opera"]),
+            makeEvent(id: "5", start: try date("2026-08-11 10:00:00"),
+                      title: "Event 5", location: "Bratton Theater", categories: ["Theater"]),
         ]
+    }
 
-        let counts = FacetCounts.build(from: events)
+    private func counts(
+        _ selection: FilterSelection,
+        favorites: Set<String> = []
+    ) throws -> FacetCounts {
+        FacetCounts.build(
+            events: try sample(),
+            selection: selection,
+            favorites: favorites,
+            now: try date("2026-07-01 09:00:00"),
+            year: 2026,
+            isCurrentYear: false)
+    }
 
-        #expect(counts.locations["amphitheater"] == 2)
-        #expect(counts.locations["norton hall"] == 1)
-        #expect(counts.categories["cso"] == 2)
-        #expect(counts.categories["clsc"] == 1)
+    @Test func unfilteredCountsEveryEvent() throws {
+        let c = try counts(FilterSelection(dateScope: .all))
+        #expect(c.locations["amphitheater"] == 2)
+        #expect(c.locations["norton hall"] == 2)
+        #expect(c.locations["bratton theater"] == 1)
+        #expect(c.categories["music"] == 2)
+    }
+
+    @Test func anotherFacetNarrowsTheCounts() throws {
+        // This is #152's repro shape: a category selection must move the
+        // venue numbers.
+        let c = try counts(FilterSelection(dateScope: .all, selectedCategories: ["Music"]))
+        #expect(c.locations["amphitheater"] == 1)
+        #expect(c.locations["norton hall"] == 1)
+        #expect(c.locations["bratton theater"] == nil || c.locations["bratton theater"] == 0)
+    }
+
+    @Test func aFacetDoesNotNarrowItself() throws {
+        // With Amphitheater selected, other venues must still report the
+        // counts they would add — otherwise a second venue could never be
+        // picked, because every alternative would read 0.
+        let c = try counts(FilterSelection(dateScope: .all, selectedLocations: ["Amphitheater"]))
+        #expect(c.locations["amphitheater"] == 2)
+        #expect(c.locations["norton hall"] == 2)
+        #expect(c.locations["bratton theater"] == 1)
+    }
+
+    @Test func aFacetStillNarrowsTheOtherFacet() throws {
+        // The venue selection is excluded from venue counts but not from
+        // category counts.
+        let c = try counts(FilterSelection(dateScope: .all, selectedLocations: ["Amphitheater"]))
+        #expect(c.categories["music"] == 1)
+        #expect(c.categories["lectures"] == 1)
+        #expect(c.categories["opera"] == nil || c.categories["opera"] == 0)
+    }
+
+    @Test func searchNarrowsBothFacets() throws {
+        // "Recital" appears only in Event 1's title ("Opening Recital"); the
+        // other sample titles are plain "Event N" and share no word with it,
+        // so this term narrows to exactly one event under `EventFilter`'s
+        // per-word OR scoring.
+        let c = try counts(FilterSelection(searchText: "Recital", dateScope: .all))
+        #expect(c.locations["amphitheater"] == 1)
+        #expect(c.locations["norton hall"] == nil || c.locations["norton hall"] == 0)
+    }
+
+    @Test func favoritesOnlyNarrowsBothFacets() throws {
+        let c = try counts(
+            FilterSelection(dateScope: .all, showFavoritesOnly: true),
+            favorites: ["1"])
+        #expect(c.locations["amphitheater"] == 1)
+        #expect(c.categories["music"] == 1)
+        #expect(c.locations["norton hall"] == nil || c.locations["norton hall"] == 0)
+    }
+
+    @Test func keysAreLowercasedOnBothFacets() throws {
+        let c = try counts(FilterSelection(dateScope: .all))
+        #expect(c.locations["Amphitheater"] == nil)
+        #expect(c.locations["amphitheater"] != nil)
     }
 
     @Test func eventsWithoutALocationAreSkipped() throws {
-        let start = try #require(ChqTime.parse("2026-07-01 10:00:00"))
-        let counts = FacetCounts.build(from: [makeEvent(id: "a", start: start)])
-        #expect(counts.locations.isEmpty)
+        // An event with no `displayLocation` must contribute to no location
+        // bucket at all — not to a `nil`/empty-string key, just absent.
+        let events = try sample() + [
+            makeEvent(id: "6", start: try date("2026-08-12 10:00:00"),
+                      title: "Event 6", categories: ["Music"]),
+        ]
+        let c = FacetCounts.build(
+            events: events,
+            selection: FilterSelection(dateScope: .all),
+            favorites: [],
+            now: try date("2026-07-01 09:00:00"),
+            year: 2026,
+            isCurrentYear: false)
+        #expect(c.locations.values.reduce(0, +) == 5)
+        #expect(c.locations["amphitheater"] == 2)
+        #expect(c.locations["norton hall"] == 2)
+        #expect(c.locations["bratton theater"] == 1)
+        // The category count still picks up the sixth event...
+        #expect(c.categories["music"] == 3)
+        // ...but no location key exists for it.
+        #expect(c.locations.count == 3)
     }
 
-    @Test func emptyIsAllZeroes() {
-        #expect(FacetCounts.empty.locations.isEmpty)
-        #expect(FacetCounts.empty.categories.isEmpty)
+    @Test func emptyEventsProduceEmptyCounts() throws {
+        let c = FacetCounts.build(
+            events: [],
+            selection: FilterSelection(dateScope: .all),
+            favorites: [],
+            now: try date("2026-07-01 09:00:00"),
+            year: 2026,
+            isCurrentYear: false)
+        #expect(c == .empty)
     }
 }

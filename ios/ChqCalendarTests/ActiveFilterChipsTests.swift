@@ -63,7 +63,7 @@ struct ActiveFilterChipsTests {
         #expect(Set(ids).count == ids.count)
     }
 
-    // MARK: - what `FilterBarView` gates the reset row on
+    // MARK: - what `FilterSheet` gates its active/reset section on
 
     @Test func theDefaultSelectionHasFiltersButProducesNoChips() {
         // The reason the reset row cannot be gated on `hasFilters`: a fresh
@@ -78,9 +78,9 @@ struct ActiveFilterChipsTests {
     }
 
     @Test func hasNonDateFiltersIsExactlyWhetherAnyChipIsProduced() {
-        // `FilterBarView` gates the reset row on `hasNonDateFilters`; the
-        // row is "Clear all" plus these chips, so with no chips it is an
-        // orphan. The web writes the same guard as `hasFilters &&
+        // `FilterSheet` gates its active section and "Clear All" on there
+        // being chips at all, which is exactly `hasNonDateFilters`; with no
+        // chips the section and the button are orphans. The web writes the same guard as `hasFilters &&
         // chips.length > 0`. Pinned across every field either predicate
         // reads, so the two cannot drift apart.
         var selections: [FilterSelection] = [

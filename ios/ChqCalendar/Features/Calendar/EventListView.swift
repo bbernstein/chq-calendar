@@ -15,7 +15,7 @@ import SwiftUI
 ///   mode since nothing ever pushes a value.
 ///
 /// Everything else — the loading/offline/error/no-matches states, the
-/// countdown/offline banners, the filter-bar `safeAreaInset`, and
+/// countdown/offline banners, the bottom-bar filter controls, and
 /// `refreshable` — is identical between the two layouts, which is the whole
 /// point of sharing this view.
 struct EventListView: View {
@@ -24,98 +24,66 @@ struct EventListView: View {
 
     @State private var isAboutPresented = false
 
-    /// Mirrors `collapseDriver.isCollapsed` so the bar re-renders on a
-    /// flip. The driver, not this, is the decision state — see
-    /// `FilterBarCollapseDriver`, which deliberately isn't observed so its
-    /// per-frame bookkeeping can't invalidate this body.
-    @State private var isFilterBarCollapsed = false
+    /// Which pill's sheet is up, if any.
+    @State private var activeSheet: FilterBarSheet?
 
-    @State private var collapseDriver = FilterBarCollapseDriver(
-        estimatedGiveBack: EventListView.estimatedCollapseGiveBack)
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Belt-and-braces for the same wedge `reset()` guards against (see
-    /// `FilterBarCollapseDriver.reset()`), from a different trigger: the
-    /// `withAnimation(completionCriteria: .removed)` completion that clears
-    /// `isSettling` runs after the 0.2s collapse/expand animation, and if the
-    /// app is backgrounded inside that window, UIKit/SwiftUI does not
-    /// guarantee the completion still fires while the scene is suspended.
-    /// The view itself isn't torn down by backgrounding, so `listWasReplaced`
-    /// never runs either — nothing else would un-wedge the driver on return.
-    /// Deliberately just `settled()`, not `reset()`: coming back from the
-    /// background shouldn't force the bar back open or forget the measured
-    /// give-back, only clear a possibly-stuck settling flag. No timer, no
-    /// tuned duration — see `FilterBarCollapseDriver`'s doc comment for why
-    /// that absence is the point.
-    @Environment(\.scenePhase) private var scenePhase
-
-    /// A starting assumption for how much height collapsing hands back —
-    /// the venue, category, and reset rows `FilterBarView` drops when
-    /// `isCollapsed`. Used only until the driver has seen the bar settled in
-    /// both states and can measure the real figure; see
-    /// `FilterBarCollapseDriver`.
-    ///
-    /// 150 rather than 100 because the population this protects is the
-    /// filtered one. Instrumented iPhone 17 runs put the list's settled top
-    /// inset at 330 → 230 unfiltered (no reset row, so 100pt) but 380 → 230
-    /// whenever any filter is active (`log-B`, `log-C4`, `log-E`, `log-F`
-    /// — short, overflowing, panel-open, and tiny filtered lists), i.e.
-    /// 150pt. The 100pt figure a previous round recorded here came from the
-    /// one scenario with no reset row (`log-drag-smoke`, `log-A`, `log-RM`,
-    /// all unfiltered).
-    private static let estimatedCollapseGiveBack: CGFloat = 150
-
-    /// How long the collapse/expand transition runs. Named because the
-    /// driver's settle window is defined by this animation completing, not
-    /// by any separately-tuned duration.
-    private static let collapseAnimationDuration: TimeInterval = 0.2
+    private enum FilterBarSheet: String, Identifiable {
+        case date
+        case filters
+        var id: String { rawValue }
+    }
 
     var body: some View {
         content
             // Inline, and shortened to fit beside the year and overflow
             // toolbar items. The large-title band was ~70pt of empty space
-            // above the filter bar with no title text ever drawn in it.
+            // above the list with no title text ever drawn in it.
             .navigationTitle("CHQ Calendar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .sheet(isPresented: $isAboutPresented) {
                 AboutView()
             }
-            .safeAreaInset(edge: .top) {
-                // Only shown once there's a snapshot to filter/count
-                // against — during initial launch (no snapshot yet) or the
-                // offline/error empty states, category/location counts
-                // would be meaningless and the bar would just be dead
-                // chrome above a loading spinner or banner.
-                if model.snapshot != nil {
-                    FilterBarView(model: model, isCollapsed: isFilterBarCollapsed)
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .date: DateFilterSheet(model: model)
+                case .filters: FilterSheet(model: model)
                 }
             }
-            .onChange(of: scenePhase) { _, newPhase in
-                if newPhase == .active {
-                    collapseDriver.settled()
-                }
-            }
+            #if DEBUG
+            .onAppear(perform: presentFilterSheetIfNeeded)
+            .onChange(of: model.uiTestShowFilters) { _, _ in presentFilterSheetIfNeeded() }
+            #endif
     }
+
+    #if DEBUG
+    // MARK: UI-test hooks (DEBUG only)
+
+    /// `-uitest-show-filters` used to expand `FilterBarView`'s Venues panel.
+    /// That view is gone, so the equivalent "show me the filter UI" state is
+    /// now the filter sheet. Both `onAppear` (flag already true when this
+    /// view mounts, e.g. a warm cache where `start()` finished before the
+    /// view appeared) and `onChange` (view mounted before `start()` flipped
+    /// the flag, e.g. a cold launch) are needed to catch either ordering.
+    private func presentFilterSheetIfNeeded() {
+        if model.uiTestShowFilters {
+            model.uiTestShowFilters = false
+            activeSheet = .filters
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var content: some View {
         if model.snapshot == nil {
-            // Grouped so one `onAppear` covers all three phases; see
-            // `listWasReplaced` for why the replacement, rather than the
-            // `List`'s own `onDisappear`, is what resets collapse tracking.
-            Group {
-                switch model.phase {
-                case .offline:
-                    offlineUnavailableView
-                case .failed(let message):
-                    errorUnavailableView(message)
-                default:
-                    ProgressView("Loading events…")
-                }
+            switch model.phase {
+            case .offline:
+                offlineUnavailableView
+            case .failed(let message):
+                errorUnavailableView(message)
+            default:
+                ProgressView("Loading events…")
             }
-            .onAppear(perform: listWasReplaced)
         } else {
             // Bound once here rather than read separately by an `.isEmpty`
             // check and then `list`: `model.dayGroups` reruns the whole
@@ -125,33 +93,10 @@ struct EventListView: View {
             let days = model.dayGroups
             if days.isEmpty {
                 noMatchesView
-                    .onAppear(perform: listWasReplaced)
             } else {
                 list(days: days)
             }
         }
-    }
-
-    /// Called the moment something other than the event list takes the
-    /// screen — the loading/offline/error states, or "No matching events".
-    /// Every way the `List` can be destroyed passes through one of those,
-    /// so this is exactly "the list this driver was reading is gone".
-    ///
-    /// **Not the `List`'s own `onDisappear`**, which would be the obvious
-    /// hook and is wrong: SwiftUI fires it when `EventDetailView` is pushed
-    /// onto the `NavigationStack` too (verified on the simulator — a push
-    /// logs `DISAPPEAR` from the list). Resetting there would re-open the
-    /// filter bar every time the user tapped an event and leave it open on
-    /// the way back, on a list still scrolled hundreds of points down.
-    ///
-    /// The two things this has to undo are described on
-    /// `FilterBarCollapseDriver.reset()`. `isFilterBarCollapsed` is cleared
-    /// alongside it so the view's mirror cannot disagree with the driver:
-    /// whatever list appears next starts at its own top, where the bar is
-    /// whole.
-    private func listWasReplaced() {
-        collapseDriver.reset()
-        isFilterBarCollapsed = false
     }
 
     private func list(days: [DayGroup]) -> some View {
@@ -190,35 +135,14 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-        .onScrollGeometryChange(for: ScrollGeometrySample.self) { geometry in
-            ScrollGeometrySample(
-                contentOffset: geometry.contentOffset.y,
-                insetTop: geometry.contentInsets.top,
-                insetBottom: geometry.contentInsets.bottom,
-                containerHeight: geometry.containerSize.height,
-                contentHeight: geometry.contentSize.height)
-        } action: { _, sample in
-            // This action closure isn't `@Sendable`, so it runs on whatever
-            // actor called this modifier (MainActor, since this is a view's
-            // body) — no manual actor hop is needed to touch `@State` here.
-            //
-            // Every decision, including which samples to trust at all,
-            // lives in the driver; see its doc comment for why animating
-            // the bar makes raw geometry unreadable while it animates.
-            guard let collapsed = collapseDriver.received(sample) else { return }
-            withAnimation(
-                reduceMotion ? nil : .easeInOut(duration: Self.collapseAnimationDuration),
-                completionCriteria: .removed
-            ) {
-                isFilterBarCollapsed = collapsed
-            } completion: {
-                // The settle window *is* the animation: geometry is
-                // re-admitted the moment this transition is fully removed,
-                // never before and never on a timer. Verified to fire on
-                // both branches, including the `nil` (Reduce Motion) one.
-                collapseDriver.settled()
-            }
-        }
+        // No `contentMargins(.bottom, …)` here on purpose. The bottom bar is
+        // a real toolbar, so the system puts its height into the scroll
+        // view's own content insets — measured at 86.0pt on iPhone 17 /
+        // iOS 26.1 with nothing of ours contributing to it. That is a
+        // stronger version of the guarantee the hand-rolled reservation used
+        // to provide: the inset is owned by the navigation container, not by
+        // any state of ours, so nothing we render can shift the list
+        // vertically. Adding a margin back would double-count the bar.
         .refreshable {
             await model.refresh(force: true)
         }
@@ -257,7 +181,17 @@ struct EventListView: View {
         ContentUnavailableView {
             Label("No matching events", systemImage: "calendar.badge.exclamationmark")
         } actions: {
-            Button("Clear Filters") {
+            // Deliberately worded differently than the filter sheet's
+            // "Clear Filters" button (`FilterSheet.swift`), even though both
+            // ultimately call `clearAll()` here. If this said "Clear
+            // Filters" too, a user who reached an empty list via a date/week
+            // selection (e.g. Week 6 at a venue with no Week 6 events) could
+            // tap it expecting the sheet's scoped behavior and silently lose
+            // their week. Clearing everything is correct for this empty
+            // state — recovering from "nothing matches" needs a full reset —
+            // but the label must say so plainly rather than reuse a phrase
+            // that means something narrower elsewhere in the app.
+            Button("Show All Events") {
                 model.clearAll()
             }
         }
@@ -289,8 +223,99 @@ struct EventListView: View {
         }
     }
 
+    /// The date pill's label. Never abbreviates — it is precisely the thing
+    /// a scrolling user wants to keep reading.
+    private var dateLabel: String {
+        DateFilterLabel.text(
+            for: model.filter,
+            seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count,
+            isCurrentYear: model.isCurrentYear)
+    }
+
+    private var filterCount: Int { ActiveFilterCount.value(for: model.filter) }
+
+    private var filtersAccessibilityLabel: String {
+        filterCount == 0
+            ? "Filters, none active. Double tap to change."
+            : "Filters, \(filterCount) active. Double tap to change."
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // The two filter controls live in the navigation container's bottom
+        // bar rather than in a floating overlay of our own. On the iOS 26
+        // SDK this app builds against, `.searchable` is itself rendered as a
+        // bottom-anchored floating field, so an overlay bar and the search
+        // field were two separate things competing for the same edge (and
+        // the overlay sat on top of list text). Bottom-bar toolbar items and
+        // the search field are laid out by the system as one group, which is
+        // both the platform idiom and the only way the two can coexist.
+        //
+        // Only once there is a snapshot to filter against — during launch or
+        // the offline/error states the pills would summarise nothing. The
+        // search field is unaffected by this condition; it is the system's.
+        if model.snapshot != nil {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button {
+                    KeyboardDismisser.dismiss()
+                    activeSheet = .date
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "calendar")
+                        // `fixedSize` so this text wins any competition for
+                        // width against the search field beside it: the date
+                        // label is the one thing in the bar that must never
+                        // abbreviate. The system search item is designed to
+                        // minimise to a magnifier when space is tight, so it
+                        // is the correct thing to yield. Longest value this
+                        // can take is `DateFilterLabel`'s "Weeks 1, 3, 5".
+                        Text(dateLabel)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .accessibilityLabel("Date range: \(dateLabel). Double tap to change.")
+
+                Button {
+                    KeyboardDismisser.dismiss()
+                    activeSheet = .filters
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "line.3.horizontal.decrease")
+                        Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityLabel(filtersAccessibilityLabel)
+            }
+            // **Required on iOS 26, not decorative.** Declaring *any*
+            // `.bottomBar` content on the iOS 26 runtime makes the app own
+            // that bar, and the system search field — which on iOS 26 is
+            // itself bottom-anchored — then disappears entirely rather than
+            // sharing it. Verified by screenshot: with the group above and
+            // without these two items, launching with `-uitest-search opera`
+            // filtered the list but drew no search field and no magnifier
+            // anywhere on screen, leaving search unreachable. These items put
+            // it back, to the right of the pills, as one group.
+            //
+            // Deployment target stays 18.0; this is an availability-guarded
+            // adoption, not a floor change. On the iOS 18 runtime the branch
+            // is skipped and `.searchable` renders under the navigation bar,
+            // which is where it has always gone there — no conflict to
+            // resolve, so nothing to declare.
+            //
+            // Known benign log on iOS 26: "Ignoring
+            // searchBarPlacementBarButtonItem because its vending navigation
+            // item does not match the view controller's", twice at launch.
+            // SwiftUI vends two `UINavigationItem`s that share the same
+            // `searchController`. Placing `.searchable` on this view instead
+            // of on the enclosing container was tried and did not change the
+            // count; the field renders in the bottom bar either way.
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 ForEach(AboutInfo.quickLinks) { link in

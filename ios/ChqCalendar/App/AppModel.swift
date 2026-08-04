@@ -34,25 +34,55 @@ final class AppModel {
 
     var snapshot: CalendarSnapshot? {
         didSet {
-            facetCounts = snapshot.map { FacetCounts.build(from: $0.events) } ?? .empty
             normalizePersistedFilterCasing()
+            rebuildFacetCounts()
         }
     }
 
-    /// Per-venue / per-category event counts for the current snapshot.
-    /// Recomputed only when `snapshot` changes — a full pass over ~1,500
-    /// events is far too expensive to redo on every view render.
+    /// Per-venue / per-category event counts for the current selection.
+    ///
+    /// Rebuilt only when an input actually changes — the snapshot, the
+    /// filter, the favorites set, or the year — never on render. Each
+    /// rebuild is two `EventFilter.apply` passes over the snapshot (see
+    /// `FacetCounts`), which is affordable at that cadence and would not be
+    /// per-render.
     private(set) var facetCounts: FacetCounts = .empty
 
     /// The user's most-recently-used venue and category filters.
     private(set) var recents: RecentFilters
 
     var phase: Phase = .launching
-    var filter: FilterSelection
-    var favorites: Set<String>
-    var selectedYear: Int
+
+    var filter: FilterSelection {
+        didSet {
+            guard filter != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
+    var favorites: Set<String> {
+        didSet {
+            guard favorites != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
+    var selectedYear: Int {
+        didSet {
+            guard selectedYear != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
     var years: [Int] = []
-    var defaultYear: Int
+
+    var defaultYear: Int {
+        didSet {
+            guard defaultYear != oldValue else { return }
+            rebuildFacetCounts()
+        }
+    }
+
     var isRefreshing: Bool = false
 
     /// Set whenever a `refresh(force:)` call fails. Distinct from `phase`,
@@ -64,10 +94,13 @@ final class AppModel {
     private let repository: EventRepository
     private let store: UserStateStore
 
-    /// The injected clock. Exposed (rather than private) so views computing
-    /// time-relative presentation — `WeekStripView`'s past/current styling —
-    /// use the same instant the filter pipeline does, and so tests can pin
-    /// both together.
+    /// The injected clock — the single instant every time-relative
+    /// derivation in the app reads. It drives the filter pipeline's
+    /// `.next`/`.today`/`.thisWeek` scopes and `FacetCounts` rebuilds (both
+    /// via `EventFilter.apply`), `countdownDays`, and `currentWeek` (which
+    /// in turn decides which date chips light up). Exposed rather than
+    /// private so any view needing "now" uses the same instant the pipeline
+    /// did, and so a test can pin all of them together.
     let now: @Sendable () -> Date
 
     /// The most recent non-nil `remoteVersion()` observed, used by
@@ -100,16 +133,56 @@ final class AppModel {
     /// Recomputed on every access rather than cached — at ~1.6k events this
     /// is cheap enough that memoization isn't worth the extra state.
     var dayGroups: [DayGroup] {
+        EventGrouping.byDay(filteredEvents(filter), year: selectedYear)
+    }
+
+    /// How many events the current selection matches — the same number as
+    /// summing `dayGroups`, without paying for the grouping pass.
+    ///
+    /// Both filter sheets' footers ("Show N events") want a count, not
+    /// grouped days, and they are presented over `EventListView`, which is
+    /// reading `dayGroups` at the same time. Reaching through `dayGroups`
+    /// there meant re-running the whole pipeline *and* `EventGrouping.byDay`
+    /// for a number that never needed the days. `EventListView`'s own "n of
+    /// m" line is a different case and correctly keeps using `dayGroups`:
+    /// it already has the grouped days in hand.
+    ///
+    /// `AppModelTests.matchCountEqualsTheSummedDayGroupCount` pins the two
+    /// together so they cannot drift.
+    var matchCount: Int {
+        filteredEvents(filter).count
+    }
+
+    /// How many events the Favorites chip would leave if it were switched
+    /// on — i.e. favorites that also satisfy every *other* active filter.
+    ///
+    /// The raw `favorites.count` was wrong in the same way an unfiltered
+    /// facet count is wrong (#152): searching "opera" with five favorites of
+    /// which one is opera-related showed "Favorites 5" and yielded one
+    /// event. This applies `FacetCounts.build`'s own-dimension-exclusion
+    /// rule to the favorites dimension — drop the dimension's current value,
+    /// then count with it applied — so the number means the same thing as
+    /// every venue and category count beside it in `FilterSheet`.
+    ///
+    /// Computed on access rather than folded into `facetCounts`: it is a
+    /// single scalar read only while the filter sheet is open, so it does
+    /// not need to ride along on every rebuild.
+    var favoritesMatchCount: Int {
+        var selection = filter
+        selection.showFavoritesOnly = true
+        return filteredEvents(selection).count
+    }
+
+    private func filteredEvents(_ selection: FilterSelection) -> [Event] {
         guard let snapshot else { return [] }
-        let filtered = EventFilter.apply(
-            filter,
+        return EventFilter.apply(
+            selection,
             to: snapshot.events,
             favorites: favorites,
             now: now(),
             year: selectedYear,
             isCurrentYear: isCurrentYear
         )
-        return EventGrouping.byDay(filtered, year: selectedYear)
     }
 
     var visibleCategories: [String] {
@@ -336,7 +409,7 @@ final class AppModel {
 
     // MARK: Facet-generic accessors
     //
-    // `FacetRowView` is one view driving either facet, so it reaches the
+    // `FacetChipCloud` is one view driving either facet, so it reaches the
     // model through these rather than branching on the facet itself.
 
     /// Every venue/category present in the current snapshot, original
@@ -451,6 +524,27 @@ final class AppModel {
         store.saveFilters(filter)
     }
 
+    /// Recomputes `facetCounts` against the current selection.
+    ///
+    /// `normalizePersistedFilterCasing()` can mutate `filter`, whose own
+    /// `didSet` calls back into here — so loading a snapshot may rebuild
+    /// twice. That is one extra pass, once, on snapshot load; the result is
+    /// identical either way, and suppressing it would need a re-entrancy
+    /// flag that costs more clarity than the pass costs time.
+    private func rebuildFacetCounts() {
+        guard let snapshot else {
+            facetCounts = .empty
+            return
+        }
+        facetCounts = FacetCounts.build(
+            events: snapshot.events,
+            selection: filter,
+            favorites: favorites,
+            now: now(),
+            year: selectedYear,
+            isCurrentYear: isCurrentYear)
+    }
+
     /// Persisted `selectedLocations`/`selectedCategories` may carry different
     /// casing than the feed currently serves — most concretely, a build
     /// prior to this branch stored them lowercased (see
@@ -492,41 +586,80 @@ final class AppModel {
     #if DEBUG
     // MARK: UI-test hooks (DEBUG only)
 
-    /// Shared flags/lookups consumed by `CalendarView`, `FilterBarView`, and
+    /// Shared flags/lookups consumed by `CalendarView`, `EventListView`, and
     /// `EventDetailView` to make interactive states reachable for
     /// screenshot-based verification when `xcrun simctl` can't synthesize a
     /// tap (see task-12 brief). This whole section compiles out of Release
     /// builds.
 
     /// Set by `CalendarView` on launch when `-uitest-show-filters` is
-    /// present; consumed (and reset) by `FilterBarView.onAppear`.
+    /// present. Its original consumer — the four-row `FilterBarView` — is
+    /// gone; it is now consumed by `EventListView`, which presents
+    /// `FilterSheet` (and resets the flag) on `onAppear`/`onChange`.
     var uiTestShowFilters = false
 
     /// Set by `CalendarView` on launch when `-uitest-show-add-to-calendar`
     /// is present; consumed (and reset) by `EventDetailView.onAppear`.
     var uiTestShowAddToCalendar = false
 
-    /// The linked-content-richest event in the current snapshot — the
-    /// deterministic target for `-uitest-select-linked-event` /
-    /// `-uitest-show-add-to-calendar` / `-uitest-scroll-to-articles`.
+    /// Every event with article links, richest first — the single candidate
+    /// list behind `-uitest-select-linked-event`,
+    /// `-uitest-show-add-to-calendar`, `-uitest-scroll-to-articles` and
+    /// `-uitest-select-event-index <n>`.
     ///
-    /// Deliberately picks the *richest* event with article links (longest
-    /// `details`, then most links) rather than merely the first one found.
-    /// The detail screenshot pair (`04-detail` / `05-articles`) only differs
-    /// by scroll position, and on iPad's wide `NavigationSplitView` detail
-    /// column, body text wraps into far fewer lines than on iPhone for the
-    /// same character count — a short-description event's full detail view
-    /// (hero image + metadata + description + links + buttons) can render
-    /// with no overflow at all, making `scrollTo` a no-op and the two shots
-    /// byte-identical. Picking the richest available content makes the
-    /// detail view reliably taller than the tallest on-screen viewport
-    /// across both device sizes, so the scroll always has somewhere to go.
-    var uiTestFirstLinkedEvent: Event? {
-        snapshot?.events
+    /// Deliberately ranks by *richness* (longest `details`, then most links;
+    /// see `uiTestContentWeight`) rather than feed order. The detail
+    /// screenshot pair (`04-detail` / `05-articles`) only differs by scroll
+    /// position, and on iPad's wide `NavigationSplitView` detail column,
+    /// body text wraps into far fewer lines than on iPhone for the same
+    /// character count — a short-description event's full detail view (hero
+    /// image + metadata + description + links + buttons) can render with no
+    /// overflow at all, making `scrollTo` a no-op and the two shots
+    /// byte-identical. Ranking by content makes the detail view reliably
+    /// taller than the tallest on-screen viewport across both device sizes,
+    /// so the scroll always has somewhere to go.
+    ///
+    /// `id` breaks weight ties. `max(by:)` is itself deterministic — it
+    /// keeps the first maximum it encounters — but the *input order* isn't:
+    /// which equal-weight element comes first depends on snapshot/feed
+    /// ordering, which can differ between captures. Breaking ties on `id`
+    /// makes the selection independent of that ordering, so two capture
+    /// runs of the same build select the same event and produce identical
+    /// bytes; screenshot captures have to be reproducible.
+    var uiTestLinkedEvents: [Event] {
+        guard let snapshot else { return [] }
+        return snapshot.events
             .filter { !articleLinks(for: $0.id).isEmpty }
-            .max { lhs, rhs in
-                uiTestContentWeight(lhs) < uiTestContentWeight(rhs)
+            .sorted { lhs, rhs in
+                let lhsWeight = uiTestContentWeight(lhs)
+                let rhsWeight = uiTestContentWeight(rhs)
+                if lhsWeight != rhsWeight { return lhsWeight > rhsWeight }
+                return lhs.id < rhs.id
             }
+    }
+
+    /// The richest linked event — index 0 of `uiTestLinkedEvents`, and what
+    /// `-uitest-select-linked-event` selects.
+    var uiTestFirstLinkedEvent: Event? {
+        uiTestLinkedEvents.first
+    }
+
+    /// The `index`-th richest linked event, for
+    /// `-uitest-select-event-index <n>`. Exists so a shot can populate the
+    /// detail column with an event *other* than index 0: on iPad both
+    /// columns are always visible, so `01-season` and `04-detail` were
+    /// selecting the same event and capturing byte-identical images.
+    ///
+    /// Out of range returns `nil`, which makes the hook a **no-op** (the
+    /// detail column stays on its "Select an event" placeholder) rather
+    /// than clamping to the nearest valid index. Clamping would silently
+    /// capture a *different, plausible-looking* event than the plan asked
+    /// for, and a typo'd index would ship a wrong-but-believable store
+    /// screenshot. A no-op is visible in the review pass instead.
+    func uiTestLinkedEvent(at index: Int) -> Event? {
+        let events = uiTestLinkedEvents
+        guard events.indices.contains(index) else { return nil }
+        return events[index]
     }
 
     /// Rough proxy for an event's rendered detail-view height: description

@@ -24,6 +24,17 @@ would have caught both real bugs found in this pipeline's first round:
       mean luminance sits more than `LUMINANCE_DROP_THRESHOLD` below the
       median of its siblings is flagged.
 
+      The sibling median is computed over *every* shot in the set,
+      including `presentsModal`-exempt ones (see below) — an earlier
+      version excluded them from the population, which biased the median
+      bright enough to false-fail a legitimately dark photo-heavy shot.
+      Including them narrows the detection margin: measured against the
+      241.0 -> 198.9 alert case above, the flagged ratio moves from
+      roughly 0.816 to roughly 0.835 against the 0.85 threshold — still
+      well inside "flag it," but with about 0.015 of headroom instead of
+      about 0.034. That's a deliberate trade (stop false-failing a clean
+      shot) made with eyes open to the smaller margin, not an oversight.
+
    b. A large, centered, uniformly-bright "boxed" region. An alert's
       rounded-rect card is a wide island of near-uniform light gray
       (~225-248) that does *not* touch the frame's left/right edges — a
@@ -172,7 +183,17 @@ def check_set(directory: Path, skip_ids: set[str]) -> list[str]:
     # --- Check 2: system-alert-overlay heuristic (luminance drop OR boxed region) ---
     skipped = {p for p in pngs if p.stem in skip_ids}
     evaluated = [p for p in pngs if p not in skipped]
-    luminances = {p.name: mean_luminance(p) for p in evaluated}
+    # Luminance baseline is built over *every* shot, including the
+    # `presentsModal` ones. Being exempt from being *flagged* is not a
+    # reason to be dropped from the *baseline population*: a modal shot's
+    # brightness is legitimate data about what this app's screens look
+    # like, and the thresholds in the docstring above were calibrated
+    # across all six shots. Excluding them biased the median brighter (the
+    # two modal shots are mid-dark), which squeezed the legitimately
+    # darkest clean shot — the photo-heavy `04-detail` — from a 0.869
+    # ratio to 0.849 and failed it against the 0.85 threshold with no
+    # alert present. Only `evaluated` decides who gets flagged.
+    luminances = {p.name: mean_luminance(p) for p in pngs}
     boxed = {p.name: boxed_region_fraction(p) for p in evaluated}
 
     for p in evaluated:

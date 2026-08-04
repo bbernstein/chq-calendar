@@ -230,6 +230,23 @@ Related documents:
 
 ---
 
+## Release notes for the next version
+
+Track user-visible changes here as they land, then fold the accepted
+bullets into `whatsNew` in `listing-fields.json` (Step 8) when preparing
+the next submission.
+
+- Filtering moved to the bottom of the screen: two controls — the date
+  range and a filter count — beside the search field, each opening a
+  sheet. About a third more of the screen is now event list.
+
+**Pending, not yet shipped** (do not fold into `whatsNew` until the PR
+that makes this change actually lands):
+
+- Tapping the star on a row will no longer toggle a favorite; the action
+  moves to swipe-right or press-and-hold. Event rows are unchanged in the
+  filtering-chrome PR — this lands with a later PR.
+
 ## Appendix A — Icon troubleshooting
 
 Verified facts about the current build (checked independently of any single

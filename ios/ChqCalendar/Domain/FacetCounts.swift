@@ -1,47 +1,67 @@
 import Foundation
 
-/// How many events in the unfiltered snapshot each venue and category
-/// matches, for the counts shown beside names in the expanded facet panels.
+/// How many events each venue and category would contribute, **given every
+/// other filter currently active**.
 ///
 /// Keys are lowercased on both sides: locations key on lowercased
 /// `displayLocation`, categories on `filterTokens` (already lowercased) —
-/// exactly what `EventFilter` compares against, so a name that has a count
-/// here is always a name `EventFilter` can match, and vice versa.
+/// exactly what `EventFilter` compares against, so a name with a count here
+/// is always a name `EventFilter` can match, and vice versa.
 ///
-/// The counts themselves are of the *unfiltered* snapshot, so they are a
-/// measure of the season rather than a prediction: tapping "Amphitheater
-/// 165" with a week filter already active yields far fewer than 165, and
-/// the number does not change as other filters come and go.
+/// Each facet is counted against the selection **with its own dimension
+/// removed**. This is the standard faceted-search rule and it is load-
+/// bearing: counting venues with the venue selection applied would make
+/// every unselected venue read 0 the moment one was picked, so the numbers
+/// would prevent the multi-select they exist to inform.
 ///
-/// This is the trade faceted search usually makes — recomputing every count
-/// against the current selection costs a full pass per facet value on every
-/// filter change — but note it is *not* inherited from the web app. The
-/// web's `LocationFilter.tsx` / `CategoryFilter.tsx` show no per-chip counts
-/// at all, so there is no upstream behaviour being matched here; these
-/// counts are an iOS addition and this is an iOS decision. An earlier
-/// version of this comment claimed web parity, which was incorrect.
-///
-/// Whether the counts should instead reflect the other active filters is
-/// tracked as issue #152, deferred deliberately: it is a behaviour change
-/// with a real cost, not a wording fix.
+/// Earlier versions counted the unfiltered snapshot once and never
+/// recomputed, which is why Week 6 + Amphitheater could show a category
+/// count of 1302 — the season-wide total (issue #152). Recomputing is two
+/// `EventFilter.apply` passes per rebuild, so `AppModel` rebuilds only when
+/// the selection, favorites, or loaded snapshot actually changes, never per
+/// render.
 nonisolated struct FacetCounts: Equatable, Sendable {
     let locations: [String: Int]
     let categories: [String: Int]
 
     static let empty = FacetCounts(locations: [:], categories: [:])
 
-    /// One pass over `events` for both facets.
-    static func build(from events: [Event]) -> FacetCounts {
+    static func build(
+        events: [Event],
+        selection: FilterSelection,
+        favorites: Set<String>,
+        now: Date,
+        year: Int,
+        isCurrentYear: Bool
+    ) -> FacetCounts {
+        func filtered(_ sel: FilterSelection) -> [Event] {
+            EventFilter.apply(
+                sel,
+                to: events,
+                favorites: favorites,
+                now: now,
+                year: year,
+                isCurrentYear: isCurrentYear)
+        }
+
+        var withoutLocations = selection
+        withoutLocations.selectedLocations = []
         var locations: [String: Int] = [:]
-        var categories: [String: Int] = [:]
-        for event in events {
-            for token in event.filterTokens {
-                categories[token, default: 0] += 1
-            }
+        for event in filtered(withoutLocations) {
             if let location = event.displayLocation?.lowercased() {
                 locations[location, default: 0] += 1
             }
         }
+
+        var withoutCategories = selection
+        withoutCategories.selectedCategories = []
+        var categories: [String: Int] = [:]
+        for event in filtered(withoutCategories) {
+            for token in event.filterTokens {
+                categories[token, default: 0] += 1
+            }
+        }
+
         return FacetCounts(locations: locations, categories: categories)
     }
 }
