@@ -707,6 +707,135 @@ struct AppModelTests {
         #expect(model.filter.selectedLocations == [venue])
     }
 
+    // MARK: - matchCount / favoritesMatchCount
+
+    /// A model holding a synthetic snapshot, so the counts below are exact
+    /// rather than whatever the shared fixture happens to contain. `.all`
+    /// scope and a pinned clock keep the numbers independent of the wall
+    /// clock. 2026 is `placeholderYear`, so `isCurrentYear` is true.
+    private func makeSnapshotModel(events: [Event], now: Date) -> AppModel {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+        model.filter = FilterSelection(dateScope: .all)
+        model.snapshot = CalendarSnapshot(
+            year: 2026, events: events, articleLinks: [:], themes: [], fetchedAt: now)
+        return model
+    }
+
+    /// The two sheet footers read `matchCount` while `EventListView` behind
+    /// them reads `dayGroups`. They must never be able to disagree — if
+    /// `matchCount` ever stopped mirroring the pipeline `dayGroups` runs,
+    /// the footer would promise a number the list doesn't show.
+    @Test func matchCountEqualsTheSummedDayGroupCount() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let model = makeSnapshotModel(
+            events: [
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-03 19:00:00")),
+                          title: "Opera Gala", location: "Norton Hall"),
+                makeEvent(id: "b", start: try #require(ChqTime.parse("2026-08-03 20:00:00")),
+                          title: "Symphony", location: "Amphitheater"),
+                makeEvent(id: "c", start: try #require(ChqTime.parse("2026-08-04 10:00:00")),
+                          title: "Opera Talk", location: "Norton Hall"),
+            ],
+            now: now)
+
+        func summedDayGroups() -> Int {
+            model.dayGroups.reduce(0) { $0 + $1.events.count }
+        }
+
+        #expect(model.matchCount == 3)
+        #expect(model.matchCount == summedDayGroups())
+
+        // Across a search, a venue filter, and a week selection — every
+        // stage `dayGroups` runs, `matchCount` must run identically.
+        model.filter.searchText = "opera"
+        #expect(model.matchCount == 2)
+        #expect(model.matchCount == summedDayGroups())
+
+        model.toggleLocation("Norton Hall")
+        #expect(model.matchCount == summedDayGroups())
+
+        model.filter.searchText = ""
+        model.selectWeek(6)
+        #expect(model.matchCount == summedDayGroups())
+    }
+
+    @Test func matchCountIsZeroWithoutASnapshot() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        #expect(model.snapshot == nil)
+        #expect(model.matchCount == 0)
+        #expect(model.favoritesMatchCount == 0)
+    }
+
+    /// The bug this replaces: the Favorites chip showed `favorites.count`,
+    /// the raw saved total, while every other chip in the same sheet showed
+    /// a selection-aware count. Searching "opera" with three favorites of
+    /// which one is opera-related read "Favorites 3" and yielded one event.
+    @Test func favoritesMatchCountRespectsTheOtherActiveFilters() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let model = makeSnapshotModel(
+            events: [
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-03 19:00:00")),
+                          title: "Opera Gala", location: "Norton Hall"),
+                makeEvent(id: "b", start: try #require(ChqTime.parse("2026-08-03 20:00:00")),
+                          title: "Symphony", location: "Amphitheater"),
+                makeEvent(id: "c", start: try #require(ChqTime.parse("2026-08-04 10:00:00")),
+                          title: "Lecture", location: "Hall of Philosophy"),
+                makeEvent(id: "d", start: try #require(ChqTime.parse("2026-08-05 10:00:00")),
+                          title: "Not A Favorite", location: "Amphitheater"),
+            ],
+            now: now)
+        model.favorites = ["a", "b", "c"]
+
+        // No other filters: the chip and the raw total agree.
+        #expect(model.favoritesMatchCount == 3)
+        #expect(model.favoritesMatchCount == model.favorites.count)
+
+        // Under a search only one favorite survives — the number the chip
+        // shows must be the number tapping it produces.
+        model.filter.searchText = "opera"
+        #expect(model.favorites.count == 3, "the saved set itself is untouched")
+        #expect(model.favoritesMatchCount == 1)
+
+        model.toggleFavoritesOnly()
+        #expect(model.matchCount == model.favoritesMatchCount)
+
+        // Already-on favorites-only must not double-count itself away: the
+        // chip keeps reading the same number it did before the tap.
+        #expect(model.favoritesMatchCount == 1)
+
+        // A combination no favorite can satisfy reads 0, not 3: the only
+        // "Hall of Philosophy" event is "Lecture", which no "symphony"
+        // search can reach.
+        model.toggleFavoritesOnly()
+        model.filter.searchText = "symphony"
+        model.toggleLocation("Hall of Philosophy")
+        #expect(model.matchCount == 0)
+        #expect(model.favoritesMatchCount == 0)
+    }
+
+    /// Favorites that are no longer in the snapshot (a stale id from a past
+    /// season) must not inflate the chip — the raw `favorites.count` counted
+    /// them, an `EventFilter` pass cannot.
+    @Test func favoritesMatchCountIgnoresIdsAbsentFromTheSnapshot() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let model = makeSnapshotModel(
+            events: [
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-03 19:00:00"))),
+            ],
+            now: now)
+        model.favorites = ["a", "gone-from-2025", "also-gone"]
+
+        #expect(model.favorites.count == 3)
+        #expect(model.favoritesMatchCount == 1)
+    }
+
     // MARK: - legacy filter casing normalization
 
     /// Prior to this branch, `selectedLocations`/`selectedCategories` were

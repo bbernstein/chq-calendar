@@ -94,11 +94,13 @@ final class AppModel {
     private let repository: EventRepository
     private let store: UserStateStore
 
-    /// The injected clock. Exposed (rather than private) so views computing
-    /// time-relative presentation — `DateFilterSheet`'s past/current week
-    /// styling —
-    /// use the same instant the filter pipeline does, and so tests can pin
-    /// both together.
+    /// The injected clock — the single instant every time-relative
+    /// derivation in the app reads. It drives the filter pipeline's
+    /// `.next`/`.today`/`.thisWeek` scopes and `FacetCounts` rebuilds (both
+    /// via `EventFilter.apply`), `countdownDays`, and `currentWeek` (which
+    /// in turn decides which date chips light up). Exposed rather than
+    /// private so any view needing "now" uses the same instant the pipeline
+    /// did, and so a test can pin all of them together.
     let now: @Sendable () -> Date
 
     /// The most recent non-nil `remoteVersion()` observed, used by
@@ -131,16 +133,56 @@ final class AppModel {
     /// Recomputed on every access rather than cached — at ~1.6k events this
     /// is cheap enough that memoization isn't worth the extra state.
     var dayGroups: [DayGroup] {
+        EventGrouping.byDay(filteredEvents(filter), year: selectedYear)
+    }
+
+    /// How many events the current selection matches — the same number as
+    /// summing `dayGroups`, without paying for the grouping pass.
+    ///
+    /// Both filter sheets' footers ("Show N events") want a count, not
+    /// grouped days, and they are presented over `EventListView`, which is
+    /// reading `dayGroups` at the same time. Reaching through `dayGroups`
+    /// there meant re-running the whole pipeline *and* `EventGrouping.byDay`
+    /// for a number that never needed the days. `EventListView`'s own "n of
+    /// m" line is a different case and correctly keeps using `dayGroups`:
+    /// it already has the grouped days in hand.
+    ///
+    /// `AppModelTests.matchCountEqualsTheSummedDayGroupCount` pins the two
+    /// together so they cannot drift.
+    var matchCount: Int {
+        filteredEvents(filter).count
+    }
+
+    /// How many events the Favorites chip would leave if it were switched
+    /// on — i.e. favorites that also satisfy every *other* active filter.
+    ///
+    /// The raw `favorites.count` was wrong in the same way an unfiltered
+    /// facet count is wrong (#152): searching "opera" with five favorites of
+    /// which one is opera-related showed "Favorites 5" and yielded one
+    /// event. This applies `FacetCounts.build`'s own-dimension-exclusion
+    /// rule to the favorites dimension — drop the dimension's current value,
+    /// then count with it applied — so the number means the same thing as
+    /// every venue and category count beside it in `FilterSheet`.
+    ///
+    /// Computed on access rather than folded into `facetCounts`: it is a
+    /// single scalar read only while the filter sheet is open, so it does
+    /// not need to ride along on every rebuild.
+    var favoritesMatchCount: Int {
+        var selection = filter
+        selection.showFavoritesOnly = true
+        return filteredEvents(selection).count
+    }
+
+    private func filteredEvents(_ selection: FilterSelection) -> [Event] {
         guard let snapshot else { return [] }
-        let filtered = EventFilter.apply(
-            filter,
+        return EventFilter.apply(
+            selection,
             to: snapshot.events,
             favorites: favorites,
             now: now(),
             year: selectedYear,
             isCurrentYear: isCurrentYear
         )
-        return EventGrouping.byDay(filtered, year: selectedYear)
     }
 
     var visibleCategories: [String] {

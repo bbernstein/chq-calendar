@@ -18,10 +18,6 @@ struct DateFilterSheet: View {
         SeasonCalendar.weeks(forYear: model.selectedYear).map(\.number)
     }
 
-    private var matchCount: Int {
-        model.dayGroups.reduce(0) { $0 + $1.events.count }
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -77,7 +73,10 @@ struct DateFilterSheet: View {
             .navigationTitle("Dates")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
-                SheetDismissButton(count: matchCount) { dismiss() }
+                // `matchCount`, not `dayGroups` — the footer needs a number,
+                // and this sheet is presented over `EventListView`, which is
+                // already grouping the same events behind it.
+                SheetDismissButton(count: model.matchCount) { dismiss() }
             }
         }
         .presentationDetents([.medium, .large])

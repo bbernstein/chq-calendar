@@ -17,10 +17,6 @@ struct FilterSheet: View {
         ActiveFilterChips.build(selection: model.filter)
     }
 
-    private var matchCount: Int {
-        model.dayGroups.reduce(0) { $0 + $1.events.count }
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -49,7 +45,10 @@ struct FilterSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                SheetDismissButton(count: matchCount) { dismiss() }
+                // `matchCount`, not `dayGroups` — the footer needs a number,
+                // and this sheet is presented over `EventListView`, which is
+                // already grouping the same events behind it.
+                SheetDismissButton(count: model.matchCount) { dismiss() }
             }
         }
         .presentationDetents([.medium, .large])
@@ -93,9 +92,12 @@ struct FilterSheet: View {
                 .font(.caption.weight(.bold))
                 .textCase(.uppercase)
                 .foregroundStyle(.secondary)
+            // `favoritesMatchCount`, not `favorites.count`: every other chip
+            // in this sheet shows how many events it would leave given the
+            // rest of the selection, and this one has to mean the same thing.
             SheetChip(
                 label: "Favorites",
-                count: model.favorites.count,
+                count: model.favoritesMatchCount,
                 isSelected: model.filter.showFavoritesOnly
             ) {
                 model.toggleFavoritesOnly()
