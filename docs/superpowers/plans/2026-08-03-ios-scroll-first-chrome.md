@@ -1,5 +1,50 @@
 # iOS Scroll-First Redesign — PR 1 (Chrome) Implementation Plan
 
+> ## ⚠️ SUPERSEDED — do not build from the overlay design below
+>
+> **Status:** historical record of how the work was executed. It is **not**
+> a description of what shipped, and it is **not** safe to implement from.
+>
+> **What actually shipped (PR #159):** the two filter controls are
+> `ToolbarItemGroup(placement: .bottomBar)` items in `EventListView` —
+> a date-range button and a filter-count button sharing the system bottom
+> bar with the `.searchable` field. Each presents a detented sheet
+> (`DateFilterSheet`, `FilterSheet`) that filters live.
+>
+> **What this plan describes that no longer exists:** a floating overlay
+> capsule (`FloatingFilterBar` / `ChromeSurface`) drawn with
+> `.overlay(alignment: .bottom)`, a constant `contentMargins` reservation
+> sized to that capsule, and a scroll-driven `BarPresentation` state
+> machine that expanded/collapsed it. All three were **deleted mid-branch**:
+> on the iOS 26 SDK this app builds against, `.searchable` is itself
+> rendered as a bottom-anchored floating field, so the overlay and the
+> search field were two separate things competing for the same screen edge
+> (and the overlay drew on top of list text). Bottom-bar toolbar items and
+> the search field are laid out by the system as one group, which is both
+> the platform idiom and the only arrangement in which the two coexist.
+>
+> **Specifically stale tasks — read them as history only:**
+> - **Task 3 (`BarPresentation`)** — the type and its tests do not exist.
+> - **Task 5 (`ChromeSurface` / `FloatingFilterBar`)** — neither view exists.
+> - **Task 9 (mount the bar)** — the mounting it describes (overlay +
+>   `contentMargins` + scroll-phase driver) is not how the controls are
+>   mounted; see `EventListView.toolbarContent`.
+> - **Task 11 (documentation trail)** — its instructions were written
+>   against the overlay design.
+> - **Task 12 (open the PR)** — its PR-body instructions call for
+>   describing "the constant-content-margin decision and why it deletes the
+>   collapse driver", a rationale for a design that was abandoned before
+>   the PR was opened.
+>
+> **Read instead:** the corrected spec,
+> [`docs/superpowers/specs/2026-08-03-ios-ux-scroll-first-redesign-design.md`](../specs/2026-08-03-ios-ux-scroll-first-redesign-design.md),
+> which was updated to match what shipped. Where the two disagree, the spec
+> and the code are right and this plan is wrong.
+>
+> The task bodies below are deliberately left unrewritten: this file is the
+> record of how the branch was executed, and editing the steps to match the
+> outcome would destroy that record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the four-row filter bar above the event list with a floating two-pill capsule at the bottom edge, backed by two sheets, so the scrolling list gets ~150pt of screen back and the collapse driver can be deleted.
