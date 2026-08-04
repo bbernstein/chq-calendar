@@ -41,6 +41,21 @@ struct FilterChipStateTests {
             .today, selection: sel, currentWeek: 6, isCurrentYear: true))
     }
 
+    @Test func seasonChipFollowsTheScope() {
+        #expect(FilterChipState.isScopeSelected(
+            .season, selection: FilterSelection(dateScope: .season),
+            currentWeek: 6, isCurrentYear: true))
+        #expect(!FilterChipState.isScopeSelected(
+            .season, selection: FilterSelection(dateScope: .all),
+            currentWeek: 6, isCurrentYear: true))
+    }
+
+    @Test func seasonChipNeverLightsOffTheCurrentYear() {
+        #expect(!FilterChipState.isScopeSelected(
+            .season, selection: FilterSelection(dateScope: .season),
+            currentWeek: nil, isCurrentYear: false))
+    }
+
     @Test func outOfSeasonNilCurrentWeekNeverCrossLightsChips() {
         #expect(!FilterChipState.isScopeSelected(
             .thisWeek, selection: FilterSelection(dateScope: .all, selectedWeeks: [6]),
