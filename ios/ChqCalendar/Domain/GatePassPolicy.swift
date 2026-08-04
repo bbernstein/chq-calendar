@@ -3,11 +3,12 @@ import Foundation
 /// Whether Gate Pass holders get general admission to an event.
 ///
 /// This is a **heuristic**, not data: chq.org stores per-event access as
-/// protected WordPress post meta that no API exposes (investigation record
-/// in docs/superpowers/specs/2026-08-04-ios-gate-pass-weeks-links-design.md).
-/// The approved rule: Amphitheater events during the season admit Gate Pass
-/// holders. Fail-safe by omission — an event this misses gets no note,
-/// never a wrong one.
+/// protected WordPress post meta that no API exposes. The full investigation
+/// record is `docs/superpowers/specs/2026-08-04-ios-gate-pass-weeks-links-design.md`
+/// on PR #167 (branch `design/ios-158-162-163`); it lands on `main` once that
+/// PR merges. The approved rule: Amphitheater events during the season admit
+/// Gate Pass holders. Fail-safe by omission — an event this misses gets no
+/// note, never a wrong one.
 nonisolated enum GatePassPolicy {
     static func includesGeneralAdmission(_ event: Event) -> Bool {
         guard let location = event.displayLocation,
