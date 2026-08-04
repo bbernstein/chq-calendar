@@ -12,7 +12,7 @@ import Foundation
 /// in September. A pill that changes its wording without the user touching
 /// anything is worse than a pill that is merely less clever.
 ///
-/// `.all` renders as "All Dates" rather than `DateScope.all.label`
+/// `.all` renders as "All Year" rather than `DateScope.all.label`
 /// ("All") so it cannot be misread against "All Weeks": the first means no
 /// date filter at all, the second means every week explicitly selected.
 nonisolated enum DateFilterLabel {
@@ -44,9 +44,9 @@ nonisolated enum DateFilterLabel {
         let weeks = selection.selectedWeeks.sorted()
 
         guard !weeks.isEmpty else {
-            guard isCurrentYear else { return "All Dates" }
+            guard isCurrentYear else { return "All Year" }
             switch selection.dateScope {
-            case .all: return "All Dates"
+            case .all: return DateScope.all.label            // "All Year"
             case .next, .today, .thisWeek, .season: return selection.dateScope.label
             }
         }

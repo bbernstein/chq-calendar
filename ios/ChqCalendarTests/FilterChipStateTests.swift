@@ -106,11 +106,11 @@ struct FilterChipStateTests {
     }
 
     /// The pill and the chip must now tell the same story: both derive from
-    /// `isCurrentYear`, so "All Dates" on the pill and a selected "All" chip
+    /// `isCurrentYear`, so "All Year" on the pill and a selected "All" chip
     /// always appear together.
     @Test func chipAgreesWithTheDatePillOnANonCurrentYear() {
         let sel = FilterSelection(dateScope: .next)
-        #expect(DateFilterLabel.text(for: sel, seasonWeekCount: 9, isCurrentYear: false) == "All Dates")
+        #expect(DateFilterLabel.text(for: sel, seasonWeekCount: 9, isCurrentYear: false) == "All Year")
         #expect(FilterChipState.isScopeSelected(
             .all, selection: sel, currentWeek: nil, isCurrentYear: false))
 

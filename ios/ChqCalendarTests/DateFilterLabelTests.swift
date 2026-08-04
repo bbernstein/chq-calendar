@@ -16,10 +16,10 @@ struct DateFilterLabelTests {
             seasonWeekCount: nine, isCurrentYear: true) == "This Week")
     }
 
-    @Test func allScopeReadsAllDatesNotAll() {
+    @Test func allScopeReadsAllYear() {
         #expect(DateFilterLabel.text(
             for: FilterSelection(dateScope: .all),
-            seasonWeekCount: nine, isCurrentYear: true) == "All Dates")
+            seasonWeekCount: nine, isCurrentYear: true) == "All Year")
     }
 
     @Test func singleWeekIsSingular() {
@@ -92,19 +92,19 @@ struct DateFilterLabelTests {
     /// `isCurrentYear` is false, so the pill must say so. Before this, a
     /// persisted `.next` scope viewed against 2025 rendered "Now" over a
     /// list that was not date-filtered at all.
-    @Test func timeRelativeScopesCollapseToAllDatesOnANonCurrentYear() {
+    @Test func timeRelativeScopesCollapseToAllYearOnANonCurrentYear() {
         for scope in [DateScope.next, .today, .thisWeek] {
             #expect(DateFilterLabel.text(
                 for: FilterSelection(dateScope: scope),
-                seasonWeekCount: nine, isCurrentYear: false) == "All Dates",
+                seasonWeekCount: nine, isCurrentYear: false) == "All Year",
                 "\(scope) must not claim a time-relative range on a past season")
         }
     }
 
-    @Test func allScopeStillReadsAllDatesOnANonCurrentYear() {
+    @Test func allScopeStillReadsAllYearOnANonCurrentYear() {
         #expect(DateFilterLabel.text(
             for: FilterSelection(dateScope: .all),
-            seasonWeekCount: nine, isCurrentYear: false) == "All Dates")
+            seasonWeekCount: nine, isCurrentYear: false) == "All Year")
     }
 
     /// `EventFilter` applies `selectedWeeks` regardless of `isCurrentYear`
@@ -135,5 +135,21 @@ struct DateFilterLabelTests {
         #expect(DateFilterLabel.text(
             for: FilterSelection(dateScope: .thisWeek, selectedWeeks: [2]),
             seasonWeekCount: nine, isCurrentYear: false) == "Week 2")
+    }
+
+    @Test func seasonScopeReadsAllSeason() {
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .season),
+            seasonWeekCount: nine, isCurrentYear: true) == "All Season")
+    }
+
+    @Test func offYearAlwaysReadsAllYear() {
+        // Off the current year the pipeline ignores every relative scope,
+        // so the pill must say so regardless of what is persisted.
+        for scope in DateScope.allCases {
+            #expect(DateFilterLabel.text(
+                for: FilterSelection(dateScope: scope),
+                seasonWeekCount: nine, isCurrentYear: false) == "All Year")
+        }
     }
 }
