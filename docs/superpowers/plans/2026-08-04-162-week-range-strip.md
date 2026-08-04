@@ -820,3 +820,24 @@ Add the screenshot opt-out line from Step 1 if the manifest didn't change.
 - `WeekStripState` / `WeekTimeState` (`Domain/WeekStripState.swift`): orphaned since the four-row bar was deleted; its own header says to remove it in a dedicated change, not as a side effect. The strip does not consume it. Leave it and its tests alone.
 - `FilterSelection` schema, `UserStateStore` persistence format: unchanged.
 - The web app's week filter: out of scope (#162 is iOS-only).
+
+---
+
+## Execution amendments (2026-08-04)
+
+Recorded post-execution; the branch `feat/162-week-range-strip` (PR #168)
+contains both:
+
+1. **Task 7b (user-requested mid-plan):** current-week marker below the
+   bar (triangle + "Current Week" caption, accent digit) and past-week
+   dimming (`.tertiary`, still selectable), driven by the revived
+   `WeekStripState.timeState`. New `WeekRangeStrip` input:
+   `timeState: (Int) -> WeekTimeState` between `effectiveSelection` and
+   `commit`. `DateFilterSheet` hoists `seasonWeeks` and passes
+   `now = isCurrentYear ? model.now() : nil`.
+2. **Final-review fix (I1):** `setWeekSelection` sets `dateScope = .all`
+   **unconditionally** — an empty commit from the persisted-`.thisWeek`
+   toggle-off path must clear the filter, not leave a dead tap. Regression
+   test: `clearingWeeksFromAPersistedThisWeekScopeReturnsToAllYear`.
+   Parked nit: `WeekStripDrag.segment` returns 1 for `count == 0`
+   (unreachable with the fixed 9-week season).

@@ -176,9 +176,11 @@ still filters — the first touch of the strip replaces it wholesale.
 
 **Model API:** `AppModel.selectWeek(_:)`'s four-branch toggle logic is
 replaced by `AppModel.setWeekSelection(_ weeks: Set<Int>)` — sets
-`selectedWeeks`, and (as today) any non-empty week selection forces
-`dateScope = .all`; scope selection still clears weeks
-(`selectScope` unchanged). The pure geometry/reduction logic —
+`selectedWeeks` and **unconditionally** sets `dateScope = .all` (amended
+during final review: an empty commit must also return the scope to
+`.all`, otherwise a user arriving with a persisted `.thisWeek` scope gets
+a dead tap when deselecting the highlighted current week); scope
+selection still clears weeks (`selectScope` unchanged). The pure geometry/reduction logic —
 x-offset → segment index, anchor+current → range, commit semantics —
 lives in a small testable struct (`WeekStripDrag`), not in the view.
 
@@ -187,6 +189,20 @@ lives in a small testable struct (`WeekStripDrag`), not in the view.
 *from the strip itself*; everywhere else on the sheet still works. This
 is the standard trade-off for slider-like controls in sheets and is
 accepted.
+
+**Current-week marker + past-week dimming (user amendment, added during
+execution):** with "This Week" gone from the When row, the current week
+must be unmissable. Below the bar, a second 9-cell row of equal flexible
+widths carries a small up-pointing triangle plus a "Current Week" caption
+(accent-colored) in the current week's cell; the current segment's digit
+renders accent/semibold when unselected. Weeks already gone by render
+their digits dimmed (`.tertiary`) but stay fully **selectable** — dimmed
+means "gone by," not "disabled." State comes from the pre-existing,
+already-tested `WeekStripState.timeState(week:now:weeks:)` (revived from
+orphanhood; its stale "referenced by nothing" comment updated), with
+`now = nil` off the current year so past seasons render neutrally with no
+marker — including September of the current year, where all nine weeks
+dim and no marker shows.
 
 **Accessibility:** the strip exposes its 9 segments as children — each a
 button "Week N" with the selected trait; VoiceOver activation performs
