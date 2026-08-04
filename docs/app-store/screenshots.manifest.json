@@ -1,6 +1,6 @@
 {
   "capturedOn": "2026-08-03",
-  "appCommit": "7b43dde",
+  "appCommit": "61eb5d6",
   "screenshots": [
     {
       "device": "iphone-6.9",
@@ -9,7 +9,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/01-season.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "5d598cd4c79f03e95f2e86685c48160134cf1b12f1fb5eef59feb292bf499667"
+      "sha256": "01d686e5cc0b4d7ca1a53ea798d7d01c75e646c079fed7d360c390a8e527875a"
     },
     {
       "device": "iphone-6.9",
@@ -18,7 +18,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/02-filters.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "c20e676ead5652e6843185d5b4defe1644915d88e5fd64557a8564998d2aa64e"
+      "sha256": "9e3f488e6647818634721e9cd4f04b730dc0ee33eee67dd5229161ccdedee30a"
     },
     {
       "device": "iphone-6.9",
@@ -27,7 +27,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/03-search.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "767d4eb59753b7bb8d015252cb27b42c25dc0668c307cbbd1f285506a1a664c8"
+      "sha256": "9883271b27477666f175380afd808aed081a2c598e74983913a17933f62a5cb6"
     },
     {
       "device": "iphone-6.9",
@@ -45,7 +45,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/05-articles.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "85c02baed9b7cb570856acf85d775bfb31d282474684387fbdeaeceb6df2834e"
+      "sha256": "1202e4ba6d11a0a3012b514e9128694309ae6e2679449637fce294c6ac787b67"
     },
     {
       "device": "iphone-6.9",
@@ -63,7 +63,7 @@
       "file": "ios/Scripts/out/final/ipad-13/01-season.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "61b2f2f262eba465950bd9aa3d6c1fc339bcfb09714e1a4f492e0939eb7404d7"
+      "sha256": "253f8778e317f4276de5c639f9dfa89326a1ee89a805884cfebe9af7cc83f970"
     },
     {
       "device": "ipad-13",
@@ -72,7 +72,7 @@
       "file": "ios/Scripts/out/final/ipad-13/02-filters.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "7ab5f47067717f37a788b9372a10373f34f285a71107734f93d4d5b0fe95f231"
+      "sha256": "039d7f93a6430c9984219a6b1bdf8bfc24abf48cbeb5dea4b4a62e39e3dfa444"
     },
     {
       "device": "ipad-13",
@@ -81,7 +81,7 @@
       "file": "ios/Scripts/out/final/ipad-13/03-search.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "6bd32fc4fb0391731d7d20dc3a5544f5b7275f261a920437ba8023ac2d3b3cb1"
+      "sha256": "d1b0de508c5c058844244084b6bbfda2443efc3f520fe719d0d5642ffcabddde"
     },
     {
       "device": "ipad-13",
@@ -90,7 +90,7 @@
       "file": "ios/Scripts/out/final/ipad-13/04-detail.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "b3a547444047ac9cddeb76fe10f5c029efd41a0536832211347e2ab89728bd1a"
+      "sha256": "500ef9b17753b1ca1125693a8ff98d7d394750de415eec9ee768699f19bf30d2"
     },
     {
       "device": "ipad-13",
@@ -99,7 +99,7 @@
       "file": "ios/Scripts/out/final/ipad-13/05-articles.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "798b480af15006f9c479aec71561f69804dabc59062dccad461bdffd0a02f05c"
+      "sha256": "50803f3b8607a5ba92b56a1c4ff801c7a4f46c8deb125db4451cdd2aa459ab14"
     },
     {
       "device": "ipad-13",
@@ -108,7 +108,7 @@
       "file": "ios/Scripts/out/final/ipad-13/06-calendar.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "bf399ee9b6f6e1e1c39aaf43b6570fe5b087196811b5c658251b17eb7f200148"
+      "sha256": "91da49f5baa9cb167b55502fe941fb7defafa37871d687d6acf81804ee8479aa"
     }
   ]
 }

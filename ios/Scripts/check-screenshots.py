@@ -172,7 +172,17 @@ def check_set(directory: Path, skip_ids: set[str]) -> list[str]:
     # --- Check 2: system-alert-overlay heuristic (luminance drop OR boxed region) ---
     skipped = {p for p in pngs if p.stem in skip_ids}
     evaluated = [p for p in pngs if p not in skipped]
-    luminances = {p.name: mean_luminance(p) for p in evaluated}
+    # Luminance baseline is built over *every* shot, including the
+    # `presentsModal` ones. Being exempt from being *flagged* is not a
+    # reason to be dropped from the *baseline population*: a modal shot's
+    # brightness is legitimate data about what this app's screens look
+    # like, and the thresholds in the docstring above were calibrated
+    # across all six shots. Excluding them biased the median brighter (the
+    # two modal shots are mid-dark), which squeezed the legitimately
+    # darkest clean shot — the photo-heavy `04-detail` — from a 0.869
+    # ratio to 0.849 and failed it against the 0.85 threshold with no
+    # alert present. Only `evaluated` decides who gets flagged.
+    luminances = {p.name: mean_luminance(p) for p in pngs}
     boxed = {p.name: boxed_region_fraction(p) for p in evaluated}
 
     for p in evaluated:
