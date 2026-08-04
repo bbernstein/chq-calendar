@@ -34,7 +34,7 @@ nonisolated enum EventFilter {
         let scope: DateScope = isCurrentYear ? sel.dateScope : .all
 
         switch scope {
-        case .all:
+        case .all, .season:
             break
 
         case .today:

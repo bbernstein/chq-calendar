@@ -21,7 +21,8 @@ struct UserStateStoreTests {
         #expect(DateScope.next.label == "Now")
         #expect(DateScope.today.label == "Today")
         #expect(DateScope.thisWeek.label == "This Week")
-        #expect(DateScope.all.label == "All")
+        #expect(DateScope.season.label == "All Season")
+        #expect(DateScope.all.label == "All Year")
     }
 
     // MARK: - FilterSelection.isDefault

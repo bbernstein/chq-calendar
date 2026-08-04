@@ -47,7 +47,7 @@ nonisolated enum DateFilterLabel {
             guard isCurrentYear else { return "All Dates" }
             switch selection.dateScope {
             case .all: return "All Dates"
-            case .next, .today, .thisWeek: return selection.dateScope.label
+            case .next, .today, .thisWeek, .season: return selection.dateScope.label
             }
         }
 

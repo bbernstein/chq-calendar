@@ -6,6 +6,7 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
     case next
     case today
     case thisWeek = "this-week"
+    case season
     case all
 
     var label: String {
@@ -13,7 +14,8 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
         case .next: return "Now"
         case .today: return "Today"
         case .thisWeek: return "This Week"
-        case .all: return "All"
+        case .season: return "All Season"
+        case .all: return "All Year"
         }
     }
 }
