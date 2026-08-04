@@ -168,11 +168,7 @@ struct EventListView: View {
             Text(day.title)
             Spacer()
             ForEach(day.weekNumbers, id: \.self) { number in
-                Text("Wk \(number)")
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.secondary.opacity(0.15), in: Capsule())
+                WeekThemeBadge(weekNumber: number, themes: model.themes)
             }
         }
     }
