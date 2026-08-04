@@ -14,8 +14,12 @@ struct DateFilterSheet: View {
         model.isCurrentYear ? [.next, .today, .season, .all] : [.all]
     }
 
+    private var seasonWeeks: [SeasonWeek] {
+        SeasonCalendar.weeks(forYear: model.selectedYear)
+    }
+
     private var weekNumbers: [Int] {
-        SeasonCalendar.weeks(forYear: model.selectedYear).map(\.number)
+        seasonWeeks.map(\.number)
     }
 
     /// What a strip gesture should treat as already-selected. A persisted
@@ -72,6 +76,8 @@ struct DateFilterSheet: View {
                     }
 
                     section("Weeks") {
+                        let now: Date? = model.isCurrentYear ? model.now() : nil
+                        let weeks = seasonWeeks
                         WeekRangeStrip(
                             weekNumbers: weekNumbers,
                             isSelected: { number in
@@ -80,6 +86,7 @@ struct DateFilterSheet: View {
                                     currentWeek: model.currentWeek)
                             },
                             effectiveSelection: effectiveWeekSelection,
+                            timeState: { WeekStripState.timeState(week: $0, now: now, weeks: weeks) },
                             commit: { model.setWeekSelection($0) })
                     }
                 }
@@ -182,6 +189,7 @@ struct SheetDismissButton: View {
         weekNumbers: Array(1...9),
         isSelected: { (4...6).contains($0) },
         effectiveSelection: [4, 5, 6],
+        timeState: { $0 < 6 ? .past : $0 == 6 ? .current : .upcoming },
         commit: { _ in })
     .padding(20)
     .environment(\.dynamicTypeSize, .accessibility3)

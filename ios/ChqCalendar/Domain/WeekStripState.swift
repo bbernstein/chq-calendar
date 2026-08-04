@@ -14,13 +14,10 @@ nonisolated enum WeekTimeState: Equatable, Sendable {
 /// relative to, so every week renders neutrally and the strip stays at
 /// week 1 rather than guessing.
 ///
-/// **Currently referenced by nothing but its own tests.** Its only caller
-/// was `WeekStripView`, deleted when the four-row filter bar was replaced by
-/// the floating bar; `DateFilterSheet` renders weeks without past/current
-/// styling today. Kept deliberately rather than deleted alongside the view:
-/// the season-relative week logic is the non-obvious part and is worth
-/// having on hand if that styling returns. Delete it in its own change, not
-/// as a side effect of one about chrome.
+/// `timeState` is consumed by `WeekRangeStrip` (issue #162) to dim past
+/// weeks and mark the current one; `initialScrollTarget` remains unused
+/// since the old `WeekStripView` was deleted — remove it in its own
+/// change if the strip never grows scrolling.
 nonisolated enum WeekStripState {
     /// Convenience for callers that only need one week's state. Builds the
     /// season once and delegates.

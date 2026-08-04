@@ -20,12 +20,24 @@ struct WeekRangeStrip: View {
     /// the current week, else the stored weeks. Keeping this a value (not
     /// re-derived here) leaves `FilterChipState` the single source of truth.
     let effectiveSelection: Set<Int>
+    /// Season-relative state per week — drives the current-week marker and
+    /// the dimmed rendering of weeks gone by. Callers pass `.upcoming` for
+    /// every week when there is no "now" to be relative to (non-current
+    /// years), which renders the strip neutrally with no marker.
+    let timeState: (Int) -> WeekTimeState
     let commit: (Set<Int>) -> Void
 
     @State private var anchor: Int?
     @State private var provisional: ClosedRange<Int>?
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            bar
+            currentWeekMarker
+        }
+    }
+
+    private var bar: some View {
         GeometryReader { geo in
             HStack(spacing: 0) {
                 ForEach(weekNumbers, id: \.self) { number in
@@ -59,6 +71,34 @@ struct WeekRangeStrip: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
+    /// The "Current Week" callout under the bar. Rendered only when some
+    /// week is `.current`; decorative for VoiceOver (the segment's own
+    /// accessibility label already says "current week").
+    @ViewBuilder
+    private var currentWeekMarker: some View {
+        if weekNumbers.contains(where: { timeState($0) == .current }) {
+            HStack(spacing: 0) {
+                ForEach(weekNumbers, id: \.self) { number in
+                    if timeState(number) == .current {
+                        VStack(spacing: 1) {
+                            Image(systemName: "arrowtriangle.up.fill")
+                                .font(.system(size: 8))
+                            Text("Current Week")
+                                .font(.caption2.weight(.medium))
+                                .fixedSize()
+                        }
+                        .foregroundStyle(Color.accentColor)
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: 0)
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+        }
+    }
+
     private func highlighted(_ number: Int) -> Bool {
         if let provisional { return provisional.contains(number) }
         return isSelected(number)
@@ -67,17 +107,22 @@ struct WeekRangeStrip: View {
     @ViewBuilder
     private func segment(_ number: Int) -> some View {
         let on = highlighted(number)
+        let state = timeState(number)
         // Round only the run's outer corners so a contiguous selection
         // renders as one capsule, not per-segment pills.
         let leadingEdge = on && !highlighted(number - 1)
         let trailingEdge = on && !highlighted(number + 1)
 
         Text("\(number)")
-            .font(.subheadline.weight(.medium))
+            .font(.subheadline.weight(state == .current && !on ? .semibold : .medium))
             .monospacedDigit()
             .lineLimit(1)
             .frame(maxWidth: .infinity, minHeight: 44)
-            .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .foregroundStyle(
+                on ? AnyShapeStyle(.white)
+                : state == .current ? AnyShapeStyle(Color.accentColor)
+                : state == .past ? AnyShapeStyle(.tertiary)
+                : AnyShapeStyle(.primary))
             .background(
                 on ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.clear),
                 in: UnevenRoundedRectangle(
@@ -86,7 +131,7 @@ struct WeekRangeStrip: View {
                     bottomTrailingRadius: trailingEdge ? 12 : 0,
                     topTrailingRadius: trailingEdge ? 12 : 0))
             .accessibilityElement()
-            .accessibilityLabel("Week \(number)")
+            .accessibilityLabel(state == .current ? "Week \(number), current week" : "Week \(number)")
             .accessibilityAddTraits(on ? [.isButton, .isSelected] : [.isButton])
             .accessibilityAction {
                 commit(WeekStripDrag.commit(
