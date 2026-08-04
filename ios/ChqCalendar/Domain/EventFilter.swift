@@ -34,8 +34,13 @@ nonisolated enum EventFilter {
         let scope: DateScope = isCurrentYear ? sel.dateScope : .all
 
         switch scope {
-        case .all, .season:
+        case .all:
             break
+
+        case .season:
+            if let first = weeks.first, let last = weeks.last {
+                result = result.filter { first.start <= $0.start && $0.start < last.end }
+            }
 
         case .today:
             let nowKey = ChqTime.dayKey(for: now)

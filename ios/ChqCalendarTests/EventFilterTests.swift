@@ -200,6 +200,44 @@ struct EventFilterTests {
         #expect(EventFilter.apply(selWeek2, to: [event], favorites: [], now: Date(), year: 2026, isCurrentYear: true).count == 1)
     }
 
+    // MARK: - season scope
+
+    @Test func seasonScopeKeepsOnlyInSeasonEvents() {
+        let weeks = SeasonCalendar.weeks(forYear: 2026)
+        let preSeason = makeEvent(id: "pre", start: weeks.first!.start.addingTimeInterval(-86400))
+        let opening = makeEvent(id: "opening", start: weeks.first!.start)
+        let midSeason = makeEvent(id: "mid", start: weeks[4].start.addingTimeInterval(3600))
+        let lastMoment = makeEvent(id: "last", start: weeks.last!.end.addingTimeInterval(-1))
+        let postSeason = makeEvent(id: "post", start: weeks.last!.end)
+
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .season),
+            to: [preSeason, opening, midSeason, lastMoment, postSeason],
+            favorites: [],
+            now: weeks.first!.start,
+            year: 2026,
+            isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["opening", "mid", "last"])
+    }
+
+    @Test func seasonScopeIsIgnoredOffTheCurrentYear() {
+        // Same collapse as every other scope: a non-current year has no
+        // meaningful "season" *selection* — the pipeline forces .all.
+        let weeks = SeasonCalendar.weeks(forYear: 2026)
+        let postSeason = makeEvent(id: "post", start: weeks.last!.end)
+
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .season),
+            to: [postSeason],
+            favorites: [],
+            now: weeks.first!.start,
+            year: 2026,
+            isCurrentYear: false)
+
+        #expect(result.map(\.id) == ["post"])
+    }
+
     // MARK: - apply: categories / locations / favorites
 
     @Test func categoriesFilterIntersectsFilterTokens() {
