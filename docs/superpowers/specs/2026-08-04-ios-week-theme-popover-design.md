@@ -110,9 +110,15 @@ Tapping a themed `Wk 6` badge presents a popover anchored to it. Tapping outside
 dismisses. Nothing navigates; the list keeps its scroll position.
 
 A day that falls on a week boundary carries two week numbers
-(`SeasonCalendar.weekNumbers(spanningDayOf:year:)`). The popover then shows both
-themes stacked, in ascending week order, separated by a divider — matching the
-web.
+(`SeasonCalendar.weekNumbers(spanningDayOf:year:)`), and the iOS day header
+already renders **one badge per number** — `Wk 1` `Wk 2`, side by side, via a
+`ForEach`. So each badge presents **its own week's theme**, and nothing stacks.
+
+This diverges from the web deliberately, and only because the two layouts
+differ: the web draws a single combined `Week 1/2` badge, which is why its
+popover has to show both themes at once. Per-badge is simpler here and puts the
+theme behind the exact indicator the user touched. On a boundary day where only
+one of the two weeks has a theme, only that badge is tappable.
 
 ### Content
 
@@ -154,8 +160,8 @@ does. When there is no theme the badge is not a button and gains no action.
 
 | Unit | Kind | Responsibility |
 |---|---|---|
-| `Domain/WeekThemeSummary.swift` | pure, `nonisolated` | `weekNumbers` + `[WeeklyTheme]` → ordered display models (`weekLabel`, `dateRange`, `title`). Empty when nothing matches. Owns the date-range formatting. |
-| `Features/Calendar/WeekThemePopover.swift` | view | Renders one or more summaries and the chq.org link. |
+| `Domain/WeekThemeSummary.swift` | pure, `nonisolated` | One week number + `[WeeklyTheme]` → an optional display model (`weekLabel`, `dateRange`, `title`). `nil` when that week has no theme. Owns the date-range formatting. |
+| `Features/Calendar/WeekThemePopover.swift` | view | Renders one summary and the chq.org link. |
 | `Features/Calendar/EventListView.swift` | modify | `dayHeader(for:)` — badge becomes a `Button` presenting the popover when summaries are non-empty. |
 
 `WeekThemeSummary` is where the testable logic lives; the views hold none.
@@ -164,11 +170,12 @@ does. When there is no theme the badge is not a button and gains no action.
 
 `WeekThemeSummaryTests` covers:
 
-- One week with a theme → one summary, correct label, range, and title.
-- A boundary day with two week numbers → two summaries, ascending week order.
-- A week with **no** matching theme → empty result. This is the 2025 case and
-  the one that drives the whole conditional affordance.
-- A day whose two weeks have only one theme between them → one summary, not two.
+- A week with a theme → a summary carrying the correct label, range, and title.
+- A week with **no** matching theme → `nil`. This is the 2025 case and the one
+  that drives the whole conditional affordance.
+- An empty `[WeeklyTheme]` (the 2025 404 path) → `nil` for every week.
+- Lookup is by `number`, not by array position — a themes array that omits a
+  week, or is out of order, must still resolve correctly.
 - Same-month range collapses (`Aug 1–8`); cross-month does not (`Jul 28–Aug 4`).
 - A malformed date string degrades to no range rather than crashing.
 - An empty `description` is ignored (it is never rendered, but this pins that
@@ -198,6 +205,10 @@ capture pass. Neither blocks the other.
 - **A popover anchored to a row inside a `List`** can behave oddly if the anchor
   scrolls out of view while presented. Worth checking that scrolling with the
   popover open dismisses it or keeps it sensibly placed.
+- **On a boundary day only one badge may be live**, if just one of the two weeks
+  has a theme. That is correct, but two adjacent badges styled differently may
+  read as a rendering glitch rather than as information. Worth a look on a
+  device; the alternative — making both inert — hides real data.
 - **The feature is invisible for 2025.** That is correct behaviour given no data
   exists, but a user who switches years and sees the affordance disappear may
   read it as a bug. Acceptable, and noted here so it is not "fixed" by showing a
