@@ -139,6 +139,10 @@ struct CalendarView: View {
             model.uiTestShowFilters = true
         }
 
+        if arguments.contains("-uitest-show-week-theme") {
+            model.uiTestShowWeekTheme = true
+        }
+
         // `-uitest-search <term>` reads the argument that follows it and
         // commits it straight to `model.filter.searchText`. `searchDraft` is
         // set too so the visible search field shows the term, but the

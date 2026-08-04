@@ -602,6 +602,46 @@ final class AppModel {
     /// is present; consumed (and reset) by `EventDetailView.onAppear`.
     var uiTestShowAddToCalendar = false
 
+    /// Set by `CalendarView` on launch when `-uitest-show-week-theme` is
+    /// present; consumed (and reset) by whichever `WeekThemeBadge` matches
+    /// `uiTestFirstThemedWeek` below (see `EventListView.dayHeader`).
+    var uiTestShowWeekTheme = false
+
+    /// The first `(day, week)` pairing — in `days` display order — whose
+    /// badge actually has a theme. The deterministic target for
+    /// `-uitest-show-week-theme`: not every week has one (a partial sidecar
+    /// fetch, or the 2025 season, which has none at all), so "the first
+    /// badge" and "the first *themed* badge" can differ, and only the
+    /// latter has anything to open. `nil` when nothing in the current
+    /// selection has a themed week.
+    ///
+    /// Takes the caller's already-computed `days` — `EventListView.list(days:)`'s
+    /// own `days` parameter — rather than reading `dayGroups` itself.
+    /// `dayGroups` is deliberately uncached (see the comment above) and
+    /// re-runs the whole filter+group pipeline on every access, so this used
+    /// to run it a second time here, and `EventListView` was running it a
+    /// *third* time per badge realized by the `List` (see
+    /// `EventListView.content`'s comment on `days`). At ~1,637 events that
+    /// makes scrolling the season pay for a full filter-and-group pass per
+    /// header in a DEBUG build. Worse, calling `dayGroups` here means this
+    /// hook decides its target against a separate pipeline run than the one
+    /// that actually got rendered: a `now()` tick between the two runs (the
+    /// default `.next` scope, on the current year, drops or admits days as
+    /// the clock crosses midnight) can shift which days match, producing a
+    /// target no rendered header matches — the hook then silently never
+    /// fires. Passing in the exact array being rendered makes the decision
+    /// and the render agree by construction, and costs nothing extra: the
+    /// caller already has `days` in hand.
+    func uiTestFirstThemedWeek(in days: [DayGroup]) -> (dayID: String, week: Int)? {
+        for day in days {
+            for week in day.weekNumbers {
+                guard WeekThemeSummary.make(forWeek: week, in: themes) != nil else { continue }
+                return (day.id, week)
+            }
+        }
+        return nil
+    }
+
     /// Every event with article links, richest first — the single candidate
     /// list behind `-uitest-select-linked-event`,
     /// `-uitest-show-add-to-calendar`, `-uitest-scroll-to-articles` and
