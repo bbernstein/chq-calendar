@@ -119,9 +119,11 @@ struct WeekThemeSummaryTests {
         #expect(WeekThemeSummary.make(forWeek: 3, in: broken)?.dateRange == nil)
     }
 
-    @Test func anEmptyDescriptionIsIgnored() {
-        // Every real 2026 description is empty and none is ever rendered.
-        // This pins that the summary does not start depending on it.
+    @Test func descriptionIsIgnoredEvenWhenPopulated() {
+        // Descriptions are empty throughout the current feed and are
+        // deliberately never rendered in the UI. This pins that the summary
+        // will not silently start depending on the description field if the
+        // feed changes to populate it.
         let withDescription = [theme(6, "The Human Voice", "2026-08-01", "2026-08-08",
                                      description: "Some prose")]
         #expect(WeekThemeSummary.make(forWeek: 6, in: sample)
