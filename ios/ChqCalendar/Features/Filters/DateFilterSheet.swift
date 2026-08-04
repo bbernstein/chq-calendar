@@ -67,6 +67,19 @@ struct DateFilterSheet: View {
                             ForEach(weekNumbers, id: \.self) { number in
                                 SheetChip(
                                     label: "Week \(number)",
+                                    // At accessibility Dynamic Type sizes a
+                                    // 3-column grid cell is too narrow for
+                                    // "Week 6" and `lineLimit(1)` truncates
+                                    // it to "We…" — the week number, which
+                                    // is the entire content of the chip, is
+                                    // the part that gets clipped. `SheetChip`
+                                    // resolves that with `ViewThatFits`
+                                    // rather than a hardcoded size
+                                    // threshold, falling back to the bare
+                                    // number only when the full label
+                                    // doesn't fit — and keeps announcing
+                                    // "Week 6" to VoiceOver either way.
+                                    compactLabel: "\(number)",
                                     isSelected: FilterChipState.isWeekSelected(
                                         number, selection: model.filter,
                                         currentWeek: model.currentWeek)
@@ -113,6 +126,17 @@ struct DateFilterSheet: View {
 /// values that toggle.
 struct SheetChip: View {
     let label: String
+    /// An alternate rendering (e.g. "6" for "Week 6") tried when `label`
+    /// doesn't fit the space this chip is laid out in, via `ViewThatFits` —
+    /// never a hardcoded size threshold, since the space available depends
+    /// on the parent layout (grid column count, device width) as much as
+    /// the type size. `nil` by default, so every existing call site —
+    /// including `FacetChipCloud`, where a venue or category name
+    /// legitimately truncates instead of falling back — renders exactly as
+    /// it did before this parameter existed. Whichever variant is chosen,
+    /// VoiceOver always announces `label` in full; this is a *visual*
+    /// fallback only.
+    var compactLabel: String?
     var count: Int?
     let isSelected: Bool
     let action: () -> Void
@@ -124,8 +148,7 @@ struct SheetChip: View {
                     Image(systemName: "checkmark")
                         .font(.caption2.weight(.bold))
                 }
-                Text(label)
-                    .lineLimit(1)
+                labelText
                 if let count {
                     Text("\(count)")
                         .monospacedDigit()
@@ -144,6 +167,26 @@ struct SheetChip: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// `ViewThatFits` only when `compactLabel` is supplied; otherwise the
+    /// original single `Text`, byte-for-byte, so facet chips (no
+    /// `compactLabel`) are unaffected by this branch existing at all. The
+    /// explicit `.accessibilityLabel` is scoped to the `compactLabel`
+    /// branch alone, for the same reason — it must not change what
+    /// existing chips announce.
+    @ViewBuilder
+    private var labelText: some View {
+        if let compactLabel {
+            ViewThatFits(in: .horizontal) {
+                Text(label).lineLimit(1)
+                Text(compactLabel).lineLimit(1)
+            }
+            .accessibilityLabel(label)
+        } else {
+            Text(label)
+                .lineLimit(1)
+        }
     }
 }
 
@@ -165,4 +208,32 @@ struct SheetDismissButton: View {
         .padding(.bottom, 12)
         .background(.bar)
     }
+}
+
+/// Reproduces the Weeks grid's 3-column layout at an accessibility Dynamic
+/// Type size, standalone from `AppModel`/`EventRepository` (which need a
+/// live cache or API client that only test-target mocks provide).
+///
+/// This is what to check by eye: at `.accessibility3` and larger, a
+/// 3-column column is narrow enough that "Week 6" no longer fits, so every
+/// chip should show a bare number ("1"–"9") rather than "We…". Chip 5 is
+/// marked selected to confirm the checkmark + number combination still
+/// respects the 44pt minimum height and doesn't itself force truncation.
+#Preview("Weeks grid — accessibility3") {
+    ScrollView {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+            spacing: 8
+        ) {
+            ForEach(1...9, id: \.self) { number in
+                SheetChip(
+                    label: "Week \(number)",
+                    compactLabel: "\(number)",
+                    isSelected: number == 5
+                ) {}
+            }
+        }
+        .padding(20)
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

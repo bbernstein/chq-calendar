@@ -1,6 +1,6 @@
 {
   "capturedOn": "2026-08-03",
-  "appCommit": "68ea7d8",
+  "appCommit": "f2ff3f8",
   "screenshots": [
     {
       "device": "iphone-6.9",
@@ -9,7 +9,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/01-season.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "92ef0ffd756666645b624e3b96fd0c16b5ffe2431e36e52fb977682b83b47de0"
+      "sha256": "c35bee4d4571c27f6a77bc587c40d7fefc3ee9819aaeb063d16c2141aacf6388"
     },
     {
       "device": "iphone-6.9",
@@ -18,7 +18,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/02-filters.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "da881b77da3d018565bd3ac3ae109c2ebcd813d729e9f26b9afac1cda495c593"
+      "sha256": "9e3f488e6647818634721e9cd4f04b730dc0ee33eee67dd5229161ccdedee30a"
     },
     {
       "device": "iphone-6.9",
@@ -27,7 +27,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/03-search.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "9883271b27477666f175380afd808aed081a2c598e74983913a17933f62a5cb6"
+      "sha256": "e551c33e49aca4271b027b5058b834a3bde0cc7fbfa2117ea58b443aee338746"
     },
     {
       "device": "iphone-6.9",
@@ -45,7 +45,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/05-articles.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "1c817574789e61cd8966a4cb5d47650da16bcf6b1ea7d63f4706ef5eafc7952b"
+      "sha256": "ccee898aaf6b843741c44e367d5df4f1d7739467cd06ec61cc53fd743c29838d"
     },
     {
       "device": "iphone-6.9",
@@ -72,7 +72,7 @@
       "file": "ios/Scripts/out/final/ipad-13/02-filters.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "039d7f93a6430c9984219a6b1bdf8bfc24abf48cbeb5dea4b4a62e39e3dfa444"
+      "sha256": "467ef382088bb64091282da29bf0713a3842d37d6b4462c2263d9726ed56516e"
     },
     {
       "device": "ipad-13",
