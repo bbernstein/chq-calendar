@@ -27,6 +27,13 @@ struct WeekThemeBadge: View {
             Button {
                 isShowingTheme = true
             } label: {
+                // Tints the capsule's background, not just its text: `.secondary`
+                // in `capsule` below is a hierarchical style, so it resolves
+                // against whatever foreground style is ambient here rather than
+                // the system grey. That whole-capsule tint is the affordance — it
+                // is what separates a tappable badge from an inert one, including
+                // on a boundary day where one of two adjacent badges is themed
+                // and the other is not.
                 capsule.foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
