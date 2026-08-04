@@ -73,12 +73,15 @@ struct EventListView: View {
     }
 
     /// Non-nil only for the single badge `-uitest-show-week-theme` targets
-    /// (`AppModel.uiTestFirstThemedWeek`) — every other badge in `dayHeader`
-    /// gets `nil` and behaves exactly as it did before this hook existed.
-    /// See `WeekThemeBadge.uiTestAutoShow` for how the binding is consumed.
-    private func uiTestAutoShowThemeBinding(day: DayGroup, week: Int) -> Binding<Bool>? {
-        guard let target = model.uiTestFirstThemedWeek,
-              target.dayID == day.id, target.week == week
+    /// (`target`, computed once per render by `list(days:)` via
+    /// `AppModel.uiTestFirstThemedWeek(in:)`) — every other badge in
+    /// `dayHeader` gets `nil` and behaves exactly as it did before this hook
+    /// existed. See `WeekThemeBadge.uiTestAutoShow` for how the binding is
+    /// consumed.
+    private func uiTestAutoShowThemeBinding(
+        day: DayGroup, week: Int, target: (dayID: String, week: Int)?
+    ) -> Binding<Bool>? {
+        guard let target, target.dayID == day.id, target.week == week
         else { return nil }
         return $model.uiTestShowWeekTheme
     }
@@ -113,6 +116,15 @@ struct EventListView: View {
     private func list(days: [DayGroup]) -> some View {
         let filtered = days.reduce(0) { $0 + $1.events.count }
 
+        #if DEBUG
+        // Computed once, here, against exactly the array this render is
+        // about to show — not by re-reading `model.dayGroups` (which is
+        // deliberately uncached and would both re-run the whole
+        // filter+group pipeline and risk disagreeing with what actually
+        // renders; see `AppModel.uiTestFirstThemedWeek(in:)`).
+        let uiTestThemeTarget = model.uiTestFirstThemedWeek(in: days)
+        #endif
+
         return List(selection: selection) {
             if let countdownDays = model.countdownDays {
                 CountdownBanner(days: countdownDays)
@@ -134,7 +146,11 @@ struct EventListView: View {
                         row(for: event)
                     }
                 } header: {
+                    #if DEBUG
+                    dayHeader(for: day, uiTestThemeTarget: uiTestThemeTarget)
+                    #else
                     dayHeader(for: day)
+                    #endif
                 }
             }
 
@@ -174,22 +190,30 @@ struct EventListView: View {
         }
     }
 
+    #if DEBUG
+    private func dayHeader(for day: DayGroup, uiTestThemeTarget: (dayID: String, week: Int)?) -> some View {
+        HStack {
+            Text(day.title)
+            Spacer()
+            ForEach(day.weekNumbers, id: \.self) { number in
+                WeekThemeBadge(
+                    weekNumber: number,
+                    themes: model.themes,
+                    uiTestAutoShow: uiTestAutoShowThemeBinding(day: day, week: number, target: uiTestThemeTarget))
+            }
+        }
+    }
+    #else
     private func dayHeader(for day: DayGroup) -> some View {
         HStack {
             Text(day.title)
             Spacer()
             ForEach(day.weekNumbers, id: \.self) { number in
-                #if DEBUG
-                WeekThemeBadge(
-                    weekNumber: number,
-                    themes: model.themes,
-                    uiTestAutoShow: uiTestAutoShowThemeBinding(day: day, week: number))
-                #else
                 WeekThemeBadge(weekNumber: number, themes: model.themes)
-                #endif
             }
         }
     }
+    #endif
 
     private var noMatchesView: some View {
         ContentUnavailableView {
