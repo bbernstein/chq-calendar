@@ -20,10 +20,31 @@ nonisolated enum DateFilterLabel {
     /// a count is more honest than an enumeration.
     private static let maxListedWeeks = 3
 
-    static func text(for selection: FilterSelection, seasonWeekCount: Int) -> String {
+    /// - Parameter isCurrentYear: must be the same value the caller passes
+    ///   to `EventFilter.apply`. The label has to know it because
+    ///   `EventFilter` **ignores** a time-relative `dateScope` when it is
+    ///   `false` (`let scope: DateScope = isCurrentYear ? sel.dateScope : .all`)
+    ///   — a past or future season has no "now". Without this parameter a
+    ///   user whose persisted scope is `.next`, viewing 2025, read "Now" on
+    ///   a list that was not date-filtered at all.
+    ///
+    ///   Deliberately **not defaulted**: a default is exactly what would let
+    ///   a future call site forget to pass it and silently reintroduce that
+    ///   bug. Callers must state which season they are labelling.
+    ///
+    ///   Week selection is unaffected — `EventFilter` applies
+    ///   `selectedWeeks` regardless of `isCurrentYear` (the weeks stage sits
+    ///   outside the scope `switch`), so a week label is just as true on a
+    ///   past season as on the current one and is left alone below.
+    static func text(
+        for selection: FilterSelection,
+        seasonWeekCount: Int,
+        isCurrentYear: Bool
+    ) -> String {
         let weeks = selection.selectedWeeks.sorted()
 
         guard !weeks.isEmpty else {
+            guard isCurrentYear else { return "All Dates" }
             switch selection.dateScope {
             case .all: return "All Dates"
             case .next, .today, .thisWeek: return selection.dateScope.label

@@ -228,7 +228,8 @@ struct EventListView: View {
     private var dateLabel: String {
         DateFilterLabel.text(
             for: model.filter,
-            seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count)
+            seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count,
+            isCurrentYear: model.isCurrentYear)
     }
 
     private var filterCount: Int { ActiveFilterCount.value(for: model.filter) }
