@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 
 /// Pure reduction logic for `WeekRangeStrip`'s single drag gesture, kept
 /// out of the view so issue #162's selection rules are unit-testable:

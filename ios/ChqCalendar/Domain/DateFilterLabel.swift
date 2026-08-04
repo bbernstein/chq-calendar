@@ -13,8 +13,8 @@ import Foundation
 /// "Week 6" in September. A pill that changes its wording without the user
 /// touching anything is worse than a pill that is merely less clever.
 ///
-/// `.all` renders as "All Year" rather than `DateScope.all.label`
-/// ("All") so it cannot be misread against "All Weeks": the first means no
+/// `.all` renders as `DateScope.all.label` ("All Year") — deliberately not
+/// "All", so it cannot be misread against "All Weeks": the first means no
 /// date filter at all, the second means every week explicitly selected.
 nonisolated enum DateFilterLabel {
     /// Above this many scattered weeks, the list stops being scannable and
