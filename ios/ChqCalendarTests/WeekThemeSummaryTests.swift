@@ -79,6 +79,46 @@ struct WeekThemeSummaryTests {
         #expect(WeekThemeSummary.make(forWeek: 3, in: broken)?.dateRange == nil)
     }
 
+    @Test func impossibleDayInAMonthDegradesToNoRange() {
+        // February never has a 31st, in any year. Structurally
+        // well-shaped, calendrically impossible.
+        let broken = [theme(3, "Election", "2026-02-31", "2026-07-18")]
+        let summary = WeekThemeSummary.make(forWeek: 3, in: broken)
+        // Same contract as any other malformed date: the summary and its
+        // title survive, only the range is lost.
+        #expect(summary != nil)
+        #expect(summary?.title == "Election")
+        #expect(summary?.dateRange == nil)
+    }
+
+    @Test func april31DegradesToNoRange() {
+        // April has 30 days, so the 31st is impossible too — this isn't a
+        // February-only rule.
+        let broken = [theme(3, "Election", "2026-04-31", "2026-07-18")]
+        #expect(WeekThemeSummary.make(forWeek: 3, in: broken)?.dateRange == nil)
+    }
+
+    @Test func february29InANonLeapYearDegradesToNoRange() {
+        // 2026 is not a leap year.
+        let broken = [theme(3, "Election", "2026-02-29", "2026-07-18")]
+        #expect(WeekThemeSummary.make(forWeek: 3, in: broken)?.dateRange == nil)
+    }
+
+    @Test func february29InALeapYearIsValid() {
+        // 2028 is a leap year — pinned so a fix doesn't overcorrect into
+        // rejecting every February 29th regardless of year.
+        let leap = [theme(3, "Election", "2028-02-29", "2028-07-18")]
+        #expect(WeekThemeSummary.make(forWeek: 3, in: leap)?.dateRange == "Feb 29\u{2013}Jul 18")
+    }
+
+    @Test func leadingHyphenDegradesToNoRange() {
+        // `split(separator:)` omits empty subsequences, so without an
+        // explicit shape check this would parse as year "2026", month
+        // "08", day "01" and silently succeed.
+        let broken = [theme(3, "Election", "-2026-08-01", "2026-07-18")]
+        #expect(WeekThemeSummary.make(forWeek: 3, in: broken)?.dateRange == nil)
+    }
+
     @Test func anEmptyDescriptionIsIgnored() {
         // Every real 2026 description is empty and none is ever rendered.
         // This pins that the summary does not start depending on it.

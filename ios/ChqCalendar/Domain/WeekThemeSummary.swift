@@ -64,15 +64,41 @@ nonisolated struct WeekThemeSummary: Equatable, Sendable {
         return "\(startLabel)\u{2013}\(monthAbbreviations[endMonth - 1]) \(endDay)"
     }
 
-    /// Parses `"yyyy-MM-dd"`. Returns `nil` for anything else, including a
-    /// well-shaped string with an impossible month — the array index below
-    /// would trap on it.
+    /// Parses `"yyyy-MM-dd"`. Returns `nil` for anything else, including:
+    /// a string that isn't exactly that 10-character shape (so a leading
+    /// hyphen or a missing digit doesn't slip through `split` dropping
+    /// empty pieces); a component out of its own range (month 13, day 32,
+    /// which would trap the array index below); and a day/month pair that's
+    /// individually in range but doesn't exist together, like February 31st
+    /// or February 29th in a non-leap year. A wrong label ("Feb 31") is
+    /// worse than no label, so any of these degrade to `nil` rather than
+    /// rendering something confidently incorrect.
+    ///
+    /// Validity is checked with an explicit Gregorian calendar, not
+    /// `Calendar.current` — the answer to "does Feb 29 2026 exist" must not
+    /// depend on the device's locale, and this stays clock-free like the
+    /// rest of the function: no `Date()`, no `ChqTime`.
     private static func monthAndDay(_ iso: String) -> (month: Int, day: Int)? {
+        // Length-and-digit check rather than a regex: `split` alone would
+        // silently accept "-2026-08-01" (leading hyphen) because it omits
+        // empty subsequences, and requiring the exact 10-character
+        // yyyy-MM-dd shape closes that without needing pattern matching.
+        guard iso.count == 10 else { return nil }
         let parts = iso.split(separator: "-")
         guard parts.count == 3,
+              parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+              let year = Int(parts[0]),
               let month = Int(parts[1]), (1...12).contains(month),
               let day = Int(parts[2]), (1...31).contains(day)
         else { return nil }
+
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        let gregorian = Calendar(identifier: .gregorian)
+        guard components.isValidDate(in: gregorian) else { return nil }
+
         return (month, day)
     }
 }
