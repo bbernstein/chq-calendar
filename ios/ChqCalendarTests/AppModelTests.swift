@@ -307,7 +307,8 @@ struct AppModelTests {
         #expect(model.filter.dateScope == .thisWeek)
         #expect(model.filter.selectedWeeks.isEmpty)
         #expect(FilterChipState.isScopeSelected(
-            .thisWeek, selection: model.filter, currentWeek: model.currentWeek))
+            .thisWeek, selection: model.filter, currentWeek: model.currentWeek,
+            isCurrentYear: model.isCurrentYear))
         #expect(FilterChipState.isWeekSelected(
             6, selection: model.filter, currentWeek: model.currentWeek))
     }

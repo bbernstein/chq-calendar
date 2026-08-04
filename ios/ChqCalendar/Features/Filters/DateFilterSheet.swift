@@ -39,9 +39,18 @@ struct DateFilterSheet: View {
                                     // `true` here previously let this one
                                     // chip and the week grid both show as
                                     // checked at once.
+                                    //
+                                    // `isCurrentYear` is what tells it that a
+                                    // persisted `.next`/`.today`/`.thisWeek`
+                                    // is being ignored by the pipeline on a
+                                    // past season, so the collapsed "All"
+                                    // chip reads selected there instead of
+                                    // leaving the sheet's only date control
+                                    // unchecked.
                                     isSelected: FilterChipState.isScopeSelected(
                                         scope, selection: model.filter,
-                                        currentWeek: model.currentWeek)
+                                        currentWeek: model.currentWeek,
+                                        isCurrentYear: model.isCurrentYear)
                                 ) {
                                     model.selectScope(scope)
                                 }
