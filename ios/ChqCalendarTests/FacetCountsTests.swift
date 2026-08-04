@@ -100,6 +100,30 @@ struct FacetCountsTests {
         #expect(c.locations["amphitheater"] != nil)
     }
 
+    @Test func eventsWithoutALocationAreSkipped() throws {
+        // An event with no `displayLocation` must contribute to no location
+        // bucket at all — not to a `nil`/empty-string key, just absent.
+        let events = try sample() + [
+            makeEvent(id: "6", start: try date("2026-08-12 10:00:00"),
+                      title: "Event 6", categories: ["Music"]),
+        ]
+        let c = FacetCounts.build(
+            events: events,
+            selection: FilterSelection(dateScope: .all),
+            favorites: [],
+            now: try date("2026-07-01 09:00:00"),
+            year: 2026,
+            isCurrentYear: false)
+        #expect(c.locations.values.reduce(0, +) == 5)
+        #expect(c.locations["amphitheater"] == 2)
+        #expect(c.locations["norton hall"] == 2)
+        #expect(c.locations["bratton theater"] == 1)
+        // The category count still picks up the sixth event...
+        #expect(c.categories["music"] == 3)
+        // ...but no location key exists for it.
+        #expect(c.locations.count == 3)
+    }
+
     @Test func emptyEventsProduceEmptyCounts() throws {
         let c = FacetCounts.build(
             events: [],

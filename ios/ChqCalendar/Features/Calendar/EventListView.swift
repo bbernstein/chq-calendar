@@ -181,7 +181,17 @@ struct EventListView: View {
         ContentUnavailableView {
             Label("No matching events", systemImage: "calendar.badge.exclamationmark")
         } actions: {
-            Button("Clear Filters") {
+            // Deliberately worded differently than the filter sheet's
+            // "Clear Filters" button (`FilterSheet.swift`), even though both
+            // ultimately call `clearAll()` here. If this said "Clear
+            // Filters" too, a user who reached an empty list via a date/week
+            // selection (e.g. Week 6 at a venue with no Week 6 events) could
+            // tap it expecting the sheet's scoped behavior and silently lose
+            // their week. Clearing everything is correct for this empty
+            // state — recovering from "nothing matches" needs a full reset —
+            // but the label must say so plainly rather than reuse a phrase
+            // that means something narrower elsewhere in the app.
+            Button("Show All Events") {
                 model.clearAll()
             }
         }

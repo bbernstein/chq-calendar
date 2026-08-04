@@ -47,44 +47,83 @@ list needs.
 Each was an explicit choice during design; the rejected alternative is
 recorded because the reasoning matters more than the outcome.
 
-### D1 — Controls move to a floating bar at the bottom
+### D1 — Controls move to the system bottom bar
 
 Rejected: nav-bar-only (maximum space, but filtering becomes near-invisible
 and the controls land in the hardest place to reach one-handed); a morphing
 top header (safest, but keeps chrome out of thumb reach and expansion pushes
 the list under the user's finger — the motion that caused #151's oscillation).
 
-The bottom edge is where iOS 26 put floating control groups (Maps, Podcasts,
-Safari, Photos), which makes it the strongest on Harmony and Consistency, and
-content passing visibly beneath the bar is textbook Hierarchy. It is also the
-shape Liquid Glass was designed around, so it is the cheapest future swap.
+What shipped is not an app-drawn floating capsule: the two pills are
+`ToolbarItemGroup(placement: .bottomBar)` items in the navigation container's
+own bottom bar, system-drawn like Maps', Podcasts', Safari's, and Photos'
+bottom groups — which is what actually makes it the strongest choice on
+Harmony and Consistency, and content passing visibly beneath the bar is
+textbook Hierarchy. Because it's a system-drawn bar rather than an
+app-owned overlay, Liquid Glass arrives with the platform once the
+deployment target allows it, with no view of ours to swap out (see "Glass
+readiness").
 
-### D2 — Overlay with a constant inset, not a `safeAreaInset`
+### D2 — System bottom-bar inset, not a hand-rolled content margin
 
-**This is the load-bearing structural decision.** The bar is
-`.overlay(alignment: .bottom)` and the list carries a *constant* bottom
-content margin sized for the bar's fixed height. The bar's expanded and
-compact states differ in label text and width only — never height.
+**This is the load-bearing structural decision.** The bar is real
+`ToolbarItemGroup(placement: .bottomBar)` content, not an overlay, so the
+list's bottom content inset is supplied by the navigation container itself —
+measured at 86.0pt on iPhone 17 / iOS 26.1 with nothing of ours contributing
+to it. `EventListView` deliberately adds no `contentMargins(.bottom, …)` of
+its own.
 
-Consequence: the list's geometry does not change when the bar changes state.
-Collapse cannot clamp content, cannot re-trigger an expand, and cannot
-oscillate. The entire class of bug that `FilterBarCollapse` exists to prevent
-becomes unreachable by construction rather than by measurement.
+Consequence: the list's geometry cannot be shifted by any state we hold,
+because we hold none that affects it — there is no bar-height variable to
+get out of sync with the content margin, so there is nothing to clamp,
+nothing to re-trigger an expand, and nothing to oscillate. This is a
+stronger guarantee than the hand-rolled constant margin it replaced: that
+approach still required the app to keep its margin correctly matched to the
+bar's own height by hand, where the system-supplied inset can't drift from
+the bar because the same layout pass produces both. The entire class of bug
+that `FilterBarCollapse` exists to prevent becomes unreachable by
+construction rather than by measurement.
 
 `FilterBarCollapse.swift` (350 lines) and `FilterBarCollapseTests.swift` are
 deleted. #153 and #154 are closed as obsolete: there are no pinned rows to
 choose between and no give-back to measure.
 
-### D3 — Search stays in `.searchable` at the top
+### D3 — Search merges into the bottom bar (correction: not `.searchable` at the top)
+
+**Recorded as a correction, not deleted, because the branch disproved this
+decision's premise partway through and the disproof is worth keeping.**
 
 Rejected: a search pill in the bottom bar that morphs into a text field.
 That would hand-build a field and forfeit Cancel, dictation, scope handling,
 and the three keyboard-dismissal paths #151 verified on a physical device.
 
-The system field already auto-hides on scroll and returns on a short
-pull-down, which is exactly the behavior wanted. It keeps the bottom bar at
-two pills. An active search term still counts toward the filter pill's badge
-and appears as a removable chip in the filter sheet.
+The original assumption here was that `.searchable` renders under the
+navigation bar as it always has, so the bottom bar would carry only the two
+filter pills and search would be untouched. On the iOS 26 SDK this app
+builds against, that's false: `.searchable` itself renders as a
+bottom-anchored floating field. An app-drawn bottom bar and the system
+search field turned out to be two separate things competing for the same
+screen edge — with the bar sitting on top of list text — rather than the
+clean separation this decision assumed.
+
+The resolution was to stop treating them as separate and merge everything
+into one system-laid-out bottom group: the date pill, filter pill, and
+search field all live in `.bottomBar` together, which is both the platform
+idiom on iOS 26 and the only way the two coexist. A further wrinkle followed
+from that merge: once *any* `.bottomBar` content is declared on iOS 26, the
+system search field disappears entirely rather than sharing the bar, unless
+`DefaultToolbarItem(kind: .search, placement: .bottomBar)` is declared
+alongside it — verified by screenshot, since the failure mode is silent
+(the list still filters; no field or magnifier renders anywhere). That's
+why an `if #available(iOS 26.0, *)` block exists around a `ToolbarSpacer`
+and that default search item. The deployment target stays 18.0; on the iOS
+18 runtime the branch is skipped and `.searchable` renders under the
+navigation bar as it always has there, so the two SDKs genuinely differ in
+layout: iOS 18 keeps search under the nav bar and the pills in their own
+bottom bar, iOS 26 puts all three in one bottom group.
+
+An active search term still counts toward the filter pill's badge and
+appears as a removable chip in the filter sheet.
 
 ### D4 — Filters apply live; the sheet's button is a dismiss
 
@@ -128,25 +167,25 @@ re-proposed.
 ### Chrome
 
 Nav bar is unchanged: inline title, year menu, overflow menu. Below it, the
-system search field. The list runs to the bottom edge, overlaid by a
-content-hugging translucent capsule, horizontally centered, ~12pt above the
-home indicator:
+list runs to the bottom edge. The two filter controls are `Button`s inside a
+single `ToolbarItemGroup(placement: .bottomBar)` — system-drawn bottom-bar
+toolbar items, not an app-owned floating capsule:
 
 ```
-                􀉉 Weeks 4–6      􀌉 Filters · 3
+       Weeks 4–6      Filters (3)
 ```
 
-Two states, driven by scroll direction from the existing
-`onScrollGeometryChange` stream:
+On the iOS 26 SDK, the system search field (see D3) is declared into the
+same `.bottomBar` group via `DefaultToolbarItem(kind: .search, placement:
+.bottomBar)`, so all three — date pill, filter pill, search — lay out as one
+system group. On iOS 18 the search field stays under the nav bar via
+`.searchable`, and the bottom bar carries only the two pills.
 
-- **Expanded** — at rest, at the top of the list, or scrolling up. Both pills
-  show full labels.
-- **Compact** — scrolling down past a threshold. The filter pill drops its
-  word (`􀌉3`); the date pill's label never abbreviates, because that label is
-  precisely what a scrolling user wants to keep reading.
-
-Height is constant in both states (44pt minimum touch target). Transition is
-a width/opacity change; under Reduce Motion it is a cross-fade.
+There is no expanded/compact state and no scroll-driven resizing: the bar's
+content is fixed, and its layout — including any abbreviation of item
+labels under space pressure — is the system's to manage, not this app's.
+`onScrollGeometryChange`-driven show/hide logic was one of the things the
+constant system-supplied inset (D2) made unnecessary.
 
 ### Date pill label
 
@@ -233,10 +272,12 @@ Banners (countdown, offline), the `n of m events` caption, and the
 
 ### Glass readiness
 
-Every chrome surface goes through a single `ChromeSurface` view modifier,
-today `.regularMaterial` clipped to a capsule with a hairline border. When the
-deployment target reaches iOS 26, adopting Liquid Glass is an edit to that one
-file behind an `@available` check — no call sites change.
+`ChromeSurface` never shipped — there is no app-owned chrome surface to
+adopt Liquid Glass through. The bottom-bar chrome (D1) is system-drawn
+`ToolbarItemGroup` content, so Liquid Glass arrives with the platform itself
+once the deployment target reaches iOS 26, the same way it will for any
+other app's toolbar. There is no file of ours behind an `@available` check
+and no call site to edit.
 
 ## Components
 
@@ -246,9 +287,6 @@ New, in dependency order:
 |---|---|---|
 | `Domain/DateFilterLabel.swift` | pure | `FilterSelection` + weeks → date pill string |
 | `Domain/ActiveFilterCount.swift` | pure | `FilterSelection` → badge count |
-| `Domain/BarPresentation.swift` | pure | scroll samples → `.expanded` / `.compact` |
-| `Features/Chrome/ChromeSurface.swift` | view | the one material/shape definition |
-| `Features/Chrome/FloatingFilterBar.swift` | view | the capsule and its two pills |
 | `Features/Filters/DateFilterSheet.swift` | view | When + Weeks |
 | `Features/Filters/FilterSheet.swift` | view | chips, facet clouds, favorites |
 | `Features/Filters/FacetChipCloud.swift` | view | one facet's cloud + `All n →` |
@@ -257,15 +295,14 @@ New, in dependency order:
 Rewritten: `Domain/FacetCounts.swift` (selection-aware),
 `Features/Calendar/EventRow.swift`, day header extracted to
 `Features/Calendar/DayHeader.swift`, `Features/Calendar/EventListView.swift`
-(top inset removed, bottom overlay added).
+(top inset removed, bottom-bar toolbar group added).
 
 Deleted: `Domain/FilterBarCollapse.swift`,
 `Features/Filters/FilterBarView.swift`, `Features/Filters/FacetRowView.swift`,
 `Features/Filters/WeekStripView.swift`, `Features/Filters/ResetFilterRow.swift`,
 and `ChqCalendarTests/FilterBarCollapseTests.swift`.
 
-`WeekStripState` is retained if the date sheet's week grid reuses it;
-otherwise deleted with its tests.
+`WeekStripState` is retained, now unreferenced outside its own tests.
 
 ## Testing
 
@@ -278,8 +315,6 @@ and expensive to get wrong.
   scope/week exclusivity assumption.
 - `ActiveFilterCountTests` — each contributor independently and combined;
   specifically that favorites-only increments the badge (D6).
-- `BarPresentationTests` — direction changes, threshold, and that no input
-  sequence produces a height change.
 - `FacetCountsTests` — rewritten for selection-awareness, including the exact
   #152 repro (Week 6 + Amphitheater must not report the season-wide total).
 - `ActiveFilterChipsTests` — extended for the favorites chip.
@@ -309,10 +344,10 @@ full and cannot be opted out of:
 
 Two PRs, chrome first.
 
-**PR 1 — chrome.** `FloatingFilterBar`, both sheets, `DateFilterLabel`,
-`ActiveFilterCount`, `BarPresentation`, `ChromeSurface`, selection-aware
-`FacetCounts`, deletion of the four filter-bar views and the collapse driver,
-`EventListView` restructuring, UI-test hook rework, screenshots.
+**PR 1 — chrome.** Bottom-bar toolbar items, both sheets, `DateFilterLabel`,
+`ActiveFilterCount`, selection-aware `FacetCounts`, deletion of the four
+filter-bar views and the collapse driver, `EventListView` restructuring onto
+the system-supplied bottom inset (D2), UI-test hook rework, screenshots.
 
 **PR 2 — rows.** `EventRow` and `DayHeader` redesign.
 
@@ -323,9 +358,11 @@ chrome sits above old rows.
 
 ## Risks
 
-- **Bottom bar occludes list content.** Mitigated by the constant bottom
-  content margin — the last row can always be scrolled clear of the bar. Must
-  be verified on a device with the home indicator present.
+- **Bottom bar occludes list content.** Mitigated by the system-supplied
+  bottom content inset (D2) — the navigation container sizes it to the bar
+  automatically, so the last row can always be scrolled clear of it without
+  the app tracking the bar's height itself. Must be verified on a device
+  with the home indicator present.
 - **Losing tap-to-favorite hurts discoverability.** Accepted (D7). The star
   indicator keeps favorites legible; swipe and long-press remain. Worth
   revisiting if it reads as a regression on a device.

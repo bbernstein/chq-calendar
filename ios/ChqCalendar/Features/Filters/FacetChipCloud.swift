@@ -46,7 +46,21 @@ struct FacetChipCloud: View {
                     .textCase(.uppercase)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if allNames.count > Self.visibleLimit {
+                // Compare against what `ordered` actually renders, not
+                // against `visibleLimit` directly. A selected value counts
+                // toward `ordered` without counting toward the cap, so a
+                // facet can render fewer than `visibleLimit` chips while
+                // still hiding some (e.g. 8 selected + 1 unselected, all cut
+                // by `prefix`) — or render exactly `allNames.count` chips
+                // when the facet has few enough values that nothing is cut,
+                // in which case the link would otherwise show with nothing
+                // behind it. Deriving from `ordered.count` keeps this
+                // condition unable to drift from the truncation it describes,
+                // and is also what closes the "vanishing chip": a deselected
+                // value that re-enters the unselected pool past the cap
+                // still has a way back via `All n` even when the facet's
+                // total is ≤ `visibleLimit`.
+                if ordered.count < allNames.count {
                     NavigationLink {
                         FacetAllList(model: model, facet: facet)
                     } label: {
