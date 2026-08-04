@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The date pill's sheet: a scope row and a grid of the season's nine weeks.
+/// The date pill's sheet: a scope row and the nine-week range strip.
 ///
 /// Scope and week selection are mutually exclusive — one date range, two
 /// ways of naming it. That rule lives in `AppModel.selectScope` and
@@ -11,11 +11,24 @@ struct DateFilterSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var visibleScopes: [DateScope] {
-        model.isCurrentYear ? DateScope.allCases : [.all]
+        model.isCurrentYear ? [.next, .today, .season, .all] : [.all]
     }
 
     private var weekNumbers: [Int] {
         SeasonCalendar.weeks(forYear: model.selectedYear).map(\.number)
+    }
+
+    /// What a strip gesture should treat as already-selected. A persisted
+    /// `.thisWeek` scope highlights the current week without any stored
+    /// weeks — treating it as that one week makes tapping it deselect
+    /// (rather than confusingly "re-select") on the first touch.
+    private var effectiveWeekSelection: Set<Int> {
+        if model.filter.selectedWeeks.isEmpty,
+           model.filter.dateScope == .thisWeek,
+           let currentWeek = model.currentWeek {
+            return [currentWeek]
+        }
+        return model.filter.selectedWeeks
     }
 
     var body: some View {
@@ -59,39 +72,15 @@ struct DateFilterSheet: View {
                     }
 
                     section("Weeks") {
-                        LazyVGrid(
-                            columns: Array(
-                                repeating: GridItem(.flexible(), spacing: 8), count: 3),
-                            spacing: 8
-                        ) {
-                            ForEach(weekNumbers, id: \.self) { number in
-                                // Bare number, not "Week N": the section
-                                // header above already reads "WEEKS", so
-                                // repeating the word in every chip is
-                                // redundant. It also sidesteps a real bug —
-                                // SF Pro's proportional digits made "Week 4",
-                                // "Week 8", "Week 9" (and any selected chip,
-                                // which loses width to its checkmark)
-                                // marginally wider than the rest, so a
-                                // per-chip `ViewThatFits` fit decision landed
-                                // right on the boundary and split
-                                // inconsistently across the grid. A fixed
-                                // bare-number label can't split at all.
-                                // VoiceOver still announces "Week 6" via the
-                                // explicit `.accessibilityLabel` below.
-                                SheetChip(
-                                    label: "\(number)",
-                                    isSelected: FilterChipState.isWeekSelected(
-                                        number, selection: model.filter,
-                                        currentWeek: model.currentWeek)
-                                ) {
-                                    model.setWeekSelection(WeekStripDrag.commit(
-                                        anchor: number, current: number,
-                                        existing: model.filter.selectedWeeks))
-                                }
-                                .accessibilityLabel("Week \(number)")
-                            }
-                        }
+                        WeekRangeStrip(
+                            weekNumbers: weekNumbers,
+                            isSelected: { number in
+                                FilterChipState.isWeekSelected(
+                                    number, selection: model.filter,
+                                    currentWeek: model.currentWeek)
+                            },
+                            effectiveSelection: effectiveWeekSelection,
+                            commit: { model.setWeekSelection($0) })
                     }
                 }
                 .padding(20)
@@ -188,30 +177,12 @@ struct SheetDismissButton: View {
     }
 }
 
-/// Reproduces the Weeks grid's 3-column layout at an accessibility Dynamic
-/// Type size, standalone from `AppModel`/`EventRepository` (which need a
-/// live cache or API client that only test-target mocks provide).
-///
-/// This is what to check by eye: at `.accessibility3` and larger, the bare
-/// number plus a checkmark (chip 5, marked selected) still respects the
-/// 44pt minimum height without truncating — the one thing that was still
-/// worth confirming once the chips stopped choosing between "Week N" and
-/// "N" at all.
-#Preview("Weeks grid — accessibility3") {
-    ScrollView {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
-            spacing: 8
-        ) {
-            ForEach(1...9, id: \.self) { number in
-                SheetChip(
-                    label: "\(number)",
-                    isSelected: number == 5
-                ) {}
-                .accessibilityLabel("Week \(number)")
-            }
-        }
-        .padding(20)
-    }
+#Preview("Week strip — accessibility3") {
+    WeekRangeStrip(
+        weekNumbers: Array(1...9),
+        isSelected: { (4...6).contains($0) },
+        effectiveSelection: [4, 5, 6],
+        commit: { _ in })
+    .padding(20)
     .environment(\.dynamicTypeSize, .accessibility3)
 }
