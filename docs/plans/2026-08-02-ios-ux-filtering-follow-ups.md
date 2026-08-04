@@ -149,6 +149,14 @@ selection rather than once per snapshot), not a quick fix.
   deterministically-ordered list `-uitest-select-linked-event` now takes index
   0 of. iPad's `01-season` uses index 1, so both slides show a populated
   sidebar *and* a populated detail column, with different events.
+- **Open.** `check-screenshots.py`'s exact-duplicate check did not catch the
+  `01-season`/`04-detail` collision above, and still wouldn't catch a repeat
+  of it. It hashes the *composed* images (screenshot + caption band), and
+  the caption text differs between the two shots, so the hashes differed
+  even though the *raw* captures underneath were pixel-identical. The gate
+  passed while the App Store listing shipped one screenshot under two
+  captions. Not filed as an issue; would need the check to also hash (or be
+  pointed at) the raw pre-caption captures, not just the composed output.
 - `docs/app-store/screenshots.manifest.json`'s `appCommit` records the commit at
   capture time, which can predate a fix captured in the same pass. Traceability
   only, not filed as an issue.

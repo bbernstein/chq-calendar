@@ -847,8 +847,11 @@ struct AppModelTests {
     /// Backs `-uitest-select-linked-event` (index 0) and
     /// `-uitest-select-event-index <n>`. Screenshot captures have to be
     /// byte-reproducible, so this pins the ordering rule rather than
-    /// leaving it to `max(by:)`, which returns an arbitrary element among
-    /// equal weights.
+    /// leaving it to `max(by:)`: `max(by:)` is itself deterministic (it
+    /// keeps the first maximum it encounters), but the input order isn't —
+    /// it depends on snapshot/feed ordering, which can differ between
+    /// captures — so an explicit `id` tie-break is what actually makes the
+    /// selection reproducible.
     @Test func uiTestLinkedEventsAreRankedByRichnessThenIdForTieBreaks() throws {
         let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
         func link(_ title: String) -> ArticleLink {

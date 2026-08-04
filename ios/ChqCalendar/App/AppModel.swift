@@ -619,9 +619,12 @@ final class AppModel {
     /// taller than the tallest on-screen viewport across both device sizes,
     /// so the scroll always has somewhere to go.
     ///
-    /// `id` breaks weight ties. The previous `max(by:)` returned an
-    /// arbitrary element among equals, which is enough to make two capture
-    /// runs of the same build select different events and produce different
+    /// `id` breaks weight ties. `max(by:)` is itself deterministic — it
+    /// keeps the first maximum it encounters — but the *input order* isn't:
+    /// which equal-weight element comes first depends on snapshot/feed
+    /// ordering, which can differ between captures. Breaking ties on `id`
+    /// makes the selection independent of that ordering, so two capture
+    /// runs of the same build select the same event and produce identical
     /// bytes; screenshot captures have to be reproducible.
     var uiTestLinkedEvents: [Event] {
         guard let snapshot else { return [] }

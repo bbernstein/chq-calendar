@@ -24,6 +24,17 @@ would have caught both real bugs found in this pipeline's first round:
       mean luminance sits more than `LUMINANCE_DROP_THRESHOLD` below the
       median of its siblings is flagged.
 
+      The sibling median is computed over *every* shot in the set,
+      including `presentsModal`-exempt ones (see below) — an earlier
+      version excluded them from the population, which biased the median
+      bright enough to false-fail a legitimately dark photo-heavy shot.
+      Including them narrows the detection margin: measured against the
+      241.0 -> 198.9 alert case above, the flagged ratio moves from
+      roughly 0.816 to roughly 0.835 against the 0.85 threshold — still
+      well inside "flag it," but with about 0.015 of headroom instead of
+      about 0.034. That's a deliberate trade (stop false-failing a clean
+      shot) made with eyes open to the smaller margin, not an oversight.
+
    b. A large, centered, uniformly-bright "boxed" region. An alert's
       rounded-rect card is a wide island of near-uniform light gray
       (~225-248) that does *not* touch the frame's left/right edges — a
