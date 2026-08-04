@@ -65,27 +65,29 @@ struct DateFilterSheet: View {
                             spacing: 8
                         ) {
                             ForEach(weekNumbers, id: \.self) { number in
+                                // Bare number, not "Week N": the section
+                                // header above already reads "WEEKS", so
+                                // repeating the word in every chip is
+                                // redundant. It also sidesteps a real bug —
+                                // SF Pro's proportional digits made "Week 4",
+                                // "Week 8", "Week 9" (and any selected chip,
+                                // which loses width to its checkmark)
+                                // marginally wider than the rest, so a
+                                // per-chip `ViewThatFits` fit decision landed
+                                // right on the boundary and split
+                                // inconsistently across the grid. A fixed
+                                // bare-number label can't split at all.
+                                // VoiceOver still announces "Week 6" via the
+                                // explicit `.accessibilityLabel` below.
                                 SheetChip(
-                                    label: "Week \(number)",
-                                    // At accessibility Dynamic Type sizes a
-                                    // 3-column grid cell is too narrow for
-                                    // "Week 6" and `lineLimit(1)` truncates
-                                    // it to "We…" — the week number, which
-                                    // is the entire content of the chip, is
-                                    // the part that gets clipped. `SheetChip`
-                                    // resolves that with `ViewThatFits`
-                                    // rather than a hardcoded size
-                                    // threshold, falling back to the bare
-                                    // number only when the full label
-                                    // doesn't fit — and keeps announcing
-                                    // "Week 6" to VoiceOver either way.
-                                    compactLabel: "\(number)",
+                                    label: "\(number)",
                                     isSelected: FilterChipState.isWeekSelected(
                                         number, selection: model.filter,
                                         currentWeek: model.currentWeek)
                                 ) {
                                     model.selectWeek(number)
                                 }
+                                .accessibilityLabel("Week \(number)")
                             }
                         }
                     }
@@ -126,17 +128,6 @@ struct DateFilterSheet: View {
 /// values that toggle.
 struct SheetChip: View {
     let label: String
-    /// An alternate rendering (e.g. "6" for "Week 6") tried when `label`
-    /// doesn't fit the space this chip is laid out in, via `ViewThatFits` —
-    /// never a hardcoded size threshold, since the space available depends
-    /// on the parent layout (grid column count, device width) as much as
-    /// the type size. `nil` by default, so every existing call site —
-    /// including `FacetChipCloud`, where a venue or category name
-    /// legitimately truncates instead of falling back — renders exactly as
-    /// it did before this parameter existed. Whichever variant is chosen,
-    /// VoiceOver always announces `label` in full; this is a *visual*
-    /// fallback only.
-    var compactLabel: String?
     var count: Int?
     let isSelected: Bool
     let action: () -> Void
@@ -169,24 +160,9 @@ struct SheetChip: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    /// `ViewThatFits` only when `compactLabel` is supplied; otherwise the
-    /// original single `Text`, byte-for-byte, so facet chips (no
-    /// `compactLabel`) are unaffected by this branch existing at all. The
-    /// explicit `.accessibilityLabel` is scoped to the `compactLabel`
-    /// branch alone, for the same reason — it must not change what
-    /// existing chips announce.
-    @ViewBuilder
     private var labelText: some View {
-        if let compactLabel {
-            ViewThatFits(in: .horizontal) {
-                Text(label).lineLimit(1)
-                Text(compactLabel).lineLimit(1)
-            }
-            .accessibilityLabel(label)
-        } else {
-            Text(label)
-                .lineLimit(1)
-        }
+        Text(label)
+            .lineLimit(1)
     }
 }
 
@@ -214,11 +190,11 @@ struct SheetDismissButton: View {
 /// Type size, standalone from `AppModel`/`EventRepository` (which need a
 /// live cache or API client that only test-target mocks provide).
 ///
-/// This is what to check by eye: at `.accessibility3` and larger, a
-/// 3-column column is narrow enough that "Week 6" no longer fits, so every
-/// chip should show a bare number ("1"–"9") rather than "We…". Chip 5 is
-/// marked selected to confirm the checkmark + number combination still
-/// respects the 44pt minimum height and doesn't itself force truncation.
+/// This is what to check by eye: at `.accessibility3` and larger, the bare
+/// number plus a checkmark (chip 5, marked selected) still respects the
+/// 44pt minimum height without truncating — the one thing that was still
+/// worth confirming once the chips stopped choosing between "Week N" and
+/// "N" at all.
 #Preview("Weeks grid — accessibility3") {
     ScrollView {
         LazyVGrid(
@@ -227,10 +203,10 @@ struct SheetDismissButton: View {
         ) {
             ForEach(1...9, id: \.self) { number in
                 SheetChip(
-                    label: "Week \(number)",
-                    compactLabel: "\(number)",
+                    label: "\(number)",
                     isSelected: number == 5
                 ) {}
+                .accessibilityLabel("Week \(number)")
             }
         }
         .padding(20)
