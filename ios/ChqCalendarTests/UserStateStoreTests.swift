@@ -14,6 +14,7 @@ struct UserStateStoreTests {
         #expect(DateScope.next.rawValue == "next")
         #expect(DateScope.today.rawValue == "today")
         #expect(DateScope.thisWeek.rawValue == "this-week")
+        #expect(DateScope.season.rawValue == "season")
         #expect(DateScope.all.rawValue == "all")
     }
 

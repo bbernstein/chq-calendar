@@ -365,10 +365,12 @@ final class AppModel {
 
     /// Replaces the week selection wholesale — the strip owns tap/drag
     /// semantics (`WeekStripDrag.commit`); the model just stores the result.
-    /// Any non-empty selection forces `.all`: weeks and relative scopes are
-    /// mutually exclusive, one date range at a time.
+    /// Unconditionally forces `.all`: weeks and relative scopes are mutually
+    /// exclusive, one date range at a time, and an empty commit means "no
+    /// week filter" — which `.all` represents, same as every other deselect
+    /// path.
     func setWeekSelection(_ weeks: Set<Int>) {
-        if !weeks.isEmpty { filter.dateScope = .all }
+        filter.dateScope = .all
         filter.selectedWeeks = weeks
         persistFilter()
     }

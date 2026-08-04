@@ -7,10 +7,11 @@ import Foundation
 /// else**. In particular it does not take the current week, even though
 /// `FilterChipState` treats "only the current week is selected" as
 /// equivalent to the `.thisWeek` scope. That equivalence is right for
-/// deciding which *chips* light up; it is wrong for a summary label, where
-/// it would mean one selection renders as "This Week" in July and "Week 6"
-/// in September. A pill that changes its wording without the user touching
-/// anything is worse than a pill that is merely less clever.
+/// deciding which week *segment* the strip highlights
+/// (`FilterChipState.isWeekSelected`); it is wrong for a summary label,
+/// where it would mean one selection renders as "This Week" in July and
+/// "Week 6" in September. A pill that changes its wording without the user
+/// touching anything is worse than a pill that is merely less clever.
 ///
 /// `.all` renders as "All Year" rather than `DateScope.all.label`
 /// ("All") so it cannot be misread against "All Weeks": the first means no

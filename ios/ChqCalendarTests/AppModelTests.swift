@@ -337,6 +337,22 @@ struct AppModelTests {
         #expect(model.filter.dateScope == .all)
     }
 
+    @Test func clearingWeeksFromAPersistedThisWeekScopeReturnsToAllYear() throws {
+        // Migration path: a user whose stored scope predates the strip
+        // arrives with `.thisWeek` and no stored weeks. The strip shows the
+        // current week highlighted; tapping it commits an empty selection —
+        // which must actually clear the filter, not leave `.thisWeek`
+        // silently re-highlighting the same week (a dead tap).
+        let defaults = makeDefaults()
+        let model = try makeInSeasonModel(defaults: defaults)
+        model.selectScope(.thisWeek)
+
+        model.setWeekSelection([])
+
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedWeeks.isEmpty)
+    }
+
     @Test func setWeekSelectionPersists() throws {
         let defaults = makeDefaults()
         let model = try makeInSeasonModel(defaults: defaults)
