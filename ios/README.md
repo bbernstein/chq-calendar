@@ -222,8 +222,12 @@ same best-effort, non-fatal semantics as article links: a 3 second
 timeout, falling back to cache or an empty result on any failure, never
 blocking the main events refresh. They're surfaced in
 `Features/Calendar/WeekThemeBadge.swift`, the `Wk N` capsule in each day
-header — tapping it opens `WeekThemePopover` with that week's title and
-description. A themed badge is a button and tints its whole capsule
+header — tapping it opens `WeekThemePopover`, which shows the week label,
+its date range, the theme title, and a link out to chq.org. It does not
+show a description: `WeeklyTheme.description` decodes but is deliberately
+never rendered, because every description in the real feed is an empty
+string (see `WeekThemeSummary`'s doc comment). A themed badge is a button
+and tints its whole capsule
 (background and text) in the accent colour; a badge for a week with no
 theme renders as plain, inert text, identical to how it looked before
 this feature existed. That distinction matters because theme coverage is
