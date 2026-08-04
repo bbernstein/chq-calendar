@@ -602,27 +602,61 @@ final class AppModel {
     /// is present; consumed (and reset) by `EventDetailView.onAppear`.
     var uiTestShowAddToCalendar = false
 
-    /// The linked-content-richest event in the current snapshot — the
-    /// deterministic target for `-uitest-select-linked-event` /
-    /// `-uitest-show-add-to-calendar` / `-uitest-scroll-to-articles`.
+    /// Every event with article links, richest first — the single candidate
+    /// list behind `-uitest-select-linked-event`,
+    /// `-uitest-show-add-to-calendar`, `-uitest-scroll-to-articles` and
+    /// `-uitest-select-event-index <n>`.
     ///
-    /// Deliberately picks the *richest* event with article links (longest
-    /// `details`, then most links) rather than merely the first one found.
-    /// The detail screenshot pair (`04-detail` / `05-articles`) only differs
-    /// by scroll position, and on iPad's wide `NavigationSplitView` detail
-    /// column, body text wraps into far fewer lines than on iPhone for the
-    /// same character count — a short-description event's full detail view
-    /// (hero image + metadata + description + links + buttons) can render
-    /// with no overflow at all, making `scrollTo` a no-op and the two shots
-    /// byte-identical. Picking the richest available content makes the
-    /// detail view reliably taller than the tallest on-screen viewport
-    /// across both device sizes, so the scroll always has somewhere to go.
-    var uiTestFirstLinkedEvent: Event? {
-        snapshot?.events
+    /// Deliberately ranks by *richness* (longest `details`, then most links;
+    /// see `uiTestContentWeight`) rather than feed order. The detail
+    /// screenshot pair (`04-detail` / `05-articles`) only differs by scroll
+    /// position, and on iPad's wide `NavigationSplitView` detail column,
+    /// body text wraps into far fewer lines than on iPhone for the same
+    /// character count — a short-description event's full detail view (hero
+    /// image + metadata + description + links + buttons) can render with no
+    /// overflow at all, making `scrollTo` a no-op and the two shots
+    /// byte-identical. Ranking by content makes the detail view reliably
+    /// taller than the tallest on-screen viewport across both device sizes,
+    /// so the scroll always has somewhere to go.
+    ///
+    /// `id` breaks weight ties. The previous `max(by:)` returned an
+    /// arbitrary element among equals, which is enough to make two capture
+    /// runs of the same build select different events and produce different
+    /// bytes; screenshot captures have to be reproducible.
+    var uiTestLinkedEvents: [Event] {
+        guard let snapshot else { return [] }
+        return snapshot.events
             .filter { !articleLinks(for: $0.id).isEmpty }
-            .max { lhs, rhs in
-                uiTestContentWeight(lhs) < uiTestContentWeight(rhs)
+            .sorted { lhs, rhs in
+                let lhsWeight = uiTestContentWeight(lhs)
+                let rhsWeight = uiTestContentWeight(rhs)
+                if lhsWeight != rhsWeight { return lhsWeight > rhsWeight }
+                return lhs.id < rhs.id
             }
+    }
+
+    /// The richest linked event — index 0 of `uiTestLinkedEvents`, and what
+    /// `-uitest-select-linked-event` selects.
+    var uiTestFirstLinkedEvent: Event? {
+        uiTestLinkedEvents.first
+    }
+
+    /// The `index`-th richest linked event, for
+    /// `-uitest-select-event-index <n>`. Exists so a shot can populate the
+    /// detail column with an event *other* than index 0: on iPad both
+    /// columns are always visible, so `01-season` and `04-detail` were
+    /// selecting the same event and capturing byte-identical images.
+    ///
+    /// Out of range returns `nil`, which makes the hook a **no-op** (the
+    /// detail column stays on its "Select an event" placeholder) rather
+    /// than clamping to the nearest valid index. Clamping would silently
+    /// capture a *different, plausible-looking* event than the plan asked
+    /// for, and a typo'd index would ship a wrong-but-believable store
+    /// screenshot. A no-op is visible in the review pass instead.
+    func uiTestLinkedEvent(at index: Int) -> Event? {
+        let events = uiTestLinkedEvents
+        guard events.indices.contains(index) else { return nil }
+        return events[index]
     }
 
     /// Rough proxy for an event's rendered detail-view height: description

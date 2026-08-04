@@ -127,13 +127,28 @@ selection rather than once per snapshot), not a quick fix.
   view stays alive would still wedge collapse for the session. No watchdog timer
   was added; that omission is deliberate — not filed as an issue, since it's a
   considered decision rather than deferred work.
-- `check-screenshots.py` false-positives its stuck-alert heuristic on
-  `02-filters` — the venue chips read as an alert-shaped box. The shot is
-  correct; the checker needs calibration. It is invoked only by the local
-  capture script, never by CI. Tooling nit, not filed as an issue.
-- iPad's `01-season` and `04-detail` screenshots share launch arguments
-  (predates this branch) and have once produced byte-identical images. A
-  distinct UI-test hook would fix it. Tooling nit, not filed as an issue.
+- ~~`check-screenshots.py` false-positives its stuck-alert heuristic on
+  `02-filters`~~ — **FIXED** (PR #159). Two causes, both addressed. The shot
+  legitimately presents a sheet again (this branch rewired
+  `-uitest-show-filters` to present `FilterSheet`), so `presentsModal: true`
+  was restored in `screenshot-plan.json`; the flag had been correctly removed
+  in #151 when filters were inline rows, and `check-screenshots.py`'s own
+  docstring already documented the shot as exempt. Separately, the luminance
+  baseline was excluding exempt shots from the *population*, not just from
+  *evaluation*, which raised the sibling median 238.2 → 243.6 and failed the
+  clean photo-heavy `04-detail` at a 0.849 ratio against the 0.85 threshold.
+  The baseline is now built over every shot. The guard was re-verified against
+  a synthetic scrim + alert card and still fires.
+- ~~iPad's `01-season` and `04-detail` screenshots share launch arguments
+  (predates this branch) and have once produced byte-identical images~~ —
+  **FIXED** (PR #159). They did not merely produce identical images once; the
+  images committed before that PR differed *only* in the caption band, so the
+  listing was shipping two captions over one screenshot. Added the distinct
+  hook this note called for: `-uitest-select-event-index <n>` selects the
+  nth-richest linked event from `AppModel.uiTestLinkedEvents`, the same
+  deterministically-ordered list `-uitest-select-linked-event` now takes index
+  0 of. iPad's `01-season` uses index 1, so both slides show a populated
+  sidebar *and* a populated detail column, with different events.
 - `docs/app-store/screenshots.manifest.json`'s `appCommit` records the commit at
   capture time, which can predate a fix captured in the same pass. Traceability
   only, not filed as an issue.

@@ -714,7 +714,11 @@ struct AppModelTests {
     /// rather than whatever the shared fixture happens to contain. `.all`
     /// scope and a pinned clock keep the numbers independent of the wall
     /// clock. 2026 is `placeholderYear`, so `isCurrentYear` is true.
-    private func makeSnapshotModel(events: [Event], now: Date) -> AppModel {
+    private func makeSnapshotModel(
+        events: [Event],
+        now: Date,
+        articleLinks: [String: [ArticleLink]] = [:]
+    ) -> AppModel {
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
             store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
@@ -722,7 +726,8 @@ struct AppModelTests {
         )
         model.filter = FilterSelection(dateScope: .all)
         model.snapshot = CalendarSnapshot(
-            year: 2026, events: events, articleLinks: [:], themes: [], fetchedAt: now)
+            year: 2026, events: events, articleLinks: articleLinks,
+            themes: [], fetchedAt: now)
         return model
     }
 
@@ -835,6 +840,111 @@ struct AppModelTests {
 
         #expect(model.favorites.count == 3)
         #expect(model.favoritesMatchCount == 1)
+    }
+
+    // MARK: - UI-test event selection hooks (DEBUG only)
+
+    /// Backs `-uitest-select-linked-event` (index 0) and
+    /// `-uitest-select-event-index <n>`. Screenshot captures have to be
+    /// byte-reproducible, so this pins the ordering rule rather than
+    /// leaving it to `max(by:)`, which returns an arbitrary element among
+    /// equal weights.
+    @Test func uiTestLinkedEventsAreRankedByRichnessThenIdForTieBreaks() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        func link(_ title: String) -> ArticleLink {
+            ArticleLink(
+                title: title, url: URL(string: "https://example.com/\(title)")!,
+                kind: .preview, pubDate: "2026-06-30")
+        }
+        let model = makeSnapshotModel(
+            events: [
+                // "b" and "c" have identical weight (same details length, one
+                // link each) — the id tie-break must order them, not chance.
+                makeEvent(id: "c", start: try #require(ChqTime.parse("2026-08-03 09:00:00")),
+                          title: "Tie C", details: String(repeating: "x", count: 100)),
+                makeEvent(id: "b", start: try #require(ChqTime.parse("2026-08-03 10:00:00")),
+                          title: "Tie B", details: String(repeating: "x", count: 100)),
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-03 19:00:00")),
+                          title: "Richest", details: String(repeating: "x", count: 900)),
+                makeEvent(id: "unlinked", start: try #require(ChqTime.parse("2026-08-04 10:00:00")),
+                          title: "No Links", details: String(repeating: "x", count: 5000)),
+            ],
+            now: now,
+            articleLinks: ["a": [link("a1")], "b": [link("b1")], "c": [link("c1")]])
+
+        // The 5000-character "unlinked" event outweighs every candidate but
+        // has no article links, so it must not appear at all.
+        #expect(model.uiTestLinkedEvents.map(\.id) == ["a", "b", "c"])
+        #expect(model.uiTestFirstLinkedEvent?.id == "a")
+        #expect(model.uiTestLinkedEvent(at: 0)?.id == "a")
+        #expect(model.uiTestLinkedEvent(at: 1)?.id == "b")
+        #expect(model.uiTestLinkedEvent(at: 2)?.id == "c")
+
+        // Repeated reads must agree — this is the reproducibility the
+        // screenshot pipeline depends on.
+        #expect(model.uiTestLinkedEvents.map(\.id) == model.uiTestLinkedEvents.map(\.id))
+    }
+
+    /// The whole point of the index hook: index 1 must be a *different*
+    /// event than `-uitest-select-linked-event` picks, so iPad's `01-season`
+    /// and `04-detail` stop capturing byte-identical images.
+    @Test func uiTestIndexOneDiffersFromTheDefaultSelection() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let link = ArticleLink(
+            title: "t", url: URL(string: "https://example.com/t")!,
+            kind: .preview, pubDate: "2026-06-30")
+        let model = makeSnapshotModel(
+            events: [
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-03 19:00:00")),
+                          title: "Richest", details: String(repeating: "x", count: 900)),
+                makeEvent(id: "b", start: try #require(ChqTime.parse("2026-08-03 20:00:00")),
+                          title: "Second", details: String(repeating: "x", count: 500)),
+            ],
+            now: now,
+            articleLinks: ["a": [link], "b": [link]])
+
+        let first = try #require(model.uiTestFirstLinkedEvent)
+        let second = try #require(model.uiTestLinkedEvent(at: 1))
+        #expect(first.id != second.id)
+    }
+
+    /// Out of range is a no-op (`nil`), deliberately not a clamp — a typo'd
+    /// index must leave the detail column empty and visible in review, not
+    /// silently capture a different, plausible-looking event.
+    @Test func uiTestLinkedEventOutOfRangeIsNilRatherThanClamped() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let link = ArticleLink(
+            title: "t", url: URL(string: "https://example.com/t")!,
+            kind: .preview, pubDate: "2026-06-30")
+        let model = makeSnapshotModel(
+            events: [
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-03 19:00:00")),
+                          details: "some details"),
+            ],
+            now: now,
+            articleLinks: ["a": [link]])
+
+        #expect(model.uiTestLinkedEvents.count == 1)
+        #expect(model.uiTestLinkedEvent(at: 1) == nil)
+        #expect(model.uiTestLinkedEvent(at: 99) == nil)
+        #expect(model.uiTestLinkedEvent(at: -1) == nil)
+    }
+
+    @Test func uiTestLinkedEventsIsEmptyWithoutASnapshotOrLinks() throws {
+        let bare = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        #expect(bare.uiTestLinkedEvents.isEmpty)
+        #expect(bare.uiTestFirstLinkedEvent == nil)
+        #expect(bare.uiTestLinkedEvent(at: 0) == nil)
+
+        // A snapshot with events but no sidecar links is still no candidates.
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let noLinks = makeSnapshotModel(
+            events: [makeEvent(id: "a", start: now)], now: now, articleLinks: [:])
+        #expect(noLinks.uiTestLinkedEvents.isEmpty)
+        #expect(noLinks.uiTestLinkedEvent(at: 0) == nil)
     }
 
     // MARK: - legacy filter casing normalization

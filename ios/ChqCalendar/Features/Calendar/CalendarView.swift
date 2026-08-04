@@ -152,8 +152,29 @@ struct CalendarView: View {
             model.filter.searchText = term
         }
 
+        // `-uitest-select-event-index <n>` reads the argument that follows
+        // it — same shape as `-uitest-search <term>` above — and selects the
+        // nth-richest linked event (0-based) instead of always the richest.
+        // It shares `AppModel.uiTestLinkedEvents`, the cold-launch retry and
+        // the selection plumbing below with `-uitest-select-linked-event`,
+        // which is just index 0; this is one mechanism with a parameter, not
+        // a second one.
+        //
+        // It exists because on iPad both split-view columns are always
+        // visible, so `01-season` (which only wants a populated detail
+        // column so the shot isn't two-thirds empty) and `04-detail` were
+        // selecting the same event and capturing byte-identical images.
+        // A non-numeric value is ignored, leaving `requestedIndex` nil and
+        // the shot behaving as if the flag were absent.
+        var requestedIndex: Int?
+        if let flagIndex = arguments.firstIndex(of: "-uitest-select-event-index"),
+           arguments.index(after: flagIndex) < arguments.endIndex {
+            requestedIndex = Int(arguments[arguments.index(after: flagIndex)])
+        }
+
         let wantsLinkedEvent = arguments.contains("-uitest-select-linked-event")
             || arguments.contains("-uitest-show-add-to-calendar")
+            || requestedIndex != nil
         guard wantsLinkedEvent else { return }
 
         if model.uiTestFirstLinkedEvent == nil {
@@ -163,7 +184,7 @@ struct CalendarView: View {
             // before concluding there's really nothing to select.
             await model.refresh(force: true)
         }
-        guard let event = model.uiTestFirstLinkedEvent else { return }
+        guard let event = model.uiTestLinkedEvent(at: requestedIndex ?? 0) else { return }
 
         if horizontalSizeClass == .regular {
             selectedEvent = event
