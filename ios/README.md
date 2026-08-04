@@ -213,3 +213,20 @@ consumes — the iOS app has no bespoke API surface.
   discarded on load, so a long-dormant install doesn't resurrect last
   season's filters. `searchText` and the "show next day" counter are
   session-only and are never persisted.
+
+### Weekly themes
+
+Weekly themes (`WeeklyTheme`/`WeeklyThemesFile` in `Models/Sidecars.swift`)
+are fetched from the `/data/weekly-themes/{year}.json` sidecar with the
+same best-effort, non-fatal semantics as article links: a 3 second
+timeout, falling back to cache or an empty result on any failure, never
+blocking the main events refresh. They're surfaced in
+`Features/Calendar/WeekThemeBadge.swift`, the `Wk N` capsule in each day
+header — tapping it opens `WeekThemePopover` with that week's title and
+description. A themed badge is a button and tints its whole capsule
+(background and text) in the accent colour; a badge for a week with no
+theme renders as plain, inert text, identical to how it looked before
+this feature existed. That distinction matters because theme coverage is
+year-dependent — the 2026 season has themes for all nine weeks, but 2025
+has none (its sidecar 404s), so every badge across the 2025 season is
+grey and does nothing.
