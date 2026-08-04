@@ -71,6 +71,17 @@ struct EventListView: View {
             activeSheet = .filters
         }
     }
+
+    /// Non-nil only for the single badge `-uitest-show-week-theme` targets
+    /// (`AppModel.uiTestFirstThemedWeek`) — every other badge in `dayHeader`
+    /// gets `nil` and behaves exactly as it did before this hook existed.
+    /// See `WeekThemeBadge.uiTestAutoShow` for how the binding is consumed.
+    private func uiTestAutoShowThemeBinding(day: DayGroup, week: Int) -> Binding<Bool>? {
+        guard let target = model.uiTestFirstThemedWeek,
+              target.dayID == day.id, target.week == week
+        else { return nil }
+        return $model.uiTestShowWeekTheme
+    }
     #endif
 
     @ViewBuilder
@@ -168,7 +179,14 @@ struct EventListView: View {
             Text(day.title)
             Spacer()
             ForEach(day.weekNumbers, id: \.self) { number in
+                #if DEBUG
+                WeekThemeBadge(
+                    weekNumber: number,
+                    themes: model.themes,
+                    uiTestAutoShow: uiTestAutoShowThemeBinding(day: day, week: number))
+                #else
                 WeekThemeBadge(weekNumber: number, themes: model.themes)
+                #endif
             }
         }
     }

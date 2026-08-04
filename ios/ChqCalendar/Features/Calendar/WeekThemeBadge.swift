@@ -16,6 +16,17 @@ struct WeekThemeBadge: View {
     let weekNumber: Int
     let themes: [WeeklyTheme]
 
+    #if DEBUG
+    /// Set by `EventListView` to a binding onto `AppModel.uiTestShowWeekTheme`
+    /// for the single badge `-uitest-show-week-theme` targets
+    /// (`AppModel.uiTestFirstThemedWeek`); `nil` for every other badge, and
+    /// unavailable as a parameter at all in Release builds. Reading `true`
+    /// presents the popover immediately, since `xcrun simctl` can't
+    /// synthesize the tap; writing `false` back consumes the flag so a
+    /// header that scrolls off and back on doesn't reopen it.
+    var uiTestAutoShow: Binding<Bool>?
+    #endif
+
     @State private var isShowingTheme = false
 
     private var summary: WeekThemeSummary? {
@@ -42,10 +53,31 @@ struct WeekThemeBadge: View {
             .popover(isPresented: $isShowingTheme) {
                 WeekThemePopover(summary: summary)
             }
+            #if DEBUG
+            // MARK: UI-test hook (DEBUG only)
+            //
+            // Both `onAppear` (the flag is already true when this badge
+            // mounts, e.g. a warm cache where `AppModel.start()` — and thus
+            // `CalendarView.applyUITestHooks`, which sets the flag — finished
+            // before this row appeared) and `onChange` (this row mounted from
+            // a cached snapshot before `start()` flipped the flag, e.g. a
+            // cold launch that starts blank) are needed to catch either
+            // ordering. Mirrors `EventListView.presentFilterSheetIfNeeded`.
+            .onAppear(perform: presentIfUITestAutoShowRequested)
+            .onChange(of: uiTestAutoShow?.wrappedValue) { _, _ in presentIfUITestAutoShowRequested() }
+            #endif
         } else {
             capsule
         }
     }
+
+    #if DEBUG
+    private func presentIfUITestAutoShowRequested() {
+        guard uiTestAutoShow?.wrappedValue == true else { return }
+        uiTestAutoShow?.wrappedValue = false
+        isShowingTheme = true
+    }
+    #endif
 
     /// The badge itself, identical in both states apart from its colour, so
     /// a themed and an unthemed badge never differ in size or position.

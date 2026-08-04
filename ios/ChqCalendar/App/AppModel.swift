@@ -602,6 +602,28 @@ final class AppModel {
     /// is present; consumed (and reset) by `EventDetailView.onAppear`.
     var uiTestShowAddToCalendar = false
 
+    /// Set by `CalendarView` on launch when `-uitest-show-week-theme` is
+    /// present; consumed (and reset) by whichever `WeekThemeBadge` matches
+    /// `uiTestFirstThemedWeek` below (see `EventListView.dayHeader`).
+    var uiTestShowWeekTheme = false
+
+    /// The first `(day, week)` pairing — in `dayGroups` display order —
+    /// whose badge actually has a theme. The deterministic target for
+    /// `-uitest-show-week-theme`: not every week has one (a partial sidecar
+    /// fetch, or the 2025 season, which has none at all), so "the first
+    /// badge" and "the first *themed* badge" can differ, and only the
+    /// latter has anything to open. `nil` when nothing in the current
+    /// selection has a themed week.
+    var uiTestFirstThemedWeek: (dayID: String, week: Int)? {
+        for day in dayGroups {
+            for week in day.weekNumbers {
+                guard WeekThemeSummary.make(forWeek: week, in: themes) != nil else { continue }
+                return (day.id, week)
+            }
+        }
+        return nil
+    }
+
     /// Every event with article links, richest first — the single candidate
     /// list behind `-uitest-select-linked-event`,
     /// `-uitest-show-add-to-calendar`, `-uitest-scroll-to-articles` and
