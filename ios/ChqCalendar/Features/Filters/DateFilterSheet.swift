@@ -4,8 +4,8 @@ import SwiftUI
 ///
 /// Scope and week selection are mutually exclusive — one date range, two
 /// ways of naming it. That rule lives in `AppModel.selectScope` and
-/// `AppModel.selectWeek` and is deliberately not restated here; this view
-/// renders state and forwards taps.
+/// `AppModel.setWeekSelection` and is deliberately not restated here; this
+/// view renders state and forwards taps.
 struct DateFilterSheet: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -85,7 +85,9 @@ struct DateFilterSheet: View {
                                         number, selection: model.filter,
                                         currentWeek: model.currentWeek)
                                 ) {
-                                    model.selectWeek(number)
+                                    model.setWeekSelection(WeekStripDrag.commit(
+                                        anchor: number, current: number,
+                                        existing: model.filter.selectedWeeks))
                                 }
                                 .accessibilityLabel("Week \(number)")
                             }
