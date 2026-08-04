@@ -1,6 +1,6 @@
 # Design: iOS issues #163 (Gate Pass note), #162 (Weeks/When filter redesign), #158 (Bus & Tram Tracker link)
 
-**Status:** Approved design, pending implementation plan
+**Status:** Approved design; implementation plans for #158, #163, #162 committed alongside this spec, pending execution
 **Date:** 2026-08-04
 **Issues:** [#163](https://github.com/bbernstein/chq-calendar/issues/163), [#162](https://github.com/bbernstein/chq-calendar/issues/162), [#158](https://github.com/bbernstein/chq-calendar/issues/158)
 
@@ -265,7 +265,7 @@ Each PR follows the App Store listing rule (CLAUDE.md):
   commit manifest/review copies. If the shot list doesn't cover the
   changed screen, use the documented opt-out wording.
 - **#158**'s change is inside the closed More menu; expected opt-out:
-  `[skip-screenshots: link added inside More menu; no covered shot shows the open menu]`
+  `[skip-screenshots: link added inside the closed More menu; no shot in screenshot-plan.json opens that menu]`
   (verify against `ios/Scripts/screenshot-plan.json` at implementation
   time).
 - Re-read `docs/app-store/listing-copy.md` in PR 3 — if it describes the
