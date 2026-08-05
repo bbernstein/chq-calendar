@@ -20,6 +20,16 @@ describe('quickLinks (shared/links.json)', () => {
     expect(quickLinks.find((l) => l.id === 'feedback')?.webPath).toBe('/feedback');
   });
 
+  it('any webPath present is a non-empty root-relative path', () => {
+    // The header opens webPath verbatim when set, so an empty or
+    // non-relative value would silently break that link.
+    for (const link of quickLinks) {
+      if (link.webPath !== undefined) {
+        expect(link.webPath).toMatch(/^\/\S*$/);
+      }
+    }
+  });
+
   it('ids are unique', () => {
     expect(new Set(quickLinks.map((l) => l.id)).size).toBe(quickLinks.length);
   });
