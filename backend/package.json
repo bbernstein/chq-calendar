@@ -33,6 +33,7 @@
     "create-tables": "cd .. && ./scripts/create-tables.sh",
     "trigger-sync": "ts-node src/scripts/triggerFullSeasonSync.ts",
     "ingest:articles:local": "ts-node src/scripts/runArticleIngestLocal.ts",
+    "ingest:programs:local": "ts-node src/scripts/runProgramIngestLocal.ts",
     "dev": "ts-node src/server.ts",
     "dev:watch": "ts-node --watch src/server.ts"
   },

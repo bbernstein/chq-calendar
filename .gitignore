@@ -65,6 +65,7 @@ frontend/public/data/*
 !frontend/public/data/weekly-themes/
 !frontend/public/data/weekly-themes/*.json
 !frontend/public/data/article-links-*.json
+!frontend/public/data/program-links-*.json
 
 # Build outputs
 backend/dist-all/
