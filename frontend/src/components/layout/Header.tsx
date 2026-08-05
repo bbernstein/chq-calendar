@@ -51,22 +51,28 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
           {/* Desktop */}
           <div className="hidden md:flex items-center gap-2">
             <button
-              onClick={() => window.open('/feedback', '_blank')}
+              onClick={() => window.open('/feedback', '_blank', 'noopener,noreferrer')}
               className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
             >
               Feedback
             </button>
             <button
-              onClick={() => window.open('https://programs.chq.org/', '_blank')}
+              onClick={() => window.open('https://programs.chq.org/', '_blank', 'noopener,noreferrer')}
               className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
             >
               Programs
             </button>
             <button
-              onClick={() => window.open('https://questions.chq.org/', '_blank')}
+              onClick={() => window.open('https://questions.chq.org/', '_blank', 'noopener,noreferrer')}
               className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
             >
               Questions
+            </button>
+            <button
+              onClick={() => window.open('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer')}
+              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Bus & Tram Tracker
             </button>
           </div>
           {/* Mobile */}
@@ -88,22 +94,28 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             {menuOpen && (
               <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-50">
                 <button
-                  onClick={() => { window.open('/feedback', '_blank'); setMenuOpen(false); }}
+                  onClick={() => { window.open('/feedback', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
                   className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                 >
                   Feedback
                 </button>
                 <button
-                  onClick={() => { window.open('https://programs.chq.org/', '_blank'); setMenuOpen(false); }}
+                  onClick={() => { window.open('https://programs.chq.org/', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
                   className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                 >
                   Programs
                 </button>
                 <button
-                  onClick={() => { window.open('https://questions.chq.org/', '_blank'); setMenuOpen(false); }}
+                  onClick={() => { window.open('https://questions.chq.org/', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
                   className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
                 >
                   Questions
+                </button>
+                <button
+                  onClick={() => { window.open('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                >
+                  Bus & Tram Tracker
                 </button>
               </div>
             )}
