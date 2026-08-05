@@ -84,4 +84,35 @@ describe('AudienceAccessClient.fetchPrograms', () => {
     );
     await expect(client.fetchPrograms()).rejects.toThrow('audienceaccess request failed');
   });
+
+  it('throws when the past page parses to zero programs (markup drift)', async () => {
+    // Valid HTML, but none of the boxes match the expected
+    // `.mobile-past-events-feature-box` markup — simulates a template
+    // rename on the past page specifically.
+    const driftedPast = '<html><body><div class="some-other-class">no boxes here</div></body></html>';
+    const client = new AudienceAccessClient(
+      fetchFor({
+        'https://audienceaccess.co/CHQ': fix('audienceaccess-upcoming.html'),
+        'https://audienceaccess.co/past/CHQ': driftedPast,
+      }),
+    );
+    await expect(client.fetchPrograms()).rejects.toThrow(
+      /past page parsed to zero programs/,
+    );
+  });
+
+  it('does NOT throw when the upcoming page parses to zero but the past page is fine (legitimate off-season)', async () => {
+    // Upcoming page can legitimately be empty off-season; only the past
+    // page's zero-programs case is an abort condition.
+    const emptyUpcoming = '<html><body><div class="no-slides-here"></div></body></html>';
+    const client = new AudienceAccessClient(
+      fetchFor({
+        'https://audienceaccess.co/CHQ': emptyUpcoming,
+        'https://audienceaccess.co/past/CHQ': fix('audienceaccess-past.html'),
+      }),
+    );
+    const programs = await client.fetchPrograms();
+    expect(programs).toHaveLength(4);
+    expect(programs.every(p => p.source === 'past')).toBe(true);
+  });
 });

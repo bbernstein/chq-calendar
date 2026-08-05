@@ -81,7 +81,9 @@ counterpart:
 - Fetches both listing pages (10s timeout each), parses with cheerio
   (already a backend dependency).
 - Output per show, deduped by show ID (a show can appear on both pages
-  during the past/upcoming transition; either copy is equivalent):
+  during the past/upcoming transition; the merge always prefers the
+  upcoming copy, even when only the past copy has a parseable date, so
+  the merged Program can end up on the stricter undated path):
 
   ```ts
   interface Program {

@@ -96,8 +96,14 @@ export class AudienceAccessClient {
   async fetchPrograms(): Promise<Program[]> {
     const upcomingHtml = await this.getHtml(`${this.baseUrl}/CHQ`);
     const pastHtml = await this.getHtml(`${this.baseUrl}/past/CHQ`);
+    const pastPrograms = parsePastPage(pastHtml);
+    if (pastPrograms.length === 0) {
+      throw new Error(
+        '[audienceaccess] past page parsed to zero programs — refusing to publish (markup drift?)',
+      );
+    }
     const byId = new Map<string, Program>();
-    for (const p of parsePastPage(pastHtml)) byId.set(p.showId, p);
+    for (const p of pastPrograms) byId.set(p.showId, p);
     for (const p of parseUpcomingPage(upcomingHtml)) byId.set(p.showId, p);
     return [...byId.values()];
   }
