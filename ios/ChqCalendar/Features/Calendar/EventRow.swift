@@ -9,6 +9,7 @@ struct EventRow: View {
 
     private var isFavorite: Bool { model.favorites.contains(event.id) }
     private var hasArticleLinks: Bool { !model.articleLinks(for: event.id).isEmpty }
+    private var hasProgramLinks: Bool { !model.programLinks(for: event.id).isEmpty }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -28,6 +29,11 @@ struct EventRow: View {
                     if let location = event.displayLocation {
                         Text(DisplayNames.location(location))
                             .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if hasProgramLinks {
+                        Image(systemName: "book")
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                     if hasArticleLinks {
