@@ -56,12 +56,13 @@ struct AboutInfoTests {
     // MARK: - quickLinks
 
     @Test func quickLinksMatchTheWebHeader() {
-        #expect(AboutInfo.quickLinks.map(\.id) == ["feedback", "programs", "questions"])
-        #expect(AboutInfo.quickLinks.map(\.title) == ["Feedback", "Programs", "Questions"])
+        #expect(AboutInfo.quickLinks.map(\.id) == ["feedback", "programs", "questions", "bus-tram-tracker"])
+        #expect(AboutInfo.quickLinks.map(\.title) == ["Feedback", "Programs", "Questions", "Bus & Tram Tracker"])
         #expect(AboutInfo.quickLinks.map { $0.url.absoluteString } == [
             "https://www.chqcal.org/feedback",
             "https://programs.chq.org/",
             "https://questions.chq.org/",
+            "https://busandtramtracker.chq.org",
         ])
     }
 

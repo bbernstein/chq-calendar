@@ -24,7 +24,7 @@ describe('Header navigation', () => {
     // gated behind the "More" toggle, so exactly one Questions button exists.
     const questions = screen.getByRole('button', { name: 'Questions' });
     fireEvent.click(questions);
-    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank');
+    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank', 'noopener,noreferrer');
   });
 
   it('renders the Questions button in the mobile dropdown', () => {
@@ -38,6 +38,27 @@ describe('Header navigation', () => {
     expect(questions).toHaveLength(2);
 
     fireEvent.click(questions[1]);
-    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank');
+    expect(openSpy).toHaveBeenCalledWith('https://questions.chq.org/', '_blank', 'noopener,noreferrer');
+  });
+
+  it('renders the Bus & Tram Tracker button in the desktop nav', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(<Header {...defaultProps} />);
+
+    const tracker = screen.getByRole('button', { name: 'Bus & Tram Tracker' });
+    fireEvent.click(tracker);
+    expect(openSpy).toHaveBeenCalledWith('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer');
+  });
+
+  it('renders the Bus & Tram Tracker button in the mobile dropdown', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(<Header {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /More/ }));
+    const trackers = screen.getAllByRole('button', { name: 'Bus & Tram Tracker' });
+    expect(trackers).toHaveLength(2);
+
+    fireEvent.click(trackers[1]);
+    expect(openSpy).toHaveBeenCalledWith('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer');
   });
 });
