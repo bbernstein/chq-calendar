@@ -56,7 +56,14 @@ struct EventDetailView: View {
 
                         if let cost = event.cost {
                             detailRow(icon: "ticket") {
-                                Text(cost)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(cost)
+                                    if GatePassPolicy.includesGeneralAdmission(event) {
+                                        Text("General admission included with a Gate Pass")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
                         }
                     }
