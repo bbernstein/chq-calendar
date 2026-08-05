@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import type { Event } from '@/lib/types';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
+import type { ProgramLink } from '@/hooks/useProgramLinks';
 import { getCategoryDisplayName } from '@/lib/constants';
 import { isDesktop } from '@/lib/utils/calendarUrls';
 import { CalendarPopup } from './CalendarPopup';
@@ -26,9 +27,10 @@ interface EventCardProps {
   onToggleFavorite: (eventId: string) => void;
   onDownloadICS: (event: Event) => void;
   articleLinks?: ArticleLink[];
+  programLinks?: ProgramLink[];
 }
 
-export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS, articleLinks }: EventCardProps) {
+export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS, articleLinks, programLinks }: EventCardProps) {
   const [showPopup, setShowPopup] = useState(false);
   const calendarButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -131,7 +133,10 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
           )}
 
           {/* Description with disclosure widget */}
-          {(event.description || (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0) || (articleLinks && articleLinks.length > 0)) && (
+          {(event.description ||
+            (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0) ||
+            (articleLinks && articleLinks.length > 0) ||
+            (programLinks && programLinks.length > 0)) && (
             <div className="mb-2">
               {isExpanded ? (
                 <div>
@@ -172,6 +177,28 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                     ))}
                   </div>
 
+                  {programLinks && programLinks.length > 0 && (
+                    <div className="mb-2">
+                      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                        Digital Program
+                      </div>
+                      <ul className="space-y-0.5">
+                        {programLinks.map((link) => (
+                          <li key={link.url} className="text-sm">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                            >
+                              📖 {link.title}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   {articleLinks && articleLinks.length > 0 && (
                     <div className="mb-2">
                       <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
@@ -202,6 +229,9 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                   onClick={() => onToggleDescription(event.id)}
                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-xs font-medium flex items-center gap-1"
                 >
+                  {programLinks && programLinks.length > 0 && (
+                    <span title="Digital program">📖</span>
+                  )}
                   {articleLinks && articleLinks.length > 0 && (
                     <span title="Chautauquan Daily coverage">📰</span>
                   )}
