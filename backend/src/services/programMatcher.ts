@@ -22,7 +22,7 @@ const sha16 = (s: string): string =>
   createHash('sha256').update(s).digest('hex').slice(0, 16);
 
 export const computeProgramContentHash = (p: Program): string =>
-  sha16(`${p.title}|${p.dateText}`);
+  sha16(`${p.title}|${p.dateText}|${p.url}`);
 
 export const computeEventFingerprint = (e: CalendarEventLite): string =>
   sha16(`${e.title}|${e.startDate}`);
@@ -100,9 +100,13 @@ export interface ComputeProgramResult {
   stateChanged: boolean;
 }
 
-/** Canonical match identity for republish decisions — scores excluded. */
-const canonicalMatches = (ms: ProgramMatchRecord[]): string =>
-  ms.map(m => `${m.eventId}:${m.showId}`).sort().join(',');
+/**
+ * Canonical match identity for republish decisions — scores excluded, but the
+ * published-surface content (title/dateText/url, via the program hash) is
+ * included so a title/url edit on an already-matched program still republishes.
+ */
+const canonicalMatches = (ms: ProgramMatchRecord[], hashes: Record<string, string>): string =>
+  ms.map(m => `${m.eventId}:${m.showId}:${hashes[m.showId] ?? ''}`).sort().join(',');
 
 export function computeProgramMatchState({
   programs,
@@ -163,7 +167,8 @@ export function computeProgramMatchState({
   const linksChanged =
     prevState == null ||
     prevState.matcherVersion !== MATCHER_VERSION ||
-    canonicalMatches(prevState.matches) !== canonicalMatches(matches);
+    canonicalMatches(prevState.matches, prevState.programs) !==
+      canonicalMatches(matches, state.programs);
   const stateChanged =
     prevState == null || JSON.stringify(prevState) !== JSON.stringify(state);
 

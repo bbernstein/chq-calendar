@@ -41,7 +41,7 @@ export interface ProgramMatchRecord {
  */
 export interface ProgramMatchState {
   matcherVersion: number;
-  /** showId -> hash of title|dateText */
+  /** showId -> hash of title|dateText|url */
   programs: Record<string, string>;
   /** eventId -> hash of title|startDate */
   eventFingerprints: Record<string, string>;

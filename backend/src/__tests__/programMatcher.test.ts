@@ -223,4 +223,21 @@ describe('computeProgramMatchState', () => {
     expect(second.linksChanged).toBe(false);
     expect(second.stateChanged).toBe(true); // state file still refreshes
   });
+
+  it('republishes when a matched program title changes, same showId/dates', () => {
+    const first = computeProgramMatchState({ programs, events, year: 2026 });
+    const retitled = programs.map(p =>
+      p.showId === 'CHQ-16530' ? { ...p, title: 'School of Music: Open Recital #6 (Revised)' } : p,
+    );
+    const second = computeProgramMatchState({
+      programs: retitled, events, year: 2026, prevState: first.state,
+    });
+    expect(second.linksChanged).toBe(true);
+    expect(second.links['ev-1']).toEqual([
+      {
+        title: 'School of Music: Open Recital #6 (Revised)',
+        url: 'https://audienceaccess.co/show/CHQ-16530',
+      },
+    ]);
+  });
 });
