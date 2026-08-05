@@ -46,7 +46,8 @@ resource "aws_iam_policy" "github_actions" {
           aws_lambda_function.sync_status.arn,
           aws_lambda_function.sync_list.arn,
           aws_lambda_function.publisher_ingest.arn,
-          aws_lambda_function.article_ingest.arn
+          aws_lambda_function.article_ingest.arn,
+          aws_lambda_function.program_ingest.arn
         ]
       },
       {
@@ -145,6 +146,12 @@ resource "aws_iam_policy" "github_actions" {
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
         Resource = aws_lambda_function.article_ingest.arn
+      },
+      {
+        Sid      = "LambdaInvokeProgramIngest"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.program_ingest.arn
       }
     ]
   })

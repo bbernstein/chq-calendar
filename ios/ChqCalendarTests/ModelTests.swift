@@ -122,4 +122,20 @@ struct ModelTests {
         #expect(manifest.years == [2025, 2026, 2027])
         #expect(manifest.defaultYear == 2026)
     }
+
+    @Test func programLinksFileDecodesFixture() throws {
+        let file = try JSONDecoder().decode(ProgramLinksFile.self, from: fixtureData("program-links-sample"))
+        #expect(file.links["event-1"]?.count == 1)
+        #expect(file.links["event-1"]?.first?.title == "Best For Baby")
+        #expect(
+            file.links["event-1"]?.first?.url.absoluteString
+                == "https://audienceaccess.co/show/CHQ-16426"
+        )
+    }
+
+    @Test func programLinksFileDropsMalformedEntriesLossily() throws {
+        let file = try JSONDecoder().decode(ProgramLinksFile.self, from: fixtureData("program-links-sample"))
+        // The url-less entry is dropped, not fatal to the whole file.
+        #expect(file.links["event-2"] == [])
+    }
 }

@@ -221,6 +221,10 @@ final class AppModel {
         snapshot?.articleLinks[eventID] ?? []
     }
 
+    func programLinks(for eventID: String) -> [ProgramLink] {
+        snapshot?.programLinks[eventID] ?? []
+    }
+
     func theme(forWeek n: Int) -> WeeklyTheme? {
         themes.first { $0.number == n }
     }

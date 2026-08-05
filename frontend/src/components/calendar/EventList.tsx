@@ -3,6 +3,7 @@ import type { Event } from '@/lib/types';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
+import type { ProgramLink } from '@/hooks/useProgramLinks';
 import { downloadICS } from '@/lib/utils/icsHelpers';
 import { EventCard } from './EventCard';
 import { WeekBadge } from './WeekBadge';
@@ -20,11 +21,12 @@ interface EventListProps {
   hasMoreDays?: boolean;
   weeklyThemes?: Record<number, WeekTheme>;
   articleLinks?: Record<string, ArticleLink[]>;
+  programLinks?: Record<string, ProgramLink[]>;
 }
 
 const BATCH_SIZE = 50;
 
-export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay, hasMoreDays, weeklyThemes, articleLinks }: EventListProps) {
+export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay, hasMoreDays, weeklyThemes, articleLinks, programLinks }: EventListProps) {
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -102,6 +104,7 @@ export function EventList({ groupedEvents, expandedDescriptions, onToggleDescrip
                 onToggleFavorite={onToggleFavorite}
                 onDownloadICS={downloadICS}
                 articleLinks={articleLinks?.[event.id]}
+                programLinks={programLinks?.[event.id]}
               />
             ))}
           </div>

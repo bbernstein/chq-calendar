@@ -41,6 +41,23 @@ nonisolated struct WeeklyThemesFile: Decodable, Sendable {
     let weeks: [WeeklyTheme]
 }
 
+nonisolated struct ProgramLink: Decodable, Hashable, Sendable {
+    let title: String
+    let url: URL
+}
+
+nonisolated struct ProgramLinksFile: Decodable, Sendable {
+    let links: [String: [ProgramLink]]
+
+    private enum CodingKeys: String, CodingKey { case links }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decode([String: LossyArray<ProgramLink>].self, forKey: .links)
+        links = raw.mapValues { $0.wrappedValue }
+    }
+}
+
 nonisolated struct YearsManifest: Decodable, Sendable {
     let years: [Int]
     let defaultYear: Int

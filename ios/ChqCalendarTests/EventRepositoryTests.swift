@@ -15,6 +15,9 @@ struct EventRepositoryTests {
         #expect(RemoteResource.articleLinks(year: 2026).path == "/cache/calendar-cache/article-links-2026.json")
         #expect(RemoteResource.articleLinks(year: 2026).cacheKey == "article-links-2026")
 
+        #expect(RemoteResource.programLinks(year: 2026).path == "/cache/calendar-cache/program-links-2026.json")
+        #expect(RemoteResource.programLinks(year: 2026).cacheKey == "program-links-2026")
+
         #expect(RemoteResource.weeklyThemes(year: 2026).path == "/data/weekly-themes/2026.json")
         #expect(RemoteResource.weeklyThemes(year: 2026).cacheKey == "themes-2026")
 
@@ -35,6 +38,7 @@ struct EventRepositoryTests {
         let api = MockAPI()
         await api.setSuccess(data: fixtureData("events-sample"), etag: "events-etag-1", for: .events(year: 2026))
         await api.setSuccess(data: fixtureData("article-links-sample"), etag: "links-etag-1", for: .articleLinks(year: 2026))
+        await api.setSuccess(data: fixtureData("program-links-sample"), etag: "programs-etag-1", for: .programLinks(year: 2026))
         await api.setSuccess(data: fixtureData("themes-sample"), etag: "themes-etag-1", for: .weeklyThemes(year: 2026))
         let cache = MockCache()
         let repo = EventRepository(api: api, cache: cache)
@@ -44,15 +48,18 @@ struct EventRepositoryTests {
         #expect(snapshot.year == 2026)
         #expect(snapshot.events.count == 5)
         #expect(snapshot.articleLinks["101037"]?.count == 1)
+        #expect(snapshot.programLinks["event-1"]?.count == 1)
         #expect(snapshot.themes.count == 9)
 
         #expect(cache.read("events-2026")?.metadata.etag == "events-etag-1")
         #expect(cache.read("article-links-2026")?.metadata.etag == "links-etag-1")
+        #expect(cache.read("program-links-2026")?.metadata.etag == "programs-etag-1")
         #expect(cache.read("themes-2026")?.metadata.etag == "themes-etag-1")
 
         // Also directly readable from cache afterward, with no network.
         let cached = await repo.cachedSnapshot(year: 2026)
         #expect(cached?.events.count == 5)
+        #expect(cached?.programLinks["event-1"]?.count == 1)
     }
 
     // MARK: - (c) second refresh sends stored etag; 304 decodes from cache, updates fetchedAt
@@ -61,6 +68,7 @@ struct EventRepositoryTests {
         let api = MockAPI()
         await api.setSuccess(data: fixtureData("events-sample"), etag: "events-etag-1", for: .events(year: 2026))
         await api.setSuccess(data: fixtureData("article-links-sample"), etag: "links-etag-1", for: .articleLinks(year: 2026))
+        await api.setSuccess(data: fixtureData("program-links-sample"), etag: "programs-etag-1", for: .programLinks(year: 2026))
         await api.setSuccess(data: fixtureData("themes-sample"), etag: "themes-etag-1", for: .weeklyThemes(year: 2026))
         let cache = MockCache()
         let repo = EventRepository(api: api, cache: cache)
@@ -72,12 +80,14 @@ struct EventRepositoryTests {
         // short-circuit, so the second network round-trip actually happens.
         await api.setNotModified(for: .events(year: 2026))
         await api.setNotModified(for: .articleLinks(year: 2026))
+        await api.setNotModified(for: .programLinks(year: 2026))
         await api.setNotModified(for: .weeklyThemes(year: 2026))
 
         let snapshot = try await repo.refresh(year: 2026, force: true)
 
         #expect(snapshot.events.count == 5)
         #expect(snapshot.articleLinks["101037"]?.count == 1)
+        #expect(snapshot.programLinks["event-1"]?.count == 1)
         #expect(snapshot.themes.count == 9)
 
         let eventCalls = await api.calls.filter {
@@ -96,6 +106,7 @@ struct EventRepositoryTests {
         let api = MockAPI()
         await api.setSuccess(data: fixtureData("events-sample"), etag: "events-etag-1", for: .events(year: 2026))
         await api.setFailure(MockAPIError.unscripted("links-down"), for: .articleLinks(year: 2026))
+        await api.setFailure(MockAPIError.unscripted("programs-down"), for: .programLinks(year: 2026))
         await api.setFailure(MockAPIError.unscripted("themes-down"), for: .weeklyThemes(year: 2026))
         let cache = MockCache()
         let repo = EventRepository(api: api, cache: cache)
@@ -104,6 +115,7 @@ struct EventRepositoryTests {
 
         #expect(snapshot.events.count == 5)
         #expect(snapshot.articleLinks.isEmpty)
+        #expect(snapshot.programLinks.isEmpty)
         #expect(snapshot.themes.isEmpty)
     }
 
@@ -111,12 +123,14 @@ struct EventRepositoryTests {
         let api = MockAPI()
         await api.setSuccess(data: fixtureData("events-sample"), etag: "events-etag-1", for: .events(year: 2026))
         await api.setSuccess(data: fixtureData("article-links-sample"), etag: "links-etag-1", for: .articleLinks(year: 2026))
+        await api.setSuccess(data: fixtureData("program-links-sample"), etag: "programs-etag-1", for: .programLinks(year: 2026))
         await api.setSuccess(data: fixtureData("themes-sample"), etag: "themes-etag-1", for: .weeklyThemes(year: 2026))
         let cache = MockCache()
         let repo = EventRepository(api: api, cache: cache)
         _ = try await repo.refresh(year: 2026, force: false)
 
         await api.setFailure(MockAPIError.unscripted("links-down"), for: .articleLinks(year: 2026))
+        await api.setFailure(MockAPIError.unscripted("programs-down"), for: .programLinks(year: 2026))
         await api.setFailure(MockAPIError.unscripted("themes-down"), for: .weeklyThemes(year: 2026))
         // Events must also be re-scripted since force bypasses the cache short-circuit.
         await api.setSuccess(data: fixtureData("events-sample"), etag: "events-etag-2", for: .events(year: 2026))
@@ -125,6 +139,7 @@ struct EventRepositoryTests {
 
         #expect(snapshot.events.count == 5)
         #expect(snapshot.articleLinks["101037"]?.count == 1)
+        #expect(snapshot.programLinks["event-1"]?.count == 1)
         #expect(snapshot.themes.count == 9)
     }
 
@@ -171,6 +186,29 @@ struct EventRepositoryTests {
         // And the disk-only read path still sees the old good data.
         let cached = await repo.cachedSnapshot(year: 2026)
         #expect(cached?.events.count == 5)
+    }
+
+    @Test func refreshFallsBackToCachedProgramLinksAndLeavesCacheUntouchedWhenNewPayloadIsGarbage() async throws {
+        let api = MockAPI()
+        let cache = MockCache()
+        let originalFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("program-links-2026", data: fixtureData("program-links-sample"), etag: "programs-etag-good", fetchedAt: originalFetchedAt)
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "events-etag-1", for: .events(year: 2026))
+        let garbage = try #require("not valid json".data(using: .utf8))
+        await api.setSuccess(data: garbage, etag: "programs-etag-garbage", for: .programLinks(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+
+        // Sidecar fetches are best-effort: a malformed payload never throws,
+        // it just falls back to whatever's cached — unlike the events path.
+        let snapshot = try await repo.refresh(year: 2026, force: false)
+
+        #expect(snapshot.programLinks["event-1"]?.count == 1)
+
+        // The cache must be entirely untouched: same bytes, same etag, same fetchedAt.
+        let entry = try #require(cache.read("program-links-2026"))
+        #expect(entry.data == fixtureData("program-links-sample"))
+        #expect(entry.metadata.etag == "programs-etag-good")
+        #expect(entry.metadata.fetchedAt == originalFetchedAt)
     }
 
     @Test func availableYearsReturnsCachedValueAndLeavesCacheUntouchedWhenNewYearsPayloadIsGarbage() async throws {

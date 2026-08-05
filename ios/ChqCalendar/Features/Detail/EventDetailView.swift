@@ -13,6 +13,7 @@ struct EventDetailView: View {
 
     private var isFavorite: Bool { model.favorites.contains(event.id) }
     private var articleLinks: [ArticleLink] { model.articleLinks(for: event.id) }
+    private var programLinks: [ProgramLink] { model.programLinks(for: event.id) }
     private var visibleCategories: [String] {
         event.categoryNames.filter { !$0.hasPrefix("Week ") }
     }
@@ -74,6 +75,10 @@ struct EventDetailView: View {
 
                     if let details = event.details, !details.isEmpty {
                         descriptionSection(details)
+                    }
+
+                    if !programLinks.isEmpty {
+                        programLinksSection
                     }
 
                     if !articleLinks.isEmpty {
@@ -224,6 +229,32 @@ struct EventDetailView: View {
                 Text(paragraph)
                     .font(.body)
                     .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var programLinksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Digital Program")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(programLinks, id: \.url) { link in
+                    Link(destination: link.url) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "book")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24)
+
+                            Text(link.title)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
             }
         }
     }
