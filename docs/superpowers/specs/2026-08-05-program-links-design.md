@@ -193,11 +193,16 @@ the dev server renders real links. npm script `ingest:programs:local`.
 
 ## Error handling
 
-- Either page fails to fetch, or parses to **zero** shows → abort the
-  run without publishing. The previous sidecar stays live; links never
+- Either page failing to fetch aborts the run without publishing. The
+  past page parsing to **zero** shows also always aborts — it can never
+  be legitimately empty (~240 shows since 2021). The upcoming page can be
+  legitimately empty off-season, so a zero-shows parse there only aborts
+  when the raw HTML still contains `show/CHQ-\d+` links our parser failed
+  to extract (a drift signal); genuinely link-free upcoming HTML
+  proceeds. Either way, the previous sidecar stays live; links never
   vanish because of a transient scrape failure or a markup change.
-- Markup drift that breaks parsing shows up as the zero-shows abort plus
-  the summary log; the runbook covers diagnosis.
+- Markup drift that breaks parsing shows up as one of the above aborts
+  plus the summary log; the runbook covers diagnosis.
 - Frontends treat a missing sidecar (404) as empty links — no error UI.
 
 ## Web frontend

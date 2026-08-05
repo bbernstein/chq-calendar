@@ -30,6 +30,31 @@ describe('parseUpcomingPage', () => {
     expect(play.startDate).toBeNull();
     expect(play.endDate).toBeNull();
   });
+
+  it('resolves relative hrefs against a custom baseUrl', () => {
+    const html = `<html><body><div class="slide">
+      <a href="/show/CHQ-99999"></a>
+      <div class="mobile-index-footer-show-name">Test Show</div>
+      <div class="mobile-index-footer-show-date">August 04, 2026</div>
+    </div></body></html>`;
+    const programs = parseUpcomingPage(html, 'https://staging.audienceaccess.co');
+    expect(programs).toHaveLength(1);
+    expect(programs[0]).toMatchObject({
+      showId: 'CHQ-99999',
+      url: 'https://staging.audienceaccess.co/show/CHQ-99999',
+    });
+  });
+
+  it('keeps the absolute href host even when a custom baseUrl is passed', () => {
+    const programs = parseUpcomingPage(
+      fix('audienceaccess-upcoming.html'),
+      'https://staging.audienceaccess.co',
+    );
+    expect(programs).toHaveLength(3);
+    for (const p of programs) {
+      expect(p.url).toBe(`https://audienceaccess.co/show/${p.showId}`);
+    }
+  });
 });
 
 describe('parsePastPage', () => {
@@ -51,6 +76,31 @@ describe('parsePastPage', () => {
       dateText: 'by Sharyn Rothstein',
       startDate: null,
     });
+  });
+
+  it('resolves relative hrefs against a custom baseUrl', () => {
+    const html = `<html><body><div class="mobile-past-events-feature-box">
+      <a href="/show/CHQ-88888"></a>
+      <div class="mobile-past-events-feature-title">Test Past Show</div>
+      <div class="mobile-past-events-feature-dates">by Someone</div>
+    </div></body></html>`;
+    const programs = parsePastPage(html, 'https://staging.audienceaccess.co');
+    expect(programs).toHaveLength(1);
+    expect(programs[0]).toMatchObject({
+      showId: 'CHQ-88888',
+      url: 'https://staging.audienceaccess.co/show/CHQ-88888',
+    });
+  });
+
+  it('keeps the absolute href host even when a custom baseUrl is passed', () => {
+    const programs = parsePastPage(
+      fix('audienceaccess-past.html'),
+      'https://staging.audienceaccess.co',
+    );
+    expect(programs).toHaveLength(4);
+    for (const p of programs) {
+      expect(p.url).toBe(`https://audienceaccess.co/show/${p.showId}`);
+    }
   });
 });
 
@@ -103,7 +153,8 @@ describe('AudienceAccessClient.fetchPrograms', () => {
 
   it('does NOT throw when the upcoming page parses to zero but the past page is fine (legitimate off-season)', async () => {
     // Upcoming page can legitimately be empty off-season; only the past
-    // page's zero-programs case is an abort condition.
+    // page's zero-programs case is an abort condition. Genuinely empty
+    // means no show/CHQ- links at all, not just unparseable ones.
     const emptyUpcoming = '<html><body><div class="no-slides-here"></div></body></html>';
     const client = new AudienceAccessClient(
       fetchFor({
@@ -114,5 +165,22 @@ describe('AudienceAccessClient.fetchPrograms', () => {
     const programs = await client.fetchPrograms();
     expect(programs).toHaveLength(4);
     expect(programs.every(p => p.source === 'past')).toBe(true);
+  });
+
+  it('throws when the upcoming page has show links but parses to zero programs (markup drift)', async () => {
+    // The page contains show/CHQ- links (so it is not legitimately
+    // empty), but none of them sit inside a recognizable `.slide` block —
+    // simulates a template rename on the upcoming page specifically.
+    const driftedUpcoming =
+      '<html><body><div class="some-other-class"><a href="https://audienceaccess.co/show/CHQ-99999">Show</a></div></body></html>';
+    const client = new AudienceAccessClient(
+      fetchFor({
+        'https://audienceaccess.co/CHQ': driftedUpcoming,
+        'https://audienceaccess.co/past/CHQ': fix('audienceaccess-past.html'),
+      }),
+    );
+    await expect(client.fetchPrograms()).rejects.toThrow(
+      /upcoming page has show links/,
+    );
   });
 });

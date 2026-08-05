@@ -6,6 +6,7 @@ const DEFAULT_BASE_URL = 'https://audienceaccess.co';
 const USER_AGENT = 'chqcal.org program-linker (https://www.chqcal.org)';
 const REQUEST_TIMEOUT_MS = 10_000;
 const SHOW_ID_RE = /\/show\/(CHQ-\d+)/;
+const SHOW_LINK_RE = /show\/CHQ-\d+/;
 
 const collapse = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
@@ -14,13 +15,22 @@ function buildProgram(
   title: string,
   dateText: string,
   source: Program['source'],
+  baseUrl: string,
 ): Program | null {
   const showId = href ? SHOW_ID_RE.exec(href)?.[1] : undefined;
-  if (!showId || !title) return null;
+  if (!showId || !title || !href) return null;
+  let url: string;
+  try {
+    // Canonical /show/<id> path on the host the href actually points at:
+    // an absolute href wins, a relative href resolves against baseUrl.
+    url = new URL(`/show/${showId}`, new URL(href, baseUrl)).toString();
+  } catch {
+    return null;
+  }
   const parsed = parseProgramDateText(dateText);
   return {
     showId,
-    url: `${DEFAULT_BASE_URL}/show/${showId}`,
+    url,
     title,
     dateText,
     startDate: parsed?.startDate ?? null,
@@ -30,7 +40,7 @@ function buildProgram(
 }
 
 /** Parses the upcoming-events page (carousel of `.slide` blocks). */
-export function parseUpcomingPage(html: string): Program[] {
+export function parseUpcomingPage(html: string, baseUrl: string = DEFAULT_BASE_URL): Program[] {
   const $ = cheerio.load(html);
   const out: Program[] = [];
   $('.slide').each((_, el) => {
@@ -40,6 +50,7 @@ export function parseUpcomingPage(html: string): Program[] {
       collapse(slide.find('.mobile-index-footer-show-name').first().text()),
       collapse(slide.find('.mobile-index-footer-show-date').first().text()),
       'upcoming',
+      baseUrl,
     );
     if (program) out.push(program);
   });
@@ -47,7 +58,7 @@ export function parseUpcomingPage(html: string): Program[] {
 }
 
 /** Parses the past-events page (grid of `.mobile-past-events-feature-box`). */
-export function parsePastPage(html: string): Program[] {
+export function parsePastPage(html: string, baseUrl: string = DEFAULT_BASE_URL): Program[] {
   const $ = cheerio.load(html);
   const out: Program[] = [];
   $('.mobile-past-events-feature-box').each((_, el) => {
@@ -57,6 +68,7 @@ export function parsePastPage(html: string): Program[] {
       collapse(box.find('.mobile-past-events-feature-title').first().text()),
       collapse(box.find('.mobile-past-events-feature-dates').first().text()),
       'past',
+      baseUrl,
     );
     if (program) out.push(program);
   });
@@ -96,15 +108,25 @@ export class AudienceAccessClient {
   async fetchPrograms(): Promise<Program[]> {
     const upcomingHtml = await this.getHtml(`${this.baseUrl}/CHQ`);
     const pastHtml = await this.getHtml(`${this.baseUrl}/past/CHQ`);
-    const pastPrograms = parsePastPage(pastHtml);
+    const pastPrograms = parsePastPage(pastHtml, this.baseUrl);
     if (pastPrograms.length === 0) {
       throw new Error(
         '[audienceaccess] past page parsed to zero programs — refusing to publish (markup drift?)',
       );
     }
+    const upcomingPrograms = parseUpcomingPage(upcomingHtml, this.baseUrl);
+    if (upcomingPrograms.length === 0 && SHOW_LINK_RE.test(upcomingHtml)) {
+      // The page has show links our parser failed to extract — a
+      // genuinely off-season page (no show links at all) is fine, but
+      // this looks like markup drift, so refuse to publish silently
+      // dropped upcoming links.
+      throw new Error(
+        '[audienceaccess] upcoming page has show links but parsed to zero programs — refusing to publish (markup drift?)',
+      );
+    }
     const byId = new Map<string, Program>();
     for (const p of pastPrograms) byId.set(p.showId, p);
-    for (const p of parseUpcomingPage(upcomingHtml)) byId.set(p.showId, p);
+    for (const p of upcomingPrograms) byId.set(p.showId, p);
     return [...byId.values()];
   }
 }
