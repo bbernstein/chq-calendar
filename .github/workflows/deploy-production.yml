@@ -1069,6 +1069,9 @@ jobs:
           # continue-on-error so a not-yet-created function or a transient
           # error never fails deploy.
           FUNC="chautauqua-calendar-program-ingest"
+          # Skip only for a genuine not-created-yet; surface any other error
+          # (this step is continue-on-error, so a loud failure logs but never
+          # fails the deploy).
           if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-program-trigger.err; then
             :
           elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-program-trigger.err; then
@@ -1080,6 +1083,8 @@ jobs:
             exit 1
           fi
           echo "Triggering program-links ingest to refresh links..."
+          # AWS CLI v2 expects base64 payloads by default; --cli-binary-format
+          # raw-in-base64-out lets us pass the JSON literal.
           aws lambda invoke \
             --function-name "$FUNC" \
             --invocation-type Event \
