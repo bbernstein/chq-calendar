@@ -66,7 +66,7 @@ struct WeekRangeStrip: View {
                         provisional = nil
                     })
         }
-        .frame(minHeight: 44)
+        .frame(height: 44)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
