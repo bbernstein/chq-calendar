@@ -731,7 +731,8 @@ struct AppModelTests {
     private func makeSnapshotModel(
         events: [Event],
         now: Date,
-        articleLinks: [String: [ArticleLink]] = [:]
+        articleLinks: [String: [ArticleLink]] = [:],
+        programLinks: [String: [ProgramLink]] = [:]
     ) -> AppModel {
         let model = AppModel(
             repository: EventRepository(api: MockAPI(), cache: MockCache()),
@@ -740,7 +741,7 @@ struct AppModelTests {
         )
         model.filter = FilterSelection(dateScope: .all)
         model.snapshot = CalendarSnapshot(
-            year: 2026, events: events, articleLinks: articleLinks,
+            year: 2026, events: events, articleLinks: articleLinks, programLinks: programLinks,
             themes: [], fetchedAt: now)
         return model
     }
@@ -854,6 +855,28 @@ struct AppModelTests {
 
         #expect(model.favorites.count == 3)
         #expect(model.favoritesMatchCount == 1)
+    }
+
+    // MARK: - programLinks(for:) accessor
+
+    @Test func programLinksAccessorReturnsLinksForEvent() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let link = ProgramLink(title: "Program", url: URL(string: "https://example.com/program")!)
+        let model = makeSnapshotModel(
+            events: [makeEvent(id: "a", start: now)],
+            now: now,
+            programLinks: ["a": [link]])
+
+        #expect(model.programLinks(for: "a") == [link])
+        #expect(model.programLinks(for: "missing") == [])
+    }
+
+    @Test func programLinksAccessorEmptyWithoutSnapshot() {
+        let bare = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        #expect(bare.programLinks(for: "a") == [])
     }
 
     // MARK: - UI-test event selection hooks (DEBUG only)

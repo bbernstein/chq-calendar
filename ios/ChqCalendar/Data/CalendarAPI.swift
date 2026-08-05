@@ -10,6 +10,7 @@ nonisolated enum RemoteResource: Sendable, Hashable {
     case years
     case events(year: Int)
     case articleLinks(year: Int)
+    case programLinks(year: Int)
     case weeklyThemes(year: Int)
     case version
 
@@ -21,6 +22,8 @@ nonisolated enum RemoteResource: Sendable, Hashable {
             return "/cache/calendar-cache/all-events-\(year).json"
         case .articleLinks(let year):
             return "/cache/calendar-cache/article-links-\(year).json"
+        case .programLinks(let year):
+            return "/cache/calendar-cache/program-links-\(year).json"
         case .weeklyThemes(let year):
             return "/data/weekly-themes/\(year).json"
         case .version:
@@ -36,6 +39,8 @@ nonisolated enum RemoteResource: Sendable, Hashable {
             return "events-\(year)"
         case .articleLinks(let year):
             return "article-links-\(year)"
+        case .programLinks(let year):
+            return "program-links-\(year)"
         case .weeklyThemes(let year):
             return "themes-\(year)"
         case .version:

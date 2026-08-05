@@ -6,6 +6,7 @@ nonisolated struct CalendarSnapshot: Sendable {
     let year: Int
     let events: [Event]
     let articleLinks: [String: [ArticleLink]]
+    let programLinks: [String: [ProgramLink]]
     let themes: [WeeklyTheme]
     let fetchedAt: Date
 }
@@ -47,8 +48,8 @@ actor EventRepository {
 
     /// Decodes whatever is currently on disk for `year`, regardless of age.
     /// Returns `nil` only if no cached events payload exists at all — the
-    /// sidecars (article links, weekly themes) are optional and simply
-    /// come back empty when absent or undecodable.
+    /// sidecars (article links, program links, weekly themes) are optional
+    /// and simply come back empty when absent or undecodable.
     func cachedSnapshot(year: Int) -> CalendarSnapshot? {
         guard let eventsEntry = cache.read(RemoteResource.events(year: year).cacheKey) else {
             return nil
@@ -61,6 +62,7 @@ actor EventRepository {
             year: year,
             events: events,
             articleLinks: cachedArticleLinks(year: year),
+            programLinks: cachedProgramLinks(year: year),
             themes: cachedThemes(year: year),
             fetchedAt: eventsEntry.metadata.fetchedAt
         )
@@ -85,7 +87,8 @@ actor EventRepository {
     /// only effect is to bypass that short-circuit; the stored ETag is
     /// always sent when present, forced or not.
     ///
-    /// Sidecar (article links, weekly themes) fetches are best-effort: each
+    /// Sidecar (article links, program links, weekly themes) fetches are
+    /// best-effort: each
     /// runs in parallel with its own `sidecarTimeout` and falls back to its
     /// cached payload (or empty, if none) on any failure. The events fetch
     /// itself is not guarded this way — a failure there propagates, unless
@@ -101,6 +104,7 @@ actor EventRepository {
         }
 
         async let linksResult = fetchSidecarLinks(year: year)
+        async let programsResult = fetchSidecarPrograms(year: year)
         async let themesResult = fetchSidecarThemes(year: year)
 
         let eventsFetch = try await api.fetch(eventsResource, ifNoneMatch: cachedEventsEntry?.metadata.etag, timeout: nil)
@@ -124,6 +128,7 @@ actor EventRepository {
             year: year,
             events: events,
             articleLinks: await linksResult,
+            programLinks: await programsResult,
             themes: await themesResult,
             fetchedAt: now
         )
@@ -204,6 +209,15 @@ actor EventRepository {
         return file.links
     }
 
+    private func cachedProgramLinks(year: Int) -> [String: [ProgramLink]] {
+        guard let entry = cache.read(RemoteResource.programLinks(year: year).cacheKey),
+              let file = try? JSONDecoder().decode(ProgramLinksFile.self, from: entry.data)
+        else {
+            return [:]
+        }
+        return file.links
+    }
+
     private func cachedThemes(year: Int) -> [WeeklyTheme] {
         guard let entry = cache.read(RemoteResource.weeklyThemes(year: year).cacheKey),
               let file = try? JSONDecoder().decode(WeeklyThemesFile.self, from: entry.data)
@@ -231,6 +245,28 @@ actor EventRepository {
         case .success(let data, let etag):
             guard let file = try? JSONDecoder().decode(ArticleLinksFile.self, from: data) else {
                 return cachedArticleLinks(year: year)
+            }
+            cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
+            return file.links
+        }
+    }
+
+    private func fetchSidecarPrograms(year: Int) async -> [String: [ProgramLink]] {
+        let resource = RemoteResource.programLinks(year: year)
+        let cachedEntry = cache.read(resource.cacheKey)
+        let now = Date()
+
+        guard let result = try? await api.fetch(resource, ifNoneMatch: cachedEntry?.metadata.etag, timeout: sidecarTimeout) else {
+            return cachedProgramLinks(year: year)
+        }
+
+        switch result {
+        case .notModified:
+            cache.touch(resource.cacheKey, fetchedAt: now)
+            return cachedProgramLinks(year: year)
+        case .success(let data, let etag):
+            guard let file = try? JSONDecoder().decode(ProgramLinksFile.self, from: data) else {
+                return cachedProgramLinks(year: year)
             }
             cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
             return file.links
