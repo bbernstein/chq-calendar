@@ -37,6 +37,11 @@ nonisolated enum EventFilter {
         case .all:
             break
 
+        case .season:
+            if let first = weeks.first, let last = weeks.last {
+                result = result.filter { first.start <= $0.start && $0.start < last.end }
+            }
+
         case .today:
             let nowKey = ChqTime.dayKey(for: now)
             result = result.filter { ChqTime.dayKey(for: $0.start) == nowKey }

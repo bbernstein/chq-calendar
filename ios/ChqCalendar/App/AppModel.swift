@@ -363,22 +363,15 @@ final class AppModel {
         persistFilter()
     }
 
-    /// Mirrors the web's `handleWeekTap` (frontend/src/hooks/useScrollState.ts).
-    func selectWeek(_ n: Int) {
-        if n == currentWeek, filter.selectedWeeks.isEmpty {
-            // The current week *is* "This Week" — same range, so store it as
-            // the scope and let both chips light up.
-            filter.dateScope = .thisWeek
-        } else if filter.dateScope != .all {
-            // A relative scope was active and the user picked a different
-            // week: the week replaces the scope rather than narrowing it.
-            filter.dateScope = .all
-            filter.selectedWeeks = [n]
-        } else if filter.selectedWeeks.contains(n) {
-            filter.selectedWeeks.remove(n)
-        } else {
-            filter.selectedWeeks.insert(n)
-        }
+    /// Replaces the week selection wholesale — the strip owns tap/drag
+    /// semantics (`WeekStripDrag.commit`); the model just stores the result.
+    /// Unconditionally forces `.all`: weeks and relative scopes are mutually
+    /// exclusive, one date range at a time, and an empty commit means "no
+    /// week filter" — which `.all` represents, same as every other deselect
+    /// path.
+    func setWeekSelection(_ weeks: Set<Int>) {
+        filter.dateScope = .all
+        filter.selectedWeeks = weeks
         persistFilter()
     }
 

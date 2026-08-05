@@ -14,6 +14,7 @@ struct UserStateStoreTests {
         #expect(DateScope.next.rawValue == "next")
         #expect(DateScope.today.rawValue == "today")
         #expect(DateScope.thisWeek.rawValue == "this-week")
+        #expect(DateScope.season.rawValue == "season")
         #expect(DateScope.all.rawValue == "all")
     }
 
@@ -21,7 +22,8 @@ struct UserStateStoreTests {
         #expect(DateScope.next.label == "Now")
         #expect(DateScope.today.label == "Today")
         #expect(DateScope.thisWeek.label == "This Week")
-        #expect(DateScope.all.label == "All")
+        #expect(DateScope.season.label == "All Season")
+        #expect(DateScope.all.label == "All Year")
     }
 
     // MARK: - FilterSelection.isDefault

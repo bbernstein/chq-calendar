@@ -47,7 +47,7 @@ nonisolated enum FilterChipState {
                 // year. With no weeks, nothing is filtering dates, which
                 // is precisely what "All" means.
                 return selection.selectedWeeks.isEmpty
-            case .next, .today, .thisWeek:
+            case .next, .today, .season, .thisWeek:
                 // Unreachable through `DateFilterSheet`, whose
                 // `visibleScopes` collapses to `[.all]` off the current
                 // year — but answered rather than trusted to the caller.
@@ -68,7 +68,7 @@ nonisolated enum FilterChipState {
             // "All" means unfiltered dates, so a week selection un-selects it
             // even though `dateScope` is still `.all`.
             return selection.dateScope == .all && selection.selectedWeeks.isEmpty
-        case .next, .today:
+        case .next, .today, .season:
             return selection.dateScope == scope
         }
     }

@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import ChqCalendar
 
 struct FilterSelectionTests {
@@ -43,5 +44,25 @@ struct FilterSelectionTests {
         var favorites = FilterSelection(dateScope: .all)
         favorites.showFavoritesOnly = true
         #expect(favorites.hasNonDateFilters)
+    }
+
+    // MARK: - DateScope
+
+    @Test func seasonScopeRawValueAndLabel() {
+        #expect(DateScope.season.rawValue == "season")
+        #expect(DateScope.season.label == "All Season")
+    }
+
+    @Test func allScopeLabelIsAllYear() {
+        #expect(DateScope.all.label == "All Year")
+    }
+
+    @Test func legacyRawValuesStillDecode() throws {
+        // Persisted selections predating this change must keep decoding.
+        for (raw, expected): (String, DateScope) in
+            [("next", .next), ("today", .today), ("this-week", .thisWeek), ("all", .all), ("season", .season)] {
+            let decoded = try JSONDecoder().decode(DateScope.self, from: Data("\"\(raw)\"".utf8))
+            #expect(decoded == expected)
+        }
     }
 }
