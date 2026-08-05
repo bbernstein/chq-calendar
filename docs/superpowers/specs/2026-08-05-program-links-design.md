@@ -109,7 +109,11 @@ counterpart:
 1. Date gate: event's start date (date part) must fall within
    `[startDate, endDate]`.
 2. Title similarity: normalized token overlap between program title and
-   event title; threshold `TITLE_THRESHOLD = 0.6`.
+   event title; threshold `TITLE_THRESHOLD = 0.6`. Similarity uses the
+   shared scoring (token Jaccard, with a containment shortcut scoring 0.9
+   when the shorter normalized title, ≥10 chars, is contained in the
+   other) — the same scoring the matcher applies to undated programs below;
+   for dated programs the date gate still applies first.
 
 **Undated programs** (null dates; mostly theatre runs):
 
