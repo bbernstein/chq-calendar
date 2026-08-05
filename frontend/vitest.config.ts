@@ -24,6 +24,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      '@shared': resolve(__dirname, '../shared'),
       'react': 'preact/compat',
       'react-dom': 'preact/compat',
     },
