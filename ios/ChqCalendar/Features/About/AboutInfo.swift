@@ -30,11 +30,17 @@ enum AboutInfo {
     /// the web header's buttons (frontend/src/components/layout/Header.tsx).
     /// Kept separate from `links`, which are the About sheet's legal and
     /// attribution links.
+    ///
+    /// The cross-platform source of truth is `shared/links.json` at the
+    /// repo root — the web header renders directly from it, and
+    /// `AboutInfoTests.quickLinksMatchSharedLinksJson` asserts this list
+    /// matches it. If you change one, change the other.
     static let quickLinks: [Link] = [
         Link(id: "feedback", title: "Feedback", url: URL(string: "https://www.chqcal.org/feedback")!),
         Link(id: "programs", title: "Programs", url: URL(string: "https://programs.chq.org/")!),
         Link(id: "questions", title: "Questions", url: URL(string: "https://questions.chq.org/")!),
         Link(id: "bus-tram-tracker", title: "Bus & Tram Tracker", url: URL(string: "https://busandtramtracker.chq.org")!),
+        Link(id: "chautauqua-fund", title: "Chautauqua Fund", url: URL(string: "https://giving.chq.org/")!),
     ]
 
     /// Formats the marketing version and build number for display.

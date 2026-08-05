@@ -56,14 +56,42 @@ struct AboutInfoTests {
     // MARK: - quickLinks
 
     @Test func quickLinksMatchTheWebHeader() {
-        #expect(AboutInfo.quickLinks.map(\.id) == ["feedback", "programs", "questions", "bus-tram-tracker"])
-        #expect(AboutInfo.quickLinks.map(\.title) == ["Feedback", "Programs", "Questions", "Bus & Tram Tracker"])
+        #expect(AboutInfo.quickLinks.map(\.id) == ["feedback", "programs", "questions", "bus-tram-tracker", "chautauqua-fund"])
+        #expect(AboutInfo.quickLinks.map(\.title) == ["Feedback", "Programs", "Questions", "Bus & Tram Tracker", "Chautauqua Fund"])
         #expect(AboutInfo.quickLinks.map { $0.url.absoluteString } == [
             "https://www.chqcal.org/feedback",
             "https://programs.chq.org/",
             "https://questions.chq.org/",
             "https://busandtramtracker.chq.org",
+            "https://giving.chq.org/",
         ])
+    }
+
+    /// The cross-platform source of truth is shared/links.json (also
+    /// consumed by the web header via frontend/src/lib/quickLinks.ts).
+    /// This test reads it from the repo checkout so any drift between the
+    /// Swift list and the JSON fails CI on either side.
+    @Test func quickLinksMatchSharedLinksJson() throws {
+        struct SharedLinksFile: Decodable {
+            struct SharedLink: Decodable {
+                let id: String
+                let title: String
+                let url: String
+            }
+            let quickLinks: [SharedLink]
+        }
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // AboutInfoTests.swift
+            .deletingLastPathComponent() // ChqCalendarTests
+            .deletingLastPathComponent() // ios
+        let jsonURL = repoRoot.appendingPathComponent("shared/links.json")
+        let data = try Data(contentsOf: jsonURL)
+        let shared = try JSONDecoder().decode(SharedLinksFile.self, from: data)
+
+        #expect(AboutInfo.quickLinks.map(\.id) == shared.quickLinks.map(\.id))
+        #expect(AboutInfo.quickLinks.map(\.title) == shared.quickLinks.map(\.title))
+        #expect(AboutInfo.quickLinks.map { $0.url.absoluteString } == shared.quickLinks.map(\.url))
     }
 
     @Test func quickLinksAreDistinctFromTheAboutSheetLinks() {

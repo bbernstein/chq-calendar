@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { YearSelector } from '@/components/layout/YearSelector';
+import { quickLinks } from '@/lib/quickLinks';
 
 interface HeaderProps {
   selectedYear: number;
@@ -50,30 +51,15 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
           </div>
           {/* Desktop */}
           <div className="hidden md:flex items-center gap-2">
-            <button
-              onClick={() => window.open('/feedback', '_blank', 'noopener,noreferrer')}
-              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Feedback
-            </button>
-            <button
-              onClick={() => window.open('https://programs.chq.org/', '_blank', 'noopener,noreferrer')}
-              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Programs
-            </button>
-            <button
-              onClick={() => window.open('https://questions.chq.org/', '_blank', 'noopener,noreferrer')}
-              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Questions
-            </button>
-            <button
-              onClick={() => window.open('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer')}
-              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-            >
-              Bus & Tram Tracker
-            </button>
+            {quickLinks.map((link) => (
+              <button
+                key={link.id}
+                onClick={() => window.open(link.webPath ?? link.url, '_blank', 'noopener,noreferrer')}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                {link.title}
+              </button>
+            ))}
           </div>
           {/* Mobile */}
           <div className="md:hidden relative" ref={menuRef}>
@@ -93,30 +79,15 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             </button>
             {menuOpen && (
               <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-50">
-                <button
-                  onClick={() => { window.open('/feedback', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
-                >
-                  Feedback
-                </button>
-                <button
-                  onClick={() => { window.open('https://programs.chq.org/', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
-                >
-                  Programs
-                </button>
-                <button
-                  onClick={() => { window.open('https://questions.chq.org/', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
-                >
-                  Questions
-                </button>
-                <button
-                  onClick={() => { window.open('https://busandtramtracker.chq.org', '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
-                >
-                  Bus & Tram Tracker
-                </button>
+                {quickLinks.map((link) => (
+                  <button
+                    key={link.id}
+                    onClick={() => { window.open(link.webPath ?? link.url, '_blank', 'noopener,noreferrer'); setMenuOpen(false); }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  >
+                    {link.title}
+                  </button>
+                ))}
               </div>
             )}
           </div>
