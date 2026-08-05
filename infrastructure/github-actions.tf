@@ -145,6 +145,12 @@ resource "aws_iam_policy" "github_actions" {
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
         Resource = aws_lambda_function.article_ingest.arn
+      },
+      {
+        Sid      = "LambdaInvokeProgramIngest"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.program_ingest.arn
       }
     ]
   })

@@ -407,6 +407,62 @@ jobs:
 
           rm -rf package_temp lambda-article-ingest.zip
 
+      - name: Deploy program-ingest Lambda
+        working-directory: ./backend
+        run: |
+          # The program-ingest Lambda is created by `terraform apply`
+          # (infrastructure/program-ingest.tf). On the very first deploy —
+          # before that apply — the function does not exist yet, so guard the
+          # code update and skip cleanly instead of failing the whole deploy.
+          FUNC="chautauqua-calendar-program-ingest"
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-program-deploy.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-program-deploy.err; then
+            echo "::notice::${FUNC} not created yet — run 'terraform apply' to create it; skipping code deploy this run"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-program-deploy.err
+            exit 1
+          fi
+
+          # program-ingest externalizes only @aws-sdk/client-s3; cheerio and
+          # everything else are bundled inline by esbuild.
+          mkdir -p package_temp/node_modules
+
+          echo "Installing program-ingest handler dependencies..."
+          cd package_temp
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-program-ingest",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-s3": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev
+          cd ..
+
+          mkdir -p package_temp/dist
+          cp dist/programIngestHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-program-ingest.zip . \
+            -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          echo "Deploying program-ingest Lambda..."
+          aws lambda update-function-code \
+            --function-name "$FUNC" \
+            --zip-file fileb://lambda-program-ingest.zip
+
+          echo "Waiting for program-ingest Lambda to finish updating..."
+          aws lambda wait function-updated \
+            --function-name "$FUNC"
+
+          rm -rf package_temp lambda-program-ingest.zip
+
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
@@ -1004,6 +1060,33 @@ jobs:
             --payload '{}' \
             /tmp/article-ingest-response.json
           echo "Article-links ingest triggered - running in background to refresh the sidecar"
+
+      - name: Trigger program-links ingest
+        continue-on-error: true
+        run: |
+          # Refresh the digital program links right after deploy instead of
+          # waiting up to an hour for the EventBridge schedule. Guarded +
+          # continue-on-error so a not-yet-created function or a transient
+          # error never fails deploy.
+          FUNC="chautauqua-calendar-program-ingest"
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-program-trigger.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-program-trigger.err; then
+            echo "${FUNC} not created yet — run 'terraform apply' to create it; skipping trigger"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-program-trigger.err
+            exit 1
+          fi
+          echo "Triggering program-links ingest to refresh links..."
+          aws lambda invoke \
+            --function-name "$FUNC" \
+            --invocation-type Event \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{}' \
+            /tmp/program-ingest-response.json
+          echo "Program-links ingest triggered - running in background to refresh the sidecar"
 
       - name: Notify deployment success
         if: success()
