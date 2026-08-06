@@ -103,9 +103,18 @@ result   = selected + recent
 `AppModel.normalizePersistedFilterCasing()` (`AppModel.swift:562`) normalizes
 `filter.selectedLocations` / `selectedCategories` against the snapshot — but
 **not** `recents`. A stored recent can therefore carry casing the current
-snapshot does not use, and both `count(for:in:)` and `DisplayNames`' exact-match
-dictionary would miss it, yielding a chip labelled with the wrong casing and a
-count of 0.
+snapshot does not use. Precisely what breaks:
+
+- `count(for:in:)` lowercases its key (`AppModel.swift:446`), so **the count is
+  unaffected**.
+- `DisplayNames.location` / `.category` are exact-match dictionary lookups on
+  the feed's original casing, so an unresolved recent **renders with raw feed
+  casing instead of its shortcut** — `"elizabeth s. lenna hall"` rather than
+  `"Lenna Hall"`.
+- Toggling an unresolved name writes that casing into `filter.selectedLocations`,
+  so the Active chip carries it too until the next snapshot load normalizes it.
+
+The label is the visible defect; the count is not. Test accordingly.
 
 Each recent must be resolved to the snapshot's canonical casing by
 case-insensitive lookup into `all`, and the resolved name used for display,
@@ -190,8 +199,8 @@ New `ios/ChqCalendarTests/FacetChipOrderTests.swift`:
 2. Recents follow, in recency order, ahead of higher-count non-recents.
 3. A recent absent from `all` is omitted (#157).
 4. A recent whose stored casing differs from the snapshot's resolves to the
-   snapshot's casing (uses the existing `events-sample-alt-casing.json`
-   fixture's casing convention).
+   snapshot's canonical casing, so the emitted `Entry.name` is the value
+   `DisplayNames` can match.
 5. The 5-recent cap holds when more than 5 recents are live.
 6. `visibleLimit` truncates only the count-ordered tail; selected and recents
    both survive exceeding it.
