@@ -186,8 +186,8 @@ struct SheetChip: View {
     /// confused with the SwiftUI modifier of that name one line above.
     private var voiceOverLabel: String {
         var parts = [label]
-        if isRecent { parts.append("recently used") }
-        if let count { parts.append("\(count) events") }
+        if isRecent && !isSelected { parts.append("recently used") }
+        if let count { parts.append("\(count) event\(count == 1 ? "" : "s")") }
         return parts.joined(separator: ", ")
     }
 
