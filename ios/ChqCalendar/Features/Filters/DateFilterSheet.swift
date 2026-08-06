@@ -163,9 +163,11 @@ struct SheetChip: View {
             }
             // Metrics are deliberately below the 44pt HIG floor, which
             // governs isolated controls rather than dense grids of
-            // same-kind, adjacent, non-destructive targets. 36pt is the
-            // threshold at which Venues and Categories both clear the fold
-            // at the sheet's medium detent — the whole point of the change.
+            // same-kind, adjacent, non-destructive targets. 36pt makes rows
+            // roughly 20% shorter, which buys headroom rather than a
+            // guarantee: 44pt already cleared the fold on the venue names
+            // present when this shipped, and the extra room is what absorbs
+            // longer-than-average naming before Categories drops off.
             // `minHeight` is a floor, and the vertical padding is what
             // keeps the text breathing at large Dynamic Type sizes, where
             // the floor stops binding.

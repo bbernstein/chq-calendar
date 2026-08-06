@@ -1,6 +1,6 @@
 # iOS: surface recently-used filters in the filter sheet
 
-**Status:** Approved, not yet implemented
+**Status:** Implemented — PR [#175](https://github.com/bbernstein/chq-calendar/pull/175)
 **Issue:** [#172](https://github.com/bbernstein/chq-calendar/issues/172)
 **Date:** 2026-08-06
 **Branch:** `feat/ios-recent-filter-chips`

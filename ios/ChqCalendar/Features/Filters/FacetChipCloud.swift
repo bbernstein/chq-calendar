@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// One facet's chips inside the filter sheet: everything selected, then the
-/// highest-count values that remain, then a link to the rest.
+/// values this user picked most recently, then the highest-count values that
+/// remain, then a link to the rest.
 ///
 /// Ordering is the feature. The feed carries dozens of distinct venues, so
 /// no flat alphabetical list fits and no fixed subset is right for everyone.
@@ -20,11 +21,13 @@ struct FacetChipCloud: View {
     let model: AppModel
     let facet: FilterFacet
 
-    /// Sized so both facet sections clear the fold at the sheet's medium
-    /// detent — how many rows that takes depends on name length, not chip
-    /// count, since long venue names (e.g. "Sports Club, Lawn Bowling
-    /// Green") wrap to one or two chips per row. Everything beyond this
-    /// lives behind the drill-down.
+    /// Sized so both facet sections normally clear the fold at the sheet's
+    /// medium detent. Treat that as a proxy rather than a guarantee: how
+    /// many rows a given cap takes depends on name length, not chip count,
+    /// since long venue names (e.g. "Sports Club, Lawn Bowling Green") wrap
+    /// to one or two chips per row. Raising this to 12 was tried and pushed
+    /// Categories off-screen entirely. Everything beyond the cap lives
+    /// behind the drill-down.
     private static let visibleLimit = 8
 
     /// How many recents may take one of those slots. `RecentFilters` stores
