@@ -34,13 +34,20 @@ nonisolated enum FacetChipOrder {
     ///     surplus absorbs entries dropped by the `all` check.
     ///   - visibleLimit: soft cap. Selected values and surviving recents
     ///     always render; only the count-ordered tail is truncated.
+    ///   - tailFloor: how many count-ordered slots are reserved ahead of
+    ///     recents. Recents yield to the tail, not the reverse — otherwise a
+    ///     handful of selections plus a full recents list can push the
+    ///     count-ordered tail to zero, and a common value becomes reachable
+    ///     only through the "All n" drill-down. Discovery of high-count
+    ///     values should never disappear entirely.
     static func build(
         all: [String],
         isSelected: (String) -> Bool,
         recent: [String],
         count: (String) -> Int,
-        recentLimit: Int = 5,
-        visibleLimit: Int = 12
+        recentLimit: Int,
+        visibleLimit: Int,
+        tailFloor: Int = 3
     ) -> [Entry] {
         let selected = all.filter(isSelected)
 
@@ -52,10 +59,12 @@ nonisolated enum FacetChipOrder {
             all.map { ($0.lowercased(), $0) },
             uniquingKeysWith: { first, _ in first })
 
+        let recentsAllowed = min(recentLimit, max(0, visibleLimit - selected.count - tailFloor))
+
         var seen = Set(selected.map { $0.lowercased() })
         var recents: [String] = []
         for name in recent {
-            guard recents.count < recentLimit else { break }
+            guard recents.count < recentsAllowed else { break }
             let key = name.lowercased()
             guard let resolved = canonical[key], !seen.contains(key) else { continue }
             seen.insert(key)

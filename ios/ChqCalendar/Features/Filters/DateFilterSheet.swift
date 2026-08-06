@@ -136,6 +136,13 @@ struct SheetChip: View {
     let isSelected: Bool
     let action: () -> Void
 
+    /// Scales with Dynamic Type so the dot stays visible as the visible
+    /// label grows — otherwise it's the only *visual* recency cue and a
+    /// fixed 5pt effectively vanishes at accessibility text sizes.
+    /// VoiceOver users get the same information from `voiceOverLabel`
+    /// regardless; this covers low-vision users who aren't using it.
+    @ScaledMetric private var dotSize: CGFloat = 5
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
@@ -145,7 +152,7 @@ struct SheetChip: View {
                 } else if isRecent {
                     Circle()
                         .fill(Color.accentColor)
-                        .frame(width: 5, height: 5)
+                        .frame(width: dotSize, height: dotSize)
                 }
                 labelText
                 if let count {

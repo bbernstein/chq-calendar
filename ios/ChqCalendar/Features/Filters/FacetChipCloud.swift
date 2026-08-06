@@ -3,15 +3,15 @@ import SwiftUI
 /// One facet's chips inside the filter sheet: everything selected, then the
 /// highest-count values that remain, then a link to the rest.
 ///
-/// Ordering is the feature. The feed carries 76 distinct venues, so no flat
-/// alphabetical list fits and no fixed subset is right for everyone.
+/// Ordering is the feature. The feed carries dozens of distinct venues, so
+/// no flat alphabetical list fits and no fixed subset is right for everyone.
 /// Selected-first guarantees a selection is never scrolled out of sight;
 /// count-descending after that puts the venues that actually host events at
 /// the top.
 ///
 /// Recents sit between the two, so a value this user keeps picking is
 /// reachable even when the season's counts disagree — Lenna Hall ranks
-/// 21st of 64 venues, so count-ordering alone never surfaces it.
+/// 21st by count, so count-ordering alone never surfaces it.
 /// `FacetChipOrder` drops any recent absent from the currently-viewed
 /// year, which is what makes this safe to show at all: the old strip was
 /// removed because a name remembered from another year rendered
