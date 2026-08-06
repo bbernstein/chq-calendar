@@ -133,7 +133,9 @@ result   = selected + recent
   > The generalisable lesson: **a fixed chip count cannot guarantee a fold
   > position, because row count is driven by name length, not chip count.**
   > A cap is a proxy for the thing actually being constrained. The durable
-  > fix is expand-in-place (#173).
+  > fix would be to stop using a chip cap as the proxy at all — but note that
+  > expand-in-place (#173) was investigated and rejected as worse; see
+  > Follow-ups §1.
   >
   > Consequence accepted: with 5 recents, only 3 count-ordered chips remain.
   > On a return visit the cloud is mostly the user's own history — which is
@@ -321,26 +323,37 @@ still feels comfortable under a thumb.
 
 ## Follow-ups
 
-### 1. Expand in place instead of pushing to `FacetAllList` — do this next
+### 1. ~~Expand in place instead of pushing to `FacetAllList`~~ — REJECTED, #173 closed
 
-This is the largest remaining gap with the web app, and the reason the web
-"feels easier to manage". `LocationFilter.tsx:66` renders **all 64** venues
-into a fixed-height scroll box, so the web never navigates away. iOS shows 8
-and makes "All 64" a navigation push, which costs you sight of Categories and
-your place in the sheet.
+**Do not resurrect this without redoing the arithmetic below.** It was filed as
+#173, investigated, and closed unbuilt on 2026-08-06. Two of the claims in this
+section as originally written were wrong.
 
-The fix is to make "All 64" **expand the cloud inline**, letting the sheet ride
-up to its large detent — same content, no screen change, one continuous scroll
-like the web page.
+**Wrong claim 1: the push costs "your place in the sheet."** It does not.
+`FacetAllList` pushes *inside the filter sheet's own `NavigationStack`* and
+takes the large detent (`FacetAllList.swift:10-12`), so the sheet never
+dismisses and the event list underneath keeps its scroll position. The real cost
+is only that you lose sight of the *other* facet, and returning is one Back tap.
 
-Do **not** copy the web's bounded scroll box literally. A scrollable box nested
-inside a scrollable sheet is a gesture conflict on touch; it works on the web
-only because a trackpad disambiguates by pointer position. This is very likely
-why the push exists today.
+**Wrong claim 2: expanding inline gives "the same content, no screen change."**
+It gives materially different geometry. 64 venues averaging 19 characters, at the
+36 pt chips shipped in #172 on a ~400 pt content width, is roughly 1.5 chips per
+row — about **43 rows, ~1,800 pt of scroll**, against a large detent showing
+~700–800 pt. Expanding Venues would put Categories about two and a half screens
+below it. That is worse than one Back tap for exactly the venue-plus-category
+case the change was meant to serve.
 
-Deferred from #172 deliberately: it removes a navigation destination, rewrites
-`FacetAllList`'s role, and needs its own screenshot regeneration. Not yet filed
-as a GitHub issue.
+**Why the web comparison misleads.** `LocationFilter.tsx:66` does render all 64,
+but into a **bounded** `max-h-32 overflow-y-auto` box — the full list occupies a
+fixed ~128 px regardless of length. That bounding is what makes "show
+everything" cheap there, and it is precisely the pattern that cannot port: a
+scroll box nested inside a scrollable sheet is a gesture conflict on touch.
+Strip the bound and it is not the same layout at all.
+
+The generalisable lesson, and the reason this is kept rather than deleted:
+**"port the web's affordance" is not a design argument until you have measured
+what the affordance costs in the target medium.** The bound was the load-bearing
+part, and it was the part that could not come along.
 
 ### 2. Consider more `DisplayNames.locationShortcuts` entries
 
