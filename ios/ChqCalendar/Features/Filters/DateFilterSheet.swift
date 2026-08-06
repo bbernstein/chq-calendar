@@ -127,6 +127,12 @@ struct DateFilterSheet: View {
 struct SheetChip: View {
     let label: String
     var count: Int?
+    /// Marks a value the user picked recently. Renders a leading dot, and
+    /// is announced by VoiceOver — without that the distinction would be
+    /// purely visual. Only ever true for *unselected* chips: a selected
+    /// chip is already accent-filled with a checkmark and has moved to the
+    /// front group, so a dot inside it would be noise.
+    var isRecent: Bool = false
     let isSelected: Bool
     let action: () -> Void
 
@@ -136,6 +142,10 @@ struct SheetChip: View {
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption2.weight(.bold))
+                } else if isRecent {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 5, height: 5)
                 }
                 labelText
                 if let count {
@@ -144,9 +154,18 @@ struct SheetChip: View {
                         .foregroundStyle(isSelected ? .white.opacity(0.7) : .secondary)
                 }
             }
-            .font(.subheadline.weight(.medium))
-            .padding(.horizontal, 12)
-            .frame(minHeight: 44)
+            // Metrics are deliberately below the 44pt HIG floor, which
+            // governs isolated controls rather than dense grids of
+            // same-kind, adjacent, non-destructive targets. 36pt is the
+            // threshold at which Venues and Categories both clear the fold
+            // at the sheet's medium detent — the whole point of the change.
+            // `minHeight` is a floor, and the vertical padding is what
+            // keeps the text breathing at large Dynamic Type sizes, where
+            // the floor stops binding.
+            .font(.footnote.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(minHeight: 36)
             .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .background(
                 isSelected
@@ -155,7 +174,21 @@ struct SheetChip: View {
                 in: Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(voiceOverLabel)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// Set explicitly rather than inferred, because the recency dot is a
+    /// bare `Circle` with no implicit VoiceOver label. Keeps the count in
+    /// the announcement, which the inferred label included.
+    ///
+    /// Named `voiceOverLabel`, not `accessibilityLabel`, so it cannot be
+    /// confused with the SwiftUI modifier of that name one line above.
+    private var voiceOverLabel: String {
+        var parts = [label]
+        if isRecent { parts.append("recently used") }
+        if let count { parts.append("\(count) events") }
+        return parts.joined(separator: ", ")
     }
 
     private var labelText: some View {

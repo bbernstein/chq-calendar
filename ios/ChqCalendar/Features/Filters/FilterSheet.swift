@@ -75,7 +75,7 @@ struct FilterSheet: View {
                         }
                         .font(.subheadline.weight(.medium))
                         .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
+                        .frame(minHeight: 36)
                         .foregroundStyle(.white)
                         .background(Color.accentColor, in: Capsule())
                     }
