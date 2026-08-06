@@ -89,8 +89,25 @@ result   = selected + recent
 ```
 
 - `recentLimit` = **5** (per the issue; storage stays at 10).
-- `visibleLimit` = 8 → **12**, so 5 recents still leave a real count-ordered
-  tail rather than evicting it.
+- `visibleLimit` stays at **8**.
+
+  > **Correction (during implementation).** This originally read "8 → 12, so
+  > 5 recents still leave a real count-ordered tail." That was wrong and was
+  > caught by Task 3's acceptance check. The 36 pt mockup was validated with
+  > *eight* chips; raising the cap to 12 was never re-validated, and on the
+  > device 12 chips wrap to **seven rows** on real venue names ("Randell
+  > Chapel, UCC Headquarters", "Sports Club, Lawn Bowling Green") — which
+  > pushes Categories back below the fold and destroys the entire reason for
+  > shrinking the chips. Reverted to 8 and re-verified by screenshot.
+  >
+  > The generalisable lesson: **a fixed chip count cannot guarantee a fold
+  > position, because row count is driven by name length, not chip count.**
+  > A cap is a proxy for the thing actually being constrained. The durable
+  > fix is expand-in-place (#173).
+  >
+  > Consequence accepted: with 5 recents, only 3 count-ordered chips remain.
+  > On a return visit the cloud is mostly the user's own history — which is
+  > the point of the feature, but a real change in its character.
 - All selected and all surviving recents render even if that exceeds
   `visibleLimit`; only the count-ordered tail is truncated. This matches the
   existing treatment of selected values.

@@ -14,7 +14,12 @@
 - **New `.swift` files need no `project.pbxproj` edit.** The project uses `PBXFileSystemSynchronizedRootGroup` for both `ChqCalendar/` and `ChqCalendarTests/`, so files are picked up by path. Do not hand-edit the pbxproj. (It has unrelated pre-existing modifications — leave them alone and never `git add` it.)
 - **`docs/outreach/` is gitignored and must stay uncommitted.**
 - **Tests use Swift Testing, not XCTest.** Suites are plain `struct`s; assertions are `#expect(...)`.
-- `recentLimit` = **5**. `visibleLimit` = **12**. Storage stays at 10 (unchanged).
+- `recentLimit` = **5**. `visibleLimit` = **8**. Storage stays at 10 (unchanged).
+  (This plan originally said 12. That value failed Task 3's fold check — 12 chips
+  wrap to seven rows on real venue names — and was reverted to 8 by human ruling,
+  then re-verified by screenshot. Task 1's code block below still shows `= 12` as
+  the `build` *default*; production always passes the value explicitly, so the
+  default is unused. See the spec's Correction note.)
 - Chip metrics: `.footnote`, horizontal padding **10**, vertical padding **6**, `minHeight` **36** (a floor, never a fixed frame). `FlowLayout` spacing **6**.
 - Names in `FilterSelection` and `RecentFilters` carry the **feed's original casing**; comparison is lowercased at the point of use. Never lowercase a stored value.
 - Spec: `docs/superpowers/specs/2026-08-06-ios-recent-filter-chips-design.md`. Issue: #172.
@@ -435,7 +440,7 @@ In `ios/ChqCalendar/Features/Filters/FacetChipCloud.swift`, replace the doc comm
 ```swift
     /// Roughly three rows of chips on an iPhone at the sheet's medium
     /// detent. Everything beyond this lives behind the drill-down.
-    private static let visibleLimit = 12
+    private static let visibleLimit = 8   // originally 12; see Global Constraints
 
     /// How many recents may take one of those slots. `RecentFilters` stores
     /// more (10); the surplus absorbs entries dropped for not existing in
@@ -521,8 +526,7 @@ git commit -m "feat(ios): show recently-used venues and categories in the filter
 
 Wires FacetChipCloud to FacetChipOrder, so each facet now renders
 selected, then recently-used, then count-descending. Raises the visible
-limit 8 -> 12, which the 36pt chips pay for, so five recents still leave a
-real count-ordered tail rather than evicting it.
+limit at 8, which the 36pt chips now make roomier than the shipping release.
 
 This restores the capability removed in PR #151 without reintroducing the
 defect that caused it: FacetChipOrder drops recents absent from the
