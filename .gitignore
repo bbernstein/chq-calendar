@@ -83,3 +83,6 @@ ios/Scripts/__pycache__/
 
 # Superpowers brainstorming scratch
 .superpowers/
+
+# Outreach drafts — contain personal contact details, intentionally local-only
+docs/outreach/

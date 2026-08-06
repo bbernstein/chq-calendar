@@ -66,7 +66,7 @@ struct WeekRangeStrip: View {
                         provisional = nil
                     })
         }
-        .frame(height: 44)
+        .frame(height: 36)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
@@ -114,10 +114,10 @@ struct WeekRangeStrip: View {
         let trailingEdge = on && !highlighted(number + 1)
 
         Text("\(number)")
-            .font(.subheadline.weight(state == .current && !on ? .semibold : .medium))
+            .font(.footnote.weight(state == .current && !on ? .semibold : .medium))
             .monospacedDigit()
             .lineLimit(1)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 36)
             .foregroundStyle(
                 on ? AnyShapeStyle(.white)
                 : state == .current ? AnyShapeStyle(Color.accentColor)

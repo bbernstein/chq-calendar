@@ -1,6 +1,6 @@
 {
-  "capturedOn": "2026-08-05",
-  "appCommit": "98e0d20",
+  "capturedOn": "2026-08-06",
+  "appCommit": "a76d772",
   "screenshots": [
     {
       "device": "iphone-6.9",
@@ -9,7 +9,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/01-season.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "b32711c2323dd8fa7371efe04b68c7d1c9c0cac1fbdc0aee86c9b15b7401b1c8"
+      "sha256": "7926bcb9fd6056fb112595eb0ba0eff28999147923b73f75f143b5cda3a02971"
     },
     {
       "device": "iphone-6.9",
@@ -18,7 +18,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/02-filters.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "d31aa949de73e73986048a397711f7e2f170a195bee5fa52549b5ab899737ac8"
+      "sha256": "4649d7b8ecd6a621604a053a6cdeb27f90520f764a58ffbee4c5d30649e717cd"
     },
     {
       "device": "iphone-6.9",
@@ -27,7 +27,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/03-search.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "ee455ef2c035edfebbd98163ca9e8cb79039e8608a944398102e2a1680d9da5c"
+      "sha256": "77166e61e21f4c8d3db311b25b5e61cc82a251a9426b40872975a957e21b8f76"
     },
     {
       "device": "iphone-6.9",
@@ -36,7 +36,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/04-detail.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "058d681075dcaa1d04ea418c2339d9a875de2fe1fcec68b6095d96ef2cfd7c05"
+      "sha256": "9547eb3f7d9e2febf9cc3fb80b1418c007443ef02ed164f4e61b8be462fee87e"
     },
     {
       "device": "iphone-6.9",
@@ -45,7 +45,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/05-articles.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "5adcccb17bc589f7fb14e3473a7d75026c9b695145e7ff39cdf7b5a98b6e895f"
+      "sha256": "b71909d40f84d58e6683e40fa31e277f8a1ba8df14a5d42e7da70e09ff216046"
     },
     {
       "device": "iphone-6.9",
@@ -54,7 +54,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/06-calendar.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "bad755d08985a781fc6436b9cb4753c2ffb1dade940d83fa1f60a5aedec840c1"
+      "sha256": "9b88f221ec1bf08d2cee3739dece07b2e1b502aeb563afebe3e03e1c206d4c8b"
     },
     {
       "device": "ipad-13",
@@ -63,7 +63,7 @@
       "file": "ios/Scripts/out/final/ipad-13/01-season.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "207ca7c007c626651821123817b4059f59d568e12e70353fc40b77169779bff1"
+      "sha256": "3f0dbabb40d37bb8afb1a66f5322e42ada04ba1cd9b4691c3c03837649cef676"
     },
     {
       "device": "ipad-13",
@@ -72,7 +72,7 @@
       "file": "ios/Scripts/out/final/ipad-13/02-filters.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "9b4b53cd9bd761d48bfae9ef3133332918249d9b3868d7ee872bab9c442a7d23"
+      "sha256": "3d0a4cfe6ad246916ee46ff48b05529e7768c2b2ebaf34133f9c836748a222a4"
     },
     {
       "device": "ipad-13",
@@ -81,7 +81,7 @@
       "file": "ios/Scripts/out/final/ipad-13/03-search.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "e6434fc9162c002ed379d050a376abecc056c0b847064ee4907f4a5f6346cd99"
+      "sha256": "a6ae4506faa682ff7083300ef876ee3d7e7c30dae67f21db576c14dcc6f98e3e"
     },
     {
       "device": "ipad-13",
@@ -90,7 +90,7 @@
       "file": "ios/Scripts/out/final/ipad-13/04-detail.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "1b313d3fb4483381b52ccbb897cd9c8a245f0f29010e51ff1c6f6491dc158871"
+      "sha256": "870f71c26b3fb50a5b626861f1d84bad7c99d8288f33e896f870d93d5ba63cff"
     },
     {
       "device": "ipad-13",
@@ -99,7 +99,7 @@
       "file": "ios/Scripts/out/final/ipad-13/05-articles.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "d68684efca52cfe576555723125ea4421e090367fbeb883d50ec718df294d2f0"
+      "sha256": "b59046570946e96fc9e351fc4c133534af421c2ca5ef8ec7d31cd6dec42f6347"
     },
     {
       "device": "ipad-13",
@@ -108,7 +108,7 @@
       "file": "ios/Scripts/out/final/ipad-13/06-calendar.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "5fc43fda7d9e90a4dbba47154c612e9a75c768983cd195591c846e0aa6a156f1"
+      "sha256": "5fb673a7d977b048407354f29f20dcff136a72dea89b9ea71e71c7b4acd2d6c7"
     }
   ]
 }

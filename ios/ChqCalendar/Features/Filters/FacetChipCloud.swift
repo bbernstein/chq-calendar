@@ -1,34 +1,50 @@
 import SwiftUI
 
 /// One facet's chips inside the filter sheet: everything selected, then the
-/// highest-count values that remain, then a link to the rest.
+/// values this user picked most recently, then the highest-count values that
+/// remain, then a link to the rest.
 ///
-/// Ordering is the feature. The feed carries 76 distinct venues, so no flat
-/// alphabetical list fits and no fixed subset is right for everyone.
+/// Ordering is the feature. The feed carries dozens of distinct venues, so
+/// no flat alphabetical list fits and no fixed subset is right for everyone.
 /// Selected-first guarantees a selection is never scrolled out of sight;
 /// count-descending after that puts the venues that actually host events at
 /// the top.
 ///
-/// This replaces the old recents strip, which showed names remembered from a
-/// previous session that might not exist in the loaded year at all (#157).
-/// Count-ordering surfaces the same frequently-used values without ever
-/// offering a name the current snapshot cannot match.
+/// Recents sit between the two, so a value this user keeps picking is
+/// reachable even when the season's counts disagree — Lenna Hall ranks
+/// 21st by count, so count-ordering alone never surfaces it.
+/// `FacetChipOrder` drops any recent absent from the currently-viewed
+/// year, which is what makes this safe to show at all: the old strip was
+/// removed because a name remembered from another year rendered
+/// identically to a live one (#157).
 struct FacetChipCloud: View {
     let model: AppModel
     let facet: FilterFacet
 
-    /// Roughly two rows of chips on an iPhone. Everything beyond this lives
+    /// Sized so both facet sections normally clear the fold at the sheet's
+    /// medium detent. Treat that as a proxy rather than a guarantee: how
+    /// many rows a given cap takes depends on name length, not chip count,
+    /// since long venue names (e.g. "Sports Club, Lawn Bowling Green") wrap
+    /// to one or two chips per row. Raising this to 12 was tried and pushed
+    /// Categories off-screen entirely. Everything beyond the cap lives
     /// behind the drill-down.
     private static let visibleLimit = 8
 
+    /// How many recents may take one of those slots. `RecentFilters` stores
+    /// more (10); the surplus absorbs entries dropped for not existing in
+    /// the currently-viewed year.
+    private static let recentLimit = 5
+
     private var allNames: [String] { model.available(facet) }
 
-    private var ordered: [String] {
-        let selected = allNames.filter { model.isSelected($0, in: facet) }
-        let rest = allNames
-            .filter { !model.isSelected($0, in: facet) }
-            .sorted { model.count(for: $0, in: facet) > model.count(for: $1, in: facet) }
-        return selected + rest.prefix(max(0, Self.visibleLimit - selected.count))
+    private var ordered: [FacetChipOrder.Entry] {
+        FacetChipOrder.build(
+            all: allNames,
+            isSelected: { model.isSelected($0, in: facet) },
+            recent: model.recentNames(facet),
+            count: { model.count(for: $0, in: facet) },
+            recentLimit: Self.recentLimit,
+            visibleLimit: Self.visibleLimit)
     }
 
     private func displayName(_ name: String) -> String {
@@ -70,14 +86,15 @@ struct FacetChipCloud: View {
                 }
             }
 
-            FlowLayout(spacing: 8) {
-                ForEach(ordered, id: \.self) { name in
+            FlowLayout(spacing: 6) {
+                ForEach(ordered) { entry in
                     SheetChip(
-                        label: displayName(name),
-                        count: model.count(for: name, in: facet),
-                        isSelected: model.isSelected(name, in: facet)
+                        label: displayName(entry.name),
+                        count: model.count(for: entry.name, in: facet),
+                        isRecent: entry.isRecent,
+                        isSelected: model.isSelected(entry.name, in: facet)
                     ) {
-                        model.toggle(name, in: facet)
+                        model.toggle(entry.name, in: facet)
                     }
                 }
             }
