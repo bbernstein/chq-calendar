@@ -52,11 +52,32 @@ adds recents without spending any of it.
 
 ### Density: 36 pt chips
 
-Chips are currently `.subheadline` (15 pt) at `minHeight: 44`. Drawn to scale
-against the real venue list, **36 pt is the threshold at which both Venues and
-Categories clear the fold together.** That is the whole prize: selecting a
-venue *and* a category — the "concerts in Lenna Hall" combo case in the issue —
-stops involving a scroll.
+Chips are currently `.subheadline` (15 pt) at `minHeight: 44`. Moving to 36 pt
+makes each row roughly 20 % shorter, which buys **headroom** at the sheet's
+medium detent: the Venues and Categories sections both stay above the fold
+across a wider range of venue-name lengths than they do today.
+
+> **Correction (found in final review).** This section originally claimed
+> "36 pt is the threshold at which both Venues and Categories clear the fold
+> together," and that at 44 pt the venue-plus-category case "always involved a
+> scroll." **That is false**, and the repo disproves it: the pre-branch
+> screenshot at `978a7d3`
+> (`docs/app-store/screenshots/review/iphone-6.9-02-filters.png`) already
+> shows the `CATEGORIES` header plus two category chips above the button at
+> 44 pt. The error came from a to-scale mockup that drew the 44 pt column with
+> more chips than the app actually renders.
+>
+> The honest justification is robustness, not a scroll fix. On any given day
+> the visible before/after may be identical — 8 venues + 2 categories either
+> way. What changes is how much longer-than-average venue naming the layout
+> absorbs before Categories drops off, which is precisely the failure mode
+> that killed `visibleLimit = 12`.
+>
+> Two caveats this leaves standing. The benefit is invisible in a side-by-side,
+> so it is paid for on faith. And the before/after screenshots are captured on
+> different dates with different venue sets, so the asset pair cannot
+> substantiate a fold claim in either direction — worth making capture
+> date-deterministic before the next density change.
 
 44 pt is the HIG floor for *isolated* controls, which a dense grid of
 same-kind, adjacent, non-destructive targets is not; system filter clouds
@@ -89,7 +110,16 @@ result   = selected + recent
 ```
 
 - `recentLimit` = **5** (per the issue; storage stays at 10).
-- `visibleLimit` stays at **8**.
+- `visibleLimit` stays at **8**, and a `tailFloor` of **3** reserves space so
+  the count-ordered group never disappears entirely.
+
+  > **Added in final review.** Without a floor, recents and selections compete
+  > for the same budget: at (8 visible, 5 recent), **three selections leave
+  > zero count-ordered chips**, so a high-count venue like the Amphitheater
+  > becomes reachable only through "All 65". Pre-branch, three selections still
+  > left five count-ordered chips, so this would have been a regression in
+  > discovery. Recents yield to the tail rather than the reverse:
+  > `recentsAllowed = min(recentLimit, max(0, visibleLimit - selected - tailFloor))`.
 
   > **Correction (during implementation).** This originally read "8 → 12, so
   > 5 recents still leave a real count-ordered tail." That was wrong and was
@@ -108,9 +138,15 @@ result   = selected + recent
   > Consequence accepted: with 5 recents, only 3 count-ordered chips remain.
   > On a return visit the cloud is mostly the user's own history — which is
   > the point of the feature, but a real change in its character.
-- All selected and all surviving recents render even if that exceeds
-  `visibleLimit`; only the count-ordered tail is truncated. This matches the
-  existing treatment of selected values.
+- **All selected values render**, even when selections alone exceed
+  `visibleLimit`. This matches the existing treatment of selected values and is
+  the guarantee that never bends.
+- Recents are *not* similarly absolute: they yield to `tailFloor`, so at small
+  `visibleLimit` values a recent can be dropped. That is intentional — see the
+  `tailFloor` note above. An earlier draft of this spec promised "all selected
+  and all surviving recents render," which the tail floor deliberately
+  narrowed; two tests pinning the old promise were updated rather than treated
+  as regressions.
 - `FacetChipCloud`'s existing `ordered.count < allNames.count` condition for
   showing the "All 64" link is derived from what actually renders, so it
   continues to work untouched.
@@ -187,11 +223,24 @@ each entry's `isRecent` through to the chip. `FlowLayout` spacing 8 → 6.
   Dynamic Type
 - new `var isRecent: Bool = false`
 
-**Blast radius, accepted deliberately:** `SheetChip` is shared with
-`DateFilterSheet`'s scope chips and week chips, and with `FilterSheet`'s
-Favorites chip. All shrink together. This is intended — chips should be uniform
-across both sheets — but it is a wider visual change than the issue implies.
-`FilterSheet.activeSection`'s remove-chips move 44 → 36 to match.
+**Blast radius, accepted deliberately:** `SheetChip` has exactly **three** call
+sites — `DateFilterSheet`'s scope chips, `FacetChipCloud`'s facet chips, and
+`FilterSheet`'s Favorites chip. All shrink together, which is intended: chips
+should be uniform across both sheets. `FilterSheet.activeSection`'s inline
+remove-chips are *not* `SheetChip` and must be brought to match by hand — font,
+horizontal padding, and vertical padding, not just the height.
+
+> **Correction (found in final review).** This originally said `SheetChip` was
+> also shared with the **week chips**. It is not: `WeekRangeStrip` never calls
+> `SheetChip`. Because that false claim appeared in the spec, the plan, and the
+> commit message, the per-task reviewer — who sees one commit at a time — had
+> no way to check it, and the week cells were left at 44 pt `.subheadline`
+> directly beneath 36 pt scope chips they previously matched. No shot in
+> `screenshot-plan.json` covers the Dates sheet, so no asset would have caught
+> it either. `WeekRangeStrip` is brought to 36 pt to restore consistency.
+>
+> Worth noting as a process lesson: a factual error repeated across every
+> artifact becomes unfalsifiable to any reviewer with a narrow window.
 
 ### The recent marker
 
