@@ -77,6 +77,23 @@ struct CalendarView: View {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 Task { await model.foregrounded() }
+                // An App Intent (task 12) can run with no `AppModel` in
+                // scope at all — Shortcuts may launch `OpenEventIntent`
+                // with the app not running — so it hands its target event
+                // off via `PendingIntentLink`'s App Group `UserDefaults`
+                // key instead of setting `pendingDeepLink` directly. This
+                // is the other half of that handoff: on every return to
+                // `.active` (covering both "intent launched the app" and
+                // "intent ran while the app was already suspended in the
+                // background"), check for a pending link and fold it into
+                // the same `pendingDeepLink` pipeline `.onOpenURL` and a
+                // notification tap already use. Harmless — and cheap — when
+                // nothing is pending. Moves to `RootTabView` in task 16;
+                // kept as a single self-contained call here so that move is
+                // a one-line relocation.
+                if let link = PendingIntentLink.consume(from: AppGroup.userDefaults()) {
+                    model.pendingDeepLink = link
+                }
             }
         }
         .onOpenURL { url in
