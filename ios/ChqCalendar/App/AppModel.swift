@@ -151,6 +151,16 @@ final class AppModel {
     /// one.
     private let widgetReloader: WidgetReloading?
 
+    /// Performs a full Spotlight reindex after a data change that could
+    /// affect what's searchable. `nil` by default — same rationale as
+    /// `reminderCenter`/`widgetReloader` above — so no existing call site or
+    /// test needs to know about `SpotlightIndexer`/`CSSearchableIndex` at
+    /// all; only `ChqCalendarApp` passes a real one. Review fix (task 13,
+    /// Important #2): before this seam existed, every `AppModelTests` run
+    /// that exercised a successful `refresh()` also fired a real
+    /// `CSSearchableIndex` round trip in the test process.
+    private let spotlightIndexer: SpotlightIndexing?
+
     /// The injected clock — the single instant every time-relative
     /// derivation in the app reads. It drives the filter pipeline's
     /// `.next`/`.today`/`.thisWeek` scopes and `FacetCounts` rebuilds (both
@@ -180,6 +190,22 @@ final class AppModel {
     /// with whatever plan it's handed. See `enqueueReminderSync()`.
     private var reminderSyncChain: Task<Void, Never>?
 
+    /// Whether a Spotlight reindex `Task` spawned by
+    /// `enqueueSpotlightReindex()` is currently running. Paired with
+    /// `spotlightReindexQueuedAgain` below to coalesce a burst of triggers
+    /// into at most one reindex in flight plus one more queued behind it —
+    /// see `enqueueSpotlightReindex()`'s doc comment for why a full
+    /// `reminderSyncChain`-style serial chain isn't the right shape here.
+    private var isSpotlightReindexInFlight = false
+
+    /// Set when `enqueueSpotlightReindex()` is called while a reindex is
+    /// already in flight. Checked when that in-flight reindex finishes: if
+    /// set, exactly one more reindex is started (reading `favorites`/
+    /// `snapshot`/`selectedYear` fresh at that later point, so it reflects
+    /// everything that changed during the run it's following), and the flag
+    /// is cleared.
+    private var spotlightReindexQueuedAgain = false
+
     /// Whether `requestReminderAuthorizationIfNeeded()` has already fired a
     /// permission request this launch. See that method's doc comment for
     /// why a plain synchronous flag — not a re-read of
@@ -192,13 +218,15 @@ final class AppModel {
         store: UserStateStore,
         now: @escaping @Sendable () -> Date = { Date() },
         reminderCenter: ReminderCenter? = nil,
-        widgetReloader: WidgetReloading? = nil
+        widgetReloader: WidgetReloading? = nil,
+        spotlightIndexer: SpotlightIndexing? = nil
     ) {
         self.repository = repository
         self.store = store
         self.now = now
         self.reminderCenter = reminderCenter
         self.widgetReloader = widgetReloader
+        self.spotlightIndexer = spotlightIndexer
         self.filter = store.loadFilters() ?? FilterSelection()
         self.favorites = store.loadFavorites()
         self.recents = store.loadRecents()
@@ -498,6 +526,7 @@ final class AppModel {
         store.saveFavorites(favorites)
         enqueueReminderSync()
         widgetReloader?.reloadAll()
+        enqueueSpotlightReindex()
     }
 
     func select(year: Int) async {
@@ -678,29 +707,72 @@ final class AppModel {
     }
 
     /// Fires (without blocking or awaiting) a full Spotlight reindex after a
-    /// successful `refresh(force:)` — the same "side effect of fresh data
-    /// landing" spot as the reminder sync and widget reload immediately
-    /// above this call site. Unlike those two, this has no dedicated
-    /// serialization chain of its own: `SpotlightIndexer.reindex` is itself
-    /// a full wipe-and-replace against whatever `events`/`favorites`/`year`/
-    /// `now` this call captured, so two overlapping reindexes (e.g. two
-    /// refreshes landing close together) each independently converge on a
-    /// correct index — the second simply repeats the same wipe-and-replace
-    /// the first did, rather than needing to be ordered relative to it.
+    /// data change Spotlight should reflect — a successful `refresh(force:)`
+    /// (the same "side effect of fresh data landing" spot as the reminder
+    /// sync and widget reload immediately above that call site) and
+    /// `toggleFavorite` (review fix, task 13, Important #1: starring an
+    /// off-season event must make it searchable before the next refresh,
+    /// and unstarring one must remove its now-stale entry, not leave both
+    /// waiting on a refresh that might not happen for hours).
+    ///
+    /// **Coalescing, not a serial chain — and why not.**
+    /// `SpotlightIndexer.reindex` is a full delete-and-re-add of every
+    /// currently-selected event (~1,600 at full season), an order of
+    /// magnitude heavier than a `reminderSync` link, which only ever
+    /// schedules however many events are actually favorited. Wiring this
+    /// into `toggleFavorite` means a rapid burst of stars (double-tapping
+    /// one, or starring several in a row) could otherwise spawn one full
+    /// reindex `Task` per tap. A `reminderSyncChain`-style serial chain
+    /// would fix the *correctness* half of that (each link still reads
+    /// state in call order) but not the *cost* half — it would still run
+    /// one full reindex per tap, just one after another instead of
+    /// concurrently. `isSpotlightReindexInFlight` /
+    /// `spotlightReindexQueuedAgain` fix both: a trigger that arrives while
+    /// a reindex is already running just sets the "queued again" flag and
+    /// returns immediately — no new `Task`, no redundant delete-and-re-add —
+    /// and once the in-flight reindex finishes, it checks that flag and, if
+    /// set, starts exactly one more reindex, which reads `favorites`/
+    /// `snapshot`/`selectedYear` fresh at that later point (so it reflects
+    /// every change that arrived during the run it's following). A burst of
+    /// N triggers therefore costs at most 2 reindexes, not N, while still
+    /// converging on a correct final index because no two reindexes ever
+    /// run concurrently against each other.
     ///
     /// Deliberately not awaited: a slow or failing Spotlight write must
-    /// never delay `refresh(force:)` returning, and `SpotlightIndexer.reindex`
-    /// itself already logs-and-continues on every CoreSpotlight error, so
-    /// there is nothing for this call site to do with a result even if it
-    /// awaited one.
+    /// never delay `refresh(force:)`/`toggleFavorite` returning, and
+    /// `SpotlightIndexer.reindex` itself already logs-and-continues on every
+    /// CoreSpotlight error, so there is nothing for this call site to do
+    /// with a result even if it awaited one.
     private func enqueueSpotlightReindex() {
-        guard let snapshot else { return }
+        guard spotlightIndexer != nil, snapshot != nil else { return }
+        guard !isSpotlightReindexInFlight else {
+            spotlightReindexQueuedAgain = true
+            return
+        }
+        runSpotlightReindex()
+    }
+
+    /// Starts the actual reindex `Task` for `enqueueSpotlightReindex()`.
+    /// Captures `events`/`favorites`/`year` synchronously (before the
+    /// `Task` is even spawned) so the work in flight always reflects state
+    /// as of the moment it started running, not a value read out of order
+    /// once the `Task` happens to be scheduled — see the note above about
+    /// why the follow-up run this schedules for `spotlightReindexQueuedAgain`
+    /// re-reads state instead of reusing what this call captured.
+    private func runSpotlightReindex() {
+        guard let snapshot, let spotlightIndexer else { return }
+        isSpotlightReindexInFlight = true
         let events = snapshot.events
         let favorites = favorites
         let year = selectedYear
-        let capturedNow = now()
-        Task {
-            await SpotlightIndexer.reindex(events: events, favorites: favorites, year: year, now: capturedNow)
+        Task { [weak self] in
+            await spotlightIndexer.reindex(events: events, favorites: favorites, year: year)
+            guard let self else { return }
+            self.isSpotlightReindexInFlight = false
+            if self.spotlightReindexQueuedAgain {
+                self.spotlightReindexQueuedAgain = false
+                self.enqueueSpotlightReindex()
+            }
         }
     }
 

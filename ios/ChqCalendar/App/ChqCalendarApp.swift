@@ -31,7 +31,8 @@ struct ChqCalendarApp: App {
             store: UserStateStore(),
             now: now,
             reminderCenter: reminderCenter,
-            widgetReloader: LiveWidgetReloading()
+            widgetReloader: LiveWidgetReloading(),
+            spotlightIndexer: LiveSpotlightIndexing()
         )
         _model = State(initialValue: model)
 

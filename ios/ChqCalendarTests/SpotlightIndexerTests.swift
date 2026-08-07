@@ -15,69 +15,62 @@ struct SpotlightIndexerTests {
     // MARK: - itemsToIndex
 
     @Test func inSeasonEventIsKept() throws {
-        let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let inSeason = try #require(ChqTime.parse("2026-07-15 14:00:00"))
         let events = [makeEvent(id: "a", start: inSeason)]
 
-        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026, now: now)
+        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026)
 
         #expect(result.map(\.id) == ["a"])
     }
 
     @Test func offSeasonNonFavoriteIsDropped() throws {
-        let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let offSeason = try #require(ChqTime.parse("2026-09-15 14:00:00"))
         let events = [makeEvent(id: "a", start: offSeason)]
 
-        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026, now: now)
+        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026)
 
         #expect(result.isEmpty)
     }
 
     @Test func offSeasonFavoriteIsKept() throws {
-        let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let offSeason = try #require(ChqTime.parse("2026-09-15 14:00:00"))
         let events = [makeEvent(id: "a", start: offSeason)]
 
-        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: ["a"], year: 2026, now: now)
+        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: ["a"], year: 2026)
 
         #expect(result.map(\.id) == ["a"])
     }
 
     @Test func cancelledEventIsDroppedEvenWhenFavorited() throws {
-        let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let inSeason = try #require(ChqTime.parse("2026-07-15 14:00:00"))
         let events = [makeEvent(id: "a", start: inSeason, status: .cancelled)]
 
-        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: ["a"], year: 2026, now: now)
+        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: ["a"], year: 2026)
 
         #expect(result.isEmpty)
     }
 
     @Test func eventExactlyAtSeasonStartIsIncluded() throws {
-        let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let weeks = SeasonCalendar.weeks(forYear: 2026)
         let seasonStart = try #require(weeks.first?.start)
         let events = [makeEvent(id: "a", start: seasonStart)]
 
-        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026, now: now)
+        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026)
 
         #expect(result.map(\.id) == ["a"])
     }
 
     @Test func eventExactlyAtSeasonEndIsExcluded() throws {
-        let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let weeks = SeasonCalendar.weeks(forYear: 2026)
         let seasonEnd = try #require(weeks.last?.end)
         let events = [makeEvent(id: "a", start: seasonEnd)]
 
-        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026, now: now)
+        let result = SpotlightIndexer.itemsToIndex(events: events, favorites: [], year: 2026)
 
         #expect(result.isEmpty)
     }
 
     @Test func mixedSelectionUnionsInSeasonAndFavoritesWithoutDuplicates() throws {
-        let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let inSeason = try #require(ChqTime.parse("2026-07-15 14:00:00"))
         let offSeason = try #require(ChqTime.parse("2026-09-15 14:00:00"))
         let events = [
@@ -89,8 +82,7 @@ struct SpotlightIndexerTests {
         let result = SpotlightIndexer.itemsToIndex(
             events: events,
             favorites: ["in-season-favorite", "off-season-favorite"],
-            year: 2026,
-            now: now
+            year: 2026
         )
 
         #expect(Set(result.map(\.id)) == ["in-season-favorite", "off-season-favorite"])

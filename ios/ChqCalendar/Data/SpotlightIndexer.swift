@@ -50,10 +50,18 @@ nonisolated enum SpotlightIndexer {
     /// starred event a user is still tracking should stay searchable even
     /// after its week has scrolled out of the current season window.
     ///
-    /// `nonisolated` and pure: no clock read of its own (`now` and `year`
-    /// are both passed in), so it's directly unit-testable and safely
-    /// callable from any isolation context.
-    nonisolated static func itemsToIndex(events: [Event], favorites: Set<String>, year: Int, now: Date) -> [Event] {
+    /// `nonisolated` and pure: no clock read of its own (`year` is passed
+    /// in), so it's directly unit-testable and safely callable from any
+    /// isolation context.
+    ///
+    /// Originally also took a `now: Date` parameter, carried over from
+    /// `reindex`'s signature below — but the season window is derived
+    /// entirely from `year` via `SeasonCalendar.weeks(forYear:)`, so `now`
+    /// was never read by this selection. Review fix (task 13, Minor):
+    /// dropped end-to-end (here, `reindex`, `SpotlightIndexing`, and every
+    /// call site) rather than kept as a documented-unused parameter, since
+    /// nothing here needs a clock at all.
+    nonisolated static func itemsToIndex(events: [Event], favorites: Set<String>, year: Int) -> [Event] {
         let weeks = SeasonCalendar.weeks(forYear: year)
         guard let seasonStart = weeks.first?.start, let seasonEnd = weeks.last?.end else {
             return events.filter { $0.status != .cancelled && favorites.contains($0.id) }
@@ -97,7 +105,7 @@ nonisolated enum SpotlightIndexer {
     /// type) is `nonisolated` — `AppModel` calls it from an unstructured
     /// `Task` off its own `MainActor`-isolated refresh path without an
     /// extra actor hop either way.
-    static func reindex(events: [Event], favorites: Set<String>, year: Int, now: Date) async {
+    static func reindex(events: [Event], favorites: Set<String>, year: Int) async {
         guard CSSearchableIndex.isIndexingAvailable() else { return }
 
         let index = CSSearchableIndex.default()
@@ -108,7 +116,7 @@ nonisolated enum SpotlightIndexer {
             logger.error("Failed to clear previous Spotlight index: \(error, privacy: .public)")
         }
 
-        let items = itemsToIndex(events: events, favorites: favorites, year: year, now: now)
+        let items = itemsToIndex(events: events, favorites: favorites, year: year)
             .map(searchableItem(for:))
 
         var start = items.startIndex
