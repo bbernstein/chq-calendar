@@ -24,6 +24,7 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C0FFEE000000000000000018 /* ChqCalendar */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendar; sourceTree = "<group>"; };
 		C0FFEE000000000000000028 /* ChqCalendarTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarTests; sourceTree = "<group>"; };
+		C0FFEE000000000000000033 /* ChqCalendarShared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarShared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,6 +50,7 @@
 			children = (
 				C0FFEE000000000000000018 /* ChqCalendar */,
 				C0FFEE000000000000000028 /* ChqCalendarTests */,
+				C0FFEE000000000000000033 /* ChqCalendarShared */,
 				C0FFEE000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -79,6 +81,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				C0FFEE000000000000000018 /* ChqCalendar */,
+				C0FFEE000000000000000033 /* ChqCalendarShared */,
 			);
 			name = ChqCalendar;
 			packageProductDependencies = (
