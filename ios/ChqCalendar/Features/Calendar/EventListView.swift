@@ -185,14 +185,17 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-        // No `contentMargins(.bottom, …)` here on purpose. The bottom bar is
-        // a real toolbar, so the system puts its height into the scroll
-        // view's own content insets — measured at 86.0pt on iPhone 17 /
-        // iOS 26.1 with nothing of ours contributing to it. That is a
-        // stronger version of the guarantee the hand-rolled reservation used
-        // to provide: the inset is owned by the navigation container, not by
-        // any state of ours, so nothing we render can shift the list
-        // vertically. Adding a margin back would double-count the bar.
+        // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
+        // the date/filter pills are no longer a toolbar item — they're this
+        // view's own hand-rolled `filterPillBar`, applied to `content` via
+        // `.safeAreaInset(edge: .bottom)` in `body` above. A
+        // `.safeAreaInset` bar contributes its height to the scroll view's
+        // safe area the same way a real toolbar would, so the list already
+        // insets its content (and its scroll indicator) to clear the pills
+        // without any margin of ours. The inset is owned by the
+        // `.safeAreaInset` modifier itself, not by any state of ours, so
+        // nothing we render can shift the list vertically. Adding a margin
+        // back would double-count it.
         .refreshable {
             await model.refresh(force: true)
         }

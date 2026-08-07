@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// The Events tab's screen (the app's root screen until the tab shell,
-/// `RootTabView`, wrapped it in task 16). Picks between two navigation containers based on
-/// horizontal size class — both wrap the same `EventListView` (see that
-/// file for the day-grouped list, filter bar, search, and empty/offline
-/// states shared between the two):
+/// `RootTabView`, wrapped it in task 16). Picks between two navigation
+/// containers based on horizontal size class — both wrap the same
+/// `EventListView` (see that file for the day-grouped list, filter bar,
+/// search, and empty/offline states shared between the two):
 /// - Compact (iPhone): a single-column `NavigationStack` where tapping an
 ///   event pushes `EventDetailView`.
 /// - Regular (iPad): a two-column `NavigationSplitView` — the sidebar is
