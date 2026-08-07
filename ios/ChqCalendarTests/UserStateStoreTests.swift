@@ -337,6 +337,25 @@ struct UserStateStoreTests {
         #expect(laterStore.loadReminderSettings() == settings)
     }
 
+    // MARK: - triggerMigrationIfNeeded isAppProcess gate (F1)
+
+    /// Neither branch touches the real `UserDefaults.standard` in the unit
+    /// test host, since `AppGroup.containerURL()` is `nil` there regardless
+    /// of `isAppProcess` — but both must be callable (independent of the
+    /// once-per-process `didMigrateDefaults` static let, which this
+    /// parameterized function exists separately from) and return `true`
+    /// without crashing. `AppGroup.shouldRunAppOnlyMigrationTests` pins the
+    /// actual `isAppProcess`-vs-`hasGroupContainer` decision matrix; this
+    /// just confirms the trigger wires that decision through correctly for
+    /// both values it's given.
+    @Test func triggerMigrationIfNeededReturnsTrueWhenIsAppProcessIsTrue() {
+        #expect(UserStateStore.triggerMigrationIfNeeded(isAppProcess: true))
+    }
+
+    @Test func triggerMigrationIfNeededReturnsTrueWhenIsAppProcessIsFalse() {
+        #expect(UserStateStore.triggerMigrationIfNeeded(isAppProcess: false))
+    }
+
     @Test func reminderSettingsSaveDoesNotAffectOtherKeys() {
         let defaults = makeDefaults()
         let store = UserStateStore(defaults: defaults, now: { Date() })

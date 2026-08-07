@@ -45,7 +45,7 @@ nonisolated enum SpotlightIndexer {
     /// favorited event regardless of date, minus anything cancelled.
     ///
     /// Favorites are included unconditionally — not "favorited AND
-    /// in-season" — for the same reason `AppModel.reminderPlanEvents` and
+    /// in-season" — for the same reason `AppModel.allCachedYearEvents()` and
     /// `EventFilter`'s favorites-only scope treat favorites as forever: a
     /// starred event a user is still tracking should stay searchable even
     /// after its week has scrolled out of the current season window.

@@ -19,10 +19,14 @@ struct SpotlightIndexingTests {
     final class MockSpotlightIndexer: SpotlightIndexing {
         private(set) var reindexCount = 0
         private(set) var lastFavorites: Set<String> = []
+        private(set) var lastEvents: [Event] = []
+        private(set) var lastYear: Int?
 
         func reindex(events: [Event], favorites: Set<String>, year: Int) async {
             reindexCount += 1
             lastFavorites = favorites
+            lastEvents = events
+            lastYear = year
         }
     }
 
@@ -114,6 +118,58 @@ struct SpotlightIndexingTests {
         await waitUntil("unstarring triggers another Spotlight reindex that drops the id") {
             indexer.reindexCount > countAfterStar && !indexer.lastFavorites.contains("101037")
         }
+    }
+
+    /// F2 pinning test (iOS 4.2 resubmission review, final whole-branch
+    /// pass): browsing an archive year must not wipe the current season out
+    /// of Spotlight. Before the fix, `runSpotlightReindex` fed
+    /// `itemsToIndex` only `selectedYear`'s snapshot and window — so
+    /// starring an event while looking at 2025 (mid-2026-season) would
+    /// delete-and-re-add Spotlight with *only* 2025's events, dropping every
+    /// current-season 2026 event until the next default-year refresh.
+    /// `events-2026` (this file's usual `events-sample` fixture) is entirely
+    /// July 2026; `events-2025` (`events-sample-alt-casing`) has one event,
+    /// `301001`, dated July 2025 — a different id so the two years'
+    /// contributions are unambiguous.
+    @Test func archiveYearBrowsingStillIndexesTheCurrentSeason() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("events-2025", data: fixtureData("events-sample-alt-casing"), etag: "e2", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let indexer = MockSpotlightIndexer()
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            spotlightIndexer: indexer
+        )
+
+        await model.start()
+        #expect(model.years == [2025, 2026, 2027])
+        #expect(model.defaultYear == 2026)
+
+        await model.select(year: 2025)
+        #expect(model.selectedYear == 2025)
+
+        // Star an event while the archive year is on screen — the concrete
+        // scenario F2 describes.
+        model.toggleFavorite("301001")
+
+        await waitUntil("starring while browsing an archive year triggers a reindex") {
+            indexer.reindexCount >= 1
+        }
+
+        // The season window must stay pinned to the *current* season...
+        #expect(indexer.lastYear == 2026)
+
+        // ...and the input events must still include 2026's in-season,
+        // non-favorited events. Before the fix these were dropped entirely
+        // because the reindex was fed only the 2025 snapshot.
+        let indexedIDs = Set(indexer.lastEvents.map(\.id))
+        #expect(indexedIDs.contains("200001"))
+        #expect(indexedIDs.contains("200004"))
+        // The favorited 2025 event survives too (favorites are forever).
+        #expect(indexedIDs.contains("301001"))
     }
 
     /// The default `spotlightIndexer: nil` (every other `AppModel` test in

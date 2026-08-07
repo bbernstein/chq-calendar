@@ -175,20 +175,43 @@ nonisolated struct UserStateStore {
     /// `DiskCache.didMigrate`: Swift initializes it exactly once,
     /// thread-safely, with no actor isolation or lock required.
     ///
-    /// When the App Group entitlement is absent (unit-test hosts,
-    /// un-entitled builds), `AppGroup.containerURL()` is `nil` and this is
-    /// a no-op — it never touches the real `UserDefaults.standard` in that
-    /// case, so tests that pass their own isolated `defaults:` suite are
-    /// unaffected.
-    private static let didMigrateDefaults: Bool = {
-        guard AppGroup.containerURL() != nil else { return true }
+    /// Delegates the actual isAppProcess/entitlement gating to
+    /// `triggerMigrationIfNeeded(isAppProcess:)` below — kept as a separate
+    /// function (rather than inlined in this closure) purely so that
+    /// function's `isAppProcess` gate is independently testable, since a
+    /// `static let` only ever evaluates once per process and could not
+    /// otherwise be exercised under both branches in one test run.
+    private static let didMigrateDefaults: Bool = triggerMigrationIfNeeded()
+
+    /// The one-time defaults-migration trigger `didMigrateDefaults` runs
+    /// exactly once per process. Broken out with an `isAppProcess`
+    /// parameter (defaulting to the live `AppGroup.isAppProcess` check) so
+    /// both branches are testable directly, independent of the
+    /// once-per-process `static let` above.
+    ///
+    /// Gated on `AppGroup.shouldRunAppOnlyMigration` (task: iOS 4.2
+    /// resubmission review, F1): the widget extension builds its own
+    /// `UserStateStore` on every timeline refresh, and without this gate
+    /// its empty `.standard` could migrate first — copying nothing but
+    /// still marking the shared App Group suite as "migrated" — and
+    /// permanently skip the app's real migration once it finally launches.
+    /// Always returns `true` (never re-runs the check) whether or not the
+    /// migration actually happened, mirroring the no-op-forever contract
+    /// `AppGroup.migrateDefaultsIfNeeded` itself already has once its own
+    /// flag is set.
+    @discardableResult
+    static func triggerMigrationIfNeeded(isAppProcess: Bool = AppGroup.isAppProcess) -> Bool {
+        guard AppGroup.shouldRunAppOnlyMigration(
+            isAppProcess: isAppProcess,
+            hasGroupContainer: AppGroup.containerURL() != nil
+        ) else { return true }
         AppGroup.migrateDefaultsIfNeeded(
             from: .standard,
             to: AppGroup.userDefaults(),
             keys: [filtersKey, favoritesKey, recentsKey]
         )
         return true
-    }()
+    }
 
     /// Loads the persisted filter facets, or `nil` if nothing was saved or
     /// the saved state is 30+ days old. `searchText` and `extraDays` are

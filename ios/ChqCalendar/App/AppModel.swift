@@ -750,7 +750,7 @@ final class AppModel {
         let chained = Task { [weak self] in
             await previous?.value
             guard let self, let reminderCenter = self.reminderCenter else { return }
-            let events = await self.reminderPlanEvents()
+            let events = await self.allCachedYearEvents()
             let plan = ReminderPlanner.plan(
                 favorites: self.favorites,
                 events: events,
@@ -789,8 +789,9 @@ final class AppModel {
     /// returns immediately — no new `Task`, no redundant delete-and-re-add —
     /// and once the in-flight reindex finishes, it checks that flag and, if
     /// set, starts exactly one more reindex, which reads `favorites`/
-    /// `snapshot`/`selectedYear` fresh at that later point (so it reflects
-    /// every change that arrived during the run it's following). A burst of
+    /// every cached year's events/`defaultYear` fresh at that later point
+    /// (so it reflects every change that arrived during the run it's
+    /// following). A burst of
     /// N triggers therefore costs at most 2 reindexes, not N, while still
     /// converging on a correct final index because no two reindexes ever
     /// run concurrently against each other.
@@ -810,21 +811,36 @@ final class AppModel {
     }
 
     /// Starts the actual reindex `Task` for `enqueueSpotlightReindex()`.
-    /// Captures `events`/`favorites`/`year` synchronously (before the
-    /// `Task` is even spawned) so the work in flight always reflects state
-    /// as of the moment it started running, not a value read out of order
-    /// once the `Task` happens to be scheduled — see the note above about
-    /// why the follow-up run this schedules for `spotlightReindexQueuedAgain`
-    /// re-reads state instead of reusing what this call captured.
+    /// Captures `favorites`/`year` synchronously (before the `Task` is even
+    /// spawned) so they reflect state as of the moment it started running,
+    /// not a value read out of order once the `Task` happens to be
+    /// scheduled — see the note above about why the follow-up run this
+    /// schedules for `spotlightReindexQueuedAgain` re-reads state instead of
+    /// reusing what this call captured.
+    ///
+    /// `year` is `defaultYear`, not `selectedYear` (review fix, F2): the
+    /// season window Spotlight indexes against must always be the *current*
+    /// season, regardless of which year's archive the user happens to be
+    /// browsing — mirroring `allCachedYearEvents()`'s existing use for the
+    /// same hazard on the reminder side. `events` is the union of every cached
+    /// year (`allCachedYearEvents()`), not just `selectedYear`'s snapshot,
+    /// for the same reason: browsing 2025 mid-2026-season must not wipe
+    /// 2026's events out of the reindex input. Building that union needs an
+    /// `await` (each year's cached snapshot is read from the `EventRepository`
+    /// actor), so unlike `favorites`/`year` it can't be captured before the
+    /// `Task` is spawned — it's read at the top of the `Task` body instead,
+    /// which is still call-order-correct here because
+    /// `isSpotlightReindexInFlight` already prevents more than one reindex
+    /// `Task` from running at a time.
     private func runSpotlightReindex() {
-        guard let snapshot, let spotlightIndexer else { return }
+        guard snapshot != nil, let spotlightIndexer else { return }
         isSpotlightReindexInFlight = true
-        let events = snapshot.events
         let favorites = favorites
-        let year = selectedYear
+        let year = defaultYear
         Task { [weak self] in
-            await spotlightIndexer.reindex(events: events, favorites: favorites, year: year)
             guard let self else { return }
+            let events = await self.allCachedYearEvents()
+            await spotlightIndexer.reindex(events: events, favorites: favorites, year: year)
             self.isSpotlightReindexInFlight = false
             if self.spotlightReindexQueuedAgain {
                 self.spotlightReindexQueuedAgain = false
@@ -834,22 +850,26 @@ final class AppModel {
     }
 
     /// Every event from every cached year in `years`, not just
-    /// `selectedYear`'s — what a reminder plan must be built from.
+    /// `selectedYear`'s — what both a reminder plan and a Spotlight reindex
+    /// must be built from.
     ///
-    /// Reminder scheduling must not be scoped to whichever year the user
-    /// happens to be *looking at*: the year picker lets someone browse a
-    /// past season at any time, and doing so must not cancel a reminder for
-    /// a favorited event in the current season just because that event
-    /// isn't in `snapshot?.events` while an archive year is on screen. So
-    /// this unions every year's cached snapshot (favorites are global, keyed
-    /// only by `Event.id`, with no notion of "which year was selected when
-    /// the reminder was made") rather than reading `snapshot` alone.
+    /// Neither reminder scheduling nor Spotlight indexing may be scoped to
+    /// whichever year the user happens to be *looking at*: the year picker
+    /// lets someone browse a past season at any time, and doing so must not
+    /// cancel a reminder for, or drop from search, a favorited/current-
+    /// season event just because it isn't in `snapshot?.events` while an
+    /// archive year is on screen (review fix, F2 — Spotlight's reindex used
+    /// to be scoped to `selectedYear` alone, the same defect this was
+    /// already fixed for on the reminder side). So this unions every year's
+    /// cached snapshot (favorites are global, keyed only by `Event.id`, with
+    /// no notion of "which year was selected when the reminder/index entry
+    /// was made") rather than reading `snapshot` alone.
     ///
     /// Falls back to `snapshot?.events` alone when `years` is still empty
     /// (the very first moment of `start()`, before the years manifest has
-    /// ever been fetched) so the first sync still has something to work
-    /// from instead of unconditionally scheduling nothing.
-    private func reminderPlanEvents() async -> [Event] {
+    /// ever been fetched) so the first sync/reindex still has something to
+    /// work from instead of unconditionally scheduling/indexing nothing.
+    private func allCachedYearEvents() async -> [Event] {
         guard !years.isEmpty else { return snapshot?.events ?? [] }
         var combined: [Event] = []
         for year in years {

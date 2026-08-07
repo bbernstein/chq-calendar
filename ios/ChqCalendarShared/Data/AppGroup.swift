@@ -12,10 +12,59 @@ import Foundation
 nonisolated enum AppGroup {
     static let identifier = "group.org.chqcal.app"
 
+    /// Whether this process is (running inside) the main app, as opposed to
+    /// the widget extension (`org.chqcal.app.widgets`).
+    ///
+    /// Used to gate the one-time App-Group migrations
+    /// (`UserStateStore`'s defaults migration, `DiskCache.standard()`'s
+    /// file migration) to the app process only. Both migrations build
+    /// their "did I already run" answer from state stored in the *shared*
+    /// App Group container, but the widget extension constructs its own
+    /// `UserStateStore`/`DiskCache` on every timeline refresh — before the
+    /// app has necessarily ever launched on a fresh install/upgrade. If the
+    /// widget ran a migration first, it would migrate from its own empty
+    /// `.standard`/cache directory, mark the shared flag/directory as
+    /// "migrated", and permanently skip the app's real migration once it
+    /// finally launches. See `shouldRunAppOnlyMigration` and
+    /// `migrateDefaultsIfNeeded`'s doc comment.
+    ///
+    /// Reads `Bundle.main`, which is `ChqCalendar.app` for both a real app
+    /// launch *and* an `xctest` run (the unit test target's `TEST_HOST`
+    /// builds tests hosted inside the app, so `Bundle.main` resolves to the
+    /// app bundle there too, not the test bundle) — meaning this is `true`
+    /// in both. That's fine for what this actually needs to distinguish:
+    /// "app-family process" vs. "the widget extension's own separate
+    /// process", not "a real launch" vs. "a test run". It is `false` only
+    /// inside the widget extension, whose own `Bundle.main` is
+    /// `org.chqcal.app.widgets`.
+    static var isAppProcess: Bool {
+        Bundle.main.bundleIdentifier == "org.chqcal.app"
+    }
+
     /// Flag key, stored in the *destination* suite passed to
     /// `migrateDefaultsIfNeeded`, that marks the one-time defaults
     /// migration as already having run.
     private static let migratedDefaultsFlagKey = "chq-group-migrated"
+
+    /// The gate behind both app-only migration triggers
+    /// (`UserStateStore.didMigrateDefaults`, `DiskCache.didMigrate`): a
+    /// migration should only actually run when the process is the app
+    /// (not the widget extension) *and* the App Group entitlement is
+    /// present (a real device/simulator build, not an un-entitled unit-test
+    /// host).
+    ///
+    /// Broken out as a pure function of two `Bool`s — rather than reading
+    /// `isAppProcess`/`containerURL()` live inline at each call site — so
+    /// both branches of the gate are directly testable even though neither
+    /// live value can be flipped from within the unit-test host: it has no
+    /// real App Group entitlement, so `containerURL()` is always `nil`
+    /// there (see `AppGroupTests.containerURLIsNilInTheUnitTestHost`), and
+    /// `isAppProcess` itself is always `true` there (see `isAppProcess`'s
+    /// own doc comment on why `Bundle.main` can't distinguish a test run
+    /// from a real app launch).
+    static func shouldRunAppOnlyMigration(isAppProcess: Bool, hasGroupContainer: Bool) -> Bool {
+        isAppProcess && hasGroupContainer
+    }
 
     /// The shared container for the App Group, or `nil` if the running
     /// process lacks the `com.apple.security.application-groups`
@@ -93,8 +142,22 @@ nonisolated enum AppGroup {
     /// `new` so a second call is always a no-op, even if `old` has since
     /// changed — matching `migrateIfNeeded`'s "touch the destination at
     /// most once" behavior for files.
+    ///
+    /// The flag is set only when `old` actually had data for at least one
+    /// of `keys` — an `old` with nothing to migrate (e.g. a process whose
+    /// own `.standard` is a brand-new, empty container) leaves the flag
+    /// untouched, so a later call from a process whose `old` *does* have
+    /// real data can still migrate. Without this check, any process that
+    /// happens to construct a migration source first — even one with
+    /// nothing to copy — would permanently burn the "already migrated"
+    /// flag against a source that never got a chance to run. (This is one
+    /// of two belts fixing the same hazard; the other is
+    /// `AppGroup.shouldRunAppOnlyMigration`, which stops the widget
+    /// extension's *empty* `.standard` from ever reaching this function as
+    /// `old` in the first place.)
     static func migrateDefaultsIfNeeded(from old: UserDefaults, to new: UserDefaults, keys: [String]) {
         guard !new.bool(forKey: migratedDefaultsFlagKey) else { return }
+        guard keys.contains(where: { old.data(forKey: $0) != nil }) else { return }
 
         for key in keys {
             guard new.data(forKey: key) == nil, let data = old.data(forKey: key) else { continue }
