@@ -120,6 +120,7 @@ nonisolated struct UserStateStore {
     private static let filtersKey = "chq-filters"
     private static let favoritesKey = "chq-favorites"
     private static let recentsKey = "chq-recents"
+    private static let remindersKey = "chq-reminders"
     private static let expiry: TimeInterval = 30 * 24 * 3600
 
     /// The subset of `FilterSelection` that's actually persisted —
@@ -264,5 +265,32 @@ nonisolated struct UserStateStore {
         let persisted = PersistedRecents(recents: recents, lastSaved: now())
         guard let data = try? Self.encoder.encode(persisted) else { return }
         defaults.set(data, forKey: Self.recentsKey)
+    }
+
+    /// Loads the persisted reminder settings, or `ReminderSettings()`
+    /// (30-minutes-before default, no overrides) if nothing was saved.
+    ///
+    /// Unlike `loadFilters`/`loadFavorites`/`loadRecents`, this has **no
+    /// expiry**: a reminder a user configured must not silently vanish just
+    /// because they haven't opened the app in a while — that would defeat
+    /// the point of reminding them. `ReminderSettings` is encoded directly
+    /// (no `lastSaved`-carrying wrapper struct): it already has an
+    /// extensible shape (an enum with a raw-value `Codable` and a
+    /// `[String: ReminderPreset]` dictionary), so no wrapper is needed to
+    /// keep it forward-compatible.
+    func loadReminderSettings() -> ReminderSettings {
+        guard
+            let data = defaults.data(forKey: Self.remindersKey),
+            let settings = try? Self.decoder.decode(ReminderSettings.self, from: data)
+        else {
+            return ReminderSettings()
+        }
+        return settings
+    }
+
+    /// Persists `settings` verbatim, with no expiry stamp.
+    func saveReminderSettings(_ settings: ReminderSettings) {
+        guard let data = try? Self.encoder.encode(settings) else { return }
+        defaults.set(data, forKey: Self.remindersKey)
     }
 }

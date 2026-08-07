@@ -292,4 +292,61 @@ struct UserStateStoreTests {
         #expect(UserStateStore(defaults: defaults, now: { muchLater }).loadRecents()
             == RecentFilters())
     }
+
+    // MARK: - UserStateStore: reminder settings round-trip (no expiry)
+
+    @Test func reminderSettingsDefaultWhenNoneSaved() {
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        let loaded = store.loadReminderSettings()
+        #expect(loaded == ReminderSettings())
+        #expect(loaded.defaultPreset == .thirtyMinutesBefore)
+        #expect(loaded.overrides.isEmpty)
+    }
+
+    @Test func reminderSettingsRoundTrip() {
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        var settings = ReminderSettings()
+        settings.defaultPreset = .nightBefore
+        settings.setOverride(.oneHourBefore, for: "evt-1")
+        settings.setOverride(ReminderPreset.none, for: "evt-2")
+
+        store.saveReminderSettings(settings)
+        let loaded = store.loadReminderSettings()
+
+        #expect(loaded == settings)
+        #expect(loaded.preset(for: "evt-1") == .oneHourBefore)
+        #expect(loaded.preset(for: "evt-2") == .none)
+        #expect(loaded.preset(for: "evt-3") == .nightBefore)
+    }
+
+    /// Reminder settings must have **no** expiry: unlike filters/favorites/
+    /// recents, a save made 40 days ago (well past the 30-day expiry those
+    /// other keys use) must still load, so a configured reminder never
+    /// silently vanishes.
+    @Test func reminderSettingsAt40DaysStillLoad() throws {
+        let defaults = makeDefaults()
+        let saveTime = try #require(ChqTime.parse("2026-06-01 12:00:00"))
+        let store = UserStateStore(defaults: defaults, now: { saveTime })
+        var settings = ReminderSettings()
+        settings.defaultPreset = .oneHourBefore
+        settings.setOverride(.nightBefore, for: "evt-9")
+        store.saveReminderSettings(settings)
+
+        let muchLater = saveTime.addingTimeInterval(40 * 24 * 3600)
+        let laterStore = UserStateStore(defaults: defaults, now: { muchLater })
+        #expect(laterStore.loadReminderSettings() == settings)
+    }
+
+    @Test func reminderSettingsSaveDoesNotAffectOtherKeys() {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        store.saveFavorites(["evt-1"])
+
+        var settings = ReminderSettings()
+        settings.defaultPreset = .none
+        store.saveReminderSettings(settings)
+
+        #expect(store.loadFavorites() == ["evt-1"])
+        #expect(store.loadReminderSettings().defaultPreset == .none)
+    }
 }
