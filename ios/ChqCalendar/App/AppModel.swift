@@ -950,6 +950,23 @@ final class AppModel {
         persistFilter()
     }
 
+    /// Replaces the location filter wholesale with every raw feed-name
+    /// string `venue` aggregates (`VenueAtlas.feedNames(forVenueID:)`), so
+    /// "show every event at this building" actually shows every event
+    /// there — a building with room-level feed names (e.g. "Hultquist 101"
+    /// / "Hultquist Porch") needs all of them selected at once, not just
+    /// whichever room happened to be visible when the user tapped the
+    /// marker. Backs `GroundsMapView`'s "Show all events here" (#182).
+    ///
+    /// Unlike `toggleLocation`, which flips a single name in place, this
+    /// always sets an exact replacement set and leaves `recents` alone —
+    /// selecting a venue from the map isn't the same gesture as picking one
+    /// from the filter chip cloud.
+    func selectVenueExclusively(_ venue: VenueLocation) {
+        filter.selectedLocations = VenueAtlas.feedNames(forVenueID: venue.id)
+        persistFilter()
+    }
+
     // MARK: Facet-generic accessors
     //
     // `FacetChipCloud` is one view driving either facet, so it reaches the

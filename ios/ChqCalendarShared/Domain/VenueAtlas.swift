@@ -43,6 +43,19 @@ nonisolated enum VenueAtlas {
         aliasIndex[normalize(feedName)]
     }
 
+    /// The raw feed-name strings (as they appear on `Event.displayLocation`)
+    /// that resolve to `venueID` — the inverse of `location(for:)`. A
+    /// building that aggregates several room-level feed names (e.g.
+    /// "Hultquist 101" and "Hultquist Porch" both under `hultquist-center`)
+    /// returns all of them, which is what an exact-match location filter
+    /// (`FilterSelection.selectedLocations`, compared case-insensitively in
+    /// `EventFilter.apply`) needs to select every event at the building
+    /// rather than just events tagged with its canonical display name.
+    /// Empty for an unknown `venueID`.
+    static func feedNames(forVenueID venueID: String) -> [String] {
+        venues.first { $0.id == venueID }?.feedNames ?? []
+    }
+
     /// Walking time between two venues: haversine great-circle distance,
     /// inflated by a 1.3x route factor (grid streets, building setbacks,
     /// walking around rather than through gardens), at a brisk 80 m/min

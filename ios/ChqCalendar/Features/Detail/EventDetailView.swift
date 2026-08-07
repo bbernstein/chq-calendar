@@ -21,6 +21,14 @@ struct EventDetailView: View {
         event.categoryNames.filter { !$0.hasPrefix("Week ") }
     }
 
+    /// Whether the venue row's location resolves to a `VenueAtlas` building
+    /// — gates the "Show on Map" affordance (#182) so it never appears for
+    /// an unmapped feed name (TBD, Zoom, a denominational-houses grouping,
+    /// etc.), where there'd be nothing on the map to show.
+    private var resolvedVenue: VenueLocation? {
+        event.displayLocation.flatMap(VenueAtlas.location(for:))
+    }
+
     var body: some View {
         ScrollViewReader { scrollProxy in
             ScrollView {
@@ -39,7 +47,7 @@ struct EventDetailView: View {
 
                         if event.displayLocation != nil || event.venueAddress != nil {
                             detailRow(icon: "mappin.and.ellipse") {
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: 4) {
                                     if let location = event.displayLocation {
                                         Text(DisplayNames.location(location))
                                     }
@@ -47,6 +55,16 @@ struct EventDetailView: View {
                                         Text(address)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
+                                    }
+                                    if resolvedVenue != nil {
+                                        Button {
+                                            showOnMap()
+                                        } label: {
+                                            Label("Show on Map", systemImage: "map")
+                                                .font(.caption)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.tint)
                                     }
                                 }
                             }
@@ -163,6 +181,18 @@ struct EventDetailView: View {
         }
     }
     #endif
+
+    /// Routes to the Map tab centered on this event's venue (#182), reusing
+    /// the exact deep-link pipeline a `chqcal://map/<venue>` link already
+    /// drives — `RootTabView`'s `.onChange(of: model.pendingDeepLink)`
+    /// switches to the Map tab and hands the venue off to
+    /// `model.mapFocusVenue`, which `GroundsMapView` reads, centers/selects,
+    /// and clears. Deliberately not a second, bespoke mechanism: setting
+    /// `mapFocusVenue` directly here would skip the tab switch, since only
+    /// `RootTabView`'s deep-link routing does that.
+    private func showOnMap() {
+        model.pendingDeepLink = .map(venue: event.displayLocation)
+    }
 
     // MARK: - Sections
 

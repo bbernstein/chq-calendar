@@ -153,6 +153,28 @@ struct VenueAtlasTests {
         #expect(Set(ids).count == ids.count)
     }
 
+    // MARK: - feedNames (inverse lookup, #182)
+
+    @Test func feedNamesReturnsAllRoomLevelNamesForABuilding() throws {
+        let hultquist = try #require(VenueAtlas.location(for: "Hultquist 101"))
+        let feedNames = VenueAtlas.feedNames(forVenueID: hultquist.id)
+        #expect(Set(feedNames) == ["Hultquist 101", "Hultquist Porch"])
+    }
+
+    @Test func feedNamesRoundTripsThroughLocationFor() {
+        // Every feed name a venue reports must itself resolve back to that
+        // same venue - the whole point of the table being an alias index.
+        for venue in VenueAtlas.all {
+            for feedName in VenueAtlas.feedNames(forVenueID: venue.id) {
+                #expect(VenueAtlas.location(for: feedName)?.id == venue.id)
+            }
+        }
+    }
+
+    @Test func feedNamesIsEmptyForAnUnknownVenueID() {
+        #expect(VenueAtlas.feedNames(forVenueID: "not-a-real-venue").isEmpty)
+    }
+
     @Test func groundsCenterMatchesResearch() {
         #expect(abs(VenueAtlas.groundsCenter.latitude - 42.2097) < 0.0001)
         #expect(abs(VenueAtlas.groundsCenter.longitude - (-79.4665)) < 0.0001)
