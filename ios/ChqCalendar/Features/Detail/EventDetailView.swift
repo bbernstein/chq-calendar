@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UserNotifications
 
 /// Full detail screen for a single event: hero image (when present), title
 /// with cancellation/reschedule badge, labeled metadata rows, description,
@@ -10,6 +12,15 @@ struct EventDetailView: View {
 
     @Environment(\.openURL) private var openURL
     @State private var isAddToCalendarPresented = false
+
+    /// The system notification authorization status, refreshed on every
+    /// appearance of this view (see the `.task` in `body`) so the "off in
+    /// Settings" hint shows even for a user who denied access before this
+    /// session started — not just one who just denied it via the "Remind
+    /// me" menu below. `.notDetermined` until that first refresh lands,
+    /// which deliberately shows no hint (there's nothing wrong yet, just
+    /// nothing decided).
+    @State private var reminderAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
     private var isFavorite: Bool { model.favorites.contains(event.id) }
     private var articleLinks: [ArticleLink] { model.articleLinks(for: event.id) }
@@ -67,6 +78,10 @@ struct EventDetailView: View {
                                 }
                             }
                         }
+
+                        if isFavorite {
+                            reminderRow
+                        }
                     }
 
                     if !visibleCategories.isEmpty {
@@ -97,6 +112,9 @@ struct EventDetailView: View {
         .toolbar { toolbarContent }
         .sheet(isPresented: $isAddToCalendarPresented) {
             AddToCalendarView(event: event)
+        }
+        .task(id: event.id) {
+            await refreshReminderAuthorizationStatus()
         }
         #if DEBUG
         // MARK: UI-test hooks (DEBUG only)
@@ -288,6 +306,99 @@ struct EventDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Reminders (#178)
+
+    /// "Remind me" row, shown only for a favorited event — reminders exist
+    /// to alert someone about an event they've already committed to, and a
+    /// per-event override for an event that isn't even starred has nothing
+    /// to override (star/unstar retracts its schedule entirely — see
+    /// `ReminderPlanner`).
+    private var reminderRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            detailRow(icon: "bell") {
+                Menu {
+                    reminderMenuButtons
+                } label: {
+                    Text("Remind me: \(currentReminderLabel)")
+                }
+            }
+            if reminderAuthorizationStatus == .denied {
+                deniedReminderHint
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reminderMenuButtons: some View {
+        Button("Default (\(model.reminderSettings.defaultPreset.label))") {
+            selectReminder(nil)
+        }
+        ForEach(ReminderPreset.allCases.filter { $0 != ReminderPreset.none }, id: \.rawValue) { preset in
+            Button(preset.label) {
+                selectReminder(preset)
+            }
+        }
+        Button(ReminderPreset.none.label) {
+            selectReminder(ReminderPreset.none)
+        }
+    }
+
+    /// The effective choice for this event: its override's label if one is
+    /// set, otherwise "Default (<current default's label>)" — matching the
+    /// first menu option above so the row's own text and the menu agree on
+    /// what "no override" looks like.
+    private var currentReminderLabel: String {
+        guard let override = model.reminderSettings.overrides[event.id] else {
+            return "Default (\(model.reminderSettings.defaultPreset.label))"
+        }
+        return override.label
+    }
+
+    /// Same "denied → Settings" pattern as `AddToCalendarView.deniedView`,
+    /// scaled down to an inline hint under the row rather than a full-sheet
+    /// takeover — this is one row among many on the detail screen, not the
+    /// screen's sole purpose.
+    private var deniedReminderHint: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Notifications are off for CHQ Calendar")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                Link("Open Settings", destination: settingsURL)
+                    .font(.caption)
+            }
+        }
+        // Roughly aligns under the row's text: `detailRow`'s icon (24pt) +
+        // its HStack spacing (12pt).
+        .padding(.leading, 36)
+    }
+
+    /// Persists the override, and — only when the resulting effective
+    /// preset actually turns reminders *on* — requests notification
+    /// authorization first, awaiting its result before persisting so the
+    /// reminder sync that `setReminderOverride` triggers sees up-to-date
+    /// authorization rather than racing a still-in-flight system prompt.
+    /// Choosing "Off" (or "Default" while the default itself is off) skips
+    /// the permission flow entirely — nothing there needs the user's
+    /// permission.
+    private func selectReminder(_ preset: ReminderPreset?) {
+        let effectivePreset = preset ?? model.reminderSettings.defaultPreset
+        guard effectivePreset != ReminderPreset.none, let reminderCenter = model.reminderCenter else {
+            model.setReminderOverride(preset, for: event.id)
+            return
+        }
+        Task {
+            _ = await reminderCenter.ensureAuthorization()
+            await refreshReminderAuthorizationStatus()
+            model.setReminderOverride(preset, for: event.id)
+        }
+    }
+
+    private func refreshReminderAuthorizationStatus() async {
+        guard let reminderCenter = model.reminderCenter else { return }
+        reminderAuthorizationStatus = await reminderCenter.authorizationStatus()
     }
 
     private var actionButtons: some View {

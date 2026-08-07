@@ -222,4 +222,13 @@ final class ReminderCenter {
             return false
         }
     }
+
+    /// The current system authorization status, without prompting. Distinct
+    /// from `ensureAuthorization()`, which can trigger a real system dialog:
+    /// this is a pure read, used by `EventDetailView`'s reminder row to show
+    /// a "notifications are off" hint even for a user who denied access
+    /// before this session started (so there is nothing left to "ensure").
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await scheduler.authorizationStatus()
+    }
 }

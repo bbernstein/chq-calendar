@@ -6,7 +6,7 @@ import Foundation
 /// `ReminderSettings.defaultPreset` can be `.none` while a specific event
 /// still carries an override that schedules a reminder — see
 /// `ReminderSettings.preset(for:)`.
-nonisolated enum ReminderPreset: String, Codable, CaseIterable, Sendable, Equatable {
+nonisolated enum ReminderPreset: String, Codable, CaseIterable, Sendable, Equatable, Hashable {
     case thirtyMinutesBefore
     case oneHourBefore
     case nightBefore

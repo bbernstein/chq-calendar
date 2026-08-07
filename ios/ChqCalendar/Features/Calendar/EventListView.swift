@@ -42,7 +42,7 @@ struct EventListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .sheet(isPresented: $isAboutPresented) {
-                AboutView()
+                AboutView(model: model)
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
@@ -53,6 +53,8 @@ struct EventListView: View {
             #if DEBUG
             .onAppear(perform: presentFilterSheetIfNeeded)
             .onChange(of: model.uiTestShowFilters) { _, _ in presentFilterSheetIfNeeded() }
+            .onAppear(perform: presentAboutIfNeeded)
+            .onChange(of: model.uiTestShowAbout) { _, _ in presentAboutIfNeeded() }
             #endif
     }
 
@@ -69,6 +71,15 @@ struct EventListView: View {
         if model.uiTestShowFilters {
             model.uiTestShowFilters = false
             activeSheet = .filters
+        }
+    }
+
+    /// `-uitest-show-about` — see `presentFilterSheetIfNeeded` above for why
+    /// both `onAppear` and `onChange` are wired.
+    private func presentAboutIfNeeded() {
+        if model.uiTestShowAbout {
+            model.uiTestShowAbout = false
+            isAboutPresented = true
         }
     }
 

@@ -292,6 +292,25 @@ struct ReminderCenterTests {
         #expect(scheduler.requestAuthorizationCallCount == 0)
     }
 
+    // MARK: - authorizationStatus() (#178)
+
+    /// A pure read, distinct from `ensureAuthorization()`: it must reflect
+    /// whatever the scheduler currently reports without ever calling
+    /// `requestAuthorization()` itself, for any status — including
+    /// `.notDetermined`, where `ensureAuthorization()` would prompt.
+    @Test func authorizationStatusReflectsTheSchedulerWithoutPrompting() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .denied
+        let center = ReminderCenter(scheduler: scheduler, now: { self.makeStart("2026-07-15 12:00:00") })
+
+        #expect(await center.authorizationStatus() == .denied)
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+
+        scheduler.status = .notDetermined
+        #expect(await center.authorizationStatus() == .notDetermined)
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+    }
+
     // MARK: - triggerDateComponents
 
     /// Pins the raw component values *and* that `timeZone` is explicitly

@@ -156,6 +156,13 @@ final class AppModel {
     /// with whatever plan it's handed. See `enqueueReminderSync()`.
     private var reminderSyncChain: Task<Void, Never>?
 
+    /// Whether `requestReminderAuthorizationIfNeeded()` has already fired a
+    /// permission request this launch. See that method's doc comment for
+    /// why a plain synchronous flag — not a re-read of
+    /// `reminderCenter.authorizationStatus()` on every star — is what makes
+    /// "ask once" actually deterministic.
+    private var hasRequestedReminderAuthorizationThisLaunch = false
+
     init(
         repository: EventRepository,
         store: UserStateStore,
@@ -458,6 +465,7 @@ final class AppModel {
             favorites.remove(id)
         } else {
             favorites.insert(id)
+            requestReminderAuthorizationIfNeeded()
         }
         store.saveFavorites(favorites)
         enqueueReminderSync()
@@ -503,6 +511,45 @@ final class AppModel {
         reminderSettings.setOverride(preset, for: eventID)
         store.saveReminderSettings(reminderSettings)
         enqueueReminderSync()
+    }
+
+    /// Fires (without blocking or awaiting) the one-time system permission
+    /// prompt the first time a user favorites an event while a season-wide
+    /// default reminder preset is active (#178). Never touches `favorites`
+    /// and is never awaited from `toggleFavorite` — starring an event must
+    /// not be blocked by, reordered around, or (on denial) undone by the
+    /// permission flow; this is purely a side effect of the star.
+    ///
+    /// **Why a plain flag, not a re-check of the real authorization status
+    /// on every star.** `ReminderCenter.ensureAuthorization()` already
+    /// no-ops once status is no longer `.notDetermined`, so in principle
+    /// calling it unconditionally on every star would also converge on "one
+    /// real prompt" — but only once the *first* call's async round trip to
+    /// `scheduler.authorizationStatus()` has actually settled. Three stars
+    /// fired back-to-back (as `AppModelTests` does, synchronously, with no
+    /// `await` between them) would spawn three concurrent
+    /// `ensureAuthorization()` calls that could all observe `.notDetermined`
+    /// before any of them updates it, each independently deciding to
+    /// prompt. `hasRequestedReminderAuthorizationThisLaunch` sidesteps that
+    /// race entirely: it's set **synchronously**, inside this (non-async)
+    /// method, before the async `ensureAuthorization()` call is even
+    /// spawned — so the second and third of three synchronous stars see it
+    /// already `true` and never spawn a second request, deterministically,
+    /// regardless of how quickly the first one's `Task` gets scheduled.
+    ///
+    /// Resetting to `false` on every fresh launch is harmless: a genuinely
+    /// fresh install is `.notDetermined` and gets one real prompt as
+    /// intended, while a launch after the user already decided (in this
+    /// session or a previous one) just re-asks a question
+    /// `ensureAuthorization()` itself will answer instantly without
+    /// prompting again.
+    private func requestReminderAuthorizationIfNeeded() {
+        guard let reminderCenter, reminderSettings.defaultPreset != ReminderPreset.none else { return }
+        guard !hasRequestedReminderAuthorizationThisLaunch else { return }
+        hasRequestedReminderAuthorizationThisLaunch = true
+        Task {
+            _ = await reminderCenter.ensureAuthorization()
+        }
     }
 
     /// Links a fresh reminder sync onto `reminderSyncChain` and returns the
@@ -889,6 +936,11 @@ final class AppModel {
     /// Set by `CalendarView` on launch when `-uitest-show-add-to-calendar`
     /// is present; consumed (and reset) by `EventDetailView.onAppear`.
     var uiTestShowAddToCalendar = false
+
+    /// Set by `CalendarView` on launch when `-uitest-show-about` is
+    /// present; consumed (and reset) by `EventListView`, which presents
+    /// `AboutView` (the Reminders default-preset picker lives there, #178).
+    var uiTestShowAbout = false
 
     /// Set by `CalendarView` on launch when `-uitest-show-week-theme` is
     /// present; consumed (and reset) by whichever `WeekThemeBadge` matches

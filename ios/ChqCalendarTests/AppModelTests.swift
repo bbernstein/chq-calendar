@@ -602,6 +602,76 @@ struct AppModelTests {
         #expect(scheduler.pendingIdentifiers.contains("event-101037"))
     }
 
+    // MARK: - One-time reminder-authorization ask on first star (#178)
+
+    @Test func firstStarWithDefaultPresetRequestsAuthorizationExactlyOnceAcrossThreeStars() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        // Three back-to-back stars of three different events — all
+        // synchronous, no `await` between them, which is exactly the
+        // scenario `requestReminderAuthorizationIfNeeded`'s synchronous
+        // flag (not a re-read of async authorization status) is designed to
+        // survive without a race. See that method's doc comment.
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        await waitUntil("the one-time authorization request lands") {
+            scheduler.requestAuthorizationCallCount >= 1
+        }
+        // Bounded settle window for the negative half of the assertion — a
+        // second or third stray request would also show up within it.
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 1)
+    }
+
+    @Test func noAuthorizationRequestAcrossThreeStarsWhenDefaultPresetIsOff() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+        model.setDefaultReminderPreset(ReminderPreset.none)
+
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+    }
+
+    @Test func noAuthorizationRequestAcrossThreeStarsWhenAlreadyDenied() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .denied
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+    }
+
     // MARK: - select(year:)
 
     @Test func selectYearSwapsSnapshot() async {

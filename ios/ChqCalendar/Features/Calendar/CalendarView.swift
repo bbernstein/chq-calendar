@@ -187,6 +187,10 @@ struct CalendarView: View {
             model.uiTestShowWeekTheme = true
         }
 
+        if arguments.contains("-uitest-show-about") {
+            model.uiTestShowAbout = true
+        }
+
         // `-uitest-search <term>` reads the argument that follows it and
         // commits it straight to `model.filter.searchText`. `searchDraft` is
         // set too so the visible search field shows the term, but the
@@ -237,6 +241,15 @@ struct CalendarView: View {
 
         if arguments.contains("-uitest-show-add-to-calendar") {
             model.uiTestShowAddToCalendar = true
+        }
+
+        // `-uitest-star-selected-event` favorites the just-selected event so
+        // `EventDetailView`'s "Remind me" row (#178) has something to render
+        // against for a screenshot — like the other hooks here, this exists
+        // because `xcrun simctl` can't synthesize the star-button tap a real
+        // verification pass would use.
+        if arguments.contains("-uitest-star-selected-event"), !model.favorites.contains(event.id) {
+            model.toggleFavorite(event.id)
         }
     }
     #endif
