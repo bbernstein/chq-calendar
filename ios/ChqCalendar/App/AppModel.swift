@@ -144,6 +144,13 @@ final class AppModel {
     /// real one.
     let reminderCenter: ReminderCenter?
 
+    /// Reloads Home Screen/Lock Screen widget timelines after a data change
+    /// that could affect them. `nil` by default — same rationale as
+    /// `reminderCenter` above — so no existing call site or test needs to
+    /// know about `WidgetKit` at all; only `ChqCalendarApp` passes a real
+    /// one.
+    private let widgetReloader: WidgetReloading?
+
     /// The injected clock — the single instant every time-relative
     /// derivation in the app reads. It drives the filter pipeline's
     /// `.next`/`.today`/`.thisWeek` scopes and `FacetCounts` rebuilds (both
@@ -184,12 +191,14 @@ final class AppModel {
         repository: EventRepository,
         store: UserStateStore,
         now: @escaping @Sendable () -> Date = { Date() },
-        reminderCenter: ReminderCenter? = nil
+        reminderCenter: ReminderCenter? = nil,
+        widgetReloader: WidgetReloading? = nil
     ) {
         self.repository = repository
         self.store = store
         self.now = now
         self.reminderCenter = reminderCenter
+        self.widgetReloader = widgetReloader
         self.filter = store.loadFilters() ?? FilterSelection()
         self.favorites = store.loadFavorites()
         self.recents = store.loadRecents()
@@ -405,6 +414,7 @@ final class AppModel {
             phase = .ready
             lastRefreshFailed = false
             await enqueueReminderSync()?.value
+            widgetReloader?.reloadAll()
         } catch {
             guard requestedYear == selectedYear else { return }
             lastRefreshFailed = true
@@ -486,6 +496,7 @@ final class AppModel {
         }
         store.saveFavorites(favorites)
         enqueueReminderSync()
+        widgetReloader?.reloadAll()
     }
 
     func select(year: Int) async {

@@ -30,7 +30,8 @@ struct ChqCalendarApp: App {
             repository: EventRepository(api: LiveCalendarAPI(), cache: DiskCache.standard()),
             store: UserStateStore(),
             now: now,
-            reminderCenter: reminderCenter
+            reminderCenter: reminderCenter,
+            widgetReloader: LiveWidgetReloading()
         )
         _model = State(initialValue: model)
 
