@@ -64,7 +64,7 @@ struct OpenEventIntent: AppIntent {
 /// instead of `WidgetDataSource`'s.
 struct NextEventsVenueOptionsProvider: DynamicOptionsProvider {
     func results() async throws -> [String] {
-        WidgetConfigOptions.venueOptions(events: await IntentDataSource.shared.events(now: Date()))
+        WidgetConfigOptions.venueOptions(events: await IntentDataSource.events(now: Date()))
     }
 }
 
@@ -79,7 +79,7 @@ struct NextEventsIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<[EventEntity]> {
         let now = Date()
-        let events = await IntentDataSource.shared.upcoming(venue: venue, now: now, limit: 5)
+        let events = await IntentDataSource.upcoming(venue: venue, now: now, limit: 5)
         let entities = events.map(EventEntity.init(event:))
 
         guard let first = events.first else {
@@ -103,7 +103,7 @@ struct TodayEventsIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<[EventEntity]> {
         let now = Date()
-        let events = await IntentDataSource.shared.today(now: now)
+        let events = await IntentDataSource.today(now: now)
         let entities = events.map(EventEntity.init(event:))
 
         guard !events.isEmpty else {

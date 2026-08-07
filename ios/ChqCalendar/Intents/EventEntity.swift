@@ -63,7 +63,7 @@ nonisolated struct EventEntityQuery: EntityQuery, EntityStringQuery {
     /// `DeepLink`/`SharedSnapshotLoader`'s "missing data degrades to
     /// nothing" convention throughout this layer.
     func entities(for identifiers: [String]) async -> [EventEntity] {
-        let events = await IntentDataSource.shared.events(now: Date())
+        let events = await IntentDataSource.events(now: Date())
         let byID = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
         return identifiers.compactMap { byID[$0] }.map(EventEntity.init(event:))
     }
@@ -72,7 +72,7 @@ nonisolated struct EventEntityQuery: EntityQuery, EntityStringQuery {
     /// title/location/token/details/presenter scoring the in-app search bar
     /// uses) and capped at `resultLimit`.
     func entities(matching string: String) async -> [EventEntity] {
-        let events = await IntentDataSource.shared.events(now: Date())
+        let events = await IntentDataSource.events(now: Date())
         return Self.rank(events: events, matching: string, limit: Self.resultLimit).map(EventEntity.init(event:))
     }
 
@@ -80,7 +80,7 @@ nonisolated struct EventEntityQuery: EntityQuery, EntityStringQuery {
     /// anything: the next `resultLimit` upcoming events, soonest first.
     func suggestedEntities() async -> [EventEntity] {
         let now = Date()
-        let events = await IntentDataSource.shared.events(now: now)
+        let events = await IntentDataSource.events(now: now)
         return IntentDataSource.selectUpcoming(events: events, venue: nil, now: now, limit: Self.resultLimit)
             .map(EventEntity.init(event:))
     }

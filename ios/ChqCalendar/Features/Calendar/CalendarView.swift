@@ -91,6 +91,15 @@ struct CalendarView: View {
                 // nothing is pending. Moves to `RootTabView` in task 16;
                 // kept as a single self-contained call here so that move is
                 // a one-line relocation.
+                //
+                // Accepted limitation: this only fires on a transition INTO
+                // `.active`. An intent that runs while the app is already
+                // foreground-active (e.g. a Siri overlay presented on top
+                // of the running app, with no backgrounding in between)
+                // writes the key but nothing re-reads it until the next
+                // `scenePhase` cycle — so the link sits unconsumed until the
+                // app is backgrounded and reactivated. Task 16 inherits this
+                // as-is when it relocates the call to `RootTabView`.
                 if let link = PendingIntentLink.consume(from: AppGroup.userDefaults()) {
                     model.pendingDeepLink = link
                 }
