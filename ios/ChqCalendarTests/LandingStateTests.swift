@@ -101,4 +101,27 @@ struct LandingStateTests {
             now: preSeasonNow, selectedYear: 2026, availableYears: manifestYears, upcomingDefaultCount: 0)
         #expect(!preSeason.isPostSeason)
     }
+
+    // MARK: - archiveYear
+
+    /// Reviewer-confirmed defect: `.preSeason`'s "Browse the _ season"
+    /// button used to label itself `selectedYear - 1` while the underlying
+    /// `AppModel.browseArchiveSeason()` applied `.season` scope to
+    /// `selectedYear` (the *upcoming* year) instead — a label/outcome
+    /// mismatch, reachable even when `selectedYear - 1` was in
+    /// `model.years`. The fix is `archiveYear` returning `nil`
+    /// unconditionally for `.preSeason`, which hides the button rather than
+    /// showing one whose action can't honor its own label.
+    @Test func archiveYearIsNilForPreSeasonEvenWhenAnEarlierYearExists() throws {
+        let opening = try #require(ChqTime.parse("2026-06-27 12:00:00"))
+        let preSeason = LandingState.preSeason(opening: opening, daysUntil: 5)
+        #expect(preSeason.archiveYear == nil)
+    }
+
+    @Test func archiveYearIsTheEndedSeasonYearForPostSeason() throws {
+        let opening = try #require(ChqTime.parse("2027-06-26 12:00:00"))
+        let postSeason = LandingState.postSeason(
+            endedSeasonYear: 2026, nextSeasonYear: 2027, opening: opening, daysUntil: 288)
+        #expect(postSeason.archiveYear == 2026)
+    }
 }

@@ -123,7 +123,7 @@ struct OffSeasonLandingView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-            if let archiveYear {
+            if let archiveYear = model.landingState.archiveYear {
                 Button("Browse the \(String(archiveYear)) season") {
                     model.browseArchiveSeason()
                 }
@@ -131,29 +131,6 @@ struct OffSeasonLandingView: View {
             }
         }
         .frame(maxWidth: .infinity)
-    }
-
-    /// The year named by the "Browse the _ season" button:
-    /// - `.postSeason` always has one — `endedSeasonYear`, the very year
-    ///   `model.selectedYear` is already on, which is exactly what
-    ///   `model.browseArchiveSeason()` (deliberately not touching
-    ///   `selectedYear`; see its doc comment) shows.
-    /// - `.preSeason` has no ended year of its own to offer — this is
-    ///   ordinarily the *upcoming* season not having started yet, so the
-    ///   only past season to browse is `selectedYear - 1`, and only when the
-    ///   years manifest actually has it (a first-ever season has nothing
-    ///   before it). `nil` hides the button entirely rather than showing one
-    ///   that would try to browse a year nobody has data for.
-    private var archiveYear: Int? {
-        switch model.landingState {
-        case .inSeason:
-            return nil
-        case .postSeason(let endedSeasonYear, _, _, _):
-            return endedSeasonYear
-        case .preSeason:
-            let candidate = model.selectedYear - 1
-            return model.years.contains(candidate) ? candidate : nil
-        }
     }
 
     // MARK: - Footnote

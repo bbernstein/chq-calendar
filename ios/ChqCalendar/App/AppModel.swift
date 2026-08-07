@@ -446,6 +446,15 @@ final class AppModel {
     /// adaptive window's 90-day cap, so it always has the ended season's
     /// events to show. Does not touch `selectedYear`; `landingState`'s
     /// `endedSeasonYear` is already the year being viewed.
+    ///
+    /// Only ever reachable from `.postSeason`: `OffSeasonLandingView` hides
+    /// the "Browse the _ season" button entirely in `.preSeason` (see
+    /// `LandingState.archiveYear`), because this method has no way to honor
+    /// a `.preSeason` label of `selectedYear - 1` — applying `.season` scope
+    /// unconditionally would show `selectedYear` (the *upcoming* year), not
+    /// the labeled past year. A year-aware `browsePastSeason(year:)` that
+    /// also calls `select(year:)` is the future path if pre-season archive
+    /// browsing is wanted; not implemented here (follow-up).
     func browseArchiveSeason() {
         filter = FilterSelection(dateScope: .season)
     }

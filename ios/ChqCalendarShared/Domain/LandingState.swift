@@ -38,6 +38,28 @@ nonisolated enum LandingState: Equatable, Sendable {
         return false
     }
 
+    /// The year `OffSeasonLandingView`'s "Browse the _ season" button
+    /// offers, or `nil` to hide the button entirely.
+    ///
+    /// `.postSeason` always has one — `endedSeasonYear`, the very year
+    /// `AppModel.selectedYear` is already on, which is exactly what
+    /// `AppModel.browseArchiveSeason()` (deliberately not touching
+    /// `selectedYear`) shows.
+    ///
+    /// `.preSeason` is unconditionally `nil`, even when `selectedYear - 1`
+    /// exists in the years manifest: `browseArchiveSeason()` has no
+    /// year-aware variant, so a `.preSeason` button labeled `selectedYear -
+    /// 1` would apply `.season` scope to `selectedYear` (the *upcoming*
+    /// year) instead of the labeled past year — a label/outcome mismatch a
+    /// reviewer confirmed as an Important defect. Hiding the button is the
+    /// mitigation until a year-aware `browsePastSeason(year:)` exists.
+    var archiveYear: Int? {
+        if case .postSeason(let endedSeasonYear, _, _, _) = self {
+            return endedSeasonYear
+        }
+        return nil
+    }
+
     /// Rules, in priority order:
     /// 1. `upcomingDefaultCount > 0` → `.inSeason` — the default filter has
     ///    something to show, regardless of the calendar.
