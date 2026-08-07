@@ -31,12 +31,11 @@ nonisolated enum WidgetDataSource {
     /// cold cache at every step (each `SharedSnapshotLoader` call already
     /// degrades to empty/nil on its own).
     static func loadSnapshot(now: Date) -> Snapshot {
-        let cache = DiskCache(directory: AppGroup.cacheDirectory())
+        let context = openCache()
         let defaults = AppGroup.userDefaults()
-        let manifest = SharedSnapshotLoader.loadYears(cache: cache)
-        let year = manifest?.defaultYear ?? fallbackYear
-        let years = manifest?.years ?? [year]
-        let events = SharedSnapshotLoader.loadEvents(year: year, cache: cache)
+        let year = context.year
+        let years = context.manifest?.years ?? [year]
+        let events = SharedSnapshotLoader.loadEvents(year: year, cache: context.cache)
         let favorites = SharedSnapshotLoader.loadFavorites(defaults: defaults, now: now)
         return Snapshot(events: events, favorites: favorites, availableYears: years, year: year)
     }
@@ -70,41 +69,40 @@ nonisolated enum WidgetDataSource {
     /// snapshot, most-frequent first (ties broken alphabetically), capped at
     /// `limit`. Empty — never throws or crashes — when there is no cache
     /// yet, which is what makes `VenueOptionsProvider` resilient to a widget
-    /// added before the app has ever launched.
+    /// added before the app has ever launched. The actual ranking is pure
+    /// domain logic that lives in `WidgetConfigOptions` (`ChqCalendarShared`)
+    /// so it stays unit-testable; this is just the cache read.
     static func venueOptions(limit: Int = 30) -> [String] {
-        rankedByFrequency(cachedEvents().compactMap(\.displayLocation), limit: limit)
+        WidgetConfigOptions.venueOptions(events: cachedEvents(), limit: limit)
     }
 
     /// Distinct category names (excluding `"Week "` markers, matching
     /// `DisplayNames.visibleCategories`'s own filter) from the cached
-    /// default-year snapshot, most-frequent first, capped at `limit`.
+    /// default-year snapshot, most-frequent first, capped at `limit`. See
+    /// `venueOptions`'s doc comment — the ranking logic itself lives in
+    /// `WidgetConfigOptions`.
     static func categoryOptions(limit: Int = 30) -> [String] {
-        let names = cachedEvents().flatMap { event in
-            event.categoryNames.filter { !$0.hasPrefix("Week ") }
-        }
-        return rankedByFrequency(names, limit: limit)
+        WidgetConfigOptions.categoryOptions(events: cachedEvents(), limit: limit)
+    }
+
+    /// The `DiskCache` + resolved default year every entry point reads
+    /// from, built once here so `loadSnapshot` and `cachedEvents` don't each
+    /// duplicate the App Group cache construction / year-fallback logic.
+    private struct CacheContext {
+        let cache: DiskCache
+        let manifest: YearsManifest?
+        var year: Int { manifest?.defaultYear ?? fallbackYear }
+    }
+
+    private static func openCache() -> CacheContext {
+        let cache = DiskCache(directory: AppGroup.cacheDirectory())
+        let manifest = SharedSnapshotLoader.loadYears(cache: cache)
+        return CacheContext(cache: cache, manifest: manifest)
     }
 
     private static func cachedEvents() -> [Event] {
-        let cache = DiskCache(directory: AppGroup.cacheDirectory())
-        let year = SharedSnapshotLoader.loadYears(cache: cache)?.defaultYear ?? fallbackYear
-        return SharedSnapshotLoader.loadEvents(year: year, cache: cache)
-    }
-
-    /// Distinct values of `values`, most-frequent first, ties broken
-    /// alphabetically for a stable order, capped at `limit`.
-    private static func rankedByFrequency(_ values: [String], limit: Int) -> [String] {
-        var counts: [String: Int] = [:]
-        for value in values {
-            counts[value, default: 0] += 1
-        }
-        return counts.keys
-            .sorted { lhs, rhs in
-                let (lc, rc) = (counts[lhs] ?? 0, counts[rhs] ?? 0)
-                return lc != rc ? lc > rc : lhs < rhs
-            }
-            .prefix(limit)
-            .map { $0 }
+        let context = openCache()
+        return SharedSnapshotLoader.loadEvents(year: context.year, cache: context.cache)
     }
 
     // MARK: - Placeholder sample content
