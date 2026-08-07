@@ -158,10 +158,36 @@ nonisolated struct UserStateStore {
         return decoder
     }()
 
-    init(defaults: UserDefaults = .standard, now: @escaping @Sendable () -> Date = { Date() }) {
+    init(defaults: UserDefaults = AppGroup.userDefaults(), now: @escaping @Sendable () -> Date = { Date() }) {
+        _ = Self.didMigrateDefaults
         self.defaults = defaults
         self.now = now
     }
+
+    /// Lazily migrates the three persisted keys from `.standard` into the
+    /// App Group suite the first time any `UserStateStore` is created in
+    /// this process (regardless of the `defaults:` argument it was given —
+    /// the migration always runs against `.standard` and the App Group
+    /// suite, not against whatever `defaults` this particular instance
+    /// uses). A `static let` is used rather than a mutable flag for the
+    /// same reason as
+    /// `DiskCache.didMigrate`: Swift initializes it exactly once,
+    /// thread-safely, with no actor isolation or lock required.
+    ///
+    /// When the App Group entitlement is absent (unit-test hosts,
+    /// un-entitled builds), `AppGroup.containerURL()` is `nil` and this is
+    /// a no-op — it never touches the real `UserDefaults.standard` in that
+    /// case, so tests that pass their own isolated `defaults:` suite are
+    /// unaffected.
+    private static let didMigrateDefaults: Bool = {
+        guard AppGroup.containerURL() != nil else { return true }
+        AppGroup.migrateDefaultsIfNeeded(
+            from: .standard,
+            to: AppGroup.userDefaults(),
+            keys: [filtersKey, favoritesKey, recentsKey]
+        )
+        return true
+    }()
 
     /// Loads the persisted filter facets, or `nil` if nothing was saved or
     /// the saved state is 30+ days old. `searchText` and `extraDays` are

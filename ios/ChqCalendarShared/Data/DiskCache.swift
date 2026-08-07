@@ -62,12 +62,31 @@ nonisolated struct DiskCache: DataCaching {
         self.directory = directory
     }
 
-    /// The app's standard cache location: `Library/Caches/chq-data/`.
+    /// The app's cache location: the App Group's `chq-data/` directory
+    /// when the App Group entitlement is present (so a future widget
+    /// extension can share it), else the legacy `Library/Caches/chq-data/`
+    /// path. Runs the one-time legacy-file migration exactly once per
+    /// process launch via `didMigrate`.
     static func standard() -> DiskCache {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return DiskCache(directory: caches.appending(path: "chq-data"))
+        _ = didMigrate
+        return DiskCache(directory: AppGroup.cacheDirectory())
     }
+
+    /// Lazily migrates legacy cache files into the App Group directory the
+    /// first time `standard()` is called in this process. A `static let`
+    /// is used (rather than a mutable flag) because Swift initializes
+    /// globals/statics exactly once, thread-safely, which keeps this type
+    /// trivially `Sendable` without needing actor isolation or a lock.
+    private static let didMigrate: Bool = {
+        guard let container = AppGroup.containerURL() else { return true }
+        let fileManager = FileManager.default
+        AppGroup.migrateIfNeeded(
+            fileManager: fileManager,
+            from: AppGroup.legacyCacheDirectory(fileManager: fileManager),
+            to: container.appending(path: "chq-data")
+        )
+        return true
+    }()
 
     private static let metadataEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
