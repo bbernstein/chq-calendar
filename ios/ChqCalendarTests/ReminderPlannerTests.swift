@@ -42,31 +42,47 @@ struct ReminderPresetTests {
         #expect(ReminderPreset.nightBefore.triggerDate(for: start) == expected)
     }
 
-    /// US DST ended 2026-11-01 at 2 AM (clocks fell back to 1 AM). An event
-    /// the morning after should still trigger at a clean 20:00 the previous
-    /// NY calendar day — asserted on NY-zone components, not on a fixed
-    /// wall-clock-hour gap, because the *absolute* gap changes across a DST
-    /// boundary even though the *wall-clock* rule ("8 PM the day before")
-    /// does not.
+    /// US DST ended 2026-11-01 at 2 AM (clocks fell back to 1 AM), making
+    /// that calendar day 25 real hours long. This start time is chosen to be
+    /// genuinely adversarial against a naive `start.addingTimeInterval(-86400)`
+    /// implementation, not merely different from it by an hour:
+    ///
+    /// A naive implementation subtracts a fixed 24 real hours from `start`,
+    /// then reads off the Y/M/D of *that* instant. Because 2026-11-01
+    /// contains 25 real hours, subtracting only 24 from a `start` late in
+    /// the *next* day (23:30 on 2026-11-01 itself, so the "previous day" is
+    /// 2026-10-31) doesn't reach far enough back — it lands at
+    /// 2026-11-01 ~00:30, i.e. rolls forward onto the **wrong calendar day
+    /// entirely** (2026-11-01 instead of 2026-10-31). Verified empirically:
+    /// naive gives `2026-11-01 20:00`, a full day late. The correct,
+    /// calendar-based implementation must still produce `2026-10-31 20:00`.
     @Test func nightBeforeIsDSTSafeAcrossFallBack() throws {
-        let start = try #require(ChqTime.parse("2026-11-02 09:00:00"))
+        let start = try #require(ChqTime.parse("2026-11-01 23:30:00"))
         let trigger = try #require(ReminderPreset.nightBefore.triggerDate(for: start))
 
         let components = ChqTime.calendar.dateComponents([.year, .month, .day, .hour, .minute], from: trigger)
         #expect(components.year == 2026)
-        #expect(components.month == 11)
-        #expect(components.day == 1)
+        #expect(components.month == 10)
+        #expect(components.day == 31)
         #expect(components.hour == 20)
         #expect(components.minute == 0)
     }
 
-    /// US DST began 2026-03-08 at 2 AM (clocks sprang forward to 3 AM). An
-    /// event the morning after should still trigger at 20:00 the previous
-    /// NY calendar day, computed via calendar day arithmetic rather than a
-    /// fixed 86400-second subtraction (which would land on the wrong
-    /// wall-clock hour once the transition falls in between).
+    /// US DST began 2026-03-08 at 2 AM (clocks sprang forward to 3 AM),
+    /// making that calendar day only 23 real hours long. This start time is
+    /// genuinely adversarial against a naive `start.addingTimeInterval(-86400)`
+    /// implementation:
+    ///
+    /// A naive implementation subtracts a fixed 24 real hours from `start`
+    /// (2026-03-09 00:15), then reads off the Y/M/D of that instant. Because
+    /// 2026-03-08 contains only 23 real hours, subtracting a full 24
+    /// overshoots *past* it entirely, landing on 2026-03-07 ~23:15 — the
+    /// **wrong calendar day** (2026-03-07 instead of 2026-03-08). Verified
+    /// empirically: naive gives `2026-03-07 20:00`, a full day early. The
+    /// correct, calendar-based implementation must still produce
+    /// `2026-03-08 20:00`.
     @Test func nightBeforeIsDSTSafeAcrossSpringForward() throws {
-        let start = try #require(ChqTime.parse("2026-03-09 09:00:00"))
+        let start = try #require(ChqTime.parse("2026-03-09 00:15:00"))
         let trigger = try #require(ReminderPreset.nightBefore.triggerDate(for: start))
 
         let components = ChqTime.calendar.dateComponents([.year, .month, .day, .hour, .minute], from: trigger)
@@ -328,5 +344,45 @@ struct ReminderPlannerTests {
         // alone: it pins the truncation direction too).
         let triggerDates = planned.map(\.triggerDate)
         #expect(triggerDates == triggerDates.sorted())
+    }
+
+    /// Pins the exact boundary: when the 60th and 61st-earliest candidates
+    /// are tied on `triggerDate`, the `eventID` tiebreak (not insertion
+    /// order) decides which one survives the cap.
+    @Test func capBoundaryTieIsBrokenByEventIDNotInsertionOrder() {
+        let now = makeStart("2026-07-01 00:00:00")
+        var events: [Event] = []
+        var favorites: Set<String> = []
+
+        // 59 events with strictly earlier, distinct trigger dates: always
+        // kept, occupying ranks 1-59.
+        for offset in 0..<59 {
+            let id = "evt-\(offset)"
+            let start = now.addingTimeInterval(TimeInterval(3600 * (offset + 1)))
+            events.append(makeEvent(id: id, start: start))
+            favorites.insert(id)
+        }
+
+        // Two more events tied on the same (later) triggerDate, contesting
+        // the single remaining slot (rank 60). Inserted in "z then a" order
+        // so a naive last-write/insertion-order tiebreak would keep "evt-z"
+        // — the correct eventID tiebreak must keep "evt-a" instead.
+        let tiedStart = now.addingTimeInterval(TimeInterval(3600 * 100))
+        events.append(makeEvent(id: "evt-z", start: tiedStart))
+        events.append(makeEvent(id: "evt-a", start: tiedStart))
+        favorites.insert("evt-z")
+        favorites.insert("evt-a")
+
+        let planned = ReminderPlanner.plan(
+            favorites: favorites,
+            events: events,
+            settings: ReminderSettings(),
+            now: now
+        )
+
+        #expect(planned.count == 60)
+        #expect(planned.contains { $0.eventID == "evt-a" })
+        #expect(!planned.contains { $0.eventID == "evt-z" })
+        #expect(planned.last?.eventID == "evt-a")
     }
 }
