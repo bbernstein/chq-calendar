@@ -238,6 +238,27 @@ struct CalendarView: View {
             }
         }
 
+        // `-uitest-tab <events|my-day|map>` lands the app on the named root
+        // tab by feeding `model.pendingDeepLink` — the exact pipeline every
+        // real tab-switching surface (URL, widget, notification, Spotlight,
+        // App Intent) already goes through, so `RootTabView`'s
+        // `.onChange(of: model.pendingDeepLink)` routing performs the switch
+        // and consumes the link. Runs after `-uitest-seed-favorites` above so
+        // a My Day screenshot launch can seed its plan and then land on the
+        // tab that displays it. "events" (the default tab) and unknown
+        // values are deliberate no-ops.
+        if let flagIndex = arguments.firstIndex(of: "-uitest-tab"),
+           arguments.index(after: flagIndex) < arguments.endIndex {
+            switch arguments[arguments.index(after: flagIndex)] {
+            case "my-day":
+                model.pendingDeepLink = .myDay
+            case "map":
+                model.pendingDeepLink = .map(venue: nil)
+            default:
+                break
+            }
+        }
+
         // `-uitest-search <term>` reads the argument that follows it and
         // commits it straight to `model.filter.searchText`. `searchDraft` is
         // set too so the visible search field shows the term, but the

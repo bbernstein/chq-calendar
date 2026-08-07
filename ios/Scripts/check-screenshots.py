@@ -151,13 +151,21 @@ def sha256_of(path: Path) -> str:
 
 
 def modal_shot_ids(plan_path: Path | None) -> set[str]:
-    """Shot ids marked `"presentsModal": true` in the plan — excluded from
-    both alert-overlay signals (see module docstring). Empty set if no
-    plan was given."""
+    """Shot ids excluded from both alert-overlay signals (see module
+    docstring): those marked `"presentsModal": true`, plus those marked
+    `"manual": true`. A manual shot's raw is taken and reviewed by a human
+    by definition, and its content (e.g. 10-widget's Home Screen, where a
+    widget card is exactly a wide, centered, edge-clear bright island)
+    legitimately trips the boxed-region heuristic. The duplicate check
+    still applies to every shot. Empty set if no plan was given."""
     if plan_path is None:
         return set()
     plan = json.loads(plan_path.read_text())
-    return {shot["id"] for shot in plan.get("shots", []) if shot.get("presentsModal")}
+    return {
+        shot["id"]
+        for shot in plan.get("shots", [])
+        if shot.get("presentsModal") or shot.get("manual")
+    }
 
 
 def check_set(directory: Path, skip_ids: set[str]) -> list[str]:

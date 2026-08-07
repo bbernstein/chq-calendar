@@ -1,6 +1,6 @@
 {
-  "capturedOn": "2026-08-06",
-  "appCommit": "a76d772",
+  "capturedOn": "2026-08-07",
+  "appCommit": "e21b81a",
   "screenshots": [
     {
       "device": "iphone-6.9",
@@ -9,7 +9,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/01-season.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "7926bcb9fd6056fb112595eb0ba0eff28999147923b73f75f143b5cda3a02971"
+      "sha256": "7f21e6dd196b121ce82dae63b53c4b3d0f11e0317f217332f8c71616e86c2593"
     },
     {
       "device": "iphone-6.9",
@@ -18,7 +18,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/02-filters.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "4649d7b8ecd6a621604a053a6cdeb27f90520f764a58ffbee4c5d30649e717cd"
+      "sha256": "e60ab2df4ed20a30c0407f4ea28b7de6be97e7bb80dae4f531d24b62d3b89296"
     },
     {
       "device": "iphone-6.9",
@@ -27,7 +27,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/03-search.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "77166e61e21f4c8d3db311b25b5e61cc82a251a9426b40872975a957e21b8f76"
+      "sha256": "0bfd895b5518d3bf4df6982817738c1da60df53a918e744f701c6f3efc0a3297"
     },
     {
       "device": "iphone-6.9",
@@ -36,7 +36,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/04-detail.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "9547eb3f7d9e2febf9cc3fb80b1418c007443ef02ed164f4e61b8be462fee87e"
+      "sha256": "3885f3d9684a1e61f68a3cd6930be212dd496d457c725e7c1109e981df8d109b"
     },
     {
       "device": "iphone-6.9",
@@ -45,7 +45,7 @@
       "file": "ios/Scripts/out/final/iphone-6.9/05-articles.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "b71909d40f84d58e6683e40fa31e277f8a1ba8df14a5d42e7da70e09ff216046"
+      "sha256": "ed355a64a2387873228c0a25ee64b140340d9ad686564ce9fc2f8ac4747a14ce"
     },
     {
       "device": "iphone-6.9",
@@ -57,13 +57,49 @@
       "sha256": "9b88f221ec1bf08d2cee3739dece07b2e1b502aeb563afebe3e03e1c206d4c8b"
     },
     {
+      "device": "iphone-6.9",
+      "id": "07-my-day",
+      "caption": "Plan your day \u2014 spot overlaps and walking times.",
+      "file": "ios/Scripts/out/final/iphone-6.9/07-my-day.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "ed7edea7bbc71318ed9adb027e2f60918b81277b956493ad302eb420b357967b"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "08-map",
+      "caption": "Every venue on the grounds.",
+      "file": "ios/Scripts/out/final/iphone-6.9/08-map.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "026a899fc3b7d134807f3dc4a481eaf1731353c0ec6447a9a9415688dc6068b5"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "09-reminder",
+      "caption": "Reminders for the events you star.",
+      "file": "ios/Scripts/out/final/iphone-6.9/09-reminder.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "b7c871de8d1fae12ef7fbe2b51a6ae86b0ab1cb76c11b051a2e5bd071d467184"
+    },
+    {
+      "device": "iphone-6.9",
+      "id": "10-widget",
+      "caption": "Your next event, right on the Home Screen.",
+      "file": "ios/Scripts/out/final/iphone-6.9/10-widget.png",
+      "width": 1320,
+      "height": 2868,
+      "sha256": "fa2c73f9a7eafbec60db35be2ca6af3bb93340d8625a081e4e0fa1776e5878cc"
+    },
+    {
       "device": "ipad-13",
       "id": "01-season",
       "caption": "The whole season, one scroll.",
       "file": "ios/Scripts/out/final/ipad-13/01-season.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "3f0dbabb40d37bb8afb1a66f5322e42ada04ba1cd9b4691c3c03837649cef676"
+      "sha256": "7c67a531b9a80b1cb7cbf1a9a4e8abb3133eb8f67274b485ada413d044061a08"
     },
     {
       "device": "ipad-13",
@@ -72,7 +108,7 @@
       "file": "ios/Scripts/out/final/ipad-13/02-filters.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "3d0a4cfe6ad246916ee46ff48b05529e7768c2b2ebaf34133f9c836748a222a4"
+      "sha256": "88cdaa7d1c52bbf5ac0954a0f6eda5131a14d411e16b398b35af66d229e6b138"
     },
     {
       "device": "ipad-13",
@@ -81,7 +117,7 @@
       "file": "ios/Scripts/out/final/ipad-13/03-search.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "a6ae4506faa682ff7083300ef876ee3d7e7c30dae67f21db576c14dcc6f98e3e"
+      "sha256": "3fb0e5e332065721a81680512bc451b740669cd3a1d9dff230b0d74f043ff358"
     },
     {
       "device": "ipad-13",
@@ -90,7 +126,7 @@
       "file": "ios/Scripts/out/final/ipad-13/04-detail.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "870f71c26b3fb50a5b626861f1d84bad7c99d8288f33e896f870d93d5ba63cff"
+      "sha256": "a371bbb667430c592e0fbee9d05c0a0bf2cc3259507a2cf8c119f9032e84b8cf"
     },
     {
       "device": "ipad-13",
@@ -99,7 +135,7 @@
       "file": "ios/Scripts/out/final/ipad-13/05-articles.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "b59046570946e96fc9e351fc4c133534af421c2ca5ef8ec7d31cd6dec42f6347"
+      "sha256": "d153b0b9cd1dea032c78ac53fa4f2db3c6c39fb667e4616035bc0774c02cf71e"
     },
     {
       "device": "ipad-13",
@@ -108,7 +144,34 @@
       "file": "ios/Scripts/out/final/ipad-13/06-calendar.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "5fb673a7d977b048407354f29f20dcff136a72dea89b9ea71e71c7b4acd2d6c7"
+      "sha256": "2e2742e985fade2cd9915dc996884d48668fa86bf57e5bbbc1d0003168b3519e"
+    },
+    {
+      "device": "ipad-13",
+      "id": "07-my-day",
+      "caption": "Plan your day \u2014 spot overlaps and walking times.",
+      "file": "ios/Scripts/out/final/ipad-13/07-my-day.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "0515b912148096255986b0cc6b9e10e45857fd26dcbe25024d0f61f5a3fa9db3"
+    },
+    {
+      "device": "ipad-13",
+      "id": "08-map",
+      "caption": "Every venue on the grounds.",
+      "file": "ios/Scripts/out/final/ipad-13/08-map.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "b65b6b5e113c3a88b1570711ca78230a04daaa28d2e198ad7eee87e6183e04e3"
+    },
+    {
+      "device": "ipad-13",
+      "id": "09-reminder",
+      "caption": "Reminders for the events you star.",
+      "file": "ios/Scripts/out/final/ipad-13/09-reminder.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "3cb4ba0dc1dc8fe7a834d07ee2ea9d1506ecf70d8e1d91ca66432db5c7ef0254"
     }
   ]
 }
