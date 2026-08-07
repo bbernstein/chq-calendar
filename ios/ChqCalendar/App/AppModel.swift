@@ -67,6 +67,18 @@ final class AppModel {
         }
     }
 
+    /// The user's reminder preferences (season-wide default preset plus
+    /// per-event overrides). Read-only from outside: mutate it only through
+    /// `setDefaultReminderPreset`/`setReminderOverride`, which persist the
+    /// change and re-sync `reminderCenter` in the same step — a bare
+    /// `didSet` here (mirroring `filter`/`favorites`) would only know
+    /// *that* something changed, not what to tell `UserStateStore.saveReminderSettings`
+    /// or `reminderCenter.sync` beyond "the whole struct", which is fine for
+    /// persistence but would still need an explicit method to kick off the
+    /// `async` sync anyway — so the explicit methods below do both jobs at
+    /// once instead of splitting them across a `didSet` and a caller.
+    private(set) var reminderSettings: ReminderSettings
+
     var selectedYear: Int {
         didSet {
             guard selectedYear != oldValue else { return }
@@ -107,6 +119,13 @@ final class AppModel {
     private let repository: EventRepository
     private let store: UserStateStore
 
+    /// Schedules/cancels local notifications for favorited events. `nil` by
+    /// default so every existing call site and test that constructs an
+    /// `AppModel` without knowing about reminders at all keeps working
+    /// unchanged; `syncReminders()` below is a no-op whenever this is `nil`.
+    /// Only `ChqCalendarApp` (and reminder-specific tests) pass a real one.
+    let reminderCenter: ReminderCenter?
+
     /// The injected clock — the single instant every time-relative
     /// derivation in the app reads. It drives the filter pipeline's
     /// `.next`/`.today`/`.thisWeek` scopes and `FacetCounts` rebuilds (both
@@ -129,13 +148,20 @@ final class AppModel {
     /// "is *anything* in flight."
     private var refreshingYears: Set<Int> = []
 
-    init(repository: EventRepository, store: UserStateStore, now: @escaping @Sendable () -> Date = { Date() }) {
+    init(
+        repository: EventRepository,
+        store: UserStateStore,
+        now: @escaping @Sendable () -> Date = { Date() },
+        reminderCenter: ReminderCenter? = nil
+    ) {
         self.repository = repository
         self.store = store
         self.now = now
+        self.reminderCenter = reminderCenter
         self.filter = store.loadFilters() ?? FilterSelection()
         self.favorites = store.loadFavorites()
         self.recents = store.loadRecents()
+        self.reminderSettings = store.loadReminderSettings()
         self.selectedYear = Self.placeholderYear
         self.defaultYear = Self.placeholderYear
     }
@@ -282,6 +308,7 @@ final class AppModel {
         if let cached = await repository.cachedSnapshot(year: selectedYear) {
             snapshot = cached
             phase = .ready
+            await syncReminders()
         }
 
         let manifest = await repository.availableYears()
@@ -293,6 +320,7 @@ final class AppModel {
             if let cached = await repository.cachedSnapshot(year: selectedYear) {
                 snapshot = cached
                 phase = .ready
+                await syncReminders()
             } else {
                 snapshot = nil
                 phase = .launching
@@ -344,6 +372,7 @@ final class AppModel {
             snapshot = result
             phase = .ready
             lastRefreshFailed = false
+            await syncReminders()
         } catch {
             guard requestedYear == selectedYear else { return }
             lastRefreshFailed = true
@@ -423,6 +452,7 @@ final class AppModel {
             favorites.insert(id)
         }
         store.saveFavorites(favorites)
+        Task { await syncReminders() }
     }
 
     func select(year: Int) async {
@@ -430,6 +460,7 @@ final class AppModel {
         if let cached = await repository.cachedSnapshot(year: year) {
             snapshot = cached
             phase = .ready
+            await syncReminders()
         } else {
             snapshot = nil
             phase = .launching
@@ -438,6 +469,62 @@ final class AppModel {
         if await repository.needsRefresh(year: year, now: now()) {
             await refresh(force: false)
         }
+    }
+
+    /// Sets the season-wide default reminder preset, persists it, and
+    /// re-syncs `reminderCenter` so the change takes effect immediately
+    /// (not just the next time something else happens to sync).
+    func setDefaultReminderPreset(_ preset: ReminderPreset) {
+        reminderSettings.defaultPreset = preset
+        store.saveReminderSettings(reminderSettings)
+        Task { await syncReminders() }
+    }
+
+    /// Sets (or, passing `ReminderPreset.none` as `nil`, clears) a
+    /// per-event override, persists it, and re-syncs `reminderCenter`.
+    ///
+    /// `preset` is `ReminderPreset?`: passing `nil` clears the override
+    /// (reverting that event to the season-wide default), while passing
+    /// `ReminderPreset.none` sets an explicit "off for this event" override
+    /// that persists even if the default later changes. Callers must write
+    /// `ReminderPreset.none` rather than bare `.none` when that's what they
+    /// mean — in a `ReminderPreset?` context, bare `.none` resolves to
+    /// `Optional<ReminderPreset>.none` (i.e. `nil`), a different meaning.
+    /// See `ReminderPreset`'s own doc comment.
+    func setReminderOverride(_ preset: ReminderPreset?, for eventID: String) {
+        reminderSettings.setOverride(preset, for: eventID)
+        store.saveReminderSettings(reminderSettings)
+        Task { await syncReminders() }
+    }
+
+    /// Recomputes the reminder plan from current favorites/snapshot/settings
+    /// and hands it to `reminderCenter` for a full declarative resync. A
+    /// no-op whenever `reminderCenter` is `nil` (see its doc comment).
+    ///
+    /// Called after every state change that could change what should be
+    /// pending: `toggleFavorite`, `setDefaultReminderPreset`/
+    /// `setReminderOverride`, a successful `refresh`, and any point in
+    /// `start()`/`select(year:)` where `snapshot` is populated from cache
+    /// without going through `refresh`. Not called from the "no cache, no
+    /// network" branches of `start()`/`select(year:)` (where `snapshot`
+    /// becomes `nil`) — those already have nothing new to schedule, and a
+    /// subsequent successful `refresh` re-syncs once real data exists.
+    ///
+    /// Safe to call from overlapping contexts (see `ReminderCenter.sync`'s
+    /// own doc comment on reentrancy): callers in synchronous action
+    /// methods fire this via `Task { await syncReminders() }` and don't
+    /// await it directly, which is fine because each call recomputes the
+    /// plan from whatever state is current *at the time it runs*, and the
+    /// last call to finish is the one whose plan ends up scheduled.
+    private func syncReminders() async {
+        guard let reminderCenter else { return }
+        let plan = ReminderPlanner.plan(
+            favorites: favorites,
+            events: snapshot?.events ?? [],
+            settings: reminderSettings,
+            now: now()
+        )
+        await reminderCenter.sync(plan: plan)
     }
 
     /// The off-season "browse the season that just ended" action: switches

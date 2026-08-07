@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 import Testing
 @testable import ChqCalendar
 
@@ -387,6 +388,178 @@ struct AppModelTests {
         model.toggleFavorite("evt-1")
         #expect(!model.favorites.contains("evt-1"))
         #expect(!UserStateStore(defaults: defaults, now: { Date() }).loadFavorites().contains("evt-1"))
+    }
+
+    // MARK: - Reminder scheduling
+
+    /// The fixture event "101037" starts 2026-07-27 12:45:00 NY time — well
+    /// after `reminderFixedNow` below, so its default 30-minutes-before
+    /// reminder always has a future trigger date.
+    ///
+    /// `nonisolated`: passed directly as a `@Sendable () -> Date` to both
+    /// `AppModel.init` and `ReminderCenter.init`, which must be callable
+    /// without hopping back to the main actor.
+    private nonisolated func reminderFixedNow() -> Date {
+        // swiftlint:disable:next force_unwrapping
+        ChqTime.parse("2026-07-15 00:00:00")!
+    }
+
+    @Test func starringWithDefaultPresetSchedulesViaReminderCenter() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        #expect(model.phase == .ready)
+
+        model.toggleFavorite("101037")
+
+        await waitUntil("reminder scheduled for the starred event") {
+            scheduler.addCalls.contains { $0.identifier == "event-101037" }
+        }
+        let call = try #require(scheduler.addCalls.first { $0.identifier == "event-101037" })
+        #expect(call.userInfo == ["eventID": "101037"])
+    }
+
+    @Test func unstarringCancelsTheReminderOnNextSync() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("reminder scheduled for the starred event") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        model.toggleFavorite("101037")
+        await waitUntil("reminder cancelled after unstarring") {
+            !scheduler.pendingIdentifiers.contains("event-101037")
+        }
+    }
+
+    @Test func successfulRefreshTriggersReminderSync() async {
+        let cache = MockCache()
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1", for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        // Saved before `AppModel.init` so the model's `favorites` picks it
+        // up at construction, without needing a second model instance.
+        store.saveFavorites(["101037"])
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow, reminderCenter: reminderCenter)
+
+        await model.refresh(force: true)
+
+        await waitUntil("refresh's successful snapshot triggers a reminder sync") {
+            scheduler.addCalls.contains { $0.identifier == "event-101037" }
+        }
+    }
+
+    @Test func deniedAuthorizationMeansStarringSchedulesNothing() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        scheduler.status = .denied
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        model.toggleFavorite("101037")
+
+        // Give the fire-and-forget sync a chance to run; there's nothing to
+        // poll *for* here since this proves an absence.
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.calls.isEmpty)
+    }
+
+    @Test func setReminderOverridePersistsAndSyncs() async {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow, reminderCenter: reminderCenter)
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("initial reminder scheduled") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        model.setReminderOverride(ReminderPreset.none, for: "101037")
+
+        let reloadedSettings = UserStateStore(defaults: defaults, now: { Date() }).loadReminderSettings()
+        #expect(reloadedSettings.preset(for: "101037") == ReminderPreset.none)
+        await waitUntil("override turning reminders off removes the pending reminder") {
+            !scheduler.pendingIdentifiers.contains("event-101037")
+        }
+    }
+
+    @Test func setDefaultReminderPresetPersistsAndSyncs() async {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow, reminderCenter: reminderCenter)
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("initial reminder scheduled with default preset") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        model.setDefaultReminderPreset(ReminderPreset.none)
+
+        let reloadedSettings = UserStateStore(defaults: defaults, now: { Date() }).loadReminderSettings()
+        #expect(reloadedSettings.defaultPreset == ReminderPreset.none)
+        await waitUntil("default preset turned off removes the pending reminder") {
+            !scheduler.pendingIdentifiers.contains("event-101037")
+        }
+    }
+
+    @Test func reminderCenterDefaultsToNilAndAppModelStillWorksWithoutIt() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow)
+
+        #expect(model.reminderCenter == nil)
+        await model.start()
+        model.toggleFavorite("101037")
+        // No crash / no assertion failure from a nil reminderCenter is the
+        // whole point of this test.
+        #expect(model.favorites.contains("101037"))
     }
 
     // MARK: - select(year:)
