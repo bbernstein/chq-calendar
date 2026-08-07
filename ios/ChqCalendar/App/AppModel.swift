@@ -218,6 +218,37 @@ final class AppModel {
 
     var isCurrentYear: Bool { selectedYear == defaultYear }
 
+    /// Whether the season is upcoming, live, or over for `selectedYear`, and
+    /// (off-season) when the next one opens — see `LandingState` for why
+    /// this exists (#177). Computed from the same `now()`/`selectedYear`/
+    /// `isCurrentYear` values `dayGroups` uses, but against a fresh
+    /// `FilterSelection()` rather than the user's current `filter`: this has
+    /// to answer "would the *default* view have anything to show", which is
+    /// a different question than "does the user's current filter have
+    /// anything to show" (an empty result from, say, an overly-narrow search
+    /// is not the app going empty off-season).
+    var landingState: LandingState {
+        let upcomingDefaultCount: Int
+        if let snapshot {
+            upcomingDefaultCount = EventFilter.apply(
+                FilterSelection(),
+                to: snapshot.events,
+                favorites: favorites,
+                now: now(),
+                year: selectedYear,
+                isCurrentYear: isCurrentYear
+            ).count
+        } else {
+            upcomingDefaultCount = 0
+        }
+        return LandingState.determine(
+            now: now(),
+            selectedYear: selectedYear,
+            availableYears: years,
+            upcomingDefaultCount: upcomingDefaultCount
+        )
+    }
+
     /// Days remaining until `defaultYear`'s season starts, or `nil` unless
     /// we're both viewing the current year and still before its season
     /// start.
@@ -407,6 +438,36 @@ final class AppModel {
         if await repository.needsRefresh(year: year, now: now()) {
             await refresh(force: false)
         }
+    }
+
+    /// The off-season "browse the season that just ended" action: switches
+    /// the filter to `.season`, which shows the whole 9-week season
+    /// regardless of "now" — unlike `.next`, it isn't subject to the
+    /// adaptive window's 90-day cap, so it always has the ended season's
+    /// events to show. Does not touch `selectedYear`; `landingState`'s
+    /// `endedSeasonYear` is already the year being viewed.
+    func browseArchiveSeason() {
+        filter = FilterSelection(dateScope: .season)
+    }
+
+    /// The off-season "peek at next season" action: switches to the year
+    /// `landingState` says is next, then sets the filter to `.all` so
+    /// whatever's been announced so far — however sparse — is what's shown,
+    /// rather than `.next`'s adaptive window (which has nothing to adapt to
+    /// yet, this early). A no-op when `landingState` isn't `.postSeason`
+    /// with a known next year, e.g. if this is called before the year has
+    /// been announced or while still in/pre-season.
+    ///
+    /// `select(year:)` never throws — a network failure just leaves
+    /// `snapshot`/`phase` reflecting that (see its doc comment) — so there's
+    /// nothing to catch here. The filter is set unconditionally afterward
+    /// specifically so a failed fetch doesn't strand it mid-transition: the
+    /// user asked to preview next season, and that's now the filter's
+    /// intent regardless of whether the data made it down yet.
+    func previewNextSeason() async {
+        guard case .postSeason(_, let nextSeasonYear?, _, _) = landingState else { return }
+        await select(year: nextSeasonYear)
+        filter = FilterSelection(dateScope: .all)
     }
 
     /// Selects a date scope, clearing any week selection: the scope row and

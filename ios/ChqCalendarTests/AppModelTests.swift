@@ -407,6 +407,184 @@ struct AppModelTests {
         #expect(model.snapshot?.year == 2025)
     }
 
+    // MARK: - landingState / browseArchiveSeason / previewNextSeason (#177)
+    //
+    // `events-sample.json` is entirely July 2026, so a fixed `now` in
+    // September 2026 puts it past the `.next` scope's 90-day adaptive-window
+    // cap (`EventFilter.adaptiveEndDate`) with nothing left in it — the
+    // exact off-season emptiness #177 is about.
+
+    @Test func landingStateIsPostSeasonOnceTheFixtureFeedsAdaptiveWindowCapExpires() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        #expect(model.years == [2025, 2026, 2027])
+        #expect(model.selectedYear == 2026)
+        #expect(model.isCurrentYear)
+
+        let expected = LandingState.determine(
+            now: now, selectedYear: 2026, availableYears: [2025, 2026, 2027], upcomingDefaultCount: 0)
+        #expect(model.landingState == expected)
+        #expect(model.landingState == .postSeason(
+            endedSeasonYear: 2026, nextSeasonYear: 2027,
+            opening: SeasonCalendar.seasonStart(year: 2027), daysUntil: 288))
+    }
+
+    @Test func landingStateIsInSeasonWhileTheDefaultFilterStillHasFixtureEvents() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        // Pinned before every fixture event's start (same instant used by
+        // `startWithWarmCacheIsReadyBeforeAnyNetworkCompletes`).
+        let now = try #require(ChqTime.parse("2026-06-15 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        #expect(model.landingState == .inSeason)
+    }
+
+    @Test func browseArchiveSeasonShowsTheEndedSeasonWhenTheDefaultFilterHasGoneEmpty() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        #expect(model.dayGroups.isEmpty, "the default .next filter has nothing left post-season")
+
+        model.browseArchiveSeason()
+
+        #expect(model.filter.dateScope == .season)
+        #expect(!model.dayGroups.isEmpty)
+    }
+
+    @Test func previewNextSeasonSelectsTheAnnouncedYearAndSwitchesFilterToAll() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("events-2027", data: fixtureData("events-sample"), etag: "e2", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        guard case .postSeason(_, 2027, _, _) = model.landingState else {
+            Issue.record("expected postSeason with nextSeasonYear 2027, got \(model.landingState)")
+            return
+        }
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2027)
+        #expect(model.snapshot?.year == 2027)
+        #expect(model.filter.dateScope == .all)
+    }
+
+    /// `select(year:)` never throws — a network failure just leaves
+    /// `snapshot == nil` / `phase == .offline` (see its doc comment) — so
+    /// this pins that `previewNextSeason()` still finishes setting the
+    /// filter afterward instead of stranding it mid-transition.
+    @Test func previewNextSeasonSetsFilterEvenWhenTheNetworkFetchForNextYearFails() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        // No cache entry at all for 2027, and its network fetch fails.
+        let api = MockAPI()
+        await api.setFailure(MockAPIError.unscripted("events-2027-down"), for: .events(year: 2027))
+        let repo = EventRepository(api: api, cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2027)
+        #expect(model.snapshot == nil)
+        #expect(model.phase == .offline)
+        #expect(model.filter.dateScope == .all)
+    }
+
+    @Test func previewNextSeasonIsANoOpWhileInSeason() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-06-15 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        #expect(model.landingState == .inSeason)
+        let filterBefore = model.filter
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2026)
+        #expect(model.filter == filterBefore)
+    }
+
+    /// Forces the "no next year announced yet" branch of `.postSeason`
+    /// without needing a second years-manifest fixture.
+    @Test func previewNextSeasonIsANoOpWhenNoNextYearIsAnnounced() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        model.years = [2025, 2026]
+        guard case .postSeason(_, nil, nil, nil) = model.landingState else {
+            Issue.record("expected postSeason with no next year, got \(model.landingState)")
+            return
+        }
+        let filterBefore = model.filter
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2026)
+        #expect(model.filter == filterBefore)
+    }
+
     // MARK: - selectScope / setWeekSelection / clearAll / clearNonDateFilters
 
     /// Week 6 of the 2026 season is 08-01 12:00 → 08-08 12:00, so this
