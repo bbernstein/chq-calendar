@@ -459,6 +459,36 @@ struct AppModelTests {
         #expect(model.landingState == .inSeason)
     }
 
+    /// The fix this pins: without a `snapshot` yet, `landingState` must not
+    /// run `LandingState.determine` with a count forced to `0` — that would
+    /// misreport `.postSeason` for an offline first launch that happens
+    /// mid-season, just because there's no event data to say otherwise from.
+    /// `now` here (mid-July 2026) is deep in-season — if this regressed back
+    /// to forcing `upcomingDefaultCount = 0` on a nil snapshot, it would
+    /// read `.postSeason`, not `.inSeason`.
+    @Test func landingStateIsInSeasonWithoutASnapshotEvenMidSeason() async throws {
+        let api = MockAPI()
+        await api.setFailure(MockAPIError.unscripted("events-down"), for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: MockCache())
+        let now = try #require(ChqTime.parse("2026-07-15 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        // Before start(): no snapshot at all yet.
+        #expect(model.snapshot == nil)
+        #expect(model.landingState == .inSeason)
+
+        // A failed fetch also leaves snapshot nil (offline first launch) —
+        // same expectation holds once settled.
+        await model.start()
+        #expect(model.phase == .offline)
+        #expect(model.snapshot == nil)
+        #expect(model.landingState == .inSeason)
+    }
+
     @Test func browseArchiveSeasonShowsTheEndedSeasonWhenTheDefaultFilterHasGoneEmpty() async throws {
         let cache = MockCache()
         cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())

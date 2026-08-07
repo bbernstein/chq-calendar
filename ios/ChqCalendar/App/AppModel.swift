@@ -227,20 +227,20 @@ final class AppModel {
     /// a different question than "does the user's current filter have
     /// anything to show" (an empty result from, say, an overly-narrow search
     /// is not the app going empty off-season).
+    ///
+    /// Without a `snapshot` yet, this deliberately reports `.inSeason` —
+    /// meaning "no off-season claim to make" — rather than running
+    /// `LandingState.determine` with a count forced to `0`. An offline first
+    /// launch (or any snapshot-less state) has no event data to say
+    /// anything about the calendar from, and `0` upcoming events for that
+    /// reason looks identical to `determine` as `0` upcoming events because
+    /// the season is over: mid-July 2026, offline, would otherwise
+    /// misreport `.postSeason`. `phase` (`.launching`/`.offline`/`.failed`)
+    /// already owns what the screen shows while there's no snapshot; this
+    /// property only has something to say once real event data exists.
     var landingState: LandingState {
-        let upcomingDefaultCount: Int
-        if let snapshot {
-            upcomingDefaultCount = EventFilter.apply(
-                FilterSelection(),
-                to: snapshot.events,
-                favorites: favorites,
-                now: now(),
-                year: selectedYear,
-                isCurrentYear: isCurrentYear
-            ).count
-        } else {
-            upcomingDefaultCount = 0
-        }
+        guard snapshot != nil else { return .inSeason }
+        let upcomingDefaultCount = filteredEvents(FilterSelection()).count
         return LandingState.determine(
             now: now(),
             selectedYear: selectedYear,
