@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 
 /// The app's root screen. Picks between two navigation containers based on
@@ -109,6 +110,21 @@ struct CalendarView: View {
             if let link = DeepLink.parse(url) {
                 model.pendingDeepLink = link
             }
+        }
+        // Tapping a Spotlight search result for one of `SpotlightIndexer`'s
+        // indexed events (#180, task 13) hands the app a
+        // `CSSearchableItemActionType` user activity carrying the tapped
+        // item's `CSSearchableItemActivityIdentifier` — this app's own
+        // `"event-<id>"` `uniqueIdentifier` — in `userInfo`. Folds into the
+        // same `pendingDeepLink` pipeline every other launch surface
+        // (`.onOpenURL`, a notification tap, a widget's `widgetURL`, an App
+        // Intent) already feeds. Moves to `RootTabView` in task 16, same as
+        // the other entry points wired up in this view.
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                  let eventID = SpotlightIndexer.eventID(fromActivityIdentifier: identifier)
+            else { return }
+            model.pendingDeepLink = .event(id: eventID)
         }
         // The link can arrive before the snapshot finishes loading (a cold
         // launch via `chqcal://event/…`) or after (a warm launch, or a

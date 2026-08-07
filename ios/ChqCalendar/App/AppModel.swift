@@ -415,6 +415,7 @@ final class AppModel {
             lastRefreshFailed = false
             await enqueueReminderSync()?.value
             widgetReloader?.reloadAll()
+            enqueueSpotlightReindex()
         } catch {
             guard requestedYear == selectedYear else { return }
             lastRefreshFailed = true
@@ -674,6 +675,33 @@ final class AppModel {
         }
         reminderSyncChain = chained
         return chained
+    }
+
+    /// Fires (without blocking or awaiting) a full Spotlight reindex after a
+    /// successful `refresh(force:)` — the same "side effect of fresh data
+    /// landing" spot as the reminder sync and widget reload immediately
+    /// above this call site. Unlike those two, this has no dedicated
+    /// serialization chain of its own: `SpotlightIndexer.reindex` is itself
+    /// a full wipe-and-replace against whatever `events`/`favorites`/`year`/
+    /// `now` this call captured, so two overlapping reindexes (e.g. two
+    /// refreshes landing close together) each independently converge on a
+    /// correct index — the second simply repeats the same wipe-and-replace
+    /// the first did, rather than needing to be ordered relative to it.
+    ///
+    /// Deliberately not awaited: a slow or failing Spotlight write must
+    /// never delay `refresh(force:)` returning, and `SpotlightIndexer.reindex`
+    /// itself already logs-and-continues on every CoreSpotlight error, so
+    /// there is nothing for this call site to do with a result even if it
+    /// awaited one.
+    private func enqueueSpotlightReindex() {
+        guard let snapshot else { return }
+        let events = snapshot.events
+        let favorites = favorites
+        let year = selectedYear
+        let capturedNow = now()
+        Task {
+            await SpotlightIndexer.reindex(events: events, favorites: favorites, year: year, now: capturedNow)
+        }
     }
 
     /// Every event from every cached year in `years`, not just
