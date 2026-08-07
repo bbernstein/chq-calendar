@@ -27,13 +27,12 @@ struct CalendarView: View {
     /// pushes via `NavigationLink` instead.
     @State private var selectedEvent: Event?
 
-    #if DEBUG
-    /// Compact-mode-only: bound to `stackView`'s `NavigationStack` so
-    /// `-uitest-select-linked-event` can push a detail view programmatically
-    /// (see `applyUITestHooks` below). Unused in Release builds, where the
-    /// stack manages its own internal path as before.
+    /// Compact-mode-only: bound to `stackView`'s `NavigationStack`. Used by
+    /// `-uitest-select-linked-event` (DEBUG only, see `applyUITestHooks`
+    /// below) to push a detail view programmatically, and by pending
+    /// deep-link consumption (`consumePendingDeepLinkIfPossible`, all
+    /// configurations) to push the linked event's detail view.
     @State private var path = NavigationPath()
-    #endif
 
     var body: some View {
         Group {
@@ -64,6 +63,13 @@ struct CalendarView: View {
         }
         .task {
             await model.start()
+            // Covers the case where a deep link arrived (setting
+            // `pendingDeepLink`) before this `.task` ran, and `start()`
+            // resolved a cached snapshot synchronously without the
+            // `onChange(of: model.phase)` above having anything to fire on
+            // in between — e.g. `phase` was already `.launching` and never
+            // changes if a cached snapshot loads directly into `.ready`.
+            consumePendingDeepLinkIfPossible()
             #if DEBUG
             await applyUITestHooks()
             #endif
@@ -73,24 +79,50 @@ struct CalendarView: View {
                 Task { await model.foregrounded() }
             }
         }
+        .onOpenURL { url in
+            if let link = DeepLink.parse(url) {
+                model.pendingDeepLink = link
+            }
+        }
+        // The link can arrive before the snapshot finishes loading (a cold
+        // launch via `chqcal://event/…`) or after (a warm launch, or a
+        // notification tap while the app's already running) — so
+        // consumption is driven by both the link itself changing and the
+        // snapshot's load state changing, whichever comes second.
+        .onChange(of: model.pendingDeepLink) { _, _ in consumePendingDeepLinkIfPossible() }
+        .onChange(of: model.phase) { _, _ in consumePendingDeepLinkIfPossible() }
+    }
+
+    /// Routes a pending `.event(id:)` deep link once the target event is
+    /// resolvable, then clears it. Does nothing (and does not clear) for
+    /// `.myDay`/`.map` — those stay pending until the tab shell (task 16)
+    /// exists to consume them. If the snapshot hasn't loaded yet, the link
+    /// stays pending for the next call; once a snapshot exists, an unknown
+    /// id is cleared rather than left dangling forever.
+    private func consumePendingDeepLinkIfPossible() {
+        guard case .event(let id) = model.pendingDeepLink else { return }
+        guard let snapshot = model.snapshot else { return }
+
+        guard let event = snapshot.events.first(where: { $0.id == id }) else {
+            model.pendingDeepLink = nil
+            return
+        }
+
+        if horizontalSizeClass == .regular {
+            selectedEvent = event
+        } else {
+            path.append(event)
+        }
+        model.pendingDeepLink = nil
     }
 
     private var stackView: some View {
-        #if DEBUG
         NavigationStack(path: $path) {
             EventListView(model: model, selection: nil)
         }
         .searchable(text: $searchDraft, prompt: "Search events")
         .submitLabel(.search)
         .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
-        #else
-        NavigationStack {
-            EventListView(model: model, selection: nil)
-        }
-        .searchable(text: $searchDraft, prompt: "Search events")
-        .submitLabel(.search)
-        .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
-        #endif
     }
 
     private var splitView: some View {

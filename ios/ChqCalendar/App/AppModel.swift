@@ -85,6 +85,17 @@ final class AppModel {
 
     var isRefreshing: Bool = false
 
+    /// Set by any deep-link entry point — `.onOpenURL` (task 3), a
+    /// notification tap (task 8), a widget's `widgetURL` (task 11), an App
+    /// Intent (task 12), or Spotlight (task 13) — and consumed by whoever
+    /// routes it. `CalendarView` currently only consumes `.event`: it can
+    /// arrive before the snapshot has loaded, so it stays pending across
+    /// `phase`/`snapshot` changes until the target event is found (or the
+    /// snapshot is loaded and it's confirmed unknown). `.myDay` and `.map`
+    /// are left pending here — nothing consumes them until the tab shell
+    /// lands (task 16).
+    var pendingDeepLink: DeepLink?
+
     /// Set whenever a `refresh(force:)` call fails. Distinct from `phase`,
     /// which stays `.ready` (data preserved) on a failed background refresh
     /// when a snapshot already exists — this flag is what drives showing a
