@@ -33,6 +33,15 @@ final class MockScheduler: NotificationScheduling {
     private(set) var requestAuthorizationCallCount = 0
     private(set) var pendingIdentifiers: [String] = []
 
+    /// When `true`, every `add(...)` call parks (via `withCheckedContinuation`)
+    /// until `resume()` is called, instead of completing immediately. Lets a
+    /// test force two `ReminderCenter.sync(plan:)` calls to genuinely
+    /// overlap — one caught mid-`add` — rather than always running start-to-
+    /// finish sequentially, the same way `MockAPI.setSuspended`/`resume` let
+    /// `EventRepositoryTests` force overlapping fetches.
+    private var suspended = false
+    private var suspendedContinuations: [CheckedContinuation<Void, Never>] = []
+
     func authorizationStatus() async -> UNAuthorizationStatus {
         status
     }
@@ -58,6 +67,11 @@ final class MockScheduler: NotificationScheduling {
         triggerDate: Date,
         userInfo: [String: String]
     ) async throws {
+        if suspended {
+            await withCheckedContinuation { continuation in
+                suspendedContinuations.append(continuation)
+            }
+        }
         let call = AddCall(
             identifier: identifier,
             title: title,
@@ -67,6 +81,21 @@ final class MockScheduler: NotificationScheduling {
         )
         calls.append(.add(call))
         pendingIdentifiers.append(identifier)
+    }
+
+    func setSuspended() {
+        suspended = true
+    }
+
+    /// Un-parks every `add(...)` call currently parked (and any future
+    /// ones, until `setSuspended()` is called again).
+    func resume() {
+        suspended = false
+        let waiting = suspendedContinuations
+        suspendedContinuations = []
+        for continuation in waiting {
+            continuation.resume()
+        }
     }
 
     /// The `add` calls recorded so far, in order — the common shape tests
@@ -265,13 +294,15 @@ struct ReminderCenterTests {
 
     // MARK: - triggerDateComponents
 
-    /// Pins that the components handed to `UNCalendarNotificationTrigger`
-    /// reconstruct the exact intended NY wall-clock instant — the guard
-    /// against a bug where trigger components were built from the device's
-    /// local calendar instead of `ChqTime.calendar`, which would fire the
-    /// notification at the wrong instant for any device not set to Eastern
-    /// time.
-    @Test func triggerDateComponentsReconstructTheIntendedNYWallClockTime() throws {
+    /// Pins the raw component values *and* that `timeZone` is explicitly
+    /// `ChqTime.zone` — not merely that reconstructing via `ChqTime.calendar`
+    /// round-trips, which would pass even with `timeZone == nil` (that
+    /// reconstruction uses the same NY-pinned calendar either way, so it
+    /// can't detect a missing time zone on the components themselves). The
+    /// adversarial version of this check, which *can* detect that bug, is
+    /// `reconstructingViaADifferentZoneCalendarStillYieldsTheNYInstant`
+    /// below.
+    @Test func triggerDateComponentsHaveTheExpectedNYWallClockValues() throws {
         let date = try #require(ChqTime.parse("2026-07-15 19:30:00"))
         let components = triggerDateComponents(for: date)
 
@@ -280,12 +311,10 @@ struct ReminderCenterTests {
         #expect(components.day == 15)
         #expect(components.hour == 19)
         #expect(components.minute == 30)
-
-        let reconstructed = try #require(ChqTime.calendar.date(from: components))
-        #expect(reconstructed == date)
+        #expect(components.timeZone == ChqTime.zone)
     }
 
-    @Test func triggerDateComponentsAreDSTSafe() throws {
+    @Test func triggerDateComponentsHaveTheExpectedDSTAdjacentValues() throws {
         // 2026-11-01 23:30 NY time — chosen for the same DST-adversarial
         // reason as ReminderPlannerTests' equivalent case.
         let date = try #require(ChqTime.parse("2026-11-01 23:30:00"))
@@ -296,8 +325,103 @@ struct ReminderCenterTests {
         #expect(components.day == 1)
         #expect(components.hour == 23)
         #expect(components.minute == 30)
+        #expect(components.timeZone == ChqTime.zone)
+    }
 
-        let reconstructed = try #require(ChqTime.calendar.date(from: components))
+    /// The real regression this guards against: `UNCalendarNotificationTrigger`
+    /// (like `Calendar.date(from:)`) interprets a `DateComponents` with a
+    /// `nil` `timeZone` in the *reconstructing* calendar's own zone, not
+    /// implicitly in whatever zone the components were conceptually "about."
+    ///
+    /// This is why reconstructing via `ChqTime.calendar` (as the two tests
+    /// above's predecessor did) is **not** adversarial: `ChqTime.calendar`
+    /// is itself NY-pinned, so it would produce the correct instant whether
+    /// or not `components.timeZone` was ever set — the bug and the fix are
+    /// indistinguishable through that lens. Reconstructing instead through a
+    /// calendar pinned to a *different* zone (Los Angeles, 3 hours behind
+    /// New York in July) makes the two cases diverge: with `timeZone` set
+    /// (the fix), `Calendar.date(from:)` honors `components.timeZone` and
+    /// overrides the reconstructing calendar's own zone, so the result is
+    /// unchanged — still the original NY instant. Without it (the bug this
+    /// commit fixes), the same y/m/d/h/m values would instead be interpreted
+    /// as 7:30 PM *Pacific*, landing exactly 3 hours (10800 seconds) later
+    /// in absolute time — which is exactly the class of bug a
+    /// `UNCalendarNotificationTrigger` built from these components would
+    /// have hit for any user not on Eastern time.
+    @Test func reconstructingViaADifferentZoneCalendarStillYieldsTheNYInstant() throws {
+        let date = try #require(ChqTime.parse("2026-07-15 19:30:00"))
+        let components = triggerDateComponents(for: date)
+
+        var pacificCalendar = Calendar(identifier: .gregorian)
+        pacificCalendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+
+        let reconstructed = try #require(pacificCalendar.date(from: components))
         #expect(reconstructed == date)
+    }
+
+    /// Same adversarial reconstruction, one layer closer to what actually
+    /// gets scheduled: builds a real `UNCalendarNotificationTrigger` from
+    /// `triggerDateComponents` and asks it for its own next fire date,
+    /// rather than reconstructing the `DateComponents` by hand.
+    /// `nextTriggerDate()` doesn't require notification authorization to
+    /// call — it's pure date math over the trigger's own stored components —
+    /// so this is safe to run in a unit test process. Uses a date far in the
+    /// future so a non-repeating trigger's single occurrence reliably has a
+    /// "next" date regardless of when this test happens to run.
+    @Test func realUNCalendarNotificationTriggerFiresAtTheNYInstant() throws {
+        let futureDate = try #require(ChqTime.parse("2030-07-15 19:30:00"))
+        let trigger = UNCalendarNotificationTrigger(
+            dateMatching: triggerDateComponents(for: futureDate),
+            repeats: false
+        )
+
+        let next = try #require(trigger.nextTriggerDate())
+        #expect(next == futureDate)
+    }
+
+    // MARK: - Reentrancy
+
+    /// Forces two `sync(plan:)` calls to genuinely overlap — call A is
+    /// parked mid-`add` via `MockScheduler.setSuspended()`, call B is issued
+    /// (and, being chained behind A, cannot make any scheduling progress
+    /// while A is still parked), then A is released — and asserts the final
+    /// state is exactly plan B's, with no leftover item from plan A. Before
+    /// `ReminderCenter.sync` serialized itself via `syncChain`, this
+    /// interleaving (A's `removeAll` → B's `removeAll` → B's `add`s → A's
+    /// leftover `add`) would have left `evt-a` incorrectly still pending
+    /// alongside (or instead of) `evt-b`.
+    @Test func overlappingSyncCallsConvergeOnTheLastPlanWithNoStaleLeftovers() async {
+        let scheduler = MockScheduler()
+        let center = ReminderCenter(scheduler: scheduler, now: { self.makeStart("2026-07-15 12:00:00") })
+
+        let triggerA = makeStart("2026-07-15 19:00:00")
+        let triggerB = makeStart("2026-07-15 20:00:00")
+        let planA = [makePlanned(id: "evt-a", triggerDate: triggerA, eventStart: triggerA)]
+        let planB = [makePlanned(id: "evt-b", triggerDate: triggerB, eventStart: triggerB)]
+
+        scheduler.setSuspended()
+        let taskA = Task { await center.sync(plan: planA) }
+
+        // Wait until A has recorded its `removeAll` and is now parked
+        // inside its own `add` call.
+        await waitUntil("sync A reaches its parked add call") {
+            scheduler.removeAllCallCount == 1
+        }
+
+        let taskB = Task { await center.sync(plan: planB) }
+        // B links behind A in `syncChain` and awaits A's completion before
+        // doing anything observable — give it a moment to (fail to) make
+        // progress while A is still parked, proving the chain (not luck)
+        // is what's holding it back.
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(scheduler.addCalls.isEmpty)
+
+        scheduler.resume()
+        await taskA.value
+        await taskB.value
+
+        #expect(scheduler.pendingIdentifiers == ["event-evt-b"])
+        #expect(scheduler.addCalls.last?.identifier == "event-evt-b")
+        #expect(!scheduler.pendingIdentifiers.contains("event-evt-a"))
     }
 }

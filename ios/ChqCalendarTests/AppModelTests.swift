@@ -562,6 +562,46 @@ struct AppModelTests {
         #expect(model.favorites.contains("101037"))
     }
 
+    /// Browsing an archive year (via the always-available year picker) must
+    /// not cancel a reminder for a favorited event that belongs to a
+    /// *different* cached year. `events-sample-alt-casing` is used for 2025
+    /// specifically because it contains none of `events-sample`'s event
+    /// IDs — with the bug (a plan scoped to `snapshot?.events`, i.e.
+    /// whichever year is currently selected), switching to 2025 would find
+    /// no favorited events in that year's list, `sync` would `removeAll`,
+    /// and the still-pending, still-in-the-future 2026 reminder for
+    /// "101037" would be silently cancelled.
+    @Test func selectingAnArchiveYearDoesNotCancelAReminderForAFavoriteInAnotherYear() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("events-2025", data: fixtureData("events-sample-alt-casing"), etag: "e2", fetchedAt: Date())
+        // Populates `model.years` with both 2025 and 2026 (plus 2027, which
+        // has no cached snapshot and is simply skipped), so this actually
+        // exercises the union-across-`years` code path rather than
+        // incidentally passing because `years` only ever contained 2026.
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("reminder scheduled for the 2026 favorite") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        await model.select(year: 2025)
+
+        #expect(model.selectedYear == 2025)
+        #expect(scheduler.pendingIdentifiers.contains("event-101037"))
+    }
+
     // MARK: - select(year:)
 
     @Test func selectYearSwapsSnapshot() async {

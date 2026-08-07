@@ -37,18 +37,31 @@ protocol NotificationScheduling {
     ) async throws
 }
 
-/// Extracts the NY wall-clock year/month/day/hour/minute from `date`.
+/// Extracts the NY wall-clock year/month/day/hour/minute from `date`, with
+/// `timeZone` pinned explicitly to `ChqTime.zone`.
 ///
 /// A `UNCalendarNotificationTrigger` fires by matching these components
-/// against the *device's* calendar, not by comparing an absolute instant —
-/// so building them from `ChqTime.calendar` (America/New_York) rather than
-/// the device's own calendar is what keeps "7:30 PM" meaning NY 7:30 PM
-/// regardless of which time zone the phone is set to. Pulled out as a free
-/// function (rather than inlined into the `UNUserNotificationCenter`
-/// conformance below) so it has a seam to pin directly in tests without
-/// going through `UNCalendarNotificationTrigger` itself.
+/// against the *device's* calendar — and, critically, `DateComponents` on
+/// its own carries no time zone unless `.timeZone` is both requested *and*
+/// explicitly assigned: `Calendar.dateComponents(_:from:)` does not
+/// populate `.timeZone` on the result merely because the calendar it was
+/// asked on has one. Without the explicit assignment below, the returned
+/// components have `timeZone == nil`, and `UNCalendarNotificationTrigger`
+/// (like `Calendar.date(from:)`) then interprets a nil-timezone
+/// `DateComponents` in the *device's* current zone — so "7:30 PM" would
+/// silently fire at 7:30 PM device-local time for any user not on Eastern,
+/// defeating the entire point of NY-pinning `ReminderPreset.triggerDate`.
+/// Setting `components.timeZone` explicitly is what makes the same
+/// year/month/day/hour/minute values resolve to the correct NY instant
+/// regardless of which calendar or time zone later reads them back.
+/// Pulled out as a free function (rather than inlined into the
+/// `UNUserNotificationCenter` conformance below) so it has a seam to pin
+/// directly in tests without going through `UNCalendarNotificationTrigger`
+/// itself.
 func triggerDateComponents(for date: Date) -> DateComponents {
-    ChqTime.calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    var components = ChqTime.calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    components.timeZone = ChqTime.zone
+    return components
 }
 
 /// Thin, untested conformance: every decision (whether to schedule at all,
@@ -125,6 +138,13 @@ final class ReminderCenter {
     /// change (e.g. logging when a sync ran) needs one.
     private let now: @Sendable () -> Date
 
+    /// The tail of a serial chain of `sync` invocations. Every call to
+    /// `sync(plan:)` links itself onto this chain **synchronously**, before
+    /// its first `await`, so link order always matches real call order —
+    /// see `sync(plan:)`'s own doc comment for why this is what actually
+    /// prevents two overlapping calls' effects from interleaving.
+    private var syncChain: Task<Void, Never>?
+
     init(scheduler: NotificationScheduling, now: @escaping @Sendable () -> Date) {
         self.scheduler = scheduler
         self.now = now
@@ -139,26 +159,42 @@ final class ReminderCenter {
     /// permission is later granted mid-session and this were the only
     /// signal that ever ran `removeAll`).
     ///
-    /// **Reentrancy.** `ReminderCenter` is `@MainActor`, so two overlapping
-    /// `sync` calls (e.g. `toggleFavorite` firing one, then `refresh`
-    /// completing and firing another before the first finishes) never run
-    /// their bodies concurrently — the actor interleaves them only at each
-    /// individual `await` on `scheduler`. Because each call already
-    /// captured its own `plan` before starting, the two calls' remove+add
-    /// sequences can still interleave turn-by-turn (call A's `removeAll`,
-    /// then call B's `removeAll`, then A's adds, then B's adds, in any
-    /// order the scheduler happens to suspend at). That's still safe here
-    /// specifically because the *last* `add` sequence to finish is the one
-    /// whose notifications remain pending — no `add` deletes another call's
-    /// `add`, only a `removeAll` does, and both calls' `removeAll`s run
-    /// before either call's `add`s (each call does `removeAll` then
-    /// `add`s, never the reverse) — so whichever call's `add`s land last
-    /// wins outright, without any of its notifications being clobbered by
-    /// a later `removeAll` from the other call. Callers (`AppModel`) always
-    /// pass the then-current plan computed from the latest state, so "the
-    /// last one to finish wins" is also "the most up-to-date state wins" —
-    /// the correct outcome.
+    /// **Reentrancy is enforced, not merely argued for.** An earlier version
+    /// of this method reasoned in prose that two overlapping calls were
+    /// safe because each does `removeAll` before its own `add`s — but that
+    /// reasoning was wrong: `@MainActor` only guarantees the two calls'
+    /// *bodies* never run simultaneously, not that they run in any
+    /// particular order relative to each other once each has its own
+    /// pending `await`s on `scheduler`. Call A's `removeAll` → call B's
+    /// `removeAll` → call B's `add`s → call A's *remaining* `add`s is a
+    /// legal interleaving under that old code, and it leaves call A's
+    /// stale items pending after call B's fresh ones — "started last" is
+    /// not "finishes last".
+    ///
+    /// This version instead links every call onto `syncChain`
+    /// **synchronously**, before any `await`: `let previous = syncChain`
+    /// captures whatever was already chained, a new `Task` is created whose
+    /// body first `await`s that `previous` task to completion and only then
+    /// runs this call's own `removeAll`+`add`s, and `syncChain` is updated
+    /// to point at that new `Task` — all before this function's own first
+    /// `await`. Because linking happens synchronously, link order is
+    /// exactly call order, regardless of how the Swift concurrency runtime
+    /// later schedules each task's actual execution. And because each
+    /// task's `removeAll`+`add`s only run after the previous one has fully
+    /// finished, two overlapping calls' effects can never interleave —
+    /// whichever call was made *last* is guaranteed to both start and
+    /// finish last, and its plan is what's left pending.
     func sync(plan: [ReminderPlanner.PlannedReminder]) async {
+        let previous = syncChain
+        let chained = Task { [weak self] in
+            await previous?.value
+            await self?.performSync(plan: plan)
+        }
+        syncChain = chained
+        await chained.value
+    }
+
+    private func performSync(plan: [ReminderPlanner.PlannedReminder]) async {
         guard await scheduler.authorizationStatus() == .authorized else { return }
 
         await scheduler.removeAll(withPrefix: Self.identifierPrefix)

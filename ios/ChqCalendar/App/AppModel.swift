@@ -122,8 +122,9 @@ final class AppModel {
     /// Schedules/cancels local notifications for favorited events. `nil` by
     /// default so every existing call site and test that constructs an
     /// `AppModel` without knowing about reminders at all keeps working
-    /// unchanged; `syncReminders()` below is a no-op whenever this is `nil`.
-    /// Only `ChqCalendarApp` (and reminder-specific tests) pass a real one.
+    /// unchanged; `enqueueReminderSync()` below is a no-op whenever this is
+    /// `nil`. Only `ChqCalendarApp` (and reminder-specific tests) pass a
+    /// real one.
     let reminderCenter: ReminderCenter?
 
     /// The injected clock — the single instant every time-relative
@@ -147,6 +148,13 @@ final class AppModel {
     /// `!refreshingYears.isEmpty` for the UI, which only needs to know
     /// "is *anything* in flight."
     private var refreshingYears: Set<Int> = []
+
+    /// The tail of a serial chain of reminder syncs — mirrors
+    /// `ReminderCenter`'s own internal `syncChain` one layer up, so that
+    /// even the *decision of which state to build a plan from* is
+    /// serialized, not just the scheduling calls `ReminderCenter` makes
+    /// with whatever plan it's handed. See `enqueueReminderSync()`.
+    private var reminderSyncChain: Task<Void, Never>?
 
     init(
         repository: EventRepository,
@@ -308,7 +316,7 @@ final class AppModel {
         if let cached = await repository.cachedSnapshot(year: selectedYear) {
             snapshot = cached
             phase = .ready
-            await syncReminders()
+            await enqueueReminderSync()?.value
         }
 
         let manifest = await repository.availableYears()
@@ -320,7 +328,7 @@ final class AppModel {
             if let cached = await repository.cachedSnapshot(year: selectedYear) {
                 snapshot = cached
                 phase = .ready
-                await syncReminders()
+                await enqueueReminderSync()?.value
             } else {
                 snapshot = nil
                 phase = .launching
@@ -372,7 +380,7 @@ final class AppModel {
             snapshot = result
             phase = .ready
             lastRefreshFailed = false
-            await syncReminders()
+            await enqueueReminderSync()?.value
         } catch {
             guard requestedYear == selectedYear else { return }
             lastRefreshFailed = true
@@ -452,7 +460,7 @@ final class AppModel {
             favorites.insert(id)
         }
         store.saveFavorites(favorites)
-        Task { await syncReminders() }
+        enqueueReminderSync()
     }
 
     func select(year: Int) async {
@@ -460,7 +468,7 @@ final class AppModel {
         if let cached = await repository.cachedSnapshot(year: year) {
             snapshot = cached
             phase = .ready
-            await syncReminders()
+            await enqueueReminderSync()?.value
         } else {
             snapshot = nil
             phase = .launching
@@ -477,7 +485,7 @@ final class AppModel {
     func setDefaultReminderPreset(_ preset: ReminderPreset) {
         reminderSettings.defaultPreset = preset
         store.saveReminderSettings(reminderSettings)
-        Task { await syncReminders() }
+        enqueueReminderSync()
     }
 
     /// Sets (or, passing `ReminderPreset.none` as `nil`, clears) a
@@ -494,37 +502,83 @@ final class AppModel {
     func setReminderOverride(_ preset: ReminderPreset?, for eventID: String) {
         reminderSettings.setOverride(preset, for: eventID)
         store.saveReminderSettings(reminderSettings)
-        Task { await syncReminders() }
+        enqueueReminderSync()
     }
 
-    /// Recomputes the reminder plan from current favorites/snapshot/settings
-    /// and hands it to `reminderCenter` for a full declarative resync. A
-    /// no-op whenever `reminderCenter` is `nil` (see its doc comment).
+    /// Links a fresh reminder sync onto `reminderSyncChain` and returns the
+    /// resulting `Task`, or `nil` immediately (no `Task` created at all)
+    /// when there's no `reminderCenter` to sync.
     ///
-    /// Called after every state change that could change what should be
-    /// pending: `toggleFavorite`, `setDefaultReminderPreset`/
-    /// `setReminderOverride`, a successful `refresh`, and any point in
-    /// `start()`/`select(year:)` where `snapshot` is populated from cache
-    /// without going through `refresh`. Not called from the "no cache, no
-    /// network" branches of `start()`/`select(year:)` (where `snapshot`
-    /// becomes `nil`) — those already have nothing new to schedule, and a
-    /// subsequent successful `refresh` re-syncs once real data exists.
+    /// **Why a chain, not a bare `Task { await syncReminders() }`.** Two
+    /// state changes that both want to trigger a sync (e.g. a rapid
+    /// double-tap of a favorite's star, or a `toggleFavorite` racing a
+    /// `refresh` landing) each spawn their own unstructured work. If each
+    /// independently read `favorites`/`snapshot`/`reminderSettings` and
+    /// called `reminderCenter.sync(plan:)` whenever the Swift concurrency
+    /// runtime happened to schedule it, there would be no guarantee that
+    /// whichever call was made *last* also reads state *last* — an earlier
+    /// call reading fresher state than expected, or simply finishing its
+    /// scheduling calls after a later call's, can leave stale reminders
+    /// pending. (`ReminderCenter.sync` now serializes its own scheduling
+    /// calls in call order — see its doc comment — but that alone doesn't
+    /// help if the *plans* handed to it were built from state read out of
+    /// order.)
     ///
-    /// Safe to call from overlapping contexts (see `ReminderCenter.sync`'s
-    /// own doc comment on reentrancy): callers in synchronous action
-    /// methods fire this via `Task { await syncReminders() }` and don't
-    /// await it directly, which is fine because each call recomputes the
-    /// plan from whatever state is current *at the time it runs*, and the
-    /// last call to finish is the one whose plan ends up scheduled.
-    private func syncReminders() async {
-        guard let reminderCenter else { return }
-        let plan = ReminderPlanner.plan(
-            favorites: favorites,
-            events: snapshot?.events ?? [],
-            settings: reminderSettings,
-            now: now()
-        )
-        await reminderCenter.sync(plan: plan)
+    /// This method fixes that the same way `ReminderCenter.sync` fixes its
+    /// half of the problem: `let previous = reminderSyncChain` captures
+    /// whatever was already chained, **synchronously**, before this
+    /// function's first `await` — so link order is exactly call order,
+    /// regardless of later scheduling. The new link's body `await`s
+    /// `previous` to finish, and only *then* reads `favorites`/`snapshot`/
+    /// `reminderSettings` and builds the plan — deferring the state read
+    /// to execution time is what makes each link's plan reflect whatever
+    /// is truest once it's actually that link's turn, not whatever was
+    /// true when it was merely enqueued.
+    @discardableResult
+    private func enqueueReminderSync() -> Task<Void, Never>? {
+        guard reminderCenter != nil else { return nil }
+        let previous = reminderSyncChain
+        let chained = Task { [weak self] in
+            await previous?.value
+            guard let self, let reminderCenter = self.reminderCenter else { return }
+            let events = await self.reminderPlanEvents()
+            let plan = ReminderPlanner.plan(
+                favorites: self.favorites,
+                events: events,
+                settings: self.reminderSettings,
+                now: self.now()
+            )
+            await reminderCenter.sync(plan: plan)
+        }
+        reminderSyncChain = chained
+        return chained
+    }
+
+    /// Every event from every cached year in `years`, not just
+    /// `selectedYear`'s — what a reminder plan must be built from.
+    ///
+    /// Reminder scheduling must not be scoped to whichever year the user
+    /// happens to be *looking at*: the year picker lets someone browse a
+    /// past season at any time, and doing so must not cancel a reminder for
+    /// a favorited event in the current season just because that event
+    /// isn't in `snapshot?.events` while an archive year is on screen. So
+    /// this unions every year's cached snapshot (favorites are global, keyed
+    /// only by `Event.id`, with no notion of "which year was selected when
+    /// the reminder was made") rather than reading `snapshot` alone.
+    ///
+    /// Falls back to `snapshot?.events` alone when `years` is still empty
+    /// (the very first moment of `start()`, before the years manifest has
+    /// ever been fetched) so the first sync still has something to work
+    /// from instead of unconditionally scheduling nothing.
+    private func reminderPlanEvents() async -> [Event] {
+        guard !years.isEmpty else { return snapshot?.events ?? [] }
+        var combined: [Event] = []
+        for year in years {
+            if let cached = await repository.cachedSnapshot(year: year) {
+                combined.append(contentsOf: cached.events)
+            }
+        }
+        return combined
     }
 
     /// The off-season "browse the season that just ended" action: switches
