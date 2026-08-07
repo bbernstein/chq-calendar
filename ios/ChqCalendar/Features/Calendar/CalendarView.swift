@@ -1,7 +1,7 @@
-import CoreSpotlight
 import SwiftUI
 
-/// The app's root screen. Picks between two navigation containers based on
+/// The Events tab's screen (the app's root screen until the tab shell,
+/// `RootTabView`, wrapped it in task 16). Picks between two navigation containers based on
 /// horizontal size class — both wrap the same `EventListView` (see that
 /// file for the day-grouped list, filter bar, search, and empty/offline
 /// states shared between the two):
@@ -14,7 +14,6 @@ import SwiftUI
 ///   toolbar renders even though nothing was pushed onto it.
 struct CalendarView: View {
     @Bindable var model: AppModel
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// `.searchable` is bound to this local draft rather than directly to
@@ -75,57 +74,13 @@ struct CalendarView: View {
             await applyUITestHooks()
             #endif
         }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                Task { await model.foregrounded() }
-                // An App Intent (task 12) can run with no `AppModel` in
-                // scope at all — Shortcuts may launch `OpenEventIntent`
-                // with the app not running — so it hands its target event
-                // off via `PendingIntentLink`'s App Group `UserDefaults`
-                // key instead of setting `pendingDeepLink` directly. This
-                // is the other half of that handoff: on every return to
-                // `.active` (covering both "intent launched the app" and
-                // "intent ran while the app was already suspended in the
-                // background"), check for a pending link and fold it into
-                // the same `pendingDeepLink` pipeline `.onOpenURL` and a
-                // notification tap already use. Harmless — and cheap — when
-                // nothing is pending. Moves to `RootTabView` in task 16;
-                // kept as a single self-contained call here so that move is
-                // a one-line relocation.
-                //
-                // Accepted limitation: this only fires on a transition INTO
-                // `.active`. An intent that runs while the app is already
-                // foreground-active (e.g. a Siri overlay presented on top
-                // of the running app, with no backgrounding in between)
-                // writes the key but nothing re-reads it until the next
-                // `scenePhase` cycle — so the link sits unconsumed until the
-                // app is backgrounded and reactivated. Task 16 inherits this
-                // as-is when it relocates the call to `RootTabView`.
-                if let link = PendingIntentLink.consume(from: AppGroup.userDefaults()) {
-                    model.pendingDeepLink = link
-                }
-            }
-        }
-        .onOpenURL { url in
-            if let link = DeepLink.parse(url) {
-                model.pendingDeepLink = link
-            }
-        }
-        // Tapping a Spotlight search result for one of `SpotlightIndexer`'s
-        // indexed events (#180, task 13) hands the app a
-        // `CSSearchableItemActionType` user activity carrying the tapped
-        // item's `CSSearchableItemActivityIdentifier` — this app's own
-        // `"event-<id>"` `uniqueIdentifier` — in `userInfo`. Folds into the
-        // same `pendingDeepLink` pipeline every other launch surface
-        // (`.onOpenURL`, a notification tap, a widget's `widgetURL`, an App
-        // Intent) already feeds. Moves to `RootTabView` in task 16, same as
-        // the other entry points wired up in this view.
-        .onContinueUserActivity(CSSearchableItemActionType) { activity in
-            guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-                  let eventID = SpotlightIndexer.eventID(fromActivityIdentifier: identifier)
-            else { return }
-            model.pendingDeepLink = .event(id: eventID)
-        }
+        // Scene-level concerns — `.onOpenURL`, Spotlight's
+        // `.onContinueUserActivity`, and `scenePhase` activation
+        // (`foregrounded()` + `PendingIntentLink.consume`) — moved to
+        // `RootTabView` in task 16: they must exist exactly once per scene,
+        // and a tab's content view is no longer a safe owner (it can
+        // disappear/reappear as tabs switch).
+        //
         // The link can arrive before the snapshot finishes loading (a cold
         // launch via `chqcal://event/…`) or after (a warm launch, or a
         // notification tap while the app's already running) — so
@@ -151,8 +106,8 @@ struct CalendarView: View {
     /// still too soon to tell" decision (including the refresh-in-flight
     /// guard against clearing a link a still-running refresh might yet
     /// satisfy); this just pushes the resolved event onto the right
-    /// navigation surface. Does nothing for `.myDay`/`.map` — those stay
-    /// pending until the tab shell (task 16) exists to consume them.
+    /// navigation surface. Does nothing for `.myDay`/`.map` — `RootTabView`
+    /// consumes those at the tab level before this view ever sees them.
     private func consumePendingDeepLinkIfPossible() {
         guard let event = model.resolvePendingEventDeepLinkIfPossible() else { return }
         route(to: event)
@@ -170,11 +125,29 @@ struct CalendarView: View {
         }
     }
 
+    // `placement: .navigationBarDrawer(displayMode: .always)` on both
+    // containers below is load-bearing on iOS 26 inside the tab shell
+    // (task 16). The default placement there is a bottom-anchored field,
+    // which occupies the same screen edge as `RootTabView`'s tab bar —
+    // verified by screenshot: the tab bar rendered ON TOP of the bottom
+    // toolbar group (date pill, Filters, search all present but covered
+    // and unusable). Pinning search under the navigation bar vacates the
+    // bottom edge; `EventListView` drops its
+    // `DefaultToolbarItem(kind: .search)` in the same change (that item
+    // existed only to re-surface the bottom-anchored field next to the
+    // date/filter pills — see its old comment there). `.always` rather
+    // than `.automatic` so search stays discoverable without knowing the
+    // pull-down gesture. On iOS 18 this placement is where the field
+    // rendered anyway; the explicit `displayMode` is the only behavior
+    // change there (visible without scrolling).
     private var stackView: some View {
         NavigationStack(path: $path) {
             EventListView(model: model, selection: nil)
         }
-        .searchable(text: $searchDraft, prompt: "Search events")
+        .searchable(
+            text: $searchDraft,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search events")
         .submitLabel(.search)
         .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
     }
@@ -182,7 +155,10 @@ struct CalendarView: View {
     private var splitView: some View {
         NavigationSplitView {
             EventListView(model: model, selection: $selectedEvent)
-                .searchable(text: $searchDraft, prompt: "Search events")
+                .searchable(
+                    text: $searchDraft,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search events")
                 .submitLabel(.search)
                 .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
         } detail: {

@@ -116,16 +116,27 @@ final class AppModel {
 
     /// Set by any deep-link entry point — `.onOpenURL` (task 3), a
     /// notification tap (task 8), a widget's `widgetURL` (task 11), an App
-    /// Intent (task 12), or Spotlight (task 13) — and consumed by whoever
-    /// routes it. `CalendarView` currently only consumes `.event`, via
-    /// `resolvePendingEventDeepLinkIfPossible()` below: it can arrive before
-    /// the snapshot has loaded, so it stays pending across `phase`/
-    /// `snapshot` changes until the target event is found (or the snapshot
-    /// is loaded, no refresh that could still surface the event is in
-    /// flight, and it's confirmed unknown). `.myDay` and `.map` are left
-    /// pending here — nothing consumes them until the tab shell lands
-    /// (task 16).
+    /// Intent (task 12), or Spotlight (task 13) — and consumed in two
+    /// stages since the tab shell landed (task 16):
+    /// - `RootTabView` switches to the link's tab for every kind, and fully
+    ///   consumes `.myDay`/`.map` there (a `.map` venue surviving as
+    ///   `mapFocusVenue` below).
+    /// - `.event` stays pending for `CalendarView`, via
+    ///   `resolvePendingEventDeepLinkIfPossible()` below: it can arrive
+    ///   before the snapshot has loaded, so it stays pending across `phase`/
+    ///   `snapshot` changes until the target event is found (or the snapshot
+    ///   is loaded, no refresh that could still surface the event is in
+    ///   flight, and it's confirmed unknown).
     var pendingDeepLink: DeepLink?
+
+    /// The venue a consumed `chqcal://map/<venue>` deep link asked to focus
+    /// (task 16) — `RootTabView` writes it (including writing `nil` for a
+    /// plain `chqcal://map`, which clears any stale earlier focus), and
+    /// `GroundsMapView` (task 18) reads it, focuses the venue, and clears
+    /// it back to `nil` once acted on. Distinct from `pendingDeepLink` so
+    /// the "which tab" decision and the "what the map should do when it
+    /// gets there" payload have independent lifetimes.
+    var mapFocusVenue: String?
 
     /// Set whenever a `refresh(force:)` call fails. Distinct from `phase`,
     /// which stays `.ready` (data preserved) on a failed background refresh

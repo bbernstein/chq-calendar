@@ -88,21 +88,23 @@ directly by views via `@Bindable`/plain reads. Data flows one way:
 `DiskCache` persists it with TTL + ETag metadata, `AppModel` exposes derived,
 already-filtered/grouped state (`dayGroups`, `visibleCategories`, etc.) that
 views render directly — there's no separate view-model layer per screen.
-Views live under `Features/`, one folder per screen area; `EventListView`
-(under `Features/Calendar/`) is shared between the two navigation
-containers `CalendarView` picks between (`NavigationStack` on iPhone,
-`NavigationSplitView` on iPad) so the list, bottom-bar filter controls,
-search, and loading/offline/empty states never diverge between form
-factors.
+Views live under `Features/`, one folder per screen area. The root view is
+`RootTabView` (`Features/Root/`), an Events / My Day / Map tab shell; the
+Events tab hosts `CalendarView`, and `EventListView` (under
+`Features/Calendar/`) is shared between the two navigation containers
+`CalendarView` picks between (`NavigationStack` on iPhone,
+`NavigationSplitView` on iPad) so the list, the filter pill bar, search,
+and loading/offline/empty states never diverge between form factors.
 
 ### Filter chrome
 
 There is no dedicated filter-bar view. `EventListView` puts two controls —
 a date-range button (label from `Domain/DateFilterLabel.swift`, e.g. "Now"
 or "Weeks 4–6") and a `Filters (n)` button (count from
-`Domain/ActiveFilterCount.swift`) — into a single
-`ToolbarItemGroup(placement: .bottomBar)`, alongside the system search
-field. Tapping either button presents one of two sheets,
+`Domain/ActiveFilterCount.swift`) — into a pill bar floated above the tab
+bar via `.safeAreaInset(edge: .bottom)` (Liquid Glass pills on iOS 26, a
+material capsule on iOS 18). Tapping either button presents one of two
+sheets,
 `Features/Filters/DateFilterSheet.swift` (scope chips + week grid) or
 `Features/Filters/FilterSheet.swift` (active-filter chips, venue/category
 chip clouds, favorites, `Clear Filters`), both at `.medium`/`.large`
@@ -114,22 +116,27 @@ selection, favorites, or snapshot changes — not once per snapshot — so a
 facet count can never read the season-wide total after another filter has
 narrowed the list.
 
-**This bottom-bar layout exists because of an iOS 26 SDK quirk, not
-preference.** On iOS 26, `.searchable` renders as its own bottom-anchored
-floating field rather than docking under the navigation bar as it does on
-iOS 18 — the original design for this branch assumed the older placement
-and, when combined with a separate floating filter bar, produced two
-stacked floating bars overlapping the list. Worse, once an app declares
-*any* `.bottomBar` toolbar content on iOS 26, the system search field
-disappears entirely unless the app also declares
-`DefaultToolbarItem(kind: .search, placement: .bottomBar)` — confirmed by
-screenshot: without it, search filtered the list but drew no visible field
-anywhere. `EventListView`'s toolbar has a small
-`if #available(iOS 26.0, *)` block that adds that item so search rejoins
-the group. Net effect: on iOS 18 the search field sits under the
-navigation bar with the date/filter pills in the bottom bar; on iOS 26 all
-three share one bottom-bar group. The deployment target stays 18.0 either
-way — this is an availability-guarded adoption, not a floor change.
+**This layout exists because of how iOS 26 treats the bottom edge, not
+preference — and it has been redone once already.** On iOS 26,
+`.searchable`'s default placement is a bottom-anchored floating field, and
+declaring *any* `.bottomBar` toolbar content makes that field disappear
+unless the app also declares
+`DefaultToolbarItem(kind: .search, placement: .bottomBar)`. The pre-tab
+design (see git history) therefore kept the date/filter pills and the
+search item together in one `.bottomBar` toolbar group. The tab shell
+(task 16 of the 4.2-resubmission branch) broke that arrangement: the iOS
+26 tab bar owns the bottom edge and renders ON TOP of any app-declared
+`.bottomBar` content — screenshot-verified: date pill, Filters, and the
+search item were all present but covered and untappable. Current
+arrangement, screenshot-verified: `.searchable` is pinned to
+`.navigationBarDrawer(displayMode: .always)` in `CalendarView` (top of
+screen, always visible), and the date/filter pills live in a
+`.safeAreaInset(edge: .bottom)` bar, which the tab bar's safe-area
+contribution stacks *above* rather than under. On iPadOS 26 the tab bar
+renders at the top, so there is no bottom-edge contention there; the
+split view and sidebar pills are unchanged. The deployment target stays
+18.0 either way — this is an availability-guarded adoption, not a floor
+change.
 
 ```
 ChqCalendar/
@@ -156,9 +163,14 @@ ChqCalendar/
 │   │                             # "Weeks 4–6", ...)
 │   └── ActiveFilterCount.swift  # Filter pill's badge count
 ├── Features/
-│   ├── Calendar/                # CalendarView (root), EventListView
-│   │                             # (shared list, bottom-bar filter
-│   │                             # controls, empty-states), EventRow
+│   ├── Root/                    # RootTabView (root): Events / My Day /
+│   │                             # Map tab shell + deep-link tab routing
+│   ├── Calendar/                # CalendarView (Events tab), EventListView
+│   │                             # (shared list, filter pill bar,
+│   │                             # empty-states), EventRow
+│   ├── MyDay/                   # MyDayView (placeholder until task 17)
+│   ├── Map/                     # GroundsMapView (placeholder until
+│   │                             # task 18)
 │   ├── Detail/                  # EventDetailView, AddToCalendarView
 │   │                             # (EventKit integration)
 │   ├── Filters/                 # DateFilterSheet, FilterSheet,

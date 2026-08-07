@@ -44,7 +44,7 @@ struct ChqCalendarApp: App {
 
     var body: some Scene {
         WindowGroup {
-            CalendarView(model: model)
+            RootTabView(model: model)
         }
     }
 }
