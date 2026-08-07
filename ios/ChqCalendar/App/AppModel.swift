@@ -379,6 +379,29 @@ final class AppModel {
         themes.first { $0.number == n }
     }
 
+    /// Every NY calendar day with at least one favorited event in the
+    /// current snapshot, sorted ascending — the day chips `MyDayView`
+    /// (#181) offers. Thin wrapper over `DayPlan.availableDayKeys`; empty
+    /// without a snapshot.
+    var myDayAvailableDays: [String] {
+        guard let snapshot else { return [] }
+        return DayPlan.availableDayKeys(favorites: favorites, events: snapshot.events, year: selectedYear)
+    }
+
+    /// Which day `MyDayView` should open to by default — see
+    /// `DayPlan.defaultDayKey`. `nil` when there are no favorited days at
+    /// all (including when there's no snapshot yet).
+    var myDayDefaultDay: String? {
+        DayPlan.defaultDayKey(available: myDayAvailableDays, now: now())
+    }
+
+    /// Builds the day plan for `dayKey` from the current snapshot and
+    /// favorites. Thin wrapper over `DayPlan.build`; an empty plan (no
+    /// items, `nil` bounds, zero counts) without a snapshot.
+    func dayPlan(for dayKey: String) -> DayPlan {
+        DayPlan.build(dayKey: dayKey, favorites: favorites, events: snapshot?.events ?? [])
+    }
+
     // MARK: - Actions
 
     /// Loads whatever's on disk immediately (so the UI can render right

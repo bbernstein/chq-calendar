@@ -209,6 +209,19 @@ struct CalendarView: View {
             model.uiTestShowAbout = true
         }
 
+        // `-uitest-seed-favorites id1,id2,id3` favorites each comma-separated
+        // event id (skipping any already favorited) so a My Day screenshot
+        // (#181) can show a populated plan — including a deliberately
+        // overlapping/tight pair — without depending on `xcrun simctl`
+        // synthesizing a star tap on each individual row.
+        if let flagIndex = arguments.firstIndex(of: "-uitest-seed-favorites"),
+           arguments.index(after: flagIndex) < arguments.endIndex {
+            let ids = arguments[arguments.index(after: flagIndex)].split(separator: ",").map(String.init)
+            for id in ids where !model.favorites.contains(id) {
+                model.toggleFavorite(id)
+            }
+        }
+
         // `-uitest-search <term>` reads the argument that follows it and
         // commits it straight to `model.filter.searchText`. `searchDraft` is
         // set too so the visible search field shows the term, but the
