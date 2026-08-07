@@ -11,16 +11,8 @@ struct EventDetailView: View {
     let model: AppModel
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isAddToCalendarPresented = false
-
-    /// The system notification authorization status, refreshed on every
-    /// appearance of this view (see the `.task` in `body`) so the "off in
-    /// Settings" hint shows even for a user who denied access before this
-    /// session started — not just one who just denied it via the "Remind
-    /// me" menu below. `.notDetermined` until that first refresh lands,
-    /// which deliberately shows no hint (there's nothing wrong yet, just
-    /// nothing decided).
-    @State private var reminderAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
     private var isFavorite: Bool { model.favorites.contains(event.id) }
     private var articleLinks: [ArticleLink] { model.articleLinks(for: event.id) }
@@ -114,7 +106,19 @@ struct EventDetailView: View {
             AddToCalendarView(event: event)
         }
         .task(id: event.id) {
-            await refreshReminderAuthorizationStatus()
+            await model.refreshReminderAuthorizationStatus()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Query-only refresh (#178 review fix): fixes the case where the
+            // user grants access via the "Open Settings" link and returns to
+            // the app — no `star`/menu interaction happens on that return, so
+            // nothing else would re-query. Deliberately never calls
+            // `ensureReminderAuthorization()` here, which would re-prompt a
+            // user who simply backgrounded the app mid-decision.
+            guard newPhase == .active else { return }
+            Task {
+                await model.refreshReminderAuthorizationStatus()
+            }
         }
         #if DEBUG
         // MARK: UI-test hooks (DEBUG only)
@@ -324,7 +328,7 @@ struct EventDetailView: View {
                     Text("Remind me: \(currentReminderLabel)")
                 }
             }
-            if reminderAuthorizationStatus == .denied {
+            if model.reminderAuthorizationStatus == .denied {
                 deniedReminderHint
             }
         }
@@ -383,22 +387,23 @@ struct EventDetailView: View {
     /// Choosing "Off" (or "Default" while the default itself is off) skips
     /// the permission flow entirely — nothing there needs the user's
     /// permission.
+    ///
+    /// Routes through `model.ensureReminderAuthorization()` (#178 review
+    /// fix) rather than calling `reminderCenter.ensureAuthorization()`
+    /// directly and refreshing a view-local copy: that method already
+    /// publishes the resolved status to `model.reminderAuthorizationStatus`,
+    /// which is what `deniedReminderHint` above reads, so a denial from
+    /// this menu updates the same state a denial from the star flow does.
     private func selectReminder(_ preset: ReminderPreset?) {
         let effectivePreset = preset ?? model.reminderSettings.defaultPreset
-        guard effectivePreset != ReminderPreset.none, let reminderCenter = model.reminderCenter else {
+        guard effectivePreset != ReminderPreset.none, model.reminderCenter != nil else {
             model.setReminderOverride(preset, for: event.id)
             return
         }
         Task {
-            _ = await reminderCenter.ensureAuthorization()
-            await refreshReminderAuthorizationStatus()
+            _ = await model.ensureReminderAuthorization()
             model.setReminderOverride(preset, for: event.id)
         }
-    }
-
-    private func refreshReminderAuthorizationStatus() async {
-        guard let reminderCenter = model.reminderCenter else { return }
-        reminderAuthorizationStatus = await reminderCenter.authorizationStatus()
     }
 
     private var actionButtons: some View {

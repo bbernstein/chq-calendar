@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UserNotifications
 
 /// The app's single source of truth: owns the currently-loaded calendar
 /// snapshot, the user's filter/favorite state, and every action a view can
@@ -78,6 +79,22 @@ final class AppModel {
     /// `async` sync anyway — so the explicit methods below do both jobs at
     /// once instead of splitting them across a `didSet` and a caller.
     private(set) var reminderSettings: ReminderSettings
+
+    /// The system notification authorization status, as last observed by
+    /// this model. `nil` until the first query resolves (either
+    /// `refreshReminderAuthorizationStatus()` or `ensureReminderAuthorization()`)
+    /// or when there is no `reminderCenter` at all — deliberately distinct
+    /// from `.notDetermined`, which is a real system answer, not "unknown."
+    ///
+    /// This is the single source of truth `EventDetailView`'s "denied"
+    /// hint reads (#178 review fix): every path that can change the real
+    /// authorization state — the in-flow ask from `toggleFavorite`
+    /// (`requestReminderAuthorizationIfNeeded`), the "Remind me" menu's own
+    /// ask (`ensureReminderAuthorization`), and a plain re-query (
+    /// `refreshReminderAuthorizationStatus`, called on `.task` and on
+    /// returning to the foreground) — writes here, so the view never has to
+    /// separately remember to refresh a private copy.
+    private(set) var reminderAuthorizationStatus: UNAuthorizationStatus?
 
     var selectedYear: Int {
         didSet {
@@ -548,8 +565,55 @@ final class AppModel {
         guard !hasRequestedReminderAuthorizationThisLaunch else { return }
         hasRequestedReminderAuthorizationThisLaunch = true
         Task {
-            _ = await reminderCenter.ensureAuthorization()
+            _ = await ensureReminderAuthorization()
         }
+    }
+
+    /// Requests notification authorization (via `reminderCenter.ensureAuthorization()`,
+    /// which itself only prompts when status is still `.notDetermined`) and
+    /// publishes the resulting real status to `reminderAuthorizationStatus`
+    /// once it resolves. Returns whether the app is authorized after the
+    /// call; `false` with no `reminderCenter`.
+    ///
+    /// This is the fix for the in-flow "Don't Allow" case (#178 review
+    /// fix): both the fire-and-forget ask spawned by
+    /// `requestReminderAuthorizationIfNeeded()` (the star flow) and
+    /// `EventDetailView`'s own "Remind me" menu route through here, so
+    /// either path resolving to a denial updates the same published
+    /// property the view's hint reads — there is no longer a call site that
+    /// can ask for authorization and leave `reminderAuthorizationStatus`
+    /// stale.
+    ///
+    /// Deliberately re-queries `authorizationStatus()` after
+    /// `ensureAuthorization()` returns, rather than mapping its `Bool`
+    /// result directly (`true` → `.authorized`, `false` → `.denied`):
+    /// `ensureAuthorization()` also returns `false` while genuinely
+    /// `.notDetermined` would be wrong to infer from that (it never does in
+    /// practice, since it only returns without prompting when already
+    /// decided one way or the other) — reading the real status back keeps
+    /// this correct even if the mapping's assumptions ever changed, and
+    /// costs one more cheap read.
+    @discardableResult
+    func ensureReminderAuthorization() async -> Bool {
+        guard let reminderCenter else { return false }
+        let granted = await reminderCenter.ensureAuthorization()
+        reminderAuthorizationStatus = await reminderCenter.authorizationStatus()
+        return granted
+    }
+
+    /// Re-queries the current system authorization status without
+    /// prompting, and publishes it to `reminderAuthorizationStatus`.
+    ///
+    /// This is the fix for the Settings-return case (#178 review fix):
+    /// `EventDetailView` calls this from `.onChange(of: scenePhase)` when
+    /// the app becomes `.active` again, so granting access via the "Open
+    /// Settings" link and switching back updates the row's hint without
+    /// requiring another star or menu selection. Query-only by design —
+    /// never call `ensureReminderAuthorization()` from a foreground hook,
+    /// which would re-prompt a user who backgrounded the app mid-decision.
+    func refreshReminderAuthorizationStatus() async {
+        guard let reminderCenter else { return }
+        reminderAuthorizationStatus = await reminderCenter.authorizationStatus()
     }
 
     /// Links a fresh reminder sync onto `reminderSyncChain` and returns the

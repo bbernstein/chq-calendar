@@ -672,6 +672,36 @@ struct AppModelTests {
         #expect(scheduler.requestAuthorizationCallCount == 0)
     }
 
+    /// #178 review fix: the in-flow "Don't Allow" case. Starring an event
+    /// fires `requestReminderAuthorizationIfNeeded()`'s fire-and-forget
+    /// `Task`, which the reviewer found never reported its result back
+    /// anywhere the detail row could read — so a denial from *this* system
+    /// dialog (as opposed to one already decided before the row appeared)
+    /// left `model.reminderAuthorizationStatus` stale. This pins that the
+    /// star flow now routes through `AppModel.ensureReminderAuthorization()`,
+    /// which publishes the resolved status once the request settles.
+    @Test func starringAnEventPublishesADenialOnTheModelOnceTheAuthorizationFlowSettles() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        scheduler.requestAuthorizationResult = false
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        #expect(model.reminderAuthorizationStatus == nil)
+
+        model.toggleFavorite("evt-a")
+
+        await waitUntil("the star flow's denial is published on the model") {
+            model.reminderAuthorizationStatus == .denied
+        }
+        #expect(model.reminderAuthorizationStatus == .denied)
+    }
+
     // MARK: - select(year:)
 
     @Test func selectYearSwapsSnapshot() async {

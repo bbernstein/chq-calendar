@@ -48,6 +48,12 @@ final class MockScheduler: NotificationScheduling {
 
     func requestAuthorization() async -> Bool {
         requestAuthorizationCallCount += 1
+        // Mirrors real `UNUserNotificationCenter` behavior: once the system
+        // prompt resolves, a subsequent `authorizationStatus()` reflects the
+        // decision rather than still reporting `.notDetermined`. Needed by
+        // `AppModelTests`' denial-publishing test, which re-queries status
+        // after the request settles.
+        status = requestAuthorizationResult ? .authorized : .denied
         return requestAuthorizationResult
     }
 
