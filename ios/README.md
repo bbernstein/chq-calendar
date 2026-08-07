@@ -2,7 +2,35 @@
 
 A native SwiftUI client for the [Chautauqua Calendar](https://www.chqcal.org)
 — the same event data as the web app (`../frontend/`), presented as an
-iPhone/iPad app with offline caching and pull-to-refresh.
+iPhone/iPad app with offline caching and pull-to-refresh. The app is a
+three-tab shell (Events / My Day / Map — see `RootTabView` under
+Architecture below).
+
+## Capabilities
+
+Beyond browsing/filtering/search (the original 1.0 feature set), the app
+added the following for the 4.2 resubmission (issues #177–#182):
+
+- **Reminders** (#178) — star an event to schedule a local notification
+  30 minutes, 1 hour, or the night before (8 PM); a default preset is set
+  in the About screen, overridable per event from the detail view.
+- **Home Screen + Lock Screen widgets** (#179) — "Next Up" (configurable
+  by venue, category, or starred-only) and "Starred", reading the same
+  on-disk cache the app uses via the `group.org.chqcal.app` App Group.
+- **Siri, Shortcuts, and Spotlight** (#180) — three Shortcuts actions
+  (What's Next, Today at Chautauqua, Open Event) plus Spotlight indexing
+  of the season and starred events.
+- **My Day tab** (#181) — starred events laid out on a timeline, flagging
+  schedule overlaps and tight walking gaps between venues.
+- **Map tab** (#182) — every venue plotted, a venue sheet with its next
+  events and walking directions via Apple Maps. No location permission is
+  requested for any of this.
+- **Off-season landing** (#177) — outside the summer season, a countdown
+  to next season, a preview of next season's announced events, and
+  browsable past seasons, in place of an empty screen.
+
+All of the above is local-only: no push notifications, no server-side
+scheduling, and no new network calls beyond the existing CDN fetches.
 
 ## Opening and running in Xcode
 
@@ -51,6 +79,34 @@ xcodebuild test \
 Swap the `-destination` name/OS for whatever simulators are installed
 locally (`xcrun simctl list devices available`). `CODE_SIGNING_ALLOWED=NO`
 avoids needing a signing identity for simulator builds.
+
+### Targets
+
+The project has three targets:
+
+- **ChqCalendar** — the app. Building/running this scheme also builds and
+  embeds **ChqCalendarWidgets** (see below), so a plain **⌘R** or the
+  `xcodebuild build` command above exercises both.
+- **ChqCalendarTests** — the unit test bundle (`xcodebuild test` above).
+  Covers app-target logic plus everything in `ChqCalendarShared` and the
+  widget/intent logic that reads through it (e.g.
+  `WidgetTimelineBuilderTests`, `WidgetConfigOptionsTests`,
+  `ReminderPlannerTests`, `SpotlightIndexerTests`).
+- **ChqCalendarWidgets** — the Home Screen/Lock Screen widget extension
+  (`WidgetKit`). It has no test target of its own; its pure logic
+  (`WidgetTimelineBuilder`, `WidgetConfigOptions`) lives in
+  `ChqCalendarShared` specifically so `ChqCalendarTests` can exercise it
+  without launching the extension process. There is no simulator-only way
+  to "run" a widget the way you run the app — after a normal build, add
+  the widget from the Home Screen or Lock Screen editor on the simulator
+  or device to see it render, or use Xcode's **Debug ▸ Simulate Widget**
+  gallery preview from within `NextUpWidget.swift`/`StarredWidget.swift`.
+
+`ChqCalendarShared` (see the file tree below) is a synchronized source
+folder shared by all three targets, not a target itself — it holds the
+model/domain/data code that the app, its tests, and the widget extension
+all need without duplicating it or creating a circular dependency between
+the app and the extension.
 
 **CI does not build or test this app.** The repository's GitHub Actions
 workflows run on Linux runners (frontend/backend only); Xcode requires
@@ -139,51 +195,116 @@ split view and sidebar pills are unchanged. The deployment target stays
 change.
 
 ```
-ChqCalendar/
+ChqCalendar/                      # App target
 ├── App/
-│   ├── ChqCalendarApp.swift     # @main entry point, wires up AppModel
-│   └── AppModel.swift           # Single source of truth: snapshot, filter,
-│                                 # favorites, refresh/offline state, actions
+│   ├── ChqCalendarApp.swift      # @main entry point, wires up AppModel
+│   ├── AppModel.swift            # Single source of truth: snapshot, filter,
+│   │                             # favorites, refresh/offline/reminder/
+│   │                             # widget state, actions
+│   ├── NotificationDelegate.swift  # Routes a tapped local-notification
+│   │                             # reminder to the right event (#178)
+│   ├── SpotlightIndexing.swift   # Seam protocol over SpotlightIndexer
+│   └── WidgetReloading.swift     # Requests a WidgetKit timeline reload
+│                                 # after state changes that affect widgets
 ├── Data/
-│   ├── CalendarAPI.swift        # RemoteResource paths + CalendarAPIClient
+│   ├── CalendarAPI.swift         # RemoteResource paths + CalendarAPIClient
 │   │                             # (ETag-conditional URLSession fetches)
-│   ├── DiskCache.swift          # On-disk cache: payload + {etag,fetchedAt}
-│   ├── EventRepository.swift    # actor: fetch→decode→cache orchestration,
+│   ├── EventRepository.swift     # actor: fetch→decode→cache orchestration,
 │   │                             # stale-while-revalidate policy
-│   └── UserStateStore.swift     # Persists filters/favorites/recents
-│                                 # (UserDefaults), 30-day expiry
-├── Domain/
-│   ├── EventFilter.swift        # Search/date/week/location/category logic
-│   ├── EventGrouping.swift      # Groups events into day-keyed DayGroups
-│   ├── SeasonCalendar.swift     # Week-number math for the summer season
-│   ├── DisplayNames.swift       # Category/location display-name mapping
-│   ├── FacetCounts.swift        # Venue/category counts vs. current
-│   │                             # selection, own dimension excluded
-│   ├── DateFilterLabel.swift    # Date pill's summary text ("Now",
-│   │                             # "Weeks 4–6", ...)
-│   └── ActiveFilterCount.swift  # Filter pill's badge count
+│   ├── IntentDataSource.swift    # Cache reads for the App Intents (#180)
+│   ├── ReminderCenter.swift      # Schedules/cancels local notifications
+│   │                             # for starred events (#178)
+│   └── SpotlightIndexer.swift    # Indexes season + starred events into
+│                                 # Core Spotlight (#180)
+├── Intents/                      # App Intents / Siri / Shortcuts (#180)
+│   ├── ChqShortcuts.swift        # AppShortcutsProvider — registers the
+│   │                             # 3 phrases (What's Next, Today at
+│   │                             # Chautauqua, Open Event)
+│   ├── EventEntity.swift         # AppEntity wrapping Event for Shortcuts
+│   └── EventIntents.swift        # NextEventsIntent, TodayEventsIntent,
+│                                 # OpenEventIntent
 ├── Features/
-│   ├── Root/                    # RootTabView (root): Events / My Day /
+│   ├── Root/                     # RootTabView (root): Events / My Day /
 │   │                             # Map tab shell + deep-link tab routing
-│   ├── Calendar/                # CalendarView (Events tab), EventListView
+│   ├── Calendar/                 # CalendarView (Events tab), EventListView
 │   │                             # (shared list, filter pill bar,
-│   │                             # empty-states), EventRow
-│   ├── MyDay/                   # MyDayView (placeholder until task 17)
-│   ├── Map/                     # GroundsMapView (placeholder until
-│   │                             # task 18)
-│   ├── Detail/                  # EventDetailView, AddToCalendarView
-│   │                             # (EventKit integration)
-│   ├── Filters/                 # DateFilterSheet, FilterSheet,
+│   │                             # empty-states), EventRow,
+│   │                             # OffSeasonLandingView (#177: countdown,
+│   │                             # next-season preview, past-season
+│   │                             # archive browsing), WeekThemeBadge/Popover
+│   ├── MyDay/                    # MyDayView (#181): starred events on a
+│   │                             # timeline, overlap + walking-time flags
+│   ├── Map/                      # GroundsMapView (#182): every venue
+│   │                             # plotted, venue sheet with next events,
+│   │                             # walking directions via Apple Maps —
+│   │                             # no location permission
+│   ├── Detail/                   # EventDetailView (incl. the per-event
+│   │                             # reminder-preset row and "Show on Map"),
+│   │                             # AddToCalendarView (EventKit integration)
+│   ├── Filters/                  # DateFilterSheet, FilterSheet,
 │   │                             # FacetChipCloud, FacetAllList
-│   └── Shared/                  # Banners.swift (countdown/offline banners)
+│   ├── About/                    # AboutView (disclaimer, default reminder
+│   │                             # preset setting), AboutInfo
+│   └── Shared/                   # Banners.swift (countdown/offline banners)
+└── Assets.xcassets/               # App icon, accent color, etc.
+
+ChqCalendarShared/                 # Synchronized folder shared by all 3 targets
+├── Data/
+│   ├── AppGroup.swift             # group.org.chqcal.app identifier +
+│   │                              # shared UserDefaults/container helpers
+│   ├── DiskCache.swift            # On-disk cache: payload + {etag,fetchedAt}
+│   ├── SharedSnapshotLoader.swift # Reads the cached snapshot from the App
+│   │                              # Group container (what the widgets and
+│   │                              # intents read, without a network call)
+│   └── UserStateStore.swift       # Persists filters/favorites/recents
+│                                  # (UserDefaults), 30-day expiry
+├── Domain/
+│   ├── EventFilter.swift          # Search/date/week/location/category logic
+│   ├── EventGrouping.swift        # Groups events into day-keyed DayGroups
+│   ├── SeasonCalendar.swift       # Week-number math for the summer season
+│   ├── DisplayNames.swift         # Category/location display-name mapping
+│   ├── FacetCounts.swift          # Venue/category counts vs. current
+│   │                              # selection, own dimension excluded
+│   ├── DateFilterLabel.swift      # Date pill's summary text ("Now",
+│   │                              # "Weeks 4–6", ...)
+│   ├── ActiveFilterCount.swift    # Filter pill's badge count
+│   ├── DayPlan.swift              # My Day's overlap/walking-time
+│   │                              # transition logic (#181)
+│   ├── VenueAtlas.swift           # Venue coordinates + inter-venue walking
+│   │                              # times (#181/#182)
+│   ├── MapVenueEvents.swift       # Venue sheet's "next events" query (#182)
+│   ├── LandingState.swift         # Off-season countdown/preview/archive
+│   │                              # decision logic (#177)
+│   ├── ReminderSettings.swift     # ReminderPreset enum + fire-time math
+│   │                              # (#178)
+│   ├── ReminderPlanner.swift      # Which events need a reminder scheduled/
+│   │                              # cancelled, given current state (#178)
+│   ├── WidgetConfigOptions.swift  # Venue/category picker options shared by
+│   │                              # the widget config intent and Siri (#179)
+│   └── WidgetTimelineBuilder.swift  # Builds widget timeline entries from
+│                                  # a snapshot + config (#179)
 ├── Models/
-│   ├── Event.swift               # Event (Decodable, Hashable), custom
-│   │                             # decoding for the web API's JSON shape
-│   └── Sidecars.swift            # ArticleLink, WeeklyTheme, YearsManifest
-├── Support/
-│   ├── ChqTime.swift             # NY-timezone-pinned date parsing/formatting
-│   └── HTMLEntities.swift        # Decodes HTML entities in titles/details
-└── Assets.xcassets/              # App icon, accent color, etc.
+│   ├── Event.swift                # Event (Decodable, Hashable), custom
+│   │                              # decoding for the web API's JSON shape
+│   └── Sidecars.swift             # ArticleLink, WeeklyTheme, YearsManifest
+└── Support/
+    ├── ChqTime.swift              # NY-timezone-pinned date parsing/formatting
+    └── HTMLEntities.swift         # Decodes HTML entities in titles/details
+
+ChqCalendarWidgets/                 # Widget extension target (#179)
+├── ChqCalendarWidgets.swift        # @main WidgetBundle: NextUpWidget +
+│                                   # StarredWidget
+├── NextUpWidget.swift              # Home Screen (small/medium) + Lock
+│                                   # Screen (rectangular/inline); configurable
+│                                   # by venue, category, or starred-only
+├── StarredWidget.swift             # Home Screen (small) + Lock Screen
+│                                   # (rectangular); always starred-only
+├── WidgetConfigIntent.swift        # "Configure CHQ Widget" — the
+│                                   # NextUpWidget configuration intent
+├── WidgetDataSource.swift          # Widget-side read of the shared cache
+├── WidgetViews.swift               # SwiftUI views rendered inside the
+│                                   # widget families above
+└── Info.plist
 ```
 
 ## Data endpoints
