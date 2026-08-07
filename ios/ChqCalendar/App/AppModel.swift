@@ -644,6 +644,29 @@ final class AppModel {
         }
     }
 
+    #if DEBUG
+    /// UI-test-only escape hatch: marks the one-time reminder-authorization
+    /// ask as already fired, so `toggleFavorite` → `requestReminderAuthorizationIfNeeded()`
+    /// no-ops instead of spawning `ensureReminderAuthorization()`.
+    ///
+    /// Exists because `CalendarView.applyUITestHooks()`'s `-uitest-seed-favorites`
+    /// (and the pre-existing `-uitest-star-selected-event`) call
+    /// `toggleFavorite` directly, and the shipped default preset is
+    /// `.thirtyMinutesBefore` — not `.none` — so on a freshly-erased
+    /// simulator (`.notDetermined` authorization, exactly the state
+    /// `ios/Scripts/capture-screenshots.sh` starts from) that would spawn a
+    /// real system notification-permission dialog. That dialog "survives
+    /// `simctl terminate` + `simctl launch`" per the script's own comments,
+    /// so once it appears it poisons every screenshot captured after it in
+    /// the same run, not just the one that triggered it. Any `-uitest-*`
+    /// launch is a screenshot/automation context where a system dialog is
+    /// never wanted, so `applyUITestHooks()` calls this unconditionally
+    /// before touching any hook-specific argument.
+    func uitestSuppressReminderAuthorizationPrompt() {
+        hasRequestedReminderAuthorizationThisLaunch = true
+    }
+    #endif
+
     /// Requests notification authorization (via `reminderCenter.ensureAuthorization()`,
     /// which itself only prompts when status is still `.notDetermined`) and
     /// publishes the resulting real status to `reminderAuthorizationStatus`

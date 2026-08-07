@@ -197,6 +197,22 @@ struct CalendarView: View {
     private func applyUITestHooks() async {
         let arguments = ProcessInfo.processInfo.arguments
 
+        // Any `-uitest-*` launch is a screenshot/automation context, so a
+        // real system permission dialog is never wanted here — suppress the
+        // one-time reminder-authorization ask unconditionally, before any
+        // hook below gets a chance to favorite something. Without this,
+        // `-uitest-seed-favorites` and `-uitest-star-selected-event` (both
+        // below) call `model.toggleFavorite`, which fires
+        // `requestReminderAuthorizationIfNeeded()` — and the shipped default
+        // preset is `.thirtyMinutesBefore`, not `.none`, so on a
+        // freshly-erased simulator (`.notDetermined`, exactly the state
+        // `capture-screenshots.sh` starts every run from) that spawns a real
+        // notification-permission dialog. Per that script's own comments,
+        // such a dialog "survives `simctl terminate` + `simctl launch`," so
+        // it would poison every screenshot captured for the rest of the run,
+        // not just the one that triggered it.
+        model.uitestSuppressReminderAuthorizationPrompt()
+
         if arguments.contains("-uitest-show-filters") {
             model.uiTestShowFilters = true
         }

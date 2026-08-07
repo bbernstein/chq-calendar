@@ -672,6 +672,37 @@ struct AppModelTests {
         #expect(scheduler.requestAuthorizationCallCount == 0)
     }
 
+    /// Task 17 review fix: `-uitest-seed-favorites`/`-uitest-star-selected-event`
+    /// call `toggleFavorite` directly on a freshly-erased simulator (the
+    /// screenshot script's starting state), which is `.notDetermined` and
+    /// would otherwise spawn a real system permission dialog — see
+    /// `AppModel.uitestSuppressReminderAuthorizationPrompt()`'s doc comment.
+    /// Pins that calling the suppression hook first makes three back-to-back
+    /// stars request authorization zero times, the same shape as
+    /// `noAuthorizationRequestAcrossThreeStarsWhenDefaultPresetIsOff` above
+    /// but via the DEBUG escape hatch rather than the preset.
+    @Test func uitestSuppressionPreventsAnyAuthorizationRequestAcrossThreeStars() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        model.uitestSuppressReminderAuthorizationPrompt()
+
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+        #expect(model.favorites.isSuperset(of: ["evt-a", "evt-b", "evt-c"]))
+    }
+
     /// #178 review fix: the in-flow "Don't Allow" case. Starring an event
     /// fires `requestReminderAuthorizationIfNeeded()`'s fire-and-forget
     /// `Task`, which the reviewer found never reported its result back
