@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UserNotifications
 
 /// Full detail screen for a single event: hero image (when present), title
 /// with cancellation/reschedule badge, labeled metadata rows, description,
@@ -9,6 +11,7 @@ struct EventDetailView: View {
     let model: AppModel
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isAddToCalendarPresented = false
 
     private var isFavorite: Bool { model.favorites.contains(event.id) }
@@ -16,6 +19,14 @@ struct EventDetailView: View {
     private var programLinks: [ProgramLink] { model.programLinks(for: event.id) }
     private var visibleCategories: [String] {
         event.categoryNames.filter { !$0.hasPrefix("Week ") }
+    }
+
+    /// Whether the venue row's location resolves to a `VenueAtlas` building
+    /// — gates the "Show on Map" affordance (#182) so it never appears for
+    /// an unmapped feed name (TBD, Zoom, a denominational-houses grouping,
+    /// etc.), where there'd be nothing on the map to show.
+    private var resolvedVenue: VenueLocation? {
+        event.displayLocation.flatMap(VenueAtlas.location(for:))
     }
 
     var body: some View {
@@ -36,7 +47,7 @@ struct EventDetailView: View {
 
                         if event.displayLocation != nil || event.venueAddress != nil {
                             detailRow(icon: "mappin.and.ellipse") {
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: 4) {
                                     if let location = event.displayLocation {
                                         Text(DisplayNames.location(location))
                                     }
@@ -44,6 +55,16 @@ struct EventDetailView: View {
                                         Text(address)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
+                                    }
+                                    if resolvedVenue != nil {
+                                        Button {
+                                            showOnMap()
+                                        } label: {
+                                            Label("Show on Map", systemImage: "map")
+                                                .font(.caption)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.tint)
                                     }
                                 }
                             }
@@ -66,6 +87,10 @@ struct EventDetailView: View {
                                     }
                                 }
                             }
+                        }
+
+                        if isFavorite {
+                            reminderRow
                         }
                     }
 
@@ -97,6 +122,21 @@ struct EventDetailView: View {
         .toolbar { toolbarContent }
         .sheet(isPresented: $isAddToCalendarPresented) {
             AddToCalendarView(event: event)
+        }
+        .task(id: event.id) {
+            await model.refreshReminderAuthorizationStatus()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Query-only refresh (#178 review fix): fixes the case where the
+            // user grants access via the "Open Settings" link and returns to
+            // the app — no `star`/menu interaction happens on that return, so
+            // nothing else would re-query. Deliberately never calls
+            // `ensureReminderAuthorization()` here, which would re-prompt a
+            // user who simply backgrounded the app mid-decision.
+            guard newPhase == .active else { return }
+            Task {
+                await model.refreshReminderAuthorizationStatus()
+            }
         }
         #if DEBUG
         // MARK: UI-test hooks (DEBUG only)
@@ -141,6 +181,18 @@ struct EventDetailView: View {
         }
     }
     #endif
+
+    /// Routes to the Map tab centered on this event's venue (#182), reusing
+    /// the exact deep-link pipeline a `chqcal://map/<venue>` link already
+    /// drives — `RootTabView`'s `.onChange(of: model.pendingDeepLink)`
+    /// switches to the Map tab and hands the venue off to
+    /// `model.mapFocusVenue`, which `GroundsMapView` reads, centers/selects,
+    /// and clears. Deliberately not a second, bespoke mechanism: setting
+    /// `mapFocusVenue` directly here would skip the tab switch, since only
+    /// `RootTabView`'s deep-link routing does that.
+    private func showOnMap() {
+        model.pendingDeepLink = .map(venue: event.displayLocation)
+    }
 
     // MARK: - Sections
 
@@ -287,6 +339,100 @@ struct EventDetailView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Reminders (#178)
+
+    /// "Remind me" row, shown only for a favorited event — reminders exist
+    /// to alert someone about an event they've already committed to, and a
+    /// per-event override for an event that isn't even starred has nothing
+    /// to override (star/unstar retracts its schedule entirely — see
+    /// `ReminderPlanner`).
+    private var reminderRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            detailRow(icon: "bell") {
+                Menu {
+                    reminderMenuButtons
+                } label: {
+                    Text("Remind me: \(currentReminderLabel)")
+                }
+            }
+            if model.reminderAuthorizationStatus == .denied {
+                deniedReminderHint
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reminderMenuButtons: some View {
+        Button("Default (\(model.reminderSettings.defaultPreset.label))") {
+            selectReminder(nil)
+        }
+        ForEach(ReminderPreset.allCases.filter { $0 != ReminderPreset.none }, id: \.rawValue) { preset in
+            Button(preset.label) {
+                selectReminder(preset)
+            }
+        }
+        Button(ReminderPreset.none.label) {
+            selectReminder(ReminderPreset.none)
+        }
+    }
+
+    /// The effective choice for this event: its override's label if one is
+    /// set, otherwise "Default (<current default's label>)" — matching the
+    /// first menu option above so the row's own text and the menu agree on
+    /// what "no override" looks like.
+    private var currentReminderLabel: String {
+        guard let override = model.reminderSettings.overrides[event.id] else {
+            return "Default (\(model.reminderSettings.defaultPreset.label))"
+        }
+        return override.label
+    }
+
+    /// Same "denied → Settings" pattern as `AddToCalendarView.deniedView`,
+    /// scaled down to an inline hint under the row rather than a full-sheet
+    /// takeover — this is one row among many on the detail screen, not the
+    /// screen's sole purpose.
+    private var deniedReminderHint: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Notifications are off for CHQ Calendar")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                Link("Open Settings", destination: settingsURL)
+                    .font(.caption)
+            }
+        }
+        // Roughly aligns under the row's text: `detailRow`'s icon (24pt) +
+        // its HStack spacing (12pt).
+        .padding(.leading, 36)
+    }
+
+    /// Persists the override, and — only when the resulting effective
+    /// preset actually turns reminders *on* — requests notification
+    /// authorization first, awaiting its result before persisting so the
+    /// reminder sync that `setReminderOverride` triggers sees up-to-date
+    /// authorization rather than racing a still-in-flight system prompt.
+    /// Choosing "Off" (or "Default" while the default itself is off) skips
+    /// the permission flow entirely — nothing there needs the user's
+    /// permission.
+    ///
+    /// Routes through `model.ensureReminderAuthorization()` (#178 review
+    /// fix) rather than calling `reminderCenter.ensureAuthorization()`
+    /// directly and refreshing a view-local copy: that method already
+    /// publishes the resolved status to `model.reminderAuthorizationStatus`,
+    /// which is what `deniedReminderHint` above reads, so a denial from
+    /// this menu updates the same state a denial from the star flow does.
+    private func selectReminder(_ preset: ReminderPreset?) {
+        let effectivePreset = preset ?? model.reminderSettings.defaultPreset
+        guard effectivePreset != ReminderPreset.none, model.reminderCenter != nil else {
+            model.setReminderOverride(preset, for: event.id)
+            return
+        }
+        Task {
+            _ = await model.ensureReminderAuthorization()
+            model.setReminderOverride(preset, for: event.id)
         }
     }
 

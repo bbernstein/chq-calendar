@@ -120,6 +120,7 @@ nonisolated struct UserStateStore {
     private static let filtersKey = "chq-filters"
     private static let favoritesKey = "chq-favorites"
     private static let recentsKey = "chq-recents"
+    private static let remindersKey = "chq-reminders"
     private static let expiry: TimeInterval = 30 * 24 * 3600
 
     /// The subset of `FilterSelection` that's actually persisted —
@@ -158,9 +159,58 @@ nonisolated struct UserStateStore {
         return decoder
     }()
 
-    init(defaults: UserDefaults = .standard, now: @escaping @Sendable () -> Date = { Date() }) {
+    init(defaults: UserDefaults = AppGroup.userDefaults(), now: @escaping @Sendable () -> Date = { Date() }) {
+        _ = Self.didMigrateDefaults
         self.defaults = defaults
         self.now = now
+    }
+
+    /// Lazily migrates the three persisted keys from `.standard` into the
+    /// App Group suite the first time any `UserStateStore` is created in
+    /// this process (regardless of the `defaults:` argument it was given —
+    /// the migration always runs against `.standard` and the App Group
+    /// suite, not against whatever `defaults` this particular instance
+    /// uses). A `static let` is used rather than a mutable flag for the
+    /// same reason as
+    /// `DiskCache.didMigrate`: Swift initializes it exactly once,
+    /// thread-safely, with no actor isolation or lock required.
+    ///
+    /// Delegates the actual isAppProcess/entitlement gating to
+    /// `triggerMigrationIfNeeded(isAppProcess:)` below — kept as a separate
+    /// function (rather than inlined in this closure) purely so that
+    /// function's `isAppProcess` gate is independently testable, since a
+    /// `static let` only ever evaluates once per process and could not
+    /// otherwise be exercised under both branches in one test run.
+    private static let didMigrateDefaults: Bool = triggerMigrationIfNeeded()
+
+    /// The one-time defaults-migration trigger `didMigrateDefaults` runs
+    /// exactly once per process. Broken out with an `isAppProcess`
+    /// parameter (defaulting to the live `AppGroup.isAppProcess` check) so
+    /// both branches are testable directly, independent of the
+    /// once-per-process `static let` above.
+    ///
+    /// Gated on `AppGroup.shouldRunAppOnlyMigration` (task: iOS 4.2
+    /// resubmission review, F1): the widget extension builds its own
+    /// `UserStateStore` on every timeline refresh, and without this gate
+    /// its empty `.standard` could migrate first — copying nothing but
+    /// still marking the shared App Group suite as "migrated" — and
+    /// permanently skip the app's real migration once it finally launches.
+    /// Always returns `true` (never re-runs the check) whether or not the
+    /// migration actually happened, mirroring the no-op-forever contract
+    /// `AppGroup.migrateDefaultsIfNeeded` itself already has once its own
+    /// flag is set.
+    @discardableResult
+    static func triggerMigrationIfNeeded(isAppProcess: Bool = AppGroup.isAppProcess) -> Bool {
+        guard AppGroup.shouldRunAppOnlyMigration(
+            isAppProcess: isAppProcess,
+            hasGroupContainer: AppGroup.containerURL() != nil
+        ) else { return true }
+        AppGroup.migrateDefaultsIfNeeded(
+            from: .standard,
+            to: AppGroup.userDefaults(),
+            keys: [filtersKey, favoritesKey, recentsKey]
+        )
+        return true
     }
 
     /// Loads the persisted filter facets, or `nil` if nothing was saved or
@@ -238,5 +288,32 @@ nonisolated struct UserStateStore {
         let persisted = PersistedRecents(recents: recents, lastSaved: now())
         guard let data = try? Self.encoder.encode(persisted) else { return }
         defaults.set(data, forKey: Self.recentsKey)
+    }
+
+    /// Loads the persisted reminder settings, or `ReminderSettings()`
+    /// (30-minutes-before default, no overrides) if nothing was saved.
+    ///
+    /// Unlike `loadFilters`/`loadFavorites`/`loadRecents`, this has **no
+    /// expiry**: a reminder a user configured must not silently vanish just
+    /// because they haven't opened the app in a while — that would defeat
+    /// the point of reminding them. `ReminderSettings` is encoded directly
+    /// (no `lastSaved`-carrying wrapper struct): it already has an
+    /// extensible shape (an enum with a raw-value `Codable` and a
+    /// `[String: ReminderPreset]` dictionary), so no wrapper is needed to
+    /// keep it forward-compatible.
+    func loadReminderSettings() -> ReminderSettings {
+        guard
+            let data = defaults.data(forKey: Self.remindersKey),
+            let settings = try? Self.decoder.decode(ReminderSettings.self, from: data)
+        else {
+            return ReminderSettings()
+        }
+        return settings
+    }
+
+    /// Persists `settings` verbatim, with no expiry stamp.
+    func saveReminderSettings(_ settings: ReminderSettings) {
+        guard let data = try? Self.encoder.encode(settings) else { return }
+        defaults.set(data, forKey: Self.remindersKey)
     }
 }

@@ -169,6 +169,15 @@ def main() -> int:
         for shot in plan["shots"]:
             raw_path = RAW_ROOT / key / f"{shot['id']}.png"
             if not raw_path.exists():
+                if shot.get("manual"):
+                    # Manual shots (e.g. 10-widget, which lives on
+                    # SpringBoard) can't be captured by
+                    # capture-screenshots.sh; a missing raw is expected
+                    # until a human takes it per the shot's manualNote.
+                    # When the raw IS present, it flows through composition
+                    # and the manifest exactly like an automated shot.
+                    print(f"  {key}/{shot['id']}.png  SKIPPED (manual shot, raw not taken yet — see manualNote in screenshot-plan.json)")
+                    continue
                 missing.append(str(raw_path.relative_to(REPO_ROOT)))
                 continue
 

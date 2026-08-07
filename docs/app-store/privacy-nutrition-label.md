@@ -224,6 +224,31 @@ declaration if any of the following happens:
   `docs/runbooks/traffic-analytics.md` before assuming the label still
   holds.
 
+## 1.1 review (2026-08-07)
+
+Re-checked this document's answer against the 1.1 feature set (#177–#182:
+off-season landing, reminders, widgets, Siri/Shortcuts/Spotlight, My Day,
+grounds map) before the 1.1 listing refresh. **No changes to the App
+Privacy declaration are needed:**
+
+- Reminders (#178) schedule **local** notifications only (`UNUserNotificationCenter`
+  in `ios/ChqCalendar/Data/ReminderCenter.swift`) — no push service, no
+  server-side scheduling, nothing transmitted.
+- Widgets (#179) and the App Intents/Spotlight surfaces (#180) read the
+  same on-disk cache the app already reads, shared via the
+  `group.org.chqcal.app` App Group — no new network endpoint, no new data
+  collection.
+- The grounds map (#182) requests **no location permission** — confirmed
+  no `CLLocationManager` or `NSLocation*UsageDescription` anywhere in
+  `ios/`; walking directions open externally in Apple Maps via a
+  `maps.apple.com` URL, not an in-app location API.
+- None of #177/#181 (off-season landing, My Day) touch networking,
+  storage, or permissions beyond what was already declared.
+
+The Step 1 verification greps at the top of this document were re-run
+against the full `ios/` tree (not just `ios/ChqCalendar`) as part of this
+check and still returned no real hits.
+
 ## Cross-reference — keep in sync with `/privacy`
 
 The public privacy policy at `https://www.chqcal.org/privacy`

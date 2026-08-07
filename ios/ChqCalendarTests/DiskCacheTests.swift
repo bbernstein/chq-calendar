@@ -107,6 +107,21 @@ struct DiskCacheTests {
         #expect(cache.read("events") == nil)
     }
 
+    // MARK: - triggerMigrationIfNeeded isAppProcess gate (F1, "for symmetry")
+
+    /// Same rationale as `UserStateStoreTests`'s pair of the same name:
+    /// `AppGroup.containerURL()` is `nil` in the unit test host regardless
+    /// of `isAppProcess`, so both branches are no-ops here — this just pins
+    /// that the parameterized trigger is callable and total for both
+    /// values.
+    @Test func triggerMigrationIfNeededReturnsTrueWhenIsAppProcessIsTrue() {
+        #expect(DiskCache.triggerMigrationIfNeeded(isAppProcess: true))
+    }
+
+    @Test func triggerMigrationIfNeededReturnsTrueWhenIsAppProcessIsFalse() {
+        #expect(DiskCache.triggerMigrationIfNeeded(isAppProcess: false))
+    }
+
     @Test func writeSanitizesPathTraversalKeyToStayInsideDirectory() throws {
         let cache = makeCache()
         let payload = try #require("payload".data(using: .utf8))

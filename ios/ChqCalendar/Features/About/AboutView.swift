@@ -4,6 +4,8 @@ import SwiftUI
 /// the unaffiliated disclaimer somewhere a user (and an App Review reviewer)
 /// can always find it, plus the version and the legal links.
 struct AboutView: View {
+    let model: AppModel
+
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -27,6 +29,18 @@ struct AboutView: View {
                 }
 
                 Section {
+                    Picker("Default reminder", selection: defaultReminderPresetBinding) {
+                        ForEach(ReminderPreset.allCases, id: \.rawValue) { preset in
+                            Text(preset.label).tag(preset)
+                        }
+                    }
+                } header: {
+                    Text("Reminders")
+                } footer: {
+                    Text("Applies to events you star from now on.")
+                }
+
+                Section {
                     ForEach(AboutInfo.links) { link in
                         SwiftUI.Link(destination: link.url) {
                             HStack {
@@ -47,5 +61,16 @@ struct AboutView: View {
                 }
             }
         }
+    }
+
+    /// Reads/writes `model.reminderSettings.defaultPreset` through
+    /// `setDefaultReminderPreset`, which both persists the change and
+    /// re-syncs `reminderCenter` — a plain `Binding` over the stored
+    /// property alone would persist nothing.
+    private var defaultReminderPresetBinding: Binding<ReminderPreset> {
+        Binding(
+            get: { model.reminderSettings.defaultPreset },
+            set: { model.setDefaultReminderPreset($0) }
+        )
     }
 }

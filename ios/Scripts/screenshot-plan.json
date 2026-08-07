@@ -35,6 +35,36 @@
       "settleSeconds": 6,
       "needsCalendarAccess": true,
       "presentsModal": true
+    },
+    {
+      "id": "07-my-day",
+      "caption": "Plan your day — spot overlaps and walking times.",
+      "launchArgs": [
+        "-uitest-freeze-now", "2026-07-27 07:00:00",
+        "-uitest-seed-favorites", "101207,99511,96951",
+        "-uitest-tab", "my-day"
+      ],
+      "settleSeconds": 8
+    },
+    {
+      "id": "08-map",
+      "caption": "Every venue on the grounds.",
+      "launchArgs": ["-uitest-tab", "map"],
+      "settleSeconds": 12
+    },
+    {
+      "id": "09-reminder",
+      "caption": "Reminders for the events you star.",
+      "launchArgs": ["-uitest-select-event-index", "2", "-uitest-star-selected-event"],
+      "settleSeconds": 6
+    },
+    {
+      "id": "10-widget",
+      "caption": "Your next event, right on the Home Screen.",
+      "launchArgs": [],
+      "settleSeconds": 6,
+      "manual": true,
+      "manualNote": "Not automatable via plain simctl launch args (widgets live on SpringBoard, not in the app). On each capture simulator: install a SIGNED build (CODE_SIGNING_ALLOWED=NO strips the App Group entitlement and the widgets render empty), launch the app once so the App Group cache populates, star 2-3 events, then long-press the Home Screen -> Edit -> Add Widget -> 'CHQ Calendar' and place the small Next Up widget and the small Starred widget side by side. Set the status bar first (xcrun simctl status_bar <udid> override --time 9:41 --batteryState charged --batteryLevel 100 --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3), then capture with 'xcrun simctl io <udid> screenshot' (raw device resolution is already the required 1320x2868 iPhone / 2064x2752 iPad) into ios/Scripts/out/raw/<device-key>/10-widget.png and re-run compose-screenshots.py."
     }
   ]
 }

@@ -57,6 +57,17 @@ nonisolated enum ChqTime {
         return formatter
     }()
 
+    /// `"EEE d"`, e.g. `"Fri 14"` — shared by `MyDayView`'s day chips and
+    /// `GroundsMapView`'s upcoming-events rows (task 18, fix round 1 fold-in;
+    /// previously two identical private formatters).
+    private static let compactDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = zone
+        formatter.dateFormat = "EEE d"
+        return formatter
+    }()
+
     /// Parses `"yyyy-MM-dd HH:mm:ss"` or `"yyyy-MM-dd'T'HH:mm:ss"`, both
     /// interpreted as America/New_York wall-clock time.
     static func parse(_ s: String) -> Date? {
@@ -80,6 +91,11 @@ nonisolated enum ChqTime {
     /// `"h:mm a"`, e.g. `"12:45 PM"`.
     static func timeString(for date: Date) -> String {
         timeStringFormatter.string(from: date)
+    }
+
+    /// `"EEE d"`, e.g. `"Fri 14"`.
+    static func compactDayLabel(for date: Date) -> String {
+        compactDayFormatter.string(from: date)
     }
 
     /// The last moment (23:59:59) of the NY calendar day containing `date`.

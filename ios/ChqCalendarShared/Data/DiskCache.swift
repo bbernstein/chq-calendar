@@ -62,11 +62,55 @@ nonisolated struct DiskCache: DataCaching {
         self.directory = directory
     }
 
-    /// The app's standard cache location: `Library/Caches/chq-data/`.
+    /// The app's cache location: the App Group's `chq-data/` directory
+    /// when the App Group entitlement is present (so a future widget
+    /// extension can share it), else the legacy `Library/Caches/chq-data/`
+    /// path. Runs the one-time legacy-file migration exactly once per
+    /// process launch via `didMigrate`.
     static func standard() -> DiskCache {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return DiskCache(directory: caches.appending(path: "chq-data"))
+        _ = didMigrate
+        return DiskCache(directory: AppGroup.cacheDirectory())
+    }
+
+    /// Lazily migrates legacy cache files into the App Group directory the
+    /// first time `standard()` is called in this process. A `static let`
+    /// is used (rather than a mutable flag) because Swift initializes
+    /// globals/statics exactly once, thread-safely, which keeps this type
+    /// trivially `Sendable` without needing actor isolation or a lock.
+    ///
+    /// Delegates to `triggerMigrationIfNeeded(isAppProcess:)` for the same
+    /// testability reason `UserStateStore.didMigrateDefaults` does.
+    private static let didMigrate: Bool = triggerMigrationIfNeeded()
+
+    /// The one-time legacy-file migration trigger `didMigrate` runs exactly
+    /// once per process, gated to the app process only (task: iOS 4.2
+    /// resubmission review, F1 — "for symmetry" with `UserStateStore`'s
+    /// defaults-migration gate).
+    ///
+    /// This particular migration was already effectively app-only *in
+    /// practice* — `DiskCache.standard()` is only ever called from
+    /// `ChqCalendarApp`, and the widget extension always constructs
+    /// `DiskCache(directory:)` directly (see this type's top-level doc
+    /// comment and `WidgetDataSource`). The explicit `isAppProcess` gate
+    /// here is a second, structural belt for the same invariant rather
+    /// than a fix for an observed file-migration hazard: `migrateIfNeeded`
+    /// already only migrates into an *empty* destination directory, so a
+    /// stray widget call could never clobber real data — but if a future
+    /// call site ever did construct `DiskCache.standard()` from the widget
+    /// target, this gate makes that a safe no-op instead of a footgun
+    /// waiting to be triggered.
+    @discardableResult
+    static func triggerMigrationIfNeeded(isAppProcess: Bool = AppGroup.isAppProcess) -> Bool {
+        guard let container = AppGroup.containerURL(),
+              AppGroup.shouldRunAppOnlyMigration(isAppProcess: isAppProcess, hasGroupContainer: true)
+        else { return true }
+        let fileManager = FileManager.default
+        AppGroup.migrateIfNeeded(
+            fileManager: fileManager,
+            from: AppGroup.legacyCacheDirectory(fileManager: fileManager),
+            to: container.appending(path: "chq-data")
+        )
+        return true
     }
 
     private static let metadataEncoder: JSONEncoder = {

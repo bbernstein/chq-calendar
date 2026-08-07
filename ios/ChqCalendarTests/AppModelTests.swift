@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 import Testing
 @testable import ChqCalendar
 
@@ -227,6 +228,150 @@ struct AppModelTests {
         #expect(!model.isRefreshing)
     }
 
+    // MARK: - resolvePendingEventDeepLinkIfPossible()
+    //
+    // The fix this section pins: `phase` alone is not a reliable "the
+    // snapshot changed" signal, because a warm launch's stale cached
+    // snapshot sets `phase = .ready` immediately and a background
+    // `refresh()` can later replace `snapshot` without `phase` changing
+    // again. So an unknown `.event` id must not be cleared while a refresh
+    // is still in flight — only once one has actually settled.
+
+    @Test func eventDeepLinkResolvesImmediatelyWhenSnapshotAlreadyHasIt() {
+        let now = Date()
+        let model = makeSnapshotModel(events: [makeEvent(id: "a", start: now)], now: now)
+        model.pendingDeepLink = .event(id: "a")
+
+        let resolved = model.resolvePendingEventDeepLinkIfPossible()
+
+        #expect(resolved?.id == "a")
+        #expect(model.pendingDeepLink == nil)
+    }
+
+    @Test func eventDeepLinkStaysPendingWithoutASnapshotYet() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        model.pendingDeepLink = .event(id: "a")
+
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .event(id: "a"))
+    }
+
+    @Test func eventDeepLinkIsClearedImmediatelyWhenUnknownAndNoRefreshInFlight() {
+        let now = Date()
+        let model = makeSnapshotModel(events: [makeEvent(id: "a", start: now)], now: now)
+        // `makeSnapshotModel` assigns `snapshot` directly rather than going
+        // through `start()`/`refresh()`, so `phase` needs setting by hand to
+        // match what those flows always pair a non-nil snapshot with.
+        model.phase = .ready
+        model.pendingDeepLink = .event(id: "does-not-exist")
+
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == nil)
+    }
+
+    @Test func nonEventDeepLinksAreNeverResolvedOrClearedHere() {
+        let now = Date()
+        let model = makeSnapshotModel(events: [makeEvent(id: "a", start: now)], now: now)
+
+        model.pendingDeepLink = .myDay
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .myDay)
+
+        model.pendingDeepLink = .map(venue: "Amphitheater")
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .map(venue: "Amphitheater"))
+    }
+
+    /// The race from the review: a warm launch loads a stale cached
+    /// snapshot (missing the deep-linked event) straight into `phase =
+    /// .ready`, then `start()`'s background refresh is still in flight when
+    /// the link is asked to resolve. It must stay pending rather than being
+    /// declared unknown — and once the refresh lands with the event, the
+    /// very next resolution attempt must find it.
+    @Test func eventDeepLinkStaysPendingDuringInFlightRefreshThenResolvesOnceRefreshLandsWithTheEvent() async throws {
+        let cache = MockCache()
+        // Genuinely stale by real wall-clock time (`EventRepository.refresh`
+        // checks freshness via its own `Date()`), so `start()` actually
+        // kicks off a background refresh for year 2026.
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+
+        let refreshedPayload = try #require("""
+        {"data": [{"id": "999999", "title": "Newly Published Event", "startDate": "2026-08-10 10:00:00"}]}
+        """.data(using: .utf8))
+        let api = MockAPI()
+        await api.setSuccess(data: refreshedPayload, etag: "e1-refreshed", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let startTask = Task { await model.start() }
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot != nil
+        }
+        #expect(model.isRefreshing)
+
+        model.pendingDeepLink = .event(id: "999999")
+
+        // The stale snapshot (still `events-sample`, no "999999") doesn't
+        // have the event, but a refresh is in flight — must stay pending,
+        // not be declared unknown.
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .event(id: "999999"))
+
+        // Let the in-flight refresh land with data that has the event.
+        await api.resume(for: .events(year: 2026))
+        await startTask.value
+        #expect(!model.isRefreshing)
+
+        let resolved = model.resolvePendingEventDeepLinkIfPossible()
+        #expect(resolved?.id == "999999")
+        #expect(model.pendingDeepLink == nil)
+    }
+
+    /// The other half of the same race: if the id genuinely never shows up,
+    /// the link must still eventually be cleared — just not until the
+    /// in-flight refresh has actually settled.
+    @Test func eventDeepLinkIsClearedOnlyAfterRefreshSettlesConfirmingTheEventIsUnknown() async throws {
+        let cache = MockCache()
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+
+        let api = MockAPI()
+        // The refreshed payload still doesn't contain the deep-linked id.
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1-refreshed", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let startTask = Task { await model.start() }
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot != nil
+        }
+        #expect(model.isRefreshing)
+
+        model.pendingDeepLink = .event(id: "does-not-exist")
+
+        // Refresh still in flight: even though the *current* snapshot lacks
+        // the id, it must not be given up on yet.
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .event(id: "does-not-exist"))
+
+        await api.resume(for: .events(year: 2026))
+        await startTask.value
+        #expect(!model.isRefreshing)
+
+        // The refresh has settled and still doesn't know the id — now it's
+        // safe to give up on it.
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == nil)
+    }
+
     // MARK: - toggleFavorite
 
     @Test func toggleFavoritePersistsAcrossStoreInstances() {
@@ -245,6 +390,349 @@ struct AppModelTests {
         #expect(!UserStateStore(defaults: defaults, now: { Date() }).loadFavorites().contains("evt-1"))
     }
 
+    // MARK: - Reminder scheduling
+
+    /// The fixture event "101037" starts 2026-07-27 12:45:00 NY time — well
+    /// after `reminderFixedNow` below, so its default 30-minutes-before
+    /// reminder always has a future trigger date.
+    ///
+    /// `nonisolated`: passed directly as a `@Sendable () -> Date` to both
+    /// `AppModel.init` and `ReminderCenter.init`, which must be callable
+    /// without hopping back to the main actor.
+    private nonisolated func reminderFixedNow() -> Date {
+        // swiftlint:disable:next force_unwrapping
+        ChqTime.parse("2026-07-15 00:00:00")!
+    }
+
+    @Test func starringWithDefaultPresetSchedulesViaReminderCenter() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        #expect(model.phase == .ready)
+
+        model.toggleFavorite("101037")
+
+        await waitUntil("reminder scheduled for the starred event") {
+            scheduler.addCalls.contains { $0.identifier == "event-101037" }
+        }
+        let call = try #require(scheduler.addCalls.first { $0.identifier == "event-101037" })
+        #expect(call.userInfo == ["eventID": "101037"])
+    }
+
+    @Test func unstarringCancelsTheReminderOnNextSync() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("reminder scheduled for the starred event") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        model.toggleFavorite("101037")
+        await waitUntil("reminder cancelled after unstarring") {
+            !scheduler.pendingIdentifiers.contains("event-101037")
+        }
+    }
+
+    @Test func successfulRefreshTriggersReminderSync() async {
+        let cache = MockCache()
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1", for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        // Saved before `AppModel.init` so the model's `favorites` picks it
+        // up at construction, without needing a second model instance.
+        store.saveFavorites(["101037"])
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow, reminderCenter: reminderCenter)
+
+        await model.refresh(force: true)
+
+        await waitUntil("refresh's successful snapshot triggers a reminder sync") {
+            scheduler.addCalls.contains { $0.identifier == "event-101037" }
+        }
+    }
+
+    @Test func deniedAuthorizationMeansStarringSchedulesNothing() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        scheduler.status = .denied
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        model.toggleFavorite("101037")
+
+        // Give the fire-and-forget sync a chance to run; there's nothing to
+        // poll *for* here since this proves an absence.
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.calls.isEmpty)
+    }
+
+    @Test func setReminderOverridePersistsAndSyncs() async {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow, reminderCenter: reminderCenter)
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("initial reminder scheduled") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        model.setReminderOverride(ReminderPreset.none, for: "101037")
+
+        let reloadedSettings = UserStateStore(defaults: defaults, now: { Date() }).loadReminderSettings()
+        #expect(reloadedSettings.preset(for: "101037") == ReminderPreset.none)
+        await waitUntil("override turning reminders off removes the pending reminder") {
+            !scheduler.pendingIdentifiers.contains("event-101037")
+        }
+    }
+
+    @Test func setDefaultReminderPresetPersistsAndSyncs() async {
+        let defaults = makeDefaults()
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow, reminderCenter: reminderCenter)
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("initial reminder scheduled with default preset") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        model.setDefaultReminderPreset(ReminderPreset.none)
+
+        let reloadedSettings = UserStateStore(defaults: defaults, now: { Date() }).loadReminderSettings()
+        #expect(reloadedSettings.defaultPreset == ReminderPreset.none)
+        await waitUntil("default preset turned off removes the pending reminder") {
+            !scheduler.pendingIdentifiers.contains("event-101037")
+        }
+    }
+
+    @Test func reminderCenterDefaultsToNilAndAppModelStillWorksWithoutIt() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
+        let model = AppModel(repository: repo, store: store, now: reminderFixedNow)
+
+        #expect(model.reminderCenter == nil)
+        await model.start()
+        model.toggleFavorite("101037")
+        // No crash / no assertion failure from a nil reminderCenter is the
+        // whole point of this test.
+        #expect(model.favorites.contains("101037"))
+    }
+
+    /// Browsing an archive year (via the always-available year picker) must
+    /// not cancel a reminder for a favorited event that belongs to a
+    /// *different* cached year. `events-sample-alt-casing` is used for 2025
+    /// specifically because it contains none of `events-sample`'s event
+    /// IDs — with the bug (a plan scoped to `snapshot?.events`, i.e.
+    /// whichever year is currently selected), switching to 2025 would find
+    /// no favorited events in that year's list, `sync` would `removeAll`,
+    /// and the still-pending, still-in-the-future 2026 reminder for
+    /// "101037" would be silently cancelled.
+    @Test func selectingAnArchiveYearDoesNotCancelAReminderForAFavoriteInAnotherYear() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("events-2025", data: fixtureData("events-sample-alt-casing"), etag: "e2", fetchedAt: Date())
+        // Populates `model.years` with both 2025 and 2026 (plus 2027, which
+        // has no cached snapshot and is simply skipped), so this actually
+        // exercises the union-across-`years` code path rather than
+        // incidentally passing because `years` only ever contained 2026.
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let scheduler = MockScheduler()
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        await model.start()
+        model.toggleFavorite("101037")
+        await waitUntil("reminder scheduled for the 2026 favorite") {
+            scheduler.pendingIdentifiers.contains("event-101037")
+        }
+
+        await model.select(year: 2025)
+
+        #expect(model.selectedYear == 2025)
+        #expect(scheduler.pendingIdentifiers.contains("event-101037"))
+    }
+
+    // MARK: - One-time reminder-authorization ask on first star (#178)
+
+    @Test func firstStarWithDefaultPresetRequestsAuthorizationExactlyOnceAcrossThreeStars() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        // Three back-to-back stars of three different events — all
+        // synchronous, no `await` between them, which is exactly the
+        // scenario `requestReminderAuthorizationIfNeeded`'s synchronous
+        // flag (not a re-read of async authorization status) is designed to
+        // survive without a race. See that method's doc comment.
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        await waitUntil("the one-time authorization request lands") {
+            scheduler.requestAuthorizationCallCount >= 1
+        }
+        // Bounded settle window for the negative half of the assertion — a
+        // second or third stray request would also show up within it.
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 1)
+    }
+
+    @Test func noAuthorizationRequestAcrossThreeStarsWhenDefaultPresetIsOff() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+        model.setDefaultReminderPreset(ReminderPreset.none)
+
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+    }
+
+    @Test func noAuthorizationRequestAcrossThreeStarsWhenAlreadyDenied() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .denied
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+    }
+
+    /// Task 17 review fix: `-uitest-seed-favorites`/`-uitest-star-selected-event`
+    /// call `toggleFavorite` directly on a freshly-erased simulator (the
+    /// screenshot script's starting state), which is `.notDetermined` and
+    /// would otherwise spawn a real system permission dialog — see
+    /// `AppModel.uitestSuppressReminderAuthorizationPrompt()`'s doc comment.
+    /// Pins that calling the suppression hook first makes three back-to-back
+    /// stars request authorization zero times, the same shape as
+    /// `noAuthorizationRequestAcrossThreeStarsWhenDefaultPresetIsOff` above
+    /// but via the DEBUG escape hatch rather than the preset.
+    @Test func uitestSuppressionPreventsAnyAuthorizationRequestAcrossThreeStars() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        model.uitestSuppressReminderAuthorizationPrompt()
+
+        model.toggleFavorite("evt-a")
+        model.toggleFavorite("evt-b")
+        model.toggleFavorite("evt-c")
+
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.requestAuthorizationCallCount == 0)
+        #expect(model.favorites.isSuperset(of: ["evt-a", "evt-b", "evt-c"]))
+    }
+
+    /// #178 review fix: the in-flow "Don't Allow" case. Starring an event
+    /// fires `requestReminderAuthorizationIfNeeded()`'s fire-and-forget
+    /// `Task`, which the reviewer found never reported its result back
+    /// anywhere the detail row could read — so a denial from *this* system
+    /// dialog (as opposed to one already decided before the row appeared)
+    /// left `model.reminderAuthorizationStatus` stale. This pins that the
+    /// star flow now routes through `AppModel.ensureReminderAuthorization()`,
+    /// which publishes the resolved status once the request settles.
+    @Test func starringAnEventPublishesADenialOnTheModelOnceTheAuthorizationFlowSettles() async {
+        let scheduler = MockScheduler()
+        scheduler.status = .notDetermined
+        scheduler.requestAuthorizationResult = false
+        let reminderCenter = ReminderCenter(scheduler: scheduler, now: reminderFixedNow)
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: reminderFixedNow,
+            reminderCenter: reminderCenter
+        )
+
+        #expect(model.reminderAuthorizationStatus == nil)
+
+        model.toggleFavorite("evt-a")
+
+        await waitUntil("the star flow's denial is published on the model") {
+            model.reminderAuthorizationStatus == .denied
+        }
+        #expect(model.reminderAuthorizationStatus == .denied)
+    }
+
     // MARK: - select(year:)
 
     @Test func selectYearSwapsSnapshot() async {
@@ -261,6 +749,220 @@ struct AppModelTests {
 
         #expect(model.selectedYear == 2025)
         #expect(model.snapshot?.year == 2025)
+    }
+
+    // MARK: - landingState / browseArchiveSeason / previewNextSeason (#177)
+    //
+    // `events-sample.json` is entirely July 2026, so a fixed `now` in
+    // September 2026 puts it past the `.next` scope's 90-day adaptive-window
+    // cap (`EventFilter.adaptiveEndDate`) with nothing left in it — the
+    // exact off-season emptiness #177 is about.
+
+    @Test func landingStateIsPostSeasonOnceTheFixtureFeedsAdaptiveWindowCapExpires() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        #expect(model.years == [2025, 2026, 2027])
+        #expect(model.selectedYear == 2026)
+        #expect(model.isCurrentYear)
+
+        let expected = LandingState.determine(
+            now: now, selectedYear: 2026, availableYears: [2025, 2026, 2027], upcomingDefaultCount: 0)
+        #expect(model.landingState == expected)
+        #expect(model.landingState == .postSeason(
+            endedSeasonYear: 2026, nextSeasonYear: 2027,
+            opening: SeasonCalendar.seasonStart(year: 2027), daysUntil: 288))
+    }
+
+    @Test func landingStateIsInSeasonWhileTheDefaultFilterStillHasFixtureEvents() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        // Pinned before every fixture event's start (same instant used by
+        // `startWithWarmCacheIsReadyBeforeAnyNetworkCompletes`).
+        let now = try #require(ChqTime.parse("2026-06-15 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        #expect(model.landingState == .inSeason)
+    }
+
+    /// The fix this pins: without a `snapshot` yet, `landingState` must not
+    /// run `LandingState.determine` with a count forced to `0` — that would
+    /// misreport `.postSeason` for an offline first launch that happens
+    /// mid-season, just because there's no event data to say otherwise from.
+    /// `now` here (mid-July 2026) is deep in-season — if this regressed back
+    /// to forcing `upcomingDefaultCount = 0` on a nil snapshot, it would
+    /// read `.postSeason`, not `.inSeason`.
+    @Test func landingStateIsInSeasonWithoutASnapshotEvenMidSeason() async throws {
+        let api = MockAPI()
+        await api.setFailure(MockAPIError.unscripted("events-down"), for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: MockCache())
+        let now = try #require(ChqTime.parse("2026-07-15 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        // Before start(): no snapshot at all yet.
+        #expect(model.snapshot == nil)
+        #expect(model.landingState == .inSeason)
+
+        // A failed fetch also leaves snapshot nil (offline first launch) —
+        // same expectation holds once settled.
+        await model.start()
+        #expect(model.phase == .offline)
+        #expect(model.snapshot == nil)
+        #expect(model.landingState == .inSeason)
+    }
+
+    /// Task 5 (#177): pins the exact state `OffSeasonLandingView` renders
+    /// against — default filter, off-season, `dayGroups` empty — and that
+    /// its "Browse the ended season" action (`browseArchiveSeason()`) is
+    /// what recovers a non-empty list from there.
+    @Test func browseArchiveSeasonShowsTheEndedSeasonWhenTheDefaultFilterHasGoneEmpty() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-10-01 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        #expect(model.filter.isDefault)
+        #expect(model.dayGroups.isEmpty, "the default .next filter has nothing left post-season")
+        #expect(model.landingState.isPostSeason)
+
+        model.browseArchiveSeason()
+
+        #expect(model.filter.dateScope == .season)
+        #expect(!model.dayGroups.isEmpty)
+    }
+
+    @Test func previewNextSeasonSelectsTheAnnouncedYearAndSwitchesFilterToAll() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("events-2027", data: fixtureData("events-sample"), etag: "e2", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        guard case .postSeason(_, 2027, _, _) = model.landingState else {
+            Issue.record("expected postSeason with nextSeasonYear 2027, got \(model.landingState)")
+            return
+        }
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2027)
+        #expect(model.snapshot?.year == 2027)
+        #expect(model.filter.dateScope == .all)
+    }
+
+    /// `select(year:)` never throws — a network failure just leaves
+    /// `snapshot == nil` / `phase == .offline` (see its doc comment) — so
+    /// this pins that `previewNextSeason()` still finishes setting the
+    /// filter afterward instead of stranding it mid-transition.
+    @Test func previewNextSeasonSetsFilterEvenWhenTheNetworkFetchForNextYearFails() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        // No cache entry at all for 2027, and its network fetch fails.
+        let api = MockAPI()
+        await api.setFailure(MockAPIError.unscripted("events-2027-down"), for: .events(year: 2027))
+        let repo = EventRepository(api: api, cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2027)
+        #expect(model.snapshot == nil)
+        #expect(model.phase == .offline)
+        #expect(model.filter.dateScope == .all)
+    }
+
+    @Test func previewNextSeasonIsANoOpWhileInSeason() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-06-15 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        #expect(model.landingState == .inSeason)
+        let filterBefore = model.filter
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2026)
+        #expect(model.filter == filterBefore)
+    }
+
+    /// Forces the "no next year announced yet" branch of `.postSeason`
+    /// without needing a second years-manifest fixture.
+    @Test func previewNextSeasonIsANoOpWhenNoNextYearIsAnnounced() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        model.years = [2025, 2026]
+        guard case .postSeason(_, nil, nil, nil) = model.landingState else {
+            Issue.record("expected postSeason with no next year, got \(model.landingState)")
+            return
+        }
+        let filterBefore = model.filter
+
+        await model.previewNextSeason()
+
+        #expect(model.selectedYear == 2026)
+        #expect(model.filter == filterBefore)
     }
 
     // MARK: - selectScope / setWeekSelection / clearAll / clearNonDateFilters

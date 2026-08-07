@@ -15,7 +15,7 @@ import SwiftUI
 ///   mode since nothing ever pushes a value.
 ///
 /// Everything else — the loading/offline/error/no-matches states, the
-/// countdown/offline banners, the bottom-bar filter controls, and
+/// countdown/offline banners, the filter pill bar, and
 /// `refreshable` — is identical between the two layouts, which is the whole
 /// point of sharing this view.
 struct EventListView: View {
@@ -41,8 +41,16 @@ struct EventListView: View {
             .navigationTitle("CHQ Calendar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            // Only once there is a snapshot to filter against — during
+            // launch or the offline/error states the pills would summarise
+            // nothing.
+            .safeAreaInset(edge: .bottom) {
+                if model.snapshot != nil {
+                    filterPillBar
+                }
+            }
             .sheet(isPresented: $isAboutPresented) {
-                AboutView()
+                AboutView(model: model)
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
@@ -53,6 +61,8 @@ struct EventListView: View {
             #if DEBUG
             .onAppear(perform: presentFilterSheetIfNeeded)
             .onChange(of: model.uiTestShowFilters) { _, _ in presentFilterSheetIfNeeded() }
+            .onAppear(perform: presentAboutIfNeeded)
+            .onChange(of: model.uiTestShowAbout) { _, _ in presentAboutIfNeeded() }
             #endif
     }
 
@@ -69,6 +79,15 @@ struct EventListView: View {
         if model.uiTestShowFilters {
             model.uiTestShowFilters = false
             activeSheet = .filters
+        }
+    }
+
+    /// `-uitest-show-about` — see `presentFilterSheetIfNeeded` above for why
+    /// both `onAppear` and `onChange` are wired.
+    private func presentAboutIfNeeded() {
+        if model.uiTestShowAbout {
+            model.uiTestShowAbout = false
+            isAboutPresented = true
         }
     }
 
@@ -106,7 +125,11 @@ struct EventListView: View {
             // reading it twice would cost two full passes per render.
             let days = model.dayGroups
             if days.isEmpty {
-                noMatchesView
+                if model.filter.isDefault && model.landingState != .inSeason {
+                    OffSeasonLandingView(model: model)
+                } else {
+                    noMatchesView
+                }
             } else {
                 list(days: days)
             }
@@ -162,14 +185,17 @@ struct EventListView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
-        // No `contentMargins(.bottom, …)` here on purpose. The bottom bar is
-        // a real toolbar, so the system puts its height into the scroll
-        // view's own content insets — measured at 86.0pt on iPhone 17 /
-        // iOS 26.1 with nothing of ours contributing to it. That is a
-        // stronger version of the guarantee the hand-rolled reservation used
-        // to provide: the inset is owned by the navigation container, not by
-        // any state of ours, so nothing we render can shift the list
-        // vertically. Adding a margin back would double-count the bar.
+        // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
+        // the date/filter pills are no longer a toolbar item — they're this
+        // view's own hand-rolled `filterPillBar`, applied to `content` via
+        // `.safeAreaInset(edge: .bottom)` in `body` above. A
+        // `.safeAreaInset` bar contributes its height to the scroll view's
+        // safe area the same way a real toolbar would, so the list already
+        // insets its content (and its scroll indicator) to clear the pills
+        // without any margin of ours. The inset is owned by the
+        // `.safeAreaInset` modifier itself, not by any state of ours, so
+        // nothing we render can shift the list vertically. Adding a margin
+        // back would double-count it.
         .refreshable {
             await model.refresh(force: true)
         }
@@ -215,9 +241,30 @@ struct EventListView: View {
     }
     #endif
 
+    /// Non-`nil` only off-season (`landingState != .inSeason`), when the
+    /// user's *own* filters — not the adaptive window — are what emptied the
+    /// list: `OffSeasonLandingView` already owns the default-filter case
+    /// (`EventListView.content`), so this only ever renders alongside a
+    /// narrowed selection. Worded per state since `.preSeason` has no
+    /// "ended" year to name.
+    private var seasonNotice: String? {
+        switch model.landingState {
+        case .inSeason:
+            return nil
+        case .postSeason(let endedSeasonYear, _, _, _):
+            return "The \(endedSeasonYear) season has ended — your filters match no events."
+        case .preSeason:
+            return "The \(model.selectedYear) season hasn't started yet — your filters match no events."
+        }
+    }
+
     private var noMatchesView: some View {
         ContentUnavailableView {
             Label("No matching events", systemImage: "calendar.badge.exclamationmark")
+        } description: {
+            if let seasonNotice {
+                Text(seasonNotice)
+            }
         } actions: {
             // Deliberately worded differently than the filter sheet's
             // "Clear Filters" button (`FilterSheet.swift`), even though both
@@ -229,8 +276,26 @@ struct EventListView: View {
             // state — recovering from "nothing matches" needs a full reset —
             // but the label must say so plainly rather than reuse a phrase
             // that means something narrower elsewhere in the app.
-            Button("Show All Events") {
-                model.clearAll()
+            //
+            // Off-season (#177), a second, narrower option is added: the
+            // user's non-date filters (search/venue/category/favorites) are
+            // just as likely the culprit as the season being over, and
+            // `clearNonDateFilters()` recovers from that without also
+            // discarding a deliberate date/week choice the way `clearAll()`
+            // would. In-season keeps exactly the single button this view has
+            // always had — the season being current was never in question,
+            // so there's nothing for a second, date-preserving option to add.
+            if model.landingState == .inSeason {
+                Button("Show All Events") {
+                    model.clearAll()
+                }
+            } else {
+                Button("Clear Filters") {
+                    model.clearNonDateFilters()
+                }
+                Button("Show All Events") {
+                    model.clearAll()
+                }
             }
         }
     }
@@ -278,82 +343,81 @@ struct EventListView: View {
             : "Filters, \(filterCount) active. Double tap to change."
     }
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        // The two filter controls live in the navigation container's bottom
-        // bar rather than in a floating overlay of our own. On the iOS 26
-        // SDK this app builds against, `.searchable` is itself rendered as a
-        // bottom-anchored floating field, so an overlay bar and the search
-        // field were two separate things competing for the same edge (and
-        // the overlay sat on top of list text). Bottom-bar toolbar items and
-        // the search field are laid out by the system as one group, which is
-        // both the platform idiom and the only way the two can coexist.
-        //
-        // Only once there is a snapshot to filter against — during launch or
-        // the offline/error states the pills would summarise nothing. The
-        // search field is unaffected by this condition; it is the system's.
-        if model.snapshot != nil {
-            ToolbarItemGroup(placement: .bottomBar) {
-                Button {
-                    KeyboardDismisser.dismiss()
-                    activeSheet = .date
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "calendar")
-                        // `fixedSize` so this text wins any competition for
-                        // width against the search field beside it: the date
-                        // label is the one thing in the bar that must never
-                        // abbreviate. The system search item is designed to
-                        // minimise to a magnifier when space is tight, so it
-                        // is the correct thing to yield. Longest value this
-                        // can take is `DateFilterLabel`'s "Weeks 1, 3, 5".
-                        Text(dateLabel)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
+    /// The date/filter pill bar, floated above the tab bar via
+    /// `.safeAreaInset(edge: .bottom)` in `body`.
+    ///
+    /// History: before the tab shell (task 16) these two buttons were a
+    /// `ToolbarItemGroup(placement: .bottomBar)`, sharing the system's
+    /// bottom bar with a `DefaultToolbarItem(kind: .search)` on iOS 26
+    /// (where `.searchable`'s default placement was bottom-anchored — see
+    /// git history of this comment for that arrangement's own rationale).
+    /// `RootTabView`'s tab bar ended it: on both iOS 26 and the tab shell's
+    /// first screenshots, the tab bar rendered ON TOP of any app-declared
+    /// `.bottomBar` content — date pill, Filters, and the search item were
+    /// all present but covered and untappable. So search moved to
+    /// `.navigationBarDrawer` placement (in `CalendarView`), and these
+    /// pills moved out of the toolbar system entirely into a safe-area
+    /// inset, which the tab bar's own safe-area contribution stacks
+    /// *above* rather than under (screenshot-verified in task 16).
+    private var filterPillBar: some View {
+        HStack(spacing: 10) {
+            pillButton {
+                KeyboardDismisser.dismiss()
+                activeSheet = .date
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "calendar")
+                    // `fixedSize` so the date label never abbreviates — it
+                    // is precisely the thing a scrolling user wants to keep
+                    // reading. Longest value this can take is
+                    // `DateFilterLabel`'s "Weeks 1, 3, 5".
+                    Text(dateLabel)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-                .accessibilityLabel("Date range: \(dateLabel). Double tap to change.")
-
-                Button {
-                    KeyboardDismisser.dismiss()
-                    activeSheet = .filters
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "line.3.horizontal.decrease")
-                        Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
-                            .lineLimit(1)
-                    }
-                }
-                .accessibilityLabel(filtersAccessibilityLabel)
             }
-            // **Required on iOS 26, not decorative.** Declaring *any*
-            // `.bottomBar` content on the iOS 26 runtime makes the app own
-            // that bar, and the system search field — which on iOS 26 is
-            // itself bottom-anchored — then disappears entirely rather than
-            // sharing it. Verified by screenshot: with the group above and
-            // without these two items, launching with `-uitest-search opera`
-            // filtered the list but drew no search field and no magnifier
-            // anywhere on screen, leaving search unreachable. These items put
-            // it back, to the right of the pills, as one group.
-            //
-            // Deployment target stays 18.0; this is an availability-guarded
-            // adoption, not a floor change. On the iOS 18 runtime the branch
-            // is skipped and `.searchable` renders under the navigation bar,
-            // which is where it has always gone there — no conflict to
-            // resolve, so nothing to declare.
-            //
-            // Known benign log on iOS 26: "Ignoring
-            // searchBarPlacementBarButtonItem because its vending navigation
-            // item does not match the view controller's", twice at launch.
-            // SwiftUI vends two `UINavigationItem`s that share the same
-            // `searchController`. Placing `.searchable` on this view instead
-            // of on the enclosing container was tried and did not change the
-            // count; the field renders in the bottom bar either way.
+            .accessibilityLabel("Date range: \(dateLabel). Double tap to change.")
+
+            pillButton {
+                KeyboardDismisser.dismiss()
+                activeSheet = .filters
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                    Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
+                        .lineLimit(1)
+                }
+            }
+            .accessibilityLabel(filtersAccessibilityLabel)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+    }
+
+    /// One pill: a plain button whose chrome matches the platform — Liquid
+    /// Glass on iOS 26 (what the old system bottom bar drew around these
+    /// same labels), a material capsule on iOS 18.
+    private func pillButton(
+        action: @escaping () -> Void, @ViewBuilder label: () -> some View
+    ) -> some View {
+        let button = Button(action: action) {
+            label()
+                .padding(.vertical, 11)
+                .padding(.horizontal, 14)
+        }
+        return Group {
             if #available(iOS 26.0, *) {
-                ToolbarSpacer(.flexible, placement: .bottomBar)
-                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                button.glassEffect(.regular.interactive())
+            } else {
+                button.background(.regularMaterial, in: Capsule())
             }
         }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 ForEach(AboutInfo.quickLinks) { link in

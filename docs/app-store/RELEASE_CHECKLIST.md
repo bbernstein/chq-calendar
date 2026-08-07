@@ -75,6 +75,22 @@ Related documents:
   App → App Store Connect → Upload**. Wait for the archive to build cleanly
   (no signing errors) before distributing.
 
+  **App Group note (first archive after the 4.2-resubmission branch):**
+  the `ChqCalendarWidgets` extension shares data with the app via the
+  `group.org.chqcal.app` App Group. The very first archive that includes
+  this extension needs Xcode opened once with automatic signing enabled
+  (the normal **⌘R** run-on-device or run-on-simulator flow is enough) so
+  Xcode can register the App Group and the widget extension's bundle
+  identifier with the Apple Developer account interactively. A headless
+  `xcodebuild archive` run before that registration has happened will fail
+  on the App Group entitlement. Once Xcode has provisioned it once, later
+  archives (headless or not) work normally.
+
+  **The archive now includes the widget extension automatically** — it is
+  a dependency of the `ChqCalendar` app scheme, so **Product → Archive**
+  on that scheme bundles `ChqCalendarWidgets.appex` into the `.ipa` without
+  any separate step.
+
 - [ ] **5. Create the version in App Store Connect and attach the processed
   build.**
   In App Store Connect, create the new version (e.g. "1.0") under the iOS

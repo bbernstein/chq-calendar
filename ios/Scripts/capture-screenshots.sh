@@ -208,7 +208,7 @@ for key in "${device_keys[@]}"; do
     if [ "$needs_calendar" = "true" ]; then
       xcrun simctl privacy "$udid" revoke calendar "$BUNDLE_ID"
     fi
-  done < <(jq -c '.shots[]' "$PLAN")
+  done < <(jq -c '.shots[] | select(.manual != true)' "$PLAN")
 
   xcrun simctl status_bar "$udid" clear
 
@@ -223,11 +223,13 @@ for key in "${device_keys[@]}"; do
   echo "==> $key done: $out_dir"
 done
 
-# Prints any shots still marked "manual": true in the plan, with their
+# Prints any shots marked "manual": true in the plan, with their
 # "manualNote", so a human bootstrapping a fresh checkout isn't stuck
 # rediscovering an interaction that isn't automatable from the command
-# line. Nothing in the current plan needs this (see screenshot-plan.json),
-# but the mechanism is kept for whatever hits it next.
+# line. The capture loop above skips these (there's nothing `simctl
+# launch` can do for them — e.g. 10-widget lives on SpringBoard, not in
+# the app); their raw PNGs are taken by hand into out/raw/<key>/<id>.png,
+# after which compose-screenshots.py picks them up like any other shot.
 manual_notes=$(jq -r '.shots[] | select(.manual == true) | "  - \(.id): \(.manualNote // "manual interaction required, no note recorded")"' "$PLAN")
 if [ -n "$manual_notes" ]; then
   echo

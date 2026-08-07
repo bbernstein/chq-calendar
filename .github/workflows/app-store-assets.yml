@@ -50,7 +50,7 @@ jobs:
           changed=$(git diff --name-only "$merge_base" "$HEAD_SHA")
 
           ui_changed=$(echo "$changed" | grep -E \
-            '^ios/ChqCalendar/(Features|App)/|^ios/ChqCalendar/Assets\.xcassets/' || true)
+            '^ios/ChqCalendar/(Features|App)/|^ios/ChqCalendar/Assets\.xcassets/|^ios/ChqCalendarWidgets/' || true)
 
           if [ -z "$ui_changed" ]; then
             echo "No UI-affecting iOS changes. Nothing to check."
