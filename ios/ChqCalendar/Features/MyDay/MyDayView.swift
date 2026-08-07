@@ -106,17 +106,9 @@ struct MyDayView: View {
 
     // MARK: - Day chips
 
-    private static let compactDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = ChqTime.zone
-        formatter.dateFormat = "EEE d"
-        return formatter
-    }()
-
     private func compactDayLabel(for dayKey: String) -> String {
         guard let date = ChqTime.parse("\(dayKey) 00:00:00") else { return dayKey }
-        return Self.compactDayFormatter.string(from: date)
+        return ChqTime.compactDayLabel(for: date)
     }
 
     private func fullDayTitle(for dayKey: String) -> String {

@@ -22,6 +22,19 @@ struct GroundsMapView: View {
     /// supplies the real implementation the same way it does there.
     var switchToEvents: () -> Void = {}
 
+    /// `RootTabView`'s `selectedTab`, threaded down read-only (task 18, fix
+    /// round 1). `.sheet` is a window-level presentation, not scoped to
+    /// whichever tab is visually frontmost — and because the `TabView` keeps
+    /// every tab's content alive across switches (task 16), `selectedVenueID`
+    /// below survives a tab switch too, so without this the venue sheet keeps
+    /// floating over whatever tab (or pushed detail view) the user lands on
+    /// next, reachable via any of the several ways `RootTabView` changes
+    /// `selectedTab` without a tap ever reaching this view's sheet UI at all
+    /// (a `chqcal://` deep link, a notification tap, a widget, an App
+    /// Intent, Spotlight) — see `onChange(of: selectedTab)` below, which is
+    /// what actually clears it.
+    var selectedTab: AppTab
+
     @State private var cameraPosition: MapCameraPosition = .region(Self.region(center: VenueAtlas.groundsCenter, spanMeters: 1200))
     @State private var selectedVenueID: String?
 
@@ -51,6 +64,17 @@ struct GroundsMapView: View {
         }
         .task { focusOnPendingVenueIfNeeded() }
         .onChange(of: model.mapFocusVenue) { _, _ in focusOnPendingVenueIfNeeded() }
+        // Fix round 1 (task 18 review): leaving the Map tab by any route —
+        // not just "Show all events here" — must dismiss this sheet too.
+        // Empirically confirmed via a `chqcal://` deep link switch while the
+        // sheet was open: without this, the sheet kept floating over the
+        // newly selected tab's content (even over a pushed
+        // `EventDetailView`), because `selectedVenueID` is `@State` here and
+        // this view is never torn down by the tab switch itself.
+        .onChange(of: selectedTab) { _, newTab in
+            guard newTab != .map else { return }
+            selectedVenueID = nil
+        }
     }
 
     // MARK: - Sheet presentation
@@ -113,7 +137,14 @@ struct GroundsMapView: View {
     private func upcomingEventRow(_ event: Event) -> some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(Self.compactDayFormatter.string(from: event.start))
+                // The day label (not just the time) matters here because a
+                // recurring series like a weekly discussion hosted at the
+                // same venue and time every week — e.g. "CHQ Dialogues" at
+                // Episcopal Cottage, Fridays at 3:30 PM — would otherwise
+                // show as what looks like the same event duplicated three
+                // times in this limit-3 list, with nothing to tell the three
+                // Fridays apart.
+                Text(ChqTime.compactDayLabel(for: event.start))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Text(ChqTime.timeString(for: event.start))
@@ -127,21 +158,6 @@ struct GroundsMapView: View {
             Spacer(minLength: 0)
         }
     }
-
-    /// `"EEE d"`, e.g. `"Fri 14"` — mirrors `MyDayView`'s compact day chip
-    /// format. Needed here (and not just the time) because a recurring
-    /// series like a weekly discussion hosted at the same venue and time
-    /// every week — e.g. "CHQ Dialogues" at Episcopal Cottage, Fridays at
-    /// 3:30 PM — would otherwise show as what looks like the same event
-    /// duplicated three times in this limit-3 list, with nothing to tell
-    /// the three Fridays apart.
-    private static let compactDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = ChqTime.zone
-        formatter.dateFormat = "EEE d"
-        return formatter
-    }()
 
     // MARK: - Deep-link / detail-view focus
 

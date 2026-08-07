@@ -76,7 +76,7 @@ struct RootTabView: View {
                 MyDayView(model: model, switchToEvents: { selectedTab = .events })
             }
             Tab("Map", systemImage: "map", value: AppTab.map) {
-                GroundsMapView(model: model, switchToEvents: { selectedTab = .events })
+                GroundsMapView(model: model, switchToEvents: { selectedTab = .events }, selectedTab: selectedTab)
             }
         }
         .onOpenURL { url in
