@@ -106,7 +106,11 @@ struct EventListView: View {
             // reading it twice would cost two full passes per render.
             let days = model.dayGroups
             if days.isEmpty {
-                noMatchesView
+                if model.filter.isDefault && model.landingState != .inSeason {
+                    OffSeasonLandingView(model: model)
+                } else {
+                    noMatchesView
+                }
             } else {
                 list(days: days)
             }
@@ -215,9 +219,30 @@ struct EventListView: View {
     }
     #endif
 
+    /// Non-`nil` only off-season (`landingState != .inSeason`), when the
+    /// user's *own* filters — not the adaptive window — are what emptied the
+    /// list: `OffSeasonLandingView` already owns the default-filter case
+    /// (`EventListView.content`), so this only ever renders alongside a
+    /// narrowed selection. Worded per state since `.preSeason` has no
+    /// "ended" year to name.
+    private var seasonNotice: String? {
+        switch model.landingState {
+        case .inSeason:
+            return nil
+        case .postSeason(let endedSeasonYear, _, _, _):
+            return "The \(endedSeasonYear) season has ended — your filters match no events."
+        case .preSeason:
+            return "The \(model.selectedYear) season hasn't started yet — your filters match no events."
+        }
+    }
+
     private var noMatchesView: some View {
         ContentUnavailableView {
             Label("No matching events", systemImage: "calendar.badge.exclamationmark")
+        } description: {
+            if let seasonNotice {
+                Text(seasonNotice)
+            }
         } actions: {
             // Deliberately worded differently than the filter sheet's
             // "Clear Filters" button (`FilterSheet.swift`), even though both
@@ -229,8 +254,26 @@ struct EventListView: View {
             // state — recovering from "nothing matches" needs a full reset —
             // but the label must say so plainly rather than reuse a phrase
             // that means something narrower elsewhere in the app.
-            Button("Show All Events") {
-                model.clearAll()
+            //
+            // Off-season (#177), a second, narrower option is added: the
+            // user's non-date filters (search/venue/category/favorites) are
+            // just as likely the culprit as the season being over, and
+            // `clearNonDateFilters()` recovers from that without also
+            // discarding a deliberate date/week choice the way `clearAll()`
+            // would. In-season keeps exactly the single button this view has
+            // always had — the season being current was never in question,
+            // so there's nothing for a second, date-preserving option to add.
+            if model.landingState == .inSeason {
+                Button("Show All Events") {
+                    model.clearAll()
+                }
+            } else {
+                Button("Clear Filters") {
+                    model.clearNonDateFilters()
+                }
+                Button("Show All Events") {
+                    model.clearAll()
+                }
             }
         }
     }

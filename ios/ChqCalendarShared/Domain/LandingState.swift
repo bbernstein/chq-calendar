@@ -30,6 +30,14 @@ nonisolated enum LandingState: Equatable, Sendable {
     /// later year is available yet.
     case postSeason(endedSeasonYear: Int, nextSeasonYear: Int?, opening: Date?, daysUntil: Int?)
 
+    /// `true` only for `.postSeason`, regardless of its associated values —
+    /// the discriminator `EventListView`/`AppModelTests` need without
+    /// pattern-matching out four values they don't care about.
+    var isPostSeason: Bool {
+        if case .postSeason = self { return true }
+        return false
+    }
+
     /// Rules, in priority order:
     /// 1. `upcomingDefaultCount > 0` → `.inSeason` — the default filter has
     ///    something to show, regardless of the calendar.

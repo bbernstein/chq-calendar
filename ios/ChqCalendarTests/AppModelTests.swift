@@ -489,12 +489,16 @@ struct AppModelTests {
         #expect(model.landingState == .inSeason)
     }
 
+    /// Task 5 (#177): pins the exact state `OffSeasonLandingView` renders
+    /// against — default filter, off-season, `dayGroups` empty — and that
+    /// its "Browse the ended season" action (`browseArchiveSeason()`) is
+    /// what recovers a non-empty list from there.
     @Test func browseArchiveSeasonShowsTheEndedSeasonWhenTheDefaultFilterHasGoneEmpty() async throws {
         let cache = MockCache()
         cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
         cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
         let repo = EventRepository(api: MockAPI(), cache: cache)
-        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let now = try #require(ChqTime.parse("2026-10-01 00:00:00"))
         let model = AppModel(
             repository: repo,
             store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
@@ -502,7 +506,9 @@ struct AppModelTests {
         )
 
         await model.start()
+        #expect(model.filter.isDefault)
         #expect(model.dayGroups.isEmpty, "the default .next filter has nothing left post-season")
+        #expect(model.landingState.isPostSeason)
 
         model.browseArchiveSeason()
 

@@ -85,4 +85,20 @@ struct LandingStateTests {
             Issue.record("expected not-preSeason at the exact season start instant, got \(state)")
         }
     }
+
+    // MARK: - isPostSeason
+
+    @Test func isPostSeasonIsTrueOnlyForPostSeason() throws {
+        let now = try #require(ChqTime.parse("2026-09-11 00:00:00"))
+        let postSeason = LandingState.determine(
+            now: now, selectedYear: 2026, availableYears: manifestYears, upcomingDefaultCount: 0)
+        #expect(postSeason.isPostSeason)
+
+        #expect(!LandingState.inSeason.isPostSeason)
+
+        let preSeasonNow = try #require(ChqTime.parse("2026-05-01 00:00:00"))
+        let preSeason = LandingState.determine(
+            now: preSeasonNow, selectedYear: 2026, availableYears: manifestYears, upcomingDefaultCount: 0)
+        #expect(!preSeason.isPostSeason)
+    }
 }

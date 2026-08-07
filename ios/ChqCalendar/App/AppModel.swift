@@ -697,6 +697,30 @@ final class AppModel {
         return names.map { byLowercased[$0.lowercased()] ?? $0 }
     }
 
+    /// The `now` closure `ChqCalendarApp` hands to its `init`. In Release
+    /// this is always `{ Date() }` — real launches never take another
+    /// clock. In DEBUG, honors `-uitest-freeze-now "yyyy-MM-dd HH:mm:ss"`
+    /// (NY wall-clock, parsed via `ChqTime.parse`) so a season boundary
+    /// (off-season landing, #177) can be screenshotted without moving the
+    /// simulator's device date. Must run *before* `start()` — unlike the
+    /// other `-uitest-*` flags in `CalendarView.applyUITestHooks`, which
+    /// flip a flag `AppModel` consumes later, `now` is captured once into a
+    /// `let` at `init` and never replaced, so the seam has to be the
+    /// closure passed into that `init`, not a post-hoc mutation. A missing
+    /// flag, or a value `ChqTime.parse` rejects, falls back to `Date()`
+    /// exactly as if the flag were never wired up.
+    static func launchNow() -> @Sendable () -> Date {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let flagIndex = arguments.firstIndex(of: "-uitest-freeze-now"),
+           arguments.index(after: flagIndex) < arguments.endIndex,
+           let frozen = ChqTime.parse(arguments[arguments.index(after: flagIndex)]) {
+            return { frozen }
+        }
+        #endif
+        return { Date() }
+    }
+
     #if DEBUG
     // MARK: UI-test hooks (DEBUG only)
 
