@@ -87,33 +87,45 @@ struct CalendarView: View {
         // The link can arrive before the snapshot finishes loading (a cold
         // launch via `chqcal://event/…`) or after (a warm launch, or a
         // notification tap while the app's already running) — so
-        // consumption is driven by both the link itself changing and the
-        // snapshot's load state changing, whichever comes second.
+        // consumption is driven by every signal that could change the
+        // answer: the link itself, `phase`, whether a refresh is in flight,
+        // and the snapshot's own identity (`fetchedAt`). That last one
+        // matters because a warm launch's stale cached snapshot sets
+        // `phase = .ready` immediately, then a background `refresh()`
+        // replaces `snapshot` with fresh data while `phase` never changes
+        // again — so `phase` alone would miss that transition entirely. See
+        // `AppModel.resolvePendingEventDeepLinkIfPossible` for the full
+        // rationale, including why an in-flight refresh must not let an
+        // unknown id be cleared out from under it.
         .onChange(of: model.pendingDeepLink) { _, _ in consumePendingDeepLinkIfPossible() }
         .onChange(of: model.phase) { _, _ in consumePendingDeepLinkIfPossible() }
+        .onChange(of: model.isRefreshing) { _, _ in consumePendingDeepLinkIfPossible() }
+        .onChange(of: model.snapshot?.fetchedAt) { _, _ in consumePendingDeepLinkIfPossible() }
     }
 
-    /// Routes a pending `.event(id:)` deep link once the target event is
-    /// resolvable, then clears it. Does nothing (and does not clear) for
-    /// `.myDay`/`.map` — those stay pending until the tab shell (task 16)
-    /// exists to consume them. If the snapshot hasn't loaded yet, the link
-    /// stays pending for the next call; once a snapshot exists, an unknown
-    /// id is cleared rather than left dangling forever.
+    /// Routes a pending `.event(id:)` deep link once
+    /// `AppModel.resolvePendingEventDeepLinkIfPossible()` can resolve it —
+    /// the model owns the "is it found / is it confirmed unknown / is it
+    /// still too soon to tell" decision (including the refresh-in-flight
+    /// guard against clearing a link a still-running refresh might yet
+    /// satisfy); this just pushes the resolved event onto the right
+    /// navigation surface. Does nothing for `.myDay`/`.map` — those stay
+    /// pending until the tab shell (task 16) exists to consume them.
     private func consumePendingDeepLinkIfPossible() {
-        guard case .event(let id) = model.pendingDeepLink else { return }
-        guard let snapshot = model.snapshot else { return }
+        guard let event = model.resolvePendingEventDeepLinkIfPossible() else { return }
+        route(to: event)
+    }
 
-        guard let event = snapshot.events.first(where: { $0.id == id }) else {
-            model.pendingDeepLink = nil
-            return
-        }
-
+    /// Pushes `event` onto whichever navigation surface is active for the
+    /// current size class — shared by deep-link consumption above and the
+    /// DEBUG-only UI-test hooks below, which both need the exact same
+    /// compact-vs-regular routing decision.
+    private func route(to event: Event) {
         if horizontalSizeClass == .regular {
             selectedEvent = event
         } else {
             path.append(event)
         }
-        model.pendingDeepLink = nil
     }
 
     private var stackView: some View {
@@ -221,12 +233,7 @@ struct CalendarView: View {
             await model.refresh(force: true)
         }
         guard let event = model.uiTestLinkedEvent(at: requestedIndex ?? 0) else { return }
-
-        if horizontalSizeClass == .regular {
-            selectedEvent = event
-        } else {
-            path.append(event)
-        }
+        route(to: event)
 
         if arguments.contains("-uitest-show-add-to-calendar") {
             model.uiTestShowAddToCalendar = true

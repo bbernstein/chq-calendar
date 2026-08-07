@@ -227,6 +227,150 @@ struct AppModelTests {
         #expect(!model.isRefreshing)
     }
 
+    // MARK: - resolvePendingEventDeepLinkIfPossible()
+    //
+    // The fix this section pins: `phase` alone is not a reliable "the
+    // snapshot changed" signal, because a warm launch's stale cached
+    // snapshot sets `phase = .ready` immediately and a background
+    // `refresh()` can later replace `snapshot` without `phase` changing
+    // again. So an unknown `.event` id must not be cleared while a refresh
+    // is still in flight — only once one has actually settled.
+
+    @Test func eventDeepLinkResolvesImmediatelyWhenSnapshotAlreadyHasIt() {
+        let now = Date()
+        let model = makeSnapshotModel(events: [makeEvent(id: "a", start: now)], now: now)
+        model.pendingDeepLink = .event(id: "a")
+
+        let resolved = model.resolvePendingEventDeepLinkIfPossible()
+
+        #expect(resolved?.id == "a")
+        #expect(model.pendingDeepLink == nil)
+    }
+
+    @Test func eventDeepLinkStaysPendingWithoutASnapshotYet() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        model.pendingDeepLink = .event(id: "a")
+
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .event(id: "a"))
+    }
+
+    @Test func eventDeepLinkIsClearedImmediatelyWhenUnknownAndNoRefreshInFlight() {
+        let now = Date()
+        let model = makeSnapshotModel(events: [makeEvent(id: "a", start: now)], now: now)
+        // `makeSnapshotModel` assigns `snapshot` directly rather than going
+        // through `start()`/`refresh()`, so `phase` needs setting by hand to
+        // match what those flows always pair a non-nil snapshot with.
+        model.phase = .ready
+        model.pendingDeepLink = .event(id: "does-not-exist")
+
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == nil)
+    }
+
+    @Test func nonEventDeepLinksAreNeverResolvedOrClearedHere() {
+        let now = Date()
+        let model = makeSnapshotModel(events: [makeEvent(id: "a", start: now)], now: now)
+
+        model.pendingDeepLink = .myDay
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .myDay)
+
+        model.pendingDeepLink = .map(venue: "Amphitheater")
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .map(venue: "Amphitheater"))
+    }
+
+    /// The race from the review: a warm launch loads a stale cached
+    /// snapshot (missing the deep-linked event) straight into `phase =
+    /// .ready`, then `start()`'s background refresh is still in flight when
+    /// the link is asked to resolve. It must stay pending rather than being
+    /// declared unknown — and once the refresh lands with the event, the
+    /// very next resolution attempt must find it.
+    @Test func eventDeepLinkStaysPendingDuringInFlightRefreshThenResolvesOnceRefreshLandsWithTheEvent() async throws {
+        let cache = MockCache()
+        // Genuinely stale by real wall-clock time (`EventRepository.refresh`
+        // checks freshness via its own `Date()`), so `start()` actually
+        // kicks off a background refresh for year 2026.
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+
+        let refreshedPayload = try #require("""
+        {"data": [{"id": "999999", "title": "Newly Published Event", "startDate": "2026-08-10 10:00:00"}]}
+        """.data(using: .utf8))
+        let api = MockAPI()
+        await api.setSuccess(data: refreshedPayload, etag: "e1-refreshed", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let startTask = Task { await model.start() }
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot != nil
+        }
+        #expect(model.isRefreshing)
+
+        model.pendingDeepLink = .event(id: "999999")
+
+        // The stale snapshot (still `events-sample`, no "999999") doesn't
+        // have the event, but a refresh is in flight — must stay pending,
+        // not be declared unknown.
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .event(id: "999999"))
+
+        // Let the in-flight refresh land with data that has the event.
+        await api.resume(for: .events(year: 2026))
+        await startTask.value
+        #expect(!model.isRefreshing)
+
+        let resolved = model.resolvePendingEventDeepLinkIfPossible()
+        #expect(resolved?.id == "999999")
+        #expect(model.pendingDeepLink == nil)
+    }
+
+    /// The other half of the same race: if the id genuinely never shows up,
+    /// the link must still eventually be cleared — just not until the
+    /// in-flight refresh has actually settled.
+    @Test func eventDeepLinkIsClearedOnlyAfterRefreshSettlesConfirmingTheEventIsUnknown() async throws {
+        let cache = MockCache()
+        let staleFetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: staleFetchedAt)
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+
+        let api = MockAPI()
+        // The refreshed payload still doesn't contain the deep-linked id.
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1-refreshed", for: .events(year: 2026))
+        await api.setSuspended(for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+        let model = AppModel(repository: repo, store: UserStateStore(defaults: makeDefaults(), now: { Date() }))
+
+        let startTask = Task { await model.start() }
+        await waitUntil("start() reaches in-flight refresh for year 2026") {
+            model.isRefreshing && model.snapshot != nil
+        }
+        #expect(model.isRefreshing)
+
+        model.pendingDeepLink = .event(id: "does-not-exist")
+
+        // Refresh still in flight: even though the *current* snapshot lacks
+        // the id, it must not be given up on yet.
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .event(id: "does-not-exist"))
+
+        await api.resume(for: .events(year: 2026))
+        await startTask.value
+        #expect(!model.isRefreshing)
+
+        // The refresh has settled and still doesn't know the id — now it's
+        // safe to give up on it.
+        #expect(model.resolvePendingEventDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == nil)
+    }
+
     // MARK: - toggleFavorite
 
     @Test func toggleFavoritePersistsAcrossStoreInstances() {

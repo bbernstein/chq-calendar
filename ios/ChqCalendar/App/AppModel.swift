@@ -88,12 +88,14 @@ final class AppModel {
     /// Set by any deep-link entry point — `.onOpenURL` (task 3), a
     /// notification tap (task 8), a widget's `widgetURL` (task 11), an App
     /// Intent (task 12), or Spotlight (task 13) — and consumed by whoever
-    /// routes it. `CalendarView` currently only consumes `.event`: it can
-    /// arrive before the snapshot has loaded, so it stays pending across
-    /// `phase`/`snapshot` changes until the target event is found (or the
-    /// snapshot is loaded and it's confirmed unknown). `.myDay` and `.map`
-    /// are left pending here — nothing consumes them until the tab shell
-    /// lands (task 16).
+    /// routes it. `CalendarView` currently only consumes `.event`, via
+    /// `resolvePendingEventDeepLinkIfPossible()` below: it can arrive before
+    /// the snapshot has loaded, so it stays pending across `phase`/
+    /// `snapshot` changes until the target event is found (or the snapshot
+    /// is loaded, no refresh that could still surface the event is in
+    /// flight, and it's confirmed unknown). `.myDay` and `.map` are left
+    /// pending here — nothing consumes them until the tab shell lands
+    /// (task 16).
     var pendingDeepLink: DeepLink?
 
     /// Set whenever a `refresh(force:)` call fails. Distinct from `phase`,
@@ -338,6 +340,49 @@ final class AppModel {
         if versionChanged || stale {
             await refresh(force: false)
         }
+    }
+
+    /// Resolves a pending `.event(id:)` deep link against the current
+    /// snapshot, clearing `pendingDeepLink` and returning the matched
+    /// `Event` once it's found — or clearing it (returning `nil`) once the
+    /// id is confirmed absent. Non-`.event` links, and an `.event` link with
+    /// no snapshot yet, return `nil` without touching `pendingDeepLink`.
+    ///
+    /// Callers (`CalendarView`) are expected to invoke this on every signal
+    /// that could mean "the answer might be different now": `pendingDeepLink`
+    /// itself changing, `phase` changing, `isRefreshing` changing, and
+    /// `snapshot?.fetchedAt` changing. That last one exists because `phase`
+    /// alone is not a reliable "the snapshot changed" signal: a warm launch
+    /// with a stale cached snapshot sets `phase = .ready` immediately in
+    /// `start()`, and the background `refresh(force:)` it kicks off then
+    /// replaces `snapshot` with fresh data while `phase` stays `.ready` the
+    /// whole time — same value, so a hypothetical `.onChange(of: phase)`
+    /// alone would never fire again. `CalendarSnapshot` isn't `Equatable`
+    /// (its `Event` payload and sidecar dictionaries make that expensive to
+    /// maintain for no other consumer), so `fetchedAt` — which does change on
+    /// every completed fetch, including a `304 Not Modified` revalidation
+    /// (see `EventRepository.refresh`'s `cache.touch`) — stands in as the
+    /// snapshot-identity signal.
+    ///
+    /// The unknown-id case is the one the fix is about: clearing it only
+    /// once `!isRefreshing && phase != .launching` means a refresh already
+    /// in flight when this is first asked gets a chance to land — and, via
+    /// the `fetchedAt` signal above, another call once it does — before the
+    /// link is given up on as unknown. Only when a refresh has actually
+    /// settled (succeeded or failed) and still doesn't know the id does this
+    /// clear it.
+    func resolvePendingEventDeepLinkIfPossible() -> Event? {
+        guard case .event(let id) = pendingDeepLink else { return nil }
+        guard let snapshot else { return nil }
+
+        if let event = snapshot.events.first(where: { $0.id == id }) {
+            pendingDeepLink = nil
+            return event
+        }
+
+        guard !isRefreshing, phase != .launching else { return nil }
+        pendingDeepLink = nil
+        return nil
     }
 
     func toggleFavorite(_ id: String) {
