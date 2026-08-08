@@ -673,7 +673,15 @@ import { fileURLToPath } from 'url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolve(HERE, '../public/about');
 const TMP = resolve(HERE, '../.about-capture.png');
-const BASE_URL = process.env.ABOUT_CAPTURE_URL ?? 'http://localhost:3000';
+/**
+ * Defaults to production, not the dev server, for two reasons: the shots are
+ * marketing material and should show the deployed site, and `getWebcalUrl`
+ * returns null on localhost (see src/lib/utils/calendarUrls.ts), so the
+ * calendar menu would be missing its subscribe option — which the /about/web
+ * copy explicitly describes. Override with ABOUT_CAPTURE_URL to shoot a local
+ * build, accepting that caveat.
+ */
+const BASE_URL = process.env.ABOUT_CAPTURE_URL ?? 'https://www.chqcal.org';
 const VIEWPORT = { width: 1280, height: 900 };
 const WIDTHS = [640, 1280];
 
@@ -692,7 +700,7 @@ const SHOTS = [
   { id: '02-search', filters: { searchTerm: 'lecture' } },
   { id: '03-filters', filters: { selectedTags: ['Lecture'], dateFilter: 'all', selectedWeeks: [3, 4] } },
   { id: '04-favorites', filters: { showFavoritesOnly: true, dateFilter: 'all' }, favorites: true },
-  { id: '05-calendar', filters: {}, expandFirst: true },
+  { id: '05-calendar', filters: {}, openCalendar: true },
   { id: '06-weeks', filters: { dateFilter: 'all', selectedWeeks: [2, 3, 4] } },
 ];
 
@@ -742,9 +750,14 @@ async function main() {
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-event-id]', { timeout: 30_000 });
 
-    if (shot.expandFirst) {
-      await page.locator('[data-event-id]').first().click();
-      await page.waitForTimeout(400);
+    if (shot.openCalendar) {
+      // The calendar popup only opens on a device the app considers desktop
+      // (`isDesktop()` tests `(hover: hover) and (pointer: fine)`); on
+      // anything else the same button downloads an .ics instead, silently
+      // producing a shot of an unchanged list. Assert the menu is really
+      // open rather than trusting the click.
+      await page.locator('[data-event-id] [aria-label="Add to calendar"]').first().click();
+      await page.waitForSelector('[role="menu"][aria-label="Add to calendar"]', { timeout: 5_000 });
     }
 
     await page.screenshot({ path: TMP });
@@ -799,15 +812,24 @@ In `frontend/package.json` `scripts`:
 
 - [ ] **Step 5: Run the capture**
 
-In one terminal: `cd frontend && npm run dev`
-In another: `cd frontend && npm run about:screenshots:web`
+Run: `cd frontend && npm run about:screenshots:web`
 Expected: 12 lines ending with `6 shots → 12 WebP files in public/about/`.
+
+This shoots `https://www.chqcal.org` and needs network access but no dev
+server. If the run fails on the `05-calendar` shot's
+`waitForSelector('[role="menu"]…')`, the headless browser is not being treated
+as a desktop pointer — pass `hasTouch: false` explicitly in the context
+options and re-run.
 
 - [ ] **Step 6: Eyeball the output**
 
 Open `frontend/public/about/web-01-season-1280.webp` and confirm it shows a
 populated event list, not a loading spinner or an empty state. If a shot is
-empty, raise the `waitForTimeout` after navigation and re-run.
+empty, raise the wait after navigation and re-run.
+
+Open `frontend/public/about/web-05-calendar-1280.webp` and confirm the
+add-to-calendar menu is open and shows the subscribe, Google Calendar, and
+Outlook options — this is the shot the `/about/web` copy describes.
 
 - [ ] **Step 7: Commit**
 
