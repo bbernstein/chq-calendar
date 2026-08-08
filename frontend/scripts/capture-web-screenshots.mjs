@@ -1,9 +1,10 @@
 /**
  * Captures the web app for the /about/web guide.
  *
- * Runs against a dev server you start yourself (npm run dev), seeding
- * localStorage so each shot shows a specific, reproducible state rather than
- * whatever the calendar happens to open on. Keys and shapes below mirror
+ * Defaults to the deployed production site; override with ABOUT_CAPTURE_URL
+ * (see BASE_URL below) to capture a local build instead. Seeds localStorage so
+ * each shot shows a specific, reproducible state rather than whatever the
+ * calendar happens to open on. Keys and shapes below mirror
  * src/hooks/useFilterState.ts and src/hooks/useFavorites.ts — if those change,
  * this needs to change with them.
  *
