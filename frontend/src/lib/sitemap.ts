@@ -9,7 +9,9 @@
 export const SITE_ORIGIN = 'https://www.chqcal.org';
 
 // The only routes we want in the search index for Phase 1.
-export const PUBLIC_PATHS = ['/', '/feedback', '/privacy', '/support'] as const;
+export const PUBLIC_PATHS = [
+  '/', '/about', '/about/iphone', '/about/web', '/feedback', '/privacy', '/support',
+] as const;
 
 // Escape the XML-significant characters that are legal in a URL (notably `&`
 // in query strings). Harmless for the hardcoded Phase 1 paths, but keeps the

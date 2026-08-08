@@ -39,7 +39,7 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
               height={40}
               className="w-8 h-8 sm:w-10 sm:h-10 mr-2 sm:mr-3"
             />
-            <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white whitespace-nowrap">
               CHQ Calendar
             </h1>
             <YearSelector
@@ -50,7 +50,7 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             />
           </div>
           {/* Desktop */}
-          <div className="hidden md:flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-2 flex-wrap justify-end">
             {quickLinks.map((link) => (
               <button
                 key={link.id}
@@ -62,7 +62,7 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             ))}
           </div>
           {/* Mobile */}
-          <div className="md:hidden relative" ref={menuRef}>
+          <div className="lg:hidden relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="px-2 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1"

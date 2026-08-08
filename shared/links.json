@@ -1,9 +1,10 @@
 {
   "quickLinks": [
+    { "id": "about", "title": "Guide", "url": "https://www.chqcal.org/about", "webPath": "/about" },
     { "id": "feedback", "title": "Feedback", "url": "https://www.chqcal.org/feedback", "webPath": "/feedback" },
     { "id": "programs", "title": "Programs", "url": "https://programs.chq.org/" },
     { "id": "questions", "title": "Questions", "url": "https://questions.chq.org/" },
-    { "id": "bus-tram-tracker", "title": "Bus & Tram Tracker", "url": "https://busandtramtracker.chq.org" },
-    { "id": "chautauqua-fund", "title": "Chautauqua Fund", "url": "https://giving.chq.org/" }
+    { "id": "bus-tram-tracker", "title": "Bus Tracker", "url": "https://busandtramtracker.chq.org" },
+    { "id": "chautauqua-fund", "title": "CHQ Fund", "url": "https://giving.chq.org/" }
   ]
 }

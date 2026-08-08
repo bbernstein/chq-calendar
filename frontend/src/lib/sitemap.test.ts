@@ -32,6 +32,16 @@ describe('buildSitemapXml', () => {
     expect(xml).toContain(`<loc>${SITE_ORIGIN}/support</loc>`);
   });
 
+  it('includes the about guide pages used as the App Store marketing URL', () => {
+    expect(PUBLIC_PATHS).toContain('/about');
+    expect(PUBLIC_PATHS).toContain('/about/iphone');
+    expect(PUBLIC_PATHS).toContain('/about/web');
+    const xml = buildSitemapXml(PUBLIC_PATHS);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/about</loc>`);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/about/iphone</loc>`);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/about/web</loc>`);
+  });
+
   it('is well-formed XML with a urlset root', () => {
     const xml = buildSitemapXml(PUBLIC_PATHS);
     expect(xml.startsWith('<?xml')).toBe(true);

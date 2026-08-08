@@ -48,7 +48,7 @@ describe('Header navigation', () => {
     render(<Header {...defaultProps} />);
 
     fireEvent.click(screen.getByRole('button', { name: /More/ }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Chautauqua Fund' })[1]);
-    expect(screen.getAllByRole('button', { name: 'Chautauqua Fund' })).toHaveLength(1);
+    fireEvent.click(screen.getAllByRole('button', { name: 'CHQ Fund' })[1]);
+    expect(screen.getAllByRole('button', { name: 'CHQ Fund' })).toHaveLength(1);
   });
 });

@@ -1,9 +1,16 @@
 import AppIntents
 
 /// Registers the app's three Siri/Shortcuts phrases (#180) — this is what
-/// makes "What's Next"/"Today at Chautauqua"/"Open Event" show up in the
-/// Shortcuts app gallery under CHQ Calendar without the user configuring
+/// makes the three intents (listed in the Shortcuts app gallery under CHQ
+/// Calendar by their `AppIntent.title`: "What's Next", "Today at
+/// Chautauqua", "Open Event") show up without the user configuring
 /// anything, and lets Siri run them by voice.
+///
+/// The `phrases` below are what a user actually *says* — they are not the
+/// titles or the `shortTitle`s, and `\(.applicationName)` resolves to the
+/// app name, so the spoken forms are "What's next in CHQ Calendar",
+/// "Today in CHQ Calendar", and "Open an event in CHQ Calendar". Marketing
+/// copy quoting a Siri phrase must quote these, not a title.
 ///
 /// `nonisolated`, matching `EventEntity`/`EventEntityQuery`: `appShortcuts`
 /// is a synchronous, non-async static requirement, and the project's

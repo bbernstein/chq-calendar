@@ -193,6 +193,8 @@ function HomeContent() {
             posted listings; chq.org remains the authoritative source.
           </p>
           <p className="text-gray-400 text-sm mt-3">
+            <a href="/about" className="hover:text-white underline">Guide</a>
+            <span className="mx-2" aria-hidden="true">·</span>
             <a href="/privacy" className="hover:text-white underline">Privacy</a>
             <span className="mx-2" aria-hidden="true">·</span>
             <a href="/support" className="hover:text-white underline">Support</a>

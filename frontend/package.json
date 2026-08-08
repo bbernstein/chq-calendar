@@ -15,7 +15,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ci": "vitest run --coverage",
-    "generate:icons": "node scripts/generate-icons.mjs"
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "about:screenshots:ios": "node scripts/prepare-about-screenshots.mjs",
+    "about:screenshots:web": "node scripts/capture-web-screenshots.mjs",
+    "about:screenshots": "npm run about:screenshots:ios && npm run about:screenshots:web"
   },
   "dependencies": {
     "preact": "^10.28.4"
@@ -34,6 +37,7 @@
     "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^9",
     "jsdom": "^28.1.0",
+    "playwright": "^1.62.1",
     "sharp": "^0.35.3",
     "tailwindcss": "^4",
     "typescript": "^5",
