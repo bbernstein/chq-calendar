@@ -70,6 +70,16 @@ Related documents:
   Confirm it passes before continuing — do not paste copy into App Store
   Connect from a JSON that fails this test.
 
+  **Set the App Store URL on the guide site.** In
+  `frontend/src/app/about/aboutContent.ts`, `APP_STORE_URL` is `''` until
+  the app is live, which makes `/about` and `/about/iphone` render a
+  disabled "Coming to the App Store" button instead of a link. Set it to
+  the real `https://apps.apple.com/app/id…` URL and deploy the frontend as
+  part of this release. Nothing fails if you forget: the guide simply keeps
+  telling every visitor the app is coming soon after it has shipped — and
+  `/about` is the listing's Marketing URL, so that is the first page a
+  reviewer or a prospective user lands on.
+
 - [ ] **4. Archive and upload.**
   In Xcode: **Product → Archive**, then from the Organizer, **Distribute
   App → App Store Connect → Upload**. Wait for the archive to build cleanly
