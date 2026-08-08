@@ -37,7 +37,7 @@ enum AboutInfo {
     /// `AboutInfoTests.quickLinksMatchSharedLinksJson` asserts this list
     /// matches it. If you change one, change the other.
     static let quickLinks: [Link] = [
-        Link(id: "about", title: "About", url: URL(string: "https://www.chqcal.org/about")!),
+        Link(id: "about", title: "Guide", url: URL(string: "https://www.chqcal.org/about")!),
         Link(id: "feedback", title: "Feedback", url: URL(string: "https://www.chqcal.org/feedback")!),
         Link(id: "programs", title: "Programs", url: URL(string: "https://programs.chq.org/")!),
         Link(id: "questions", title: "Questions", url: URL(string: "https://questions.chq.org/")!),

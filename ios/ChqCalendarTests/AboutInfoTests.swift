@@ -67,7 +67,10 @@ struct AboutInfoTests {
 
     @Test func quickLinksMatchTheWebHeader() {
         #expect(AboutInfo.quickLinks.map(\.id) == ["about", "feedback", "programs", "questions", "bus-tram-tracker", "chautauqua-fund"])
-        #expect(AboutInfo.quickLinks.map(\.title) == ["About", "Feedback", "Programs", "Questions", "Bus & Tram Tracker", "Chautauqua Fund"])
+        // "Guide", not "About": the ellipsis menu renders these quick links
+        // directly above an in-app "About" sheet button, and two items both
+        // reading "About" made the menu ambiguous.
+        #expect(AboutInfo.quickLinks.map(\.title) == ["Guide", "Feedback", "Programs", "Questions", "Bus & Tram Tracker", "Chautauqua Fund"])
         #expect(AboutInfo.quickLinks.map { $0.url.absoluteString } == [
             "https://www.chqcal.org/about",
             "https://www.chqcal.org/feedback",

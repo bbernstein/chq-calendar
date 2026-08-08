@@ -1,6 +1,6 @@
 {
   "quickLinks": [
-    { "id": "about", "title": "About", "url": "https://www.chqcal.org/about", "webPath": "/about" },
+    { "id": "about", "title": "Guide", "url": "https://www.chqcal.org/about", "webPath": "/about" },
     { "id": "feedback", "title": "Feedback", "url": "https://www.chqcal.org/feedback", "webPath": "/feedback" },
     { "id": "programs", "title": "Programs", "url": "https://programs.chq.org/" },
     { "id": "questions", "title": "Questions", "url": "https://questions.chq.org/" },
