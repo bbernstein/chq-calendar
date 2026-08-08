@@ -53,12 +53,23 @@ struct AboutInfoTests {
         #expect(AboutInfo.links.allSatisfy { !$0.title.isEmpty })
     }
 
+    /// The About sheet is the only in-app route to the guide site, so the
+    /// link has to be present and has to point at the iOS-specific page
+    /// rather than the cross-platform overview.
+    @Test func linksLeadWithTheGuide() throws {
+        let first = try #require(AboutInfo.links.first)
+        #expect(first.id == "guide")
+        #expect(first.title == "Guide & Features")
+        #expect(first.url.absoluteString == "https://www.chqcal.org/about/iphone")
+    }
+
     // MARK: - quickLinks
 
     @Test func quickLinksMatchTheWebHeader() {
-        #expect(AboutInfo.quickLinks.map(\.id) == ["feedback", "programs", "questions", "bus-tram-tracker", "chautauqua-fund"])
-        #expect(AboutInfo.quickLinks.map(\.title) == ["Feedback", "Programs", "Questions", "Bus & Tram Tracker", "Chautauqua Fund"])
+        #expect(AboutInfo.quickLinks.map(\.id) == ["about", "feedback", "programs", "questions", "bus-tram-tracker", "chautauqua-fund"])
+        #expect(AboutInfo.quickLinks.map(\.title) == ["About", "Feedback", "Programs", "Questions", "Bus & Tram Tracker", "Chautauqua Fund"])
         #expect(AboutInfo.quickLinks.map { $0.url.absoluteString } == [
+            "https://www.chqcal.org/about",
             "https://www.chqcal.org/feedback",
             "https://programs.chq.org/",
             "https://questions.chq.org/",
