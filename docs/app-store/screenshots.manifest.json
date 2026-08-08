@@ -1,6 +1,6 @@
 {
-  "capturedOn": "2026-08-07",
-  "appCommit": "e21b81a",
+  "capturedOn": "2026-08-08",
+  "appCommit": "17a191a",
   "screenshots": [
     {
       "device": "iphone-6.9",
@@ -172,6 +172,15 @@
       "width": 2064,
       "height": 2752,
       "sha256": "3cb4ba0dc1dc8fe7a834d07ee2ea9d1506ecf70d8e1d91ca66432db5c7ef0254"
+    },
+    {
+      "device": "ipad-13",
+      "id": "10-widget",
+      "caption": "Your next event, right on the Home Screen.",
+      "file": "ios/Scripts/out/final/ipad-13/10-widget.png",
+      "width": 2064,
+      "height": 2752,
+      "sha256": "3d5d16e88332390935f134fe687d97da17dda39c8aaad63dc3cbff0645c387bc"
     }
   ]
 }
