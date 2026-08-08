@@ -14,7 +14,9 @@ export function Screenshot({ shot, widths, priority }: ScreenshotProps) {
     <img
       src={`/about/${shot.base}-${large}.webp`}
       srcSet={`/about/${shot.base}-${small}.webp ${small}w, /about/${shot.base}-${large}.webp ${large}w`}
-      sizes="(min-width: 768px) 50vw, 100vw"
+      // 384px matches the `max-w-sm` cap ScenarioBlock wraps this image in
+      // (Scenario.tsx) — keep these in sync if either changes.
+      sizes="(min-width: 768px) 384px, 100vw"
       alt={shot.alt}
       width={shot.width}
       height={shot.height}

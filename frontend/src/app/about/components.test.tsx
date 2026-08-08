@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { render, screen, within } from '@testing-library/preact';
 import { Screenshot } from './Screenshot';
 import { ScenarioBlock } from './Scenario';
 import { FeatureReference } from './FeatureReference';
@@ -91,6 +91,14 @@ describe('FeatureReference', () => {
     const marked = document.querySelectorAll('[data-not-obvious="true"]');
     expect(marked).toHaveLength(1);
     expect(marked[0].getAttribute('data-feature-id')).toBe('f2');
+  });
+
+  it('exposes "Worth knowing" to assistive tech only for non-obvious features', () => {
+    render(<FeatureReference features={features} heading="Every feature" />);
+    const notObvious = document.querySelector('[data-feature-id="f2"]') as HTMLElement;
+    const obvious = document.querySelector('[data-feature-id="f1"]') as HTMLElement;
+    expect(within(notObvious).getByText('Worth knowing:')).toBeTruthy();
+    expect(within(obvious).queryByText(/Worth knowing/)).toBeNull();
   });
 });
 

@@ -30,9 +30,10 @@ export function FeatureReference({ features, heading }: FeatureReferenceProps) {
                 >
                   <dt className="font-medium text-gray-900 dark:text-white">
                     {feature.notObvious && (
-                      <span className="text-blue-600 dark:text-blue-400 mr-1" title="Worth knowing" aria-label="Worth knowing">
-                        ★
-                      </span>
+                      <>
+                        <span className="text-blue-600 dark:text-blue-400 mr-1" aria-hidden="true">★</span>
+                        <span className="sr-only">Worth knowing: </span>
+                      </>
                     )}
                     {feature.title}
                   </dt>
