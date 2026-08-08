@@ -89,11 +89,12 @@ async function main() {
   const browser = await chromium.launch();
 
   // First pass: load once with no seeding to learn real event ids.
-  const probe = await browser.newContext({ viewport: VIEWPORT }).then((c) => c.newPage());
+  const probeContext = await browser.newContext({ viewport: VIEWPORT });
+  const probe = await probeContext.newPage();
   await probe.goto(BASE_URL, { waitUntil: 'networkidle' });
   await probe.waitForSelector('[data-event-id]', { timeout: 30_000 });
   const favoriteIds = await firstEventIds(probe, 5);
-  await probe.close();
+  await probeContext.close();
 
   if (favoriteIds.length === 0) {
     throw new Error('No [data-event-id] elements found — is the dev server serving events?');
