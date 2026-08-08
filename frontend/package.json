@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ci": "vitest run --coverage",
-    "generate:icons": "node scripts/generate-icons.mjs"
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "about:screenshots:ios": "node scripts/prepare-about-screenshots.mjs"
   },
   "dependencies": {
     "preact": "^10.28.4"
