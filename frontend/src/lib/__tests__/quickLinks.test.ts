@@ -4,7 +4,7 @@ import { quickLinks } from '@/lib/quickLinks';
 describe('quickLinks (shared/links.json)', () => {
   it('includes the Chautauqua Fund link', () => {
     const fund = quickLinks.find((l) => l.id === 'chautauqua-fund');
-    expect(fund?.title).toBe('Chautauqua Fund');
+    expect(fund?.title).toBe('CHQ Fund');
     expect(fund?.url).toBe('https://giving.chq.org/');
   });
 

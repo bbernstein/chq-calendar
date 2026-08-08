@@ -50,7 +50,7 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             />
           </div>
           {/* Desktop */}
-          <div className="hidden md:flex items-center gap-2 flex-wrap justify-end">
+          <div className="hidden lg:flex items-center gap-2 flex-wrap justify-end">
             {quickLinks.map((link) => (
               <button
                 key={link.id}
@@ -62,7 +62,7 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             ))}
           </div>
           {/* Mobile */}
-          <div className="md:hidden relative" ref={menuRef}>
+          <div className="lg:hidden relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="px-2 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1"
