@@ -139,7 +139,7 @@ export const IOS_SCENARIOS: Scenario[] = [
     title: 'Follow the season',
     body: [
       'Every week at Chautauqua has a theme. Tap the “Wk 6” badge in any day header to read it, with a link out to chq.org for the full description.',
-      'Filtering to that week is a separate step: tap the date button at the bottom of the list and pick the week from the strip — or choose Now, Today, This Week, All Season, or All Year.',
+      'Filtering to that week is a separate step: tap the date button at the bottom of the list and pick the week from the strip — or choose Now, Today, All Season, or All Year during the current season.',
       'Narrow by category and venue on top of that, or search by name, venue, or presenter. The categories and venues you picked most recently move to the front of the list.',
       'Event details link out to Chautauquan Daily coverage and digital programs where they exist.',
     ],
@@ -150,7 +150,7 @@ export const IOS_SCENARIOS: Scenario[] = [
 export const IOS_FEATURES: Feature[] = [
   // Browsing & finding
   { id: 'ios-browse', group: 'Browsing & finding', title: 'Every event, grouped by day',
-    blurb: 'Scroll the whole season, or narrow it to Now, Today, This Week, All Season, or All Year.' },
+    blurb: 'Scroll the whole season, or narrow it to Now, Today, All Season, or All Year during the current season.' },
   { id: 'ios-search', group: 'Browsing & finding', title: 'Search by name, venue, or presenter',
     blurb: 'One search field covers all three.' },
   { id: 'ios-filters', group: 'Browsing & finding', title: 'Filter by category, venue, and week',
