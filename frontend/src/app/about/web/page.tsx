@@ -12,8 +12,11 @@ export default function AboutWebPage() {
       subtitle="The full season in any browser. Nothing to install, nothing to sign up for."
       current="web"
     >
-      {WEB_SCENARIOS.map((scenario, i) => (
-        <ScenarioBlock key={scenario.id} scenario={scenario} widths={WIDTHS} flip={i % 2 === 1} />
+      {/* `wide`: these captures are 1280x900 landscape browser windows, not
+          portrait phone shots, so they get the full content column instead
+          of ScenarioBlock's 384px side-by-side slot. */}
+      {WEB_SCENARIOS.map((scenario) => (
+        <ScenarioBlock key={scenario.id} scenario={scenario} widths={WIDTHS} wide />
       ))}
 
       <FeatureReference features={WEB_FEATURES} heading="Every feature" />

@@ -32,6 +32,19 @@ describe('Screenshot', () => {
     render(<Screenshot shot={shot} widths={[420, 840]} priority />);
     expect(screen.getByAltText('My Day timeline').getAttribute('loading')).toBe('eager');
   });
+
+  // The narrow value describes ScenarioBlock's 384px `max-w-sm` slot. A wide
+  // scenario has no such cap, so advertising 384px there would let the
+  // browser pick the small variant for a full-width landscape capture.
+  it('advertises the 384px slot by default and the full viewport when wide', () => {
+    const { unmount } = render(<Screenshot shot={shot} widths={[420, 840]} />);
+    expect(screen.getByAltText('My Day timeline').getAttribute('sizes')).toBe(
+      '(min-width: 768px) 384px, 100vw'
+    );
+    unmount();
+    render(<Screenshot shot={shot} widths={[420, 840]} wide />);
+    expect(screen.getByAltText('My Day timeline').getAttribute('sizes')).toBe('100vw');
+  });
 });
 
 describe('ScenarioBlock', () => {
@@ -56,6 +69,39 @@ describe('ScenarioBlock', () => {
   it('omits the image entirely when the scenario has no screenshot', () => {
     render(<ScenarioBlock scenario={{ ...scenario, screenshot: undefined }} widths={[420, 840]} />);
     expect(document.querySelector('img')).toBeNull();
+  });
+
+  it('pairs prose and image side by side, capped at max-w-sm, by default', () => {
+    render(<ScenarioBlock scenario={scenario} widths={[420, 840]} />);
+    const section = document.querySelector('section') as HTMLElement;
+    expect(section.className).toContain('md:flex-row');
+    const imageColumn = screen.getByAltText('My Day timeline').parentElement as HTMLElement;
+    expect(imageColumn.className).toContain('md:max-w-sm');
+  });
+
+  it('flips the side-by-side order when asked', () => {
+    render(<ScenarioBlock scenario={scenario} widths={[420, 840]} flip />);
+    expect((document.querySelector('section') as HTMLElement).className)
+      .toContain('md:flex-row-reverse');
+  });
+
+  // The web guide's landscape captures are unreadable in a 384px column.
+  it('stacks a full-width image with no max-w-sm cap when wide', () => {
+    render(<ScenarioBlock scenario={scenario} widths={[640, 1280]} wide />);
+    const section = document.querySelector('section') as HTMLElement;
+    expect(section.className).not.toContain('md:flex-row');
+    const imageColumn = screen.getByAltText('My Day timeline').parentElement as HTMLElement;
+    expect(imageColumn.className).not.toContain('max-w-sm');
+    expect(imageColumn.className).toContain('w-full');
+    expect(screen.getByAltText('My Day timeline').getAttribute('sizes')).toBe('100vw');
+  });
+
+  // `flip` alternates two columns; `wide` has only one, so flip must not
+  // reintroduce a row layout the image no longer fits.
+  it('ignores flip when wide', () => {
+    render(<ScenarioBlock scenario={scenario} widths={[640, 1280]} wide flip />);
+    expect((document.querySelector('section') as HTMLElement).className)
+      .not.toContain('md:flex-row');
   });
 });
 
