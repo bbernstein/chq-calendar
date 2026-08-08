@@ -35,12 +35,12 @@ export default function SupportPage() {
         <article className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 sm:p-8 prose-styles">
           <p className="text-gray-700 dark:text-gray-300 mb-6">
             CHQ Calendar is an independent, unofficial guide to the
-            Chautauqua Institution&rsquo;s summer season. It gathers
-            publicly posted event listings — lectures, concerts, worship
-            services, and more — into one place you can browse, search,
-            filter by week or venue, and add straight to your own calendar.
-            It&rsquo;s available as a website at chqcal.org and as a native
-            iOS app.
+            Chautauqua Institution&rsquo;s summer season, available as a
+            website and as a native iOS app. New here? The{' '}
+            <a className="link" href="/about">
+              guide
+            </a>{' '}
+            walks through everything both versions can do.
           </p>
 
           <Section title="Report a Problem or Ask a Question">
