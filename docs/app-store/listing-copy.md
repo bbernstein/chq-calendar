@@ -61,6 +61,15 @@ requires a new version and a review cycle to update. That makes it the right
 place for anything time-sensitive, such as noting that the current season is
 underway, without having to ship a new build just to refresh a sentence.
 
+**Why `marketingUrl` points at `/about` rather than the calendar.** The
+marketing URL is the one link in the listing a prospective user follows
+*before* deciding to install. Pointing it at the calendar dropped them into a
+filtered event list with no explanation of what the app is or what it can do.
+`/about` explains the app across both platforms and routes them to the
+platform-specific guide, which is also where the features that are invisible
+on first launch — reminders, widgets, My Day, the grounds map, Siri and
+Spotlight — are actually documented.
+
 ## Screenshots and description changes require a new version
 
 Once a version has been released, its screenshots and description are

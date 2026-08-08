@@ -75,7 +75,10 @@ describe('App Store listing fields', () => {
   });
 
   it('uses the chqcal.org URLs App Store Connect requires', () => {
-    expect(fields.marketingUrl).toBe('https://www.chqcal.org');
+    // The marketing URL points at the guide, not the calendar itself — a
+    // visitor arriving from the App Store listing needs context before they
+    // get dropped into a filtered event list.
+    expect(fields.marketingUrl).toBe('https://www.chqcal.org/about');
     expect(fields.supportUrl).toBe('https://www.chqcal.org/support');
     expect(fields.privacyPolicyUrl).toBe('https://www.chqcal.org/privacy');
   });
@@ -113,6 +116,7 @@ describe('canonical disclaimer is duplicated verbatim', () => {
     'frontend/src/app/privacy/page.tsx',
     'frontend/src/app/support/page.tsx',
     'frontend/src/app/page.tsx',
+    'frontend/src/app/about/AboutLayout.tsx',
     'ios/ChqCalendar/Features/About/AboutInfo.swift',
   ];
 
