@@ -88,7 +88,7 @@ export const PLATFORMS: PlatformInfo[] = [
 
 export const SHARED_HIGHLIGHTS: Feature[] = [
   { id: 'shared-season', group: 'Everywhere', title: 'The whole season in one place',
-    blurb: 'Roughly 1,500 events — lectures, concerts, worship, recreation — in a single list you can scroll.' },
+    blurb: 'Over 1,500 events — lectures, concerts, worship, recreation — in a single list you can scroll.' },
   { id: 'shared-filter', group: 'Everywhere', title: 'Filter and search',
     blurb: 'Narrow by category, venue, week, or date, or search by name, venue, or presenter.' },
   { id: 'shared-favorites', group: 'Everywhere', title: 'Save what you can’t miss',
@@ -122,13 +122,13 @@ export const IOS_SCENARIOS: Scenario[] = [
       'Pick a default in About › Reminders and every event you star from then on uses that timing automatically.',
       'The same starred events feed the Home Screen and Lock Screen widgets, so what’s coming up is on your phone before you unlock it.',
     ],
-    screenshot: { base: 'ios-09-reminder', alt: 'An event detail screen with the reminder options open', ...IOS_SHOT },
+    screenshot: { base: 'ios-09-reminder', alt: 'A starred event’s detail screen, with a “Remind me” row set to the default of 30 minutes before', ...IOS_SHOT },
   },
   {
     id: 'ios-find-your-way',
     title: 'Find your way on the grounds',
     body: [
-      'The Map tab plots every venue on the grounds. Tap one to see what’s on there next, or to filter the whole event list down to that venue.',
+      'The Map tab plots the venues events are actually held in — around fifty of them, hand-placed. Tap one to see what’s on there next, or to filter the whole event list down to that venue.',
       'Need directions? Hand off to Apple Maps for a walking route.',
       'None of this asks for your location.',
     ],
@@ -138,8 +138,9 @@ export const IOS_SCENARIOS: Scenario[] = [
     id: 'ios-follow-the-season',
     title: 'Follow the season',
     body: [
-      'Every week at Chautauqua has a theme. Tap a week’s badge to read it, then filter to that week to see everything programmed around it.',
-      'Narrow by category and venue on top of that, or search by name, venue, or presenter. The filters you reach for most move to the front of the list.',
+      'Every week at Chautauqua has a theme. Tap the “Wk 6” badge in any day header to read it, with a link out to chq.org for the full description.',
+      'Filtering to that week is a separate step: tap the date button at the bottom of the list and pick the week from the strip — or choose Now, Today, This Week, All Season, or All Year.',
+      'Narrow by category and venue on top of that, or search by name, venue, or presenter. The categories and venues you picked most recently move to the front of the list.',
       'Event details link out to Chautauquan Daily coverage and digital programs where they exist.',
     ],
     screenshot: { base: 'ios-02-filters', alt: 'The filter sheet with categories and venues', ...IOS_SHOT },
@@ -149,15 +150,15 @@ export const IOS_SCENARIOS: Scenario[] = [
 export const IOS_FEATURES: Feature[] = [
   // Browsing & finding
   { id: 'ios-browse', group: 'Browsing & finding', title: 'Every event, grouped by day',
-    blurb: 'Scroll the whole season, or jump straight to a date.' },
+    blurb: 'Scroll the whole season, or narrow it to Now, Today, This Week, All Season, or All Year.' },
   { id: 'ios-search', group: 'Browsing & finding', title: 'Search by name, venue, or presenter',
     blurb: 'One search field covers all three.' },
   { id: 'ios-filters', group: 'Browsing & finding', title: 'Filter by category, venue, and week',
-    blurb: 'Combine filters freely; the active ones show as chips you can clear one at a time.' },
-  { id: 'ios-recent-filters', group: 'Browsing & finding', title: 'Recently-used filters come first', notObvious: true,
-    blurb: 'The categories and venues you actually use rise to the front of the list.' },
+    blurb: 'Combine filters freely. Inside the Filters sheet, your search term, venues, categories, and the favorites toggle each show as a chip you can clear on its own; the date and week controls sit right above them and are cleared there.' },
+  { id: 'ios-recent-filters', group: 'Browsing & finding', title: 'Recently used filters come first', notObvious: true,
+    blurb: 'The categories and venues you picked most recently move to the front of the row, ahead of the rest.' },
   { id: 'ios-week-themes', group: 'Browsing & finding', title: 'Weekly themes', notObvious: true,
-    blurb: 'Each week of the season has a theme — tap the badge on any week to read it.' },
+    blurb: 'Each week of the season has a theme — tap the “Wk 6” badge in a day header to read it and link out to chq.org.' },
 
   // Favorites & reminders
   { id: 'ios-star', group: 'Favorites & reminders', title: 'Star from anywhere',
@@ -190,8 +191,8 @@ export const IOS_FEATURES: Feature[] = [
     blurb: 'Star or unstar anything and the timeline rebuilds itself.' },
 
   // Map
-  { id: 'ios-map', group: 'Map', title: 'Every venue on the grounds',
-    blurb: 'The Map tab plots each venue where you’d actually find it.' },
+  { id: 'ios-map', group: 'Map', title: 'The venues events are held in',
+    blurb: 'The Map tab plots around fifty hand-placed venues where you’d actually find them.' },
   { id: 'ios-map-venue', group: 'Map', title: 'Tap a venue for what’s next', notObvious: true,
     blurb: 'See that venue’s upcoming events, or filter the whole list down to it.' },
   { id: 'ios-map-directions', group: 'Map', title: 'Walking directions',
@@ -201,9 +202,9 @@ export const IOS_FEATURES: Feature[] = [
 
   // Siri, Shortcuts & Spotlight
   { id: 'ios-siri', group: 'Siri, Shortcuts & Spotlight', title: 'Ask Siri what’s next', notObvious: true,
-    blurb: '“What’s Next” and “Today at Chautauqua” both work by voice.' },
+    blurb: 'Say “What’s next in CHQ Calendar” or “Today in CHQ Calendar” and Siri answers.' },
   { id: 'ios-shortcuts', group: 'Siri, Shortcuts & Spotlight', title: 'Open any event by name', notObvious: true,
-    blurb: 'The Open Event action works from Siri or from the Shortcuts app.' },
+    blurb: 'Say “Open an event in CHQ Calendar”, or name the event inside the phrase. The same Open Event action is available in the Shortcuts app.' },
   { id: 'ios-spotlight', group: 'Siri, Shortcuts & Spotlight', title: 'Find events from Spotlight', notObvious: true,
     blurb: 'Swipe down on the Home Screen and search — the season and your starred events are indexed.' },
 
@@ -236,7 +237,7 @@ export const WEB_SCENARIOS: Scenario[] = [
     title: 'See what’s on right now',
     body: [
       'The calendar opens on what’s coming up next, not on a wall of the whole season. The window sizes itself — it keeps widening until it has enough events to be worth reading.',
-      'Want more? “Show another day” extends it a day at a time.',
+      'Want more? “Show next day” — the button names the date it will add — extends the window a day at a time.',
       'Or jump to Today, This week, or any week of the season.',
     ],
     screenshot: { base: 'web-01-season', alt: 'The calendar showing upcoming events grouped by day', ...WEB_SHOT },
@@ -254,17 +255,19 @@ export const WEB_SCENARIOS: Scenario[] = [
     id: 'web-own-calendar',
     title: 'Get it into your own calendar',
     body: [
-      'Any event can go straight into the calendar you already use: Google Calendar, Outlook, or a downloaded .ics file.',
-      'You can also subscribe by webcal, so the event stays in sync rather than being copied once and forgotten.',
+      'On a computer, the calendar icon on any event opens a short “Add to calendar” menu: Apple Calendar, Google Calendar, or Outlook.',
+      'Apple Calendar is a webcal subscription rather than a one-time copy, so if the event moves, your calendar moves with it. Google Calendar and Outlook open in a new tab with the event already filled in.',
+      'On a phone or tablet there is no menu. The same button downloads a standard .ics calendar file straight away, which any calendar app can open.',
     ],
-    screenshot: { base: 'web-05-calendar', alt: 'The add-to-calendar options on an event', ...WEB_SHOT },
+    screenshot: { base: 'web-05-calendar', alt: 'The “Add to calendar” menu open on an event, offering Apple Calendar, Google Calendar, and Outlook', ...WEB_SHOT },
   },
   {
     id: 'web-follow-the-season',
     title: 'Follow the season',
     body: [
-      'Drag across the week strip to select a range of weeks at once. Tap a week’s badge to read its theme.',
-      'Filter by category and venue on top of that — the ones you use most move to the front. Every filter you’ve applied shows as a chip you can clear on its own.',
+      'On a computer, click and drag across the week strip to select a range of weeks at once. Shift-click extends a range from what you already have, and ⌘-click (Ctrl-click on Windows) adds or removes individual weeks. On a touchscreen, tap the weeks you want one at a time.',
+      'Tap the underlined week label in any day header to read that week’s theme.',
+      'Filter by category and venue on top of that — the ones you picked most recently appear as a row of shortcuts beside the Locations and Categories headings. Every filter you’ve applied shows as a chip you can clear on its own.',
       'A 📰 on an event means the Chautauquan Daily covered it. A 📖 means there’s a digital program.',
     ],
     screenshot: { base: 'web-03-filters', alt: 'The week strip and category filters in use', ...WEB_SHOT },
@@ -277,8 +280,8 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'One field covers all three, and results narrow as you type.' },
   { id: 'web-category-venue', group: 'Finding', title: 'Category and venue filters',
     blurb: 'Pick as many as you like; they combine with everything else.' },
-  { id: 'web-recent-filters', group: 'Finding', title: 'Recently-used filters come first', notObvious: true,
-    blurb: 'The categories and venues you keep coming back to move to the front of the row.' },
+  { id: 'web-recent-filters', group: 'Finding', title: 'Recently used filters, one click away', notObvious: true,
+    blurb: 'The last categories and venues you picked appear as a row of shortcut pills beside the Locations and Categories headings, most recent first — the full list below keeps its own order.' },
   { id: 'web-active-chips', group: 'Finding', title: 'Active filter chips', notObvious: true,
     blurb: 'Everything you’ve applied shows as a chip — clear them one at a time or all at once.' },
 
@@ -287,14 +290,16 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'Three buttons cover the questions people actually ask.' },
   { id: 'web-adaptive', group: 'Dates & weeks', title: 'The “next” window grows to fit', notObvious: true,
     blurb: 'Instead of a fixed number of days, it widens until it has a useful number of events to show.' },
-  { id: 'web-show-next-day', group: 'Dates & weeks', title: 'Show another day', notObvious: true,
-    blurb: 'One click extends the window a day at a time, as far as you want to look.' },
+  { id: 'web-show-next-day', group: 'Dates & weeks', title: 'Show next day', notObvious: true,
+    blurb: 'One click extends the window a day at a time, as far as you want to look. The button names the date it is about to add.' },
   { id: 'web-week-strip', group: 'Dates & weeks', title: 'Pick weeks from the strip',
     blurb: 'Every week of the season, selectable directly.' },
   { id: 'web-week-drag', group: 'Dates & weeks', title: 'Drag to select a range of weeks', notObvious: true,
-    blurb: 'Click and drag across the strip to select several weeks in one gesture.' },
+    blurb: 'On a computer, click and drag across the strip to select several weeks in one gesture. On a touchscreen, tap the weeks one at a time.' },
+  { id: 'web-week-modifiers', group: 'Dates & weeks', title: 'Shift-click and ⌘-click the strip', notObvious: true,
+    blurb: 'Shift-click extends a range out from the weeks already selected; ⌘-click (Ctrl-click on Windows) adds or removes a single week without disturbing the rest.' },
   { id: 'web-week-themes', group: 'Dates & weeks', title: 'Weekly theme popovers', notObvious: true,
-    blurb: 'Tap a week’s badge to read the theme that week is programmed around.' },
+    blurb: 'Tap the underlined week label in a day header to read the theme that week is programmed around.' },
 
   // Events
   { id: 'web-expand', group: 'Events', title: 'Expandable descriptions',
@@ -311,20 +316,22 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'One toggle hides everything you haven’t starred.' },
 
   // Calendar export
+  { id: 'web-calendar-menu', group: 'Calendar export', title: 'A menu on a computer',
+    blurb: 'Click the calendar icon on any event and pick Apple Calendar, Google Calendar, or Outlook.' },
+  { id: 'web-webcal', group: 'Calendar export', title: 'Apple Calendar subscribes, it doesn’t copy', notObvious: true,
+    blurb: 'The Apple Calendar option hands off a webcal subscription, so the event stays in sync if its time or venue changes.' },
   { id: 'web-google', group: 'Calendar export', title: 'Google Calendar',
-    blurb: 'Open an event straight into Google Calendar.' },
+    blurb: 'Opens Google Calendar in a new tab with the event already filled in.' },
   { id: 'web-outlook', group: 'Calendar export', title: 'Outlook',
     blurb: 'The same, for Outlook.' },
-  { id: 'web-ics', group: 'Calendar export', title: 'Download an .ics file',
-    blurb: 'For any calendar app that reads standard files.' },
-  { id: 'web-webcal', group: 'Calendar export', title: 'Subscribe by webcal', notObvious: true,
-    blurb: 'Subscribe rather than copy, so the event stays in sync if it changes.' },
+  { id: 'web-ics', group: 'Calendar export', title: 'One tap on a phone or tablet', notObvious: true,
+    blurb: 'Touch devices skip the menu — the calendar button downloads a standard .ics file straight away, which any calendar app can open.' },
 
   // Seasons
   { id: 'web-year', group: 'Seasons', title: 'Past and upcoming seasons',
     blurb: 'Switch years from the header to look back — or ahead, once next season is announced.' },
-  { id: 'web-countdown', group: 'Seasons', title: 'Off-season countdown',
-    blurb: 'Between seasons, a banner counts down to opening day.' },
+  { id: 'web-countdown', group: 'Seasons', title: 'Countdown to opening day',
+    blurb: 'Once the calendar has rolled forward to a season that hasn’t started yet, a banner counts down the days to its first event.' },
 
   // On your device
   { id: 'web-install', group: 'On your device', title: 'Install to your Home Screen', notObvious: true,
