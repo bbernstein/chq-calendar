@@ -8,6 +8,16 @@
  * this needs to change with them.
  *
  * Outputs are committed, so `npm run build` never depends on this running.
+ *
+ * The `playwright` devDependency in package.json is pinned to `^1.62.1`, not
+ * the `^1.50.0` floor named in the original task brief. That's not a typo or
+ * a substituted command: running `npm install --save-dev playwright@^1.50.0`
+ * verbatim resolves `^1.50.0` against the registry (latest matching is
+ * 1.62.1) and npm's default save-prefix writes `^<resolved>`, not the input
+ * range, back to package.json. 1.62.1 is the version this script was
+ * actually exercised against — don't "fix" the declared range back down to
+ * `^1.50.0` to match the brief text; that would pin a floor that was never
+ * tested.
  */
 import { chromium } from 'playwright';
 import sharp from 'sharp';
