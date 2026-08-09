@@ -992,6 +992,22 @@ final class AppModel {
         persistFilter()
     }
 
+    /// Pins the event list to one named calendar day — the action behind My
+    /// Day's empty-day "Browse …" button (#192).
+    ///
+    /// Clears `selectedWeeks`, since a standing week filter can exclude the
+    /// very day the user asked for, and `extraDays`, which is a `.next`-only
+    /// concept. Deliberately leaves `searchText`, venues, categories, and
+    /// favorites-only alone: those are the user's standing preferences, not
+    /// date state.
+    func browseDay(_ dayKey: String) {
+        filter.dateScope = .day
+        filter.selectedDayKey = dayKey
+        filter.selectedWeeks = []
+        filter.extraDays = 0
+        persistFilter()
+    }
+
     /// Toggles `name` in `filter.selectedLocations`, storing the original
     /// casing and comparing case-insensitively — the web's `toggleInList`.
     /// Selecting (not deselecting) also promotes `name` to the front of

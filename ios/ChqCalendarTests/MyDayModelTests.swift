@@ -206,4 +206,38 @@ struct MyDayModelTests {
         )
         #expect(model.myDayStarredCounts.isEmpty)
     }
+
+    // MARK: - browseDay
+
+    @Test func browseDayPinsTheScopeAndClearsConflictingDateState() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+        model.filter.selectedWeeks = [3]
+        model.filter.extraDays = 2
+
+        model.browseDay("2026-08-09")
+
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+        // A standing week filter can exclude the very day the user asked
+        // for, and extraDays is a `.next`-only concept.
+        #expect(model.filter.selectedWeeks.isEmpty)
+        #expect(model.filter.extraDays == 0)
+    }
+
+    @Test func browseDayLeavesStandingNonDatePreferencesAlone() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+        model.filter.searchText = "yoga"
+        model.filter.selectedLocations = ["Amphitheater"]
+        model.filter.selectedCategories = ["Music"]
+        model.filter.showFavoritesOnly = true
+
+        model.browseDay("2026-08-09")
+
+        #expect(model.filter.searchText == "yoga")
+        #expect(model.filter.selectedLocations == ["Amphitheater"])
+        #expect(model.filter.selectedCategories == ["Music"])
+        #expect(model.filter.showFavoritesOnly)
+    }
 }
