@@ -45,6 +45,25 @@ enum AboutInfo {
         Link(id: "chautauqua-fund", title: "CHQ Fund", url: URL(string: "https://giving.chq.org/")!),
     ]
 
+    /// Example Siri phrases surfaced on the About sheet (#193). These
+    /// quote the *spoken* forms — including the "Chautauqua" alternative
+    /// app name — matching the registered `ChqShortcuts` phrase templates
+    /// (quote phrases, not intent titles; see ChqShortcuts.swift).
+    struct SiriPhrase: Identifiable, Equatable {
+        let id: String
+        let phrase: String
+    }
+
+    static let siriPhrases: [SiriPhrase] = [
+        SiriPhrase(id: "next", phrase: "What's coming up in Chautauqua?"),
+        SiriPhrase(id: "movies", phrase: "What movies are playing in Chautauqua?"),
+        SiriPhrase(id: "symphony", phrase: "What's the next symphony in Chautauqua?"),
+        SiriPhrase(id: "tonight", phrase: "What's happening tonight in Chautauqua?"),
+        SiriPhrase(id: "speaking", phrase: "Who is speaking tomorrow in Chautauqua?"),
+        SiriPhrase(id: "theme", phrase: "What's the theme this week in Chautauqua?"),
+        SiriPhrase(id: "myday", phrase: "What am I doing tomorrow in Chautauqua?"),
+    ]
+
     /// Formats the marketing version and build number for display.
     ///
     /// Blank strings are treated as missing: a bundle key present but empty
