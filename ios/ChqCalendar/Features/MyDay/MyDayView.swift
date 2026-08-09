@@ -33,11 +33,16 @@ struct MyDayView: View {
 
     var body: some View {
         // Read once: `myDayBounds` is O(events) (filter+map+Set+sort over
-        // ~1,470 events) and uncached, and both `content` and the toolbar
-        // condition below need it. `.onChange(of: model.myDayBounds)`
-        // further down still reads the property directly — SwiftUI has to
-        // evaluate that expression itself to diff it, so this local can't
-        // substitute there.
+        // ~1,470 events) and uncached. `bounds` is read once per body
+        // evaluation and reused everywhere below that needs it: `content`,
+        // the toolbar condition, `.task`, and both `.onChange` handlers —
+        // `.onChange(of:)` evaluates its argument during body evaluation
+        // too, so the local carries exactly the value a direct property
+        // read would have produced, one full O(events) pass cheaper. The
+        // one nuance is `.task`, which runs asynchronously after this body
+        // evaluation completes, so it captures a snapshot slightly older
+        // than a live re-read would be — see the comment on `.task` below
+        // for why that's still safe.
         let bounds = model.myDayBounds
         NavigationStack {
             content(bounds: bounds)
@@ -60,8 +65,16 @@ struct MyDayView: View {
                     EventDetailView(event: event, model: model)
                 }
         }
-        .task { reconcileSelection(in: model.myDayBounds) }
-        .onChange(of: model.myDayBounds) { _, newBounds in
+        // Reuses the `bounds` local rather than re-reading `model.myDayBounds`.
+        // Not byte-identical to a live read — `.task` runs asynchronously
+        // after the body evaluation that captured `bounds`, so this can be a
+        // one-pass-stale snapshot. That's safe: `reconcileSelection` assigns
+        // `model.myDayDefaultDay`, which is always a fresh read of model
+        // state, so a stale `bounds` can only affect the containment check,
+        // never which day gets selected. Worst case is a redundant reset to
+        // a still-correct day.
+        .task { reconcileSelection(in: bounds) }
+        .onChange(of: bounds) { _, newBounds in
             reconcileSelection(in: newBounds)
         }
         // `myDayBounds` is the season widened by starred days *outside* it —
@@ -79,7 +92,7 @@ struct MyDayView: View {
         // read `myDayAvailableDays.isEmpty`); worth it since the
         // alternative is a reachable blank screen.
         .onChange(of: model.myDayAvailableDays.isEmpty) { _, _ in
-            reconcileSelection(in: model.myDayBounds)
+            reconcileSelection(in: bounds)
         }
     }
 
@@ -533,7 +546,13 @@ private struct MyDayExpandControl: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 34, height: 62)
+                // Width is 44pt to meet the HIG minimum tap target. The
+                // horizontal axis is the mis-tap-prone one here — this chip
+                // sits at the end of a horizontally-scrolling strip flanked
+                // by 8pt spacing and other chips, and is tapped side-to-side,
+                // not top-to-bottom. Height stays 62 to match `MyDayChip`.
+                // The neighbouring chips (`minWidth: 58`) already clear 44pt.
+                .frame(width: 44, height: 62)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
