@@ -59,8 +59,11 @@ nonisolated enum FilterChipState {
                 // pickable — but answered honestly rather than left to the
                 // caller, per this type's existing convention. Unlike the
                 // relative scopes below, the pipeline does *not* ignore this
-                // one on a past season.
-                return selection.dateScope == .day
+                // one on a past season. Honesty means agreeing with the
+                // `.all` case above: a `.day` scope with no key isn't
+                // filtering anything, so it must not report itself selected
+                // while "All" simultaneously reports itself selected too.
+                return selection.isDayFilterActive
             case .next, .today, .season, .thisWeek:
                 // Unreachable through `DateFilterSheet`, whose
                 // `visibleScopes` collapses to `[.all]` off the current
@@ -90,9 +93,12 @@ nonisolated enum FilterChipState {
             return dateScopeAllowsAll && selection.selectedWeeks.isEmpty
         case .day:
             // Never rendered as a chip; answered rather than trusted. The
-            // `.all` case above already excludes it, since `.day` is not
-            // `.all`.
-            return selection.dateScope == .day
+            // `.all` case above already excludes an *active* `.day` filter,
+            // since `.day` is not `.all` — but a keyless `.day` scope isn't
+            // filtering anything, so honesty means agreeing with `.all`
+            // rather than contradicting it: it must not report itself
+            // selected while "All" does too.
+            return selection.isDayFilterActive
         case .next, .today, .season:
             return selection.dateScope == scope
         }
