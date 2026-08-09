@@ -66,7 +66,13 @@ constraint, not a footnote.
     `chq-calendar-favorites`, shape `{ eventIds: string[], lastSaved: number }`,
     30-day expiry via `USER_STATE_EXPIRY_MS`.
   - iOS: `ios/ChqCalendarShared/Data/UserStateStore.swift`, `UserDefaults` key
-    `chq-favorites`, decoded to a `Set<String>`.
+    `chq-favorites`, JSON-encoded as `PersistedFavorites { ids: Set<String>,
+    lastSaved: Date }` and exposed as a bare `Set<String>` by
+    `loadFavorites()`, which returns empty past the store's 30-day expiry.
+  - **Both platforms therefore forget favorites after 30 days of absence.**
+    The accounts spec's "signing in defeats the 30-day forgetting" consequence
+    applies to iOS as well as web, and a followed list — server-owned, not
+    device-owned — is not subject to it at all.
 - **No end-user identity exists.** There is no user table, no user-facing
   sign-in, and no server-side user state. The three existing auth paths (admin
   Google OAuth, publisher magic link, CI smoke token) are all HS256 and all
@@ -137,9 +143,20 @@ follows. Removing an event from one list never affects another.
 ### Following
 
 A **follow** is a membership row linking a follower to a list. It carries an
-`alertsEnabled` flag, defaulting to **off**, with one exception: accepting an
-invite defaults it **on**, because someone who acted on a personal invitation
-has expressed intent. Followers can toggle it per list at any time.
+`alertsEnabled` flag, defaulting to **off**, with one exception: following a
+list whose `visibility` is `invite` defaults it **on**, because someone who
+acted on a personal invitation has expressed intent. Followers can toggle it
+per list at any time.
+
+**The exception is keyed off `visibility`, not off "joined via a
+`shareKey`".** Both `invite` and `public` follows arrive through the same
+`POST /user/follow { shareKey }` route (§6), so the distinction has to be made
+server-side from the list's visibility. Following a `public` or featured list
+defaults alerts **off**: nobody handed you that link personally, and a
+featured list is exactly the case where an on-by-default would let one owner
+schedule notifications on a thousand strangers' phones. A list whose
+visibility later changes does **not** retroactively alter existing members'
+`alertsEnabled`.
 
 Followed events are rendered alongside the follower's own favorites but are
 never merged into them: they carry a source badge naming the list, they do
@@ -318,7 +335,11 @@ These are the correctness core of the feature. Each gets a test (§15).
   disappear mid-day from a follower's My Day without explanation — surface it
   the same way a cancelled event is surfaced.
 - **Delete a list:** deletes its `list-events` rows and, via the `by-list`
-  GSI, every membership row pointing at it.
+  GSI, every membership row pointing at it. Followers' access, cached copy,
+  and **scheduled alerts all end on next sync**, exactly as with unpublish —
+  the membership row is gone, so the list contributes nothing to
+  `ReminderPlanner`'s input. Stated rather than implied because §15 derives a
+  test per bullet here.
 - **Delete an account** (the accounts spec's `DELETE /user/account`): in
   addition to purging the Cognito user, the `users` row, and the personal
   `favorites` rows, it must delete **every list the user owns** (with the full
@@ -431,6 +452,21 @@ limiter (PR #85) is the precedent.
 | Followers per list | soft, monitored | The featured/public case; the trigger to consider the static-JSON path (§7). |
 | `shareKey` rotations | rate-limited | Cheap abuse vector against the `by-share-key` GSI. |
 | `POST /user/follow` attempts | rate-limited per user | Prevents share-key guessing (already infeasible at ≥128 bits, but cheap to bound). |
+| `GET /lists/preview/{shareKey}` | rate-limited **per IP** | See below. |
+
+**The preview route needs its own limit, and it is the important one.** Every
+other limit above is per-`userId` and therefore protected by the cost of
+holding an account. `GET /lists/preview/{shareKey}` is the only route that
+resolves a `shareKey` with **no sign-in at all**, which makes it strictly the
+cheapest way to probe for live keys or to scrape a schedule repeatedly —
+cheaper than `POST /user/follow`, whose per-user limit an attacker would have
+to spread across real accounts. Guessing a key remains infeasible at ≥128 bits
+of entropy; the limit exists to bound cost and to stop a known key from being
+polled, not to make brute force harder. Because it is unauthenticated the key
+is per-IP (CloudFront-forwarded client IP), which is weaker than a per-user
+limit and should be sized accordingly — generous enough that a preview link
+shared into a group chat and opened by fifty people behind one NAT still
+works.
 
 ---
 
@@ -522,6 +558,9 @@ coverage floor (`.coverage-floor.json`, `docs/coverage.md`).
 - A `private` list's `shareKey` resolves to nothing.
 - `/lists/preview/{shareKey}` never returns email, `sub`, or any Cognito claim
   (assert on the serialized payload, not the object).
+- Following an `invite` list defaults `alertsEnabled` **on**; following a
+  `public` or featured list through the same route defaults it **off**; a later
+  visibility change leaves existing members' flags untouched (§4).
 
 **Revocation and cascades** (§8), each with its own test:
 - Unpublish revokes all followers and cancels their alerts.
