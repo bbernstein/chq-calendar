@@ -19,7 +19,7 @@ struct IntentTimeframeTests {
     @Test func tonightStartsAtFivePM() throws {
         let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let interval = IntentTimeframe.tonight.interval(now: now, year: year)
-        #expect(interval.start == ChqTime.parse("2026-07-15 17:00:00"))
+        #expect(interval.start == (try #require(ChqTime.parse("2026-07-15 17:00:00"))))
         #expect(interval.contains(try #require(ChqTime.parse("2026-07-15 20:15:00"))))
         #expect(!interval.contains(try #require(ChqTime.parse("2026-07-15 14:00:00"))))
     }

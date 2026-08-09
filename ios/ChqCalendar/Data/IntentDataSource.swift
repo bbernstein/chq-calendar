@@ -142,6 +142,20 @@ nonisolated enum IntentDataSource {
         } ?? first
     }
 
+    /// The events an intent hands back as its returned value: the first
+    /// `limit` matches, adjusted so `featured` (the event the dialog
+    /// speaks about) is always among them — a Shortcuts automation
+    /// consuming the result must never hear about an event that isn't in
+    /// it. When `featured` lies beyond the window, it replaces the last
+    /// entry rather than growing the list past `limit`.
+    static func entityWindow(results: [Event], featured: Event, limit: Int) -> [Event] {
+        var top = Array(results.prefix(limit))
+        if !top.contains(where: { $0.id == featured.id }), !top.isEmpty {
+            top[top.count - 1] = featured
+        }
+        return top
+    }
+
     /// The user's starred events inside `timeframe`'s window, soonest
     /// first — the My Schedule intent's selection.
     static func selectSchedule(events: [Event], favoriteIDs: Set<String>, timeframe: IntentTimeframe,

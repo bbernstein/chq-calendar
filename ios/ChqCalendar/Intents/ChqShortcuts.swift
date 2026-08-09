@@ -1,11 +1,12 @@
 import AppIntents
 
-/// Registers the app's growing #193 Siri/Shortcuts surface — this is what
-/// makes the three intents (listed in the Shortcuts app gallery under CHQ
+/// Registers the app's #193 Siri/Shortcuts surface — this is what makes
+/// the seven shortcuts (listed in the Shortcuts app gallery under CHQ
 /// Calendar by their `AppIntent.title`: "What's Next", "Today at
-/// Chautauqua", "Open Event") show up without the user configuring
-/// anything, and lets Siri run them by voice. "What's Next" alone now
-/// carries 27 phrases across four families — plain, kind-parameterized,
+/// Chautauqua", "Open Event", "Weekly Theme", "My Schedule", "Who's
+/// Speaking", "Show Time") show up without the user configuring anything,
+/// and lets Siri run them by voice. "What's Next" alone carries 27
+/// phrases across four families — plain, kind-parameterized,
 /// timeframe-parameterized, and venue-parameterized — so a user can ask
 /// "what's next", "what movies are playing", "what's happening tonight",
 /// or "what's playing at the Amp" and land on the same intent with a
@@ -13,8 +14,9 @@ import AppIntents
 ///
 /// The `phrases` below are what a user actually *says* — they are not the
 /// titles or the `shortTitle`s, and `\(.applicationName)` resolves to the
-/// app name, so the spoken forms are "What's next in CHQ Calendar",
-/// "Today in CHQ Calendar", and "Open an event in CHQ Calendar". Marketing
+/// app name (or an `INAlternativeAppNames` entry: "Chautauqua",
+/// "Chautauqua Calendar", "CHQ"), so spoken forms include "What's next in
+/// CHQ Calendar" and "What movies are playing at Chautauqua". Marketing
 /// copy quoting a Siri phrase must quote these, not a title.
 ///
 /// `nonisolated`, matching `EventEntity`/`EventEntityQuery`: `appShortcuts`

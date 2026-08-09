@@ -83,4 +83,32 @@ struct IntentMatchingTests {
                                                 timeframe: .today, now: now, year: year)
         #expect(r.map(\.id) == ["porch"])
     }
+
+    // MARK: - IntentDataSource.entityWindow
+
+    private func windowFixtures(count: Int) -> [Event] {
+        (0..<count).map { i in
+            makeEvent(id: "e\(i)", start: ChqTime.parse("2026-07-15 09:00:00")!.addingTimeInterval(Double(i) * 600))
+        }
+    }
+
+    @Test func entityWindowKeepsPrefixWhenFeaturedInsideIt() {
+        let events = windowFixtures(count: 6)
+        let window = IntentDataSource.entityWindow(results: events, featured: events[2], limit: 5)
+        #expect(window.map(\.id) == ["e0", "e1", "e2", "e3", "e4"])
+    }
+
+    @Test func entityWindowSwapsInFeaturedFromBeyondTheLimit() {
+        let events = windowFixtures(count: 8)
+        let window = IntentDataSource.entityWindow(results: events, featured: events[6], limit: 5)
+        #expect(window.map(\.id) == ["e0", "e1", "e2", "e3", "e6"])
+        #expect(window.count == 5)
+    }
+
+    @Test func entityWindowHandlesShortAndEmptyResults() {
+        let events = windowFixtures(count: 2)
+        let short = IntentDataSource.entityWindow(results: events, featured: events[1], limit: 5)
+        #expect(short.map(\.id) == ["e0", "e1"])
+        #expect(IntentDataSource.entityWindow(results: [], featured: events[0], limit: 5).isEmpty)
+    }
 }

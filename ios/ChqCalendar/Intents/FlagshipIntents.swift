@@ -31,7 +31,9 @@ struct WhoIsSpeakingIntent: AppIntent {
                 kindTitle: "lectures", timeframeLabel: scope.spokenLabel, next: next)
             return .result(value: [], dialog: "\(text)")
         }
-        let entities = results.prefix(5).map(EventEntity.init(event:))
+        let entities = IntentDataSource
+            .entityWindow(results: results, featured: featured, limit: 5)
+            .map(EventEntity.init(event:))
         return .result(value: entities, dialog: "\(IntentDialogText.whoIsSpeaking(event: featured))")
     }
 }

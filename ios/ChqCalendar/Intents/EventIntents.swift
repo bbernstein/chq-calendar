@@ -88,7 +88,6 @@ struct NextEventsIntent: AppIntent {
         let year = await IntentDataSource.defaultYear()
         let results = IntentDataSource.selectMatching(
             events: events, kind: kind, timeframe: timeframe, venue: venue?.name, now: now, year: year)
-        let entities = results.prefix(Self.entityLimit).map(EventEntity.init(event:))
 
         guard let firstMatch = IntentDataSource.featured(in: results) else {
             if let offSeason = IntentDialogText.offSeason(SeasonStatus.make(now: now, year: year), year: year) {
@@ -100,6 +99,10 @@ struct NextEventsIntent: AppIntent {
                 kindTitle: kind?.displayTitle, timeframeLabel: timeframe?.spokenLabel, next: next)
             return .result(value: [], dialog: "\(text)")
         }
+
+        let entities = IntentDataSource
+            .entityWindow(results: results, featured: firstMatch, limit: Self.entityLimit)
+            .map(EventEntity.init(event:))
 
         let text: String
         if results.count == 1 {
