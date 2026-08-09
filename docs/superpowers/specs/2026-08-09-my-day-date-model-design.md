@@ -1,7 +1,10 @@
 # My Day — date model and day navigation
 
-**Status:** Design approved 2026-08-09. Implementation not started.
+**Status:** Implemented on `feat/my-day-192`, 2026-08-09. This document was
+corrected after implementation to match the shipped code; where the two ever
+disagree, the code is the authority.
 **Issue:** [#192](https://github.com/bbernstein/chq-calendar/issues/192) — iOS: My Day should show today by default.
+**Plan:** `docs/superpowers/plans/2026-08-09-my-day-date-model.md`
 
 ## Problem
 
