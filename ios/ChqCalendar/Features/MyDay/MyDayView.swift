@@ -35,6 +35,17 @@ struct MyDayView: View {
         NavigationStack {
             content
                 .navigationTitle("My Day")
+                .toolbar {
+                    // Absent in a past season — there is no today to return
+                    // to — and absent when you are already on today.
+                    if let bounds = model.myDayBounds,
+                       bounds.contains(todayKey),
+                       selectedDay != todayKey {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Today") { selectedDay = todayKey }
+                        }
+                    }
+                }
                 .navigationDestination(for: Event.self) { event in
                     EventDetailView(event: event, model: model)
                 }
@@ -90,10 +101,16 @@ struct MyDayView: View {
                     .padding(.horizontal)
             }
             dayChipsRow(window: window, selectedDay: day, todayKey: todayKey, starredCounts: starredCounts)
-            summaryHeader(for: plan)
-            Divider()
-                .padding(.horizontal)
-            timeline(for: plan)
+            selectedDayHeader(for: day)
+            if plan.items.isEmpty {
+                emptyDayState(for: day)
+                    .frame(maxHeight: .infinity)
+            } else {
+                summaryHeader(for: plan)
+                Divider()
+                    .padding(.horizontal)
+                timeline(for: plan)
+            }
         }
         .padding(.top, 8)
     }
@@ -158,6 +175,41 @@ struct MyDayView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             proxy.scrollTo(day, anchor: .center)
         }
+    }
+
+    // MARK: - Day header
+
+    /// Names the day being shown. The screen previously stated this
+    /// *nowhere* — the only indicator was the highlighted chip, which was
+    /// reliably off-screen (#192).
+    private func selectedDayHeader(for day: String) -> some View {
+        HStack(spacing: 8) {
+            Text(dayTitle(for: day))
+                .font(.headline)
+            if let badge = relativeBadge(for: day) {
+                Text(badge)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor, in: Capsule())
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal)
+    }
+
+    private func dayTitle(for dayKey: String) -> String {
+        guard let date = ChqTime.parse("\(dayKey) 00:00:00") else { return dayKey }
+        return ChqTime.dayTitle(for: date, includingYear: !model.isCurrentYear)
+    }
+
+    private func relativeBadge(for dayKey: String) -> String? {
+        let today = todayKey
+        if dayKey == today { return "Today" }
+        if dayKey == ChqTime.day(today, offsetBy: 1) { return "Tomorrow" }
+        if dayKey == ChqTime.day(today, offsetBy: -1) { return "Yesterday" }
+        return nil
     }
 
     // MARK: - Summary header
@@ -347,6 +399,23 @@ struct MyDayView: View {
             Text("Tap the star on any event to add it to your personalized day-by-day itinerary.")
         } actions: {
             Button("Browse Events") { switchToEvents() }
+        }
+    }
+
+    /// A day inside the window with nothing starred on it. Offers a way to
+    /// fill the gap rather than being a dead end — which is the whole reason
+    /// empty days are shown at all (#192).
+    private func emptyDayState(for day: String) -> some View {
+        let label = ChqTime.parse("\(day) 00:00:00").map(ChqTime.monthDayLabel(for:)) ?? day
+        return ContentUnavailableView {
+            Label("Nothing starred yet", systemImage: "star")
+        } description: {
+            Text("You haven't starred anything for this day.")
+        } actions: {
+            Button("Browse \(label) events") {
+                model.browseDay(day)
+                switchToEvents()
+            }
         }
     }
 }
