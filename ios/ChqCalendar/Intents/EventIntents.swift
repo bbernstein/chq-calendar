@@ -57,41 +57,64 @@ struct OpenEventIntent: AppIntent {
     }
 }
 
-/// Venue options for `NextEventsIntent`'s optional venue parameter —
-/// distinct `displayLocation` values from the cached snapshot, most-frequent
-/// first. Reuses `WidgetConfigOptions.venueOptions`, the same pure ranking
-/// `WidgetConfigIntent`'s picker uses, over `IntentDataSource`'s cache read
-/// instead of `WidgetDataSource`'s.
-struct NextEventsVenueOptionsProvider: DynamicOptionsProvider {
-    func results() async throws -> [String] {
-        WidgetConfigOptions.venueOptions(events: await IntentDataSource.events(now: Date()))
-    }
-}
-
-/// "What's Next" — up to 5 upcoming events, optionally narrowed to a venue,
-/// spoken back as a one-line dialog plus the full list as a returned value
-/// (so a Shortcuts automation can act on the results, not just hear them).
+/// "What's Next" — the #193 workhorse: upcoming events optionally
+/// narrowed by kind of event, timeframe, or venue (each narrowable by
+/// voice through its own phrase family — one parameter per phrase is a
+/// platform rule), spoken back as a one-line dialog plus the full list
+/// as a returned value. Selection and dialog copy live in
+/// `IntentDataSource`/`IntentDialogText`, both unit-tested.
 struct NextEventsIntent: AppIntent {
     static let title: LocalizedStringResource = "What's Next"
 
-    @Parameter(title: "Venue", optionsProvider: NextEventsVenueOptionsProvider())
-    var venue: String?
+    @Parameter(title: "Kind of Event")
+    var kind: EventKind?
+
+    @Parameter(title: "When")
+    var timeframe: IntentTimeframe?
+
+    @Parameter(title: "Venue")
+    var venue: VenueEntity?
+
+    /// How many events the returned value is capped at (the dialog's
+    /// count is NOT capped — it reports the true match count).
+    private static let entityLimit = 5
 
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<[EventEntity]> {
         let now = Date()
-        let events = await IntentDataSource.upcoming(venue: venue, now: now, limit: 5)
-        let entities = events.map(EventEntity.init(event:))
+        let events = await IntentDataSource.events(now: now)
+        guard !events.isEmpty else {
+            return .result(value: [], dialog: "\(IntentDialogText.coldCache())")
+        }
+        let year = await IntentDataSource.defaultYear()
+        let results = IntentDataSource.selectMatching(
+            events: events, kind: kind, timeframe: timeframe, venue: venue?.name, now: now, year: year)
 
-        guard let first = events.first else {
-            let place = venue.map { " at \($0)" } ?? ""
-            let dialog: IntentDialog = "Nothing coming up\(place) right now."
-            return .result(value: entities, dialog: dialog)
+        guard let firstMatch = IntentDataSource.featured(in: results) else {
+            if let offSeason = IntentDialogText.offSeason(SeasonStatus.make(now: now, year: year), year: year) {
+                return .result(value: [], dialog: "\(offSeason)")
+            }
+            let next = IntentDataSource.selectMatching(
+                events: events, kind: kind, timeframe: nil, venue: venue?.name, now: now, year: year).first
+            let text = IntentDialogText.noMatch(
+                kindTitle: kind?.displayTitle, timeframeLabel: timeframe?.spokenLabel, next: next)
+            return .result(value: [], dialog: "\(text)")
         }
 
-        let place = first.displayLocation ?? "Chautauqua"
-        let time = ChqTime.timeString(for: first.start)
-        let dialog: IntentDialog = "Next up at \(place): \(first.title) at \(time)."
-        return .result(value: entities, dialog: dialog)
+        let entities = IntentDataSource
+            .entityWindow(results: results, featured: firstMatch, limit: Self.entityLimit)
+            .map(EventEntity.init(event:))
+
+        let text: String
+        if results.count == 1 {
+            text = IntentDialogText.nextUp(kindTitle: kind?.displayTitle, event: firstMatch)
+        } else if timeframe != nil {
+            text = IntentDialogText.listSummary(
+                count: results.count, kindTitle: kind?.displayTitle,
+                timeframeLabel: timeframe?.spokenLabel, first: results[0])
+        } else {
+            text = IntentDialogText.nextUp(kindTitle: kind?.displayTitle, event: firstMatch)
+        }
+        return .result(value: entities, dialog: "\(text)")
     }
 }
 

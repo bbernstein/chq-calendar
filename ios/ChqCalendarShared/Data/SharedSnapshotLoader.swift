@@ -34,6 +34,19 @@ nonisolated enum SharedSnapshotLoader {
         return try? JSONDecoder().decode(YearsManifest.self, from: entry.data)
     }
 
+    /// Decodes the weekly-themes sidecar cached under `"themes-<year>"`
+    /// (the same entry `EventRepository.cachedThemes` reads), or `[]` on
+    /// any failure — same missing-data-degrades-to-nothing convention as
+    /// every other loader here.
+    static func loadThemes(year: Int, cache: DataCaching) -> [WeeklyTheme] {
+        guard let entry = cache.read("themes-\(year)"),
+              let file = try? JSONDecoder().decode(WeeklyThemesFile.self, from: entry.data)
+        else {
+            return []
+        }
+        return file.weeks
+    }
+
     /// The persisted favorite event IDs, respecting the same 30-day expiry
     /// as the app (`UserStateStore.loadFavorites`) — delegated to rather
     /// than reimplemented, so the widget and the app can never disagree

@@ -112,4 +112,17 @@ struct AboutInfoTests {
         let aboutIDs = Set(AboutInfo.links.map(\.id))
         #expect(Set(AboutInfo.quickLinks.map(\.id)).isDisjoint(with: aboutIDs))
     }
+
+    // MARK: - siriPhrases
+
+    @Test func siriPhrasesQuoteSpokenFormsWithAnAppName() {
+        #expect(!AboutInfo.siriPhrases.isEmpty)
+        for p in AboutInfo.siriPhrases {
+            // Every listed phrase must contain a form Siri actually routes
+            // on — the app name or an INAlternativeAppNames entry.
+            #expect(p.phrase.contains("Chautauqua") || p.phrase.contains("CHQ"),
+                    "phrase lacks an app name: \(p.phrase)")
+        }
+        #expect(Set(AboutInfo.siriPhrases.map(\.id)).count == AboutInfo.siriPhrases.count)
+    }
 }

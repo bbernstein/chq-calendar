@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 
 /// The About sheet, reached from the calendar toolbar. Its job is to carry
@@ -26,6 +27,19 @@ struct AboutView: View {
                     Text(AboutInfo.disclaimer)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    SiriTipView(intent: NextEventsIntent())
+                    ForEach(AboutInfo.siriPhrases) { item in
+                        Text("“\(item.phrase)”")
+                            .font(.callout)
+                    }
+                    ShortcutsLink()
+                } header: {
+                    Text("Ask Siri")
+                } footer: {
+                    Text("Siri also understands “CHQ,” “CHQ Calendar,” and “Chautauqua Calendar” as the app's name.")
                 }
 
                 Section {
