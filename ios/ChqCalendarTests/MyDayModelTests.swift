@@ -168,6 +168,8 @@ struct MyDayModelTests {
         #expect(window.days.isEmpty)
         #expect(!window.canExpandEarlier)
         #expect(!window.canExpandLater)
+        #expect(window.hiddenEarlierCount == 0)
+        #expect(window.hiddenLaterCount == 0)
     }
 
     @Test func myDayWindowHonorsTheInjectedClock() throws {

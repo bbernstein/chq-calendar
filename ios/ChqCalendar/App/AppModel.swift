@@ -424,15 +424,22 @@ final class AppModel {
     }
 
     /// Which day `MyDayView` opens to by default — see
-    /// `DayWindow.defaultSelection`. `nil` when there are no favorited days
-    /// at all (including when there's no snapshot yet), which is the case
-    /// where the view shows its all-season empty state instead.
+    /// `DayWindow.defaultSelection`. `nil` on two distinct paths: no
+    /// snapshot yet (the guard below), or a snapshot with no favorited days
+    /// at all (`DayWindow.defaultSelection`'s own `starredDays.isEmpty`
+    /// guard). Either way the view shows its all-season empty state instead.
+    ///
+    /// Computes `myDayAvailableDays` once and reuses it for both the bounds
+    /// and the default-selection call, rather than going through
+    /// `myDayBounds` (which would recompute it internally) — avoids walking
+    /// the full event list twice per access.
     var myDayDefaultDay: String? {
-        guard let bounds = myDayBounds else { return nil }
+        guard snapshot != nil else { return nil }
+        let starredDays = myDayAvailableDays
         return DayWindow.defaultSelection(
-            bounds: bounds,
+            bounds: DayWindow.bounds(year: selectedYear, starredDays: starredDays),
             today: ChqTime.dayKey(for: now()),
-            starredDays: myDayAvailableDays)
+            starredDays: starredDays)
     }
 
     /// Builds the day plan for `dayKey` from the current snapshot and
