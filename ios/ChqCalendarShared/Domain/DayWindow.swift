@@ -62,4 +62,63 @@ nonisolated struct DayWindow: Equatable, Sendable {
         }
         return lower...upper
     }
+
+    /// The slice of `bounds` the strip shows right now.
+    ///
+    /// When `today` is inside `bounds`, the default slice runs
+    /// `today - defaultDaysBefore ... today + defaultDaysAfter`, clamped to
+    /// `bounds`; `showsEarlier` and `showsLater` extend each end
+    /// independently out to the bound, so opening the past never drags the
+    /// whole future along.
+    ///
+    /// The `canExpand` flags are computed from the *default* slice, not the
+    /// current one, so a control stays on screen after its end is expanded
+    /// and can toggle back. They go `false` only when the default slice
+    /// already reached that bound — a control near a season edge disappears
+    /// on its own rather than expanding into nothing.
+    ///
+    /// When `today` is outside `bounds` — off-season, or any past season —
+    /// a window measured from "today" is meaningless, so the whole of
+    /// `bounds` is shown, both flags are `false`, and `showsEarlier` /
+    /// `showsLater` are ignored.
+    static func make(
+        bounds: ClosedRange<String>,
+        today: String,
+        showsEarlier: Bool,
+        showsLater: Bool
+    ) -> DayWindow {
+        guard bounds.contains(today) else {
+            return DayWindow(
+                days: ChqTime.dayKeys(from: bounds.lowerBound, through: bounds.upperBound),
+                canExpandEarlier: false,
+                canExpandLater: false,
+                hiddenEarlierCount: 0,
+                hiddenLaterCount: 0)
+        }
+
+        let defaultLower = ChqTime.day(today, offsetBy: -defaultDaysBefore) ?? bounds.lowerBound
+        let defaultUpper = ChqTime.day(today, offsetBy: defaultDaysAfter) ?? bounds.upperBound
+        let clampedLower = Swift.max(defaultLower, bounds.lowerBound)
+        let clampedUpper = Swift.min(defaultUpper, bounds.upperBound)
+
+        let lower = showsEarlier ? bounds.lowerBound : clampedLower
+        let upper = showsLater ? bounds.upperBound : clampedUpper
+
+        // `dayKeys` is inclusive of both ends, so the number of days
+        // strictly outside the clamp is the inclusive span minus the shared
+        // boundary day.
+        let hiddenEarlier = showsEarlier
+            ? 0
+            : Swift.max(0, ChqTime.dayKeys(from: bounds.lowerBound, through: clampedLower).count - 1)
+        let hiddenLater = showsLater
+            ? 0
+            : Swift.max(0, ChqTime.dayKeys(from: clampedUpper, through: bounds.upperBound).count - 1)
+
+        return DayWindow(
+            days: ChqTime.dayKeys(from: lower, through: upper),
+            canExpandEarlier: clampedLower > bounds.lowerBound,
+            canExpandLater: clampedUpper < bounds.upperBound,
+            hiddenEarlierCount: hiddenEarlier,
+            hiddenLaterCount: hiddenLater)
+    }
 }

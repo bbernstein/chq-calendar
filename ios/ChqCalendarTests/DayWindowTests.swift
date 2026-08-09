@@ -65,4 +65,134 @@ struct DayWindowTests {
 
         #expect(ChqTime.dayKeys(from: bounds.lowerBound, through: bounds.upperBound).count == 64)
     }
+
+    // MARK: - make
+
+    /// Mid-season: Sunday August 9 2026, comfortably inside the season with
+    /// room to expand at both ends.
+    private var midSeasonBounds: ClosedRange<String> {
+        DayWindow.bounds(year: year, starredDays: [])
+    }
+
+    @Test func defaultWindowIsSevenBackAndFourteenForward() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false)
+
+        #expect(window.days.first == "2026-08-02")
+        #expect(window.days.last == "2026-08-23")
+        #expect(window.days.count == 22)
+        #expect(window.days.contains("2026-08-09"))
+    }
+
+    @Test func defaultWindowReportsBothEndsAsExpandable() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false)
+
+        #expect(window.canExpandEarlier)
+        #expect(window.canExpandLater)
+        // Jun 27 .. Aug 1 inclusive
+        #expect(window.hiddenEarlierCount == 36)
+        // Aug 24 .. Aug 29 inclusive
+        #expect(window.hiddenLaterCount == 6)
+    }
+
+    @Test func expandingEarlierReachesTheSeasonStartWithoutTouchingTheOtherEnd() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: true, showsLater: false)
+
+        #expect(window.days.first == seasonFirst)
+        #expect(window.days.last == "2026-08-23")
+        #expect(window.hiddenEarlierCount == 0)
+        #expect(window.hiddenLaterCount == 6)
+        // Still true: the control stays put so it can toggle back.
+        #expect(window.canExpandEarlier)
+        #expect(window.canExpandLater)
+    }
+
+    @Test func expandingLaterReachesTheSeasonEndWithoutTouchingTheOtherEnd() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: true)
+
+        #expect(window.days.first == "2026-08-02")
+        #expect(window.days.last == seasonLast)
+        #expect(window.hiddenEarlierCount == 36)
+        #expect(window.hiddenLaterCount == 0)
+    }
+
+    @Test func expandingBothEndsShowsTheWholeSeason() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: true, showsLater: true)
+
+        #expect(window.days.first == seasonFirst)
+        #expect(window.days.last == seasonLast)
+        #expect(window.days.count == 64)
+    }
+
+    @Test func windowClampsAtTheSeasonStartAndDropsTheEarlierControl() {
+        // Opening day: there is nothing before it, so the control must not
+        // be offered rather than expanding into nothing.
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: seasonFirst,
+            showsEarlier: false, showsLater: false)
+
+        #expect(window.days.first == seasonFirst)
+        #expect(window.days.last == "2026-07-11")
+        #expect(!window.canExpandEarlier)
+        #expect(window.hiddenEarlierCount == 0)
+        #expect(window.canExpandLater)
+    }
+
+    @Test func windowClampsAtTheSeasonEndAndDropsTheLaterControl() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: seasonLast,
+            showsEarlier: false, showsLater: false)
+
+        #expect(window.days.first == "2026-08-22")
+        #expect(window.days.last == seasonLast)
+        #expect(window.canExpandEarlier)
+        #expect(!window.canExpandLater)
+        #expect(window.hiddenLaterCount == 0)
+    }
+
+    @Test func windowIsTheWholeSeasonWhenTodayIsBeforeIt() {
+        // Pre-season: the relative window is meaningless, so everything is
+        // shown and there is nothing to reveal.
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-05-01",
+            showsEarlier: false, showsLater: false)
+
+        #expect(window.days.first == seasonFirst)
+        #expect(window.days.last == seasonLast)
+        #expect(window.days.count == 64)
+        #expect(!window.canExpandEarlier)
+        #expect(!window.canExpandLater)
+        #expect(window.hiddenEarlierCount == 0)
+        #expect(window.hiddenLaterCount == 0)
+    }
+
+    @Test func windowIsTheWholeSeasonWhenTodayIsAfterIt() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-10-15",
+            showsEarlier: false, showsLater: false)
+
+        #expect(window.days.count == 64)
+        #expect(!window.canExpandEarlier)
+        #expect(!window.canExpandLater)
+    }
+
+    @Test func windowIgnoresExpansionFlagsWhenTodayIsOutsideBounds() {
+        let collapsed = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-10-15",
+            showsEarlier: false, showsLater: false)
+        let expanded = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-10-15",
+            showsEarlier: true, showsLater: true)
+
+        #expect(collapsed == expanded)
+    }
 }
