@@ -67,8 +67,25 @@ nonisolated struct DayWindow: Equatable, Sendable {
     let canExpandEarlier: Bool
     /// Whether later days exist outside `days` and can be revealed.
     let canExpandLater: Bool
+    /// How many days are hidden before `days.first` right now — `0` once
+    /// that end is expanded. Drives the expand control's VoiceOver label
+    /// ("Show 42 earlier days"); the visible chip itself stays narrow.
+    let hiddenEarlierCount: Int
+    /// As `hiddenEarlierCount`, for the trailing edge.
+    let hiddenLaterCount: Int
 }
 ```
+
+`make` also takes a `selectedDay:` widening parameter (default `nil`). A day
+can be selected only while its end is expanded — e.g. a chip revealed by
+`showsEarlier` — and collapsing that end afterwards must not orphan the
+selection: with no chip carrying `.id(selectedDay)`, the view's re-anchoring
+`scrollTo` would silently do nothing and the strip would render with no chip
+highlighted, even while the plan below still shows that day. When
+`selectedDay` falls inside `bounds`, the slice is widened to include it, so
+"the visible window always contains the selection" holds as a property of
+`DayWindow` itself — pinned by a unit test — rather than being reproduced (or
+missed) at each view call site.
 
 Day keys are `"yyyy-MM-dd"` throughout, matching `ChqTime.dayKey`. Lexicographic
 string comparison on that format is chronological, so `ClosedRange<String>`
@@ -88,15 +105,23 @@ The outer limit of everything the strip can ever show.
   Without this a starred pre-season or post-season event would be permanently
   unreachable from the strip.
 
-### `make(bounds:today:showsEarlier:showsLater:) -> DayWindow`
+### `make(bounds:today:showsEarlier:showsLater:selectedDay:) -> DayWindow`
 
 - **`today ∈ bounds`** — the default slice is `[today − 7, today + 14]`
   clamped to `bounds`. `showsEarlier` extends the lower end to
   `bounds.lowerBound`; `showsLater` extends the upper end to
   `bounds.upperBound`. The two are independent.
-  `canExpandEarlier` is `sliceLower > bounds.lowerBound`, and symmetrically
-  for `canExpandLater` — so the controls vanish on their own near the season
-  edges rather than expanding into nothing.
+  `canExpandEarlier` is computed against the **default** clamped slice —
+  `defaultSliceLower > bounds.lowerBound` — not the current (possibly
+  already-expanded) slice, and symmetrically for `canExpandLater`. That's
+  deliberate, not an oversight: computing it from the current slice would
+  make the flag go `false` the instant that end expands, which would hide
+  the control and make it impossible to tap back to collapse — contradicting
+  §2's own "the label becomes `Hide` while expanded." Computing it from the
+  fixed default slice means the control's presence tracks only whether that
+  end is *near a season edge*, so it persists across expansion and can
+  toggle both ways, while still vanishing on its own near the edges rather
+  than expanding into nothing.
 - **`today ∉ bounds`** — `days` is the whole of `bounds`, and both
   `canExpand` flags are `false`. Nothing is hidden, so no control is offered.
   The `showsEarlier`/`showsLater` inputs are ignored in this branch.
@@ -269,8 +294,25 @@ set: omitted from `UserStateStore.PersistedFilters`, and `saveFilters` writes
 `.next` in place of a live `.day` scope. A date pinned three days ago and
 silently restored on launch would be worse than no restore.
 
-`isDefault` and `hasDateFilters` need no change — `.day ≠ .next` and
-`.day ≠ .all` already produce the right answers.
+This section originally claimed `isDefault` and `hasDateFilters` need no
+change, on the reasoning that `.day ≠ .next` and `.day ≠ .all` already
+produce the right answers. That's true for `isDefault`, which stays as
+written. It's false for `hasDateFilters`: `.day ≠ .all` is the right answer
+only while a key is actually set. Every real call site sets `dateScope` and
+`selectedDayKey` together (`AppModel.browseDay` is the only writer of
+either), but `FilterSelection`'s memberwise initializer does not enforce
+that pairing, so a **keyless** `.day` — `dateScope == .day` with
+`selectedDayKey == nil` — is a state the type can represent even though the
+app never deliberately constructs one. `EventFilter` already treats it as
+filtering nothing (the `.day` case falls through when `selectedDayKey` is
+`nil`), so `hasDateFilters` has to agree rather than report a date filter
+that isn't actually narrowing anything — the same discipline
+`DateFilterLabel` and `FilterChipState` already apply by not trusting the
+scope alone. `hasDateFilters` gains a `.day` branch that defers to a new
+`isDayFilterActive: Bool { dateScope == .day && selectedDayKey != nil }`
+(`UserStateStore.swift:103-113`), which every other consumer that needs to
+know "is a day actually pinned" should read rather than re-deriving the same
+check.
 
 ### `EventFilter`
 

@@ -68,14 +68,16 @@ nonisolated enum DateFilterLabel {
             case .next, .today, .thisWeek, .season: return selection.dateScope.label
             // Reached when `selectedDayKey` is `nil` (in which case
             // `EventFilter` filters nothing, so "All Year" is true) or when
-            // it's a non-nil string this parse can't read. The latter is
-            // unreachable today — every key in practice comes from
-            // `ChqTime.dayKey`, which this always parses back — but if it
-            // ever weren't, `EventFilter.apply` does a raw string compare
-            // rather than parsing, so a malformed key would filter every
-            // event out while this still says "All Year" over the empty
-            // result. Documented rather than guarded against, since nothing
-            // constructs that key today.
+            // it's a non-nil string this parse can't read. The latter can no
+            // longer happen through the app's only writer: `AppModel.browseDay`
+            // parses the key with this same `ChqTime.parse("\(dayKey)
+            // 00:00:00")` call before ever assigning `selectedDayKey`, so a
+            // key that fails here would already have failed there and never
+            // been set. This branch only runs for a current-year selection —
+            // on a non-current year a malformed key fails the same parse in
+            // the early `.day` branch above and falls through the
+            // `isCurrentYear` guard below to "All Year" instead, closed by
+            // the same guarantee.
             case .day: return DateScope.all.label
             }
         }

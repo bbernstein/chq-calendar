@@ -64,6 +64,23 @@ struct MyDayView: View {
         .onChange(of: model.myDayBounds) { _, newBounds in
             reconcileSelection(in: newBounds)
         }
+        // `myDayBounds` is the season widened by starred days *outside* it —
+        // an in-season favorite going from none to some never moves it. So
+        // if `selectedDay` is `nil` (reconcile last ran while
+        // `myDayAvailableDays` was empty) and a snapshot then lands with
+        // in-season favorites, bounds are byte-identical, the trigger above
+        // never fires, and `content(bounds:)` falls through to `Color.clear`
+        // — a blank tab until the user switches away and back. Watching
+        // `.isEmpty` instead of the array itself restores exactly the
+        // coverage the pre-#192 `.onChange(of: model.myDayAvailableDays)`
+        // had for this transition, without re-reconciling on every single
+        // star/unstar the way watching the array would. The cost is one
+        // extra O(events) pass over the event list per body evaluation (to
+        // read `myDayAvailableDays.isEmpty`); worth it since the
+        // alternative is a reachable blank screen.
+        .onChange(of: model.myDayAvailableDays.isEmpty) { _, _ in
+            reconcileSelection(in: model.myDayBounds)
+        }
     }
 
     @ViewBuilder

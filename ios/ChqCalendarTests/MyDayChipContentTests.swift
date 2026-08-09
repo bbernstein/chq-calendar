@@ -30,6 +30,22 @@ struct MyDayChipContentTests {
         #expect(content?.isToday == true)
     }
 
+    @Test func todaysChipCanAlsoBeEmptyBecauseTodayAndEmptyAreIndependentSignals() throws {
+        // Pins the exact composition `MyDayChipContent`'s doc comment cites as
+        // the reason the type encodes today/empty/selected as independent
+        // signals rather than a single "state": today with nothing starred.
+        // `todaysChipReplacesTheWeekdayWithTheWordToday` only covers today
+        // with events (`starCount: 3`), and `zeroStarCountReadsAsEmpty` only
+        // covers empty on a non-today key, so neither exercises this pair.
+        let content = try #require(MyDayChipContent.make(
+            dayKey: "2026-08-09", todayKey: "2026-08-09", starCount: 0, includingYear: false))
+
+        #expect(content.topLine == "Today")
+        #expect(content.isEmpty)
+        #expect(content.isToday)
+        #expect(content.accessibilityLabel == "Sunday, August 9, today, no starred events")
+    }
+
     @Test func everyChipCarriesItsMonthSoItIsUnambiguousInIsolation() throws {
         let june = try #require(MyDayChipContent.make(
             dayKey: "2026-06-28", todayKey: "2026-08-09", starCount: 1, includingYear: false))
