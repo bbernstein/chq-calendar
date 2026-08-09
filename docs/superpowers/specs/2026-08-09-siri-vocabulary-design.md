@@ -88,6 +88,11 @@ Each kind carries spoken synonyms and a matching rule over `filterTokens`
 
 Notes:
 
+- **Case display titles use the natural plural spoken form** ("movies",
+  "lectures", "concerts") because titles are baked verbatim into generated
+  Siri utterances (spike finding 3); singular forms and other variants go in
+  the case's `synonyms`. The table's Kind column names the concept, not the
+  final title string.
 - Token strings above are the lowercased category-name forms observed in the
   live 2026 feed; the implementation matches against `filterTokens` (which
   contains both slug and name forms) and should prefer slug forms where those
@@ -106,12 +111,39 @@ Notes:
 same week numbering the app already uses. Absent timeframe on a "next ⟨kind⟩"
 phrasing → search forward from now, unbounded.
 
-### Open SDK question (spike, first implementation task)
+### SDK spike findings (resolved 2026-08-09)
 
-Whether per-value spoken synonyms attach to an `AppEnum` case directly in the
-current (iOS 26) SDK, or require alias cases / a fixed `AppEntity` list. The
-mapping table is designed so either mechanism plugs in. The spike also
-verifies venue-slot synonyms ("the Amp" → Amphitheater).
+Verified against the installed iOS 26.5 SDK (Xcode 26.6) by compiling a spike
+`AppEnum` + parameterized shortcut inside the real app target and inspecting
+the exported `Metadata.appintents`:
+
+1. **Synonyms attach directly to `AppEnum` cases** —
+   `DisplayRepresentation(title:synonyms:)`, available iOS 17+ (app targets
+   iOS 18, so usable everywhere). No alias cases, no `AppEntity`
+   workaround. Synonyms export per-case into the app's AppIntents metadata
+   (verified in `extract.actionsdata`), which Siri ingests for slot
+   matching. `TypeDisplayRepresentation(name:synonyms:)` likewise.
+2. **A phrase can contain exactly ONE parameter.** Authoritative: a
+   two-parameter phrase passes `swiftc` but `appintentsmetadataprocessor`
+   halts the build — "Multiple parameters detected in phrase. A single
+   phrase can only use a single parameter." This reshapes the phrase
+   templates (see intent surface below): each spoken utterance parameterizes
+   one slot (kind OR timeframe OR venue); combined constraints by voice in a
+   single utterance are not possible.
+3. **Enum case display titles are baked verbatim into the pre-generated Siri
+   utterances** (decompressed `nlu.lzfse` shows e.g. "What movie are playing
+   in CHQ Calendar" for case title "movie"). Consequence: case titles must
+   be the natural plural spoken forms ("movies", "concerts", "lectures") so
+   generated utterances read grammatically; singular forms go in synonyms.
+4. **Venue as a phrase slot requires an `AppEntity`** (plain `String`
+   parameters cannot appear in phrases), with values published via
+   `AppShortcutsProvider.updateAppShortcutParameters()` — which the app does
+   not currently call; the implementation adds it after each feed load.
+   Venue synonyms ("the Amp") ride on the entity's
+   `displayRepresentation.synonyms`.
+5. `INAlternativeAppNames` is a runtime/install-time plist mechanism —
+   nothing to verify at build time; it stays the riskiest item on the
+   on-device checklist.
 
 ## Intent surface
 
@@ -121,16 +153,31 @@ templates.
 
 ### 1. `NextEventsIntent` (extended) — optional `kind`, `timeframe`, `venue`
 
-- "What's ⟨happening|coming up⟩ ⟨this week⟩ in ⟨Chautauqua⟩"
-- "What ⟨movies|concerts|lectures⟩ are ⟨playing|on⟩ ⟨tomorrow⟩ at ⟨Chautauqua⟩"
-- "What's the next ⟨symphony⟩ ⟨concert⟩ at ⟨Chautauqua⟩"
-- "Who is ⟨speaking|performing⟩ ⟨tomorrow⟩ at ⟨Chautauqua⟩" — kind implied
-  (lecture/performance); dialog leads with presenter; covers "who is giving
-  the 2:00 lecture"
-- "What's ⟨playing|happening⟩ ⟨in the Amp⟩ ⟨this week⟩" — venue slot with
-  venue synonyms ("the Amp", "the Amphitheater")
-- "What time is the ⟨evening|morning⟩ ⟨show|lecture⟩ ⟨tomorrow⟩" — day-part
-  refinement via `tonight`/timeframe
+One parameter slot per phrase (spike finding 2), so the phrase families each
+parameterize a single slot; the other parameters stay unset and the intent
+answers with its default scope (upcoming-from-now). Literal words cover the
+most common fixed variants (e.g. a literal-"tonight" phrase family), since
+literals are free — only *parameters* are limited to one.
+
+- Kind-parameterized (timeframe defaults to upcoming):
+  - "What ⟨movies⟩ are ⟨playing|on⟩ ⟨in|at⟩ ⟨Chautauqua⟩"
+  - "What's the next ⟨symphony⟩ ⟨in|at⟩ ⟨Chautauqua⟩"
+  - "What ⟨movies⟩ are playing ⟨tonight|today|tomorrow|this week⟩ …" —
+    literal time words in otherwise kind-parameterized phrases; the intent
+    receives only `kind`, so the *spoken answer* still scopes to upcoming.
+    Deliberately few of these to avoid promising precision the slot can't
+    deliver; the dialog states the timeframe it actually used.
+- Timeframe-parameterized (kind unset → everything):
+  - "What's ⟨happening|coming up⟩ ⟨this week⟩ ⟨in|at⟩ ⟨Chautauqua⟩"
+- Venue-parameterized (kind/timeframe unset):
+  - "What's ⟨playing|happening⟩ ⟨in the Amp⟩ ⟨in|at⟩ ⟨Chautauqua⟩" — venue
+    entity with synonyms ("the Amp", "the Amphitheater")
+- Fixed phrases (no slot):
+  - "Who is ⟨speaking|performing⟩ ⟨today|tomorrow⟩ ⟨in|at⟩ ⟨Chautauqua⟩" —
+    literal day words; kind implied (lecture); dialog leads with presenter;
+    covers "who is giving the 2:00 lecture"
+  - "What time is the ⟨evening show|morning lecture⟩ ⟨in|at⟩ ⟨Chautauqua⟩" —
+    literal day-part phrases mapping to flagship-venue lookups
 
 ### 2. `WeekThemeIntent` (new) — optional `week` (this week / next week / week 1–9)
 
