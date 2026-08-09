@@ -80,7 +80,7 @@ struct IntentDialogTextTests {
     @Test func offSeasonMessages() throws {
         let start = try #require(ChqTime.parse("2026-06-27 12:00:00"))
         #expect(IntentDialogText.offSeason(.preSeason(start: start), year: 2026)
-            == "The 2026 season starts \(ChqTime.compactDayLabel(for: start)).")
+            == "The 2026 season starts \(ChqTime.dayTitle(for: start)).")
         #expect(IntentDialogText.offSeason(.postSeason, year: 2026)
             == "The 2026 season has ended. Check back when next season is announced.")
         #expect(IntentDialogText.offSeason(.inSeason, year: 2026) == nil)

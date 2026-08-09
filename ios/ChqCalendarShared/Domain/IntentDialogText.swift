@@ -58,7 +58,7 @@ nonisolated enum IntentDialogText {
         switch status {
         case .inSeason: return nil
         case .preSeason(let start):
-            return "The \(year) season starts \(ChqTime.compactDayLabel(for: start))."
+            return "The \(year) season starts \(ChqTime.dayTitle(for: start))."
         case .postSeason:
             return "The \(year) season has ended. Check back when next season is announced."
         }
