@@ -143,13 +143,48 @@ struct DateFilterLabelTests {
             seasonWeekCount: nine, isCurrentYear: true) == "All Season")
     }
 
-    @Test func offYearAlwaysReadsAllYear() {
-        // Off the current year the pipeline ignores every relative scope,
+    @Test func offYearAlwaysReadsAllYearForEveryRelativeScope() {
+        // Off the current year the pipeline ignores every *relative* scope,
         // so the pill must say so regardless of what is persisted.
-        for scope in DateScope.allCases {
+        //
+        // `.day` is excluded deliberately: it names an absolute date and is
+        // exempt from that downgrade, so off-year it renders the date rather
+        // than "All Year" — see `dayScopeCarriesTheYearForANonCurrentSeason`.
+        // Left in the loop it would pass only by accident, because these
+        // selections carry no `selectedDayKey`.
+        for scope in DateScope.allCases where scope != .day {
             #expect(DateFilterLabel.text(
                 for: FilterSelection(dateScope: scope),
                 seasonWeekCount: nine, isCurrentYear: false) == "All Year")
         }
+    }
+
+    @Test func dayScopeRendersTheDateNotTheWord() {
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .day, selectedDayKey: "2026-08-09"),
+            seasonWeekCount: nine, isCurrentYear: true) == "Sun, Aug 9")
+    }
+
+    @Test func dayScopeCarriesTheYearForANonCurrentSeason() {
+        // The pill must not say "All Year" here. `.day` survives
+        // EventFilter's non-current-year downgrade, so the list really is
+        // filtered to one day and a pill claiming otherwise would be lying.
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .day, selectedDayKey: "2025-08-23"),
+            seasonWeekCount: nine, isCurrentYear: false) == "Sat, Aug 23, 2025")
+    }
+
+    @Test func dayScopeWithoutADayKeyReadsAllYear() {
+        // Nothing is actually being filtered, so "All Year" is true.
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .day, selectedDayKey: nil),
+            seasonWeekCount: nine, isCurrentYear: true) == "All Year")
+    }
+
+    @Test func weekSelectionStillWinsOverADayScope() {
+        // The weeks branch runs first and is unchanged.
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .day, selectedWeeks: [6], selectedDayKey: "2026-08-09"),
+            seasonWeekCount: nine, isCurrentYear: true) == "Week 6")
     }
 }

@@ -388,11 +388,63 @@ final class AppModel {
         return DayPlan.availableDayKeys(favorites: favorites, events: snapshot.events, year: selectedYear)
     }
 
-    /// Which day `MyDayView` should open to by default — see
-    /// `DayPlan.defaultDayKey`. `nil` when there are no favorited days at
-    /// all (including when there's no snapshot yet).
+    /// The outer limit of the My Day strip — see `DayWindow.bounds`.
+    ///
+    /// `nil` without a snapshot. Season bounds are computable from
+    /// `selectedYear` alone, but until the first snapshot lands
+    /// `selectedYear` is still the placeholder year, and a placeholder
+    /// season has no business reaching the UI. Mirrors the guard
+    /// `myDayAvailableDays` already uses.
+    var myDayBounds: ClosedRange<String>? {
+        guard snapshot != nil else { return nil }
+        return DayWindow.bounds(year: selectedYear, starredDays: myDayAvailableDays)
+    }
+
+    /// The slice of `myDayBounds` the strip shows for a given expansion
+    /// state — see `DayWindow.make`. An empty window without a snapshot.
+    ///
+    /// `selectedDay` is threaded straight through to `DayWindow.make` so a
+    /// selection reachable only while expanded is never orphaned when the
+    /// end it lives in collapses.
+    func myDayWindow(showsEarlier: Bool, showsLater: Bool, selectedDay: String? = nil) -> DayWindow {
+        guard let bounds = myDayBounds else {
+            return DayWindow(
+                days: [], canExpandEarlier: false, canExpandLater: false,
+                hiddenEarlierCount: 0, hiddenLaterCount: 0)
+        }
+        return DayWindow.make(
+            bounds: bounds,
+            today: ChqTime.dayKey(for: now()),
+            showsEarlier: showsEarlier,
+            showsLater: showsLater,
+            selectedDay: selectedDay)
+    }
+
+    /// Starred-event counts per day, for the chip labels. One pass over the
+    /// event list — see `DayPlan.starredCountsByDay` for why this is not
+    /// `dayPlan(for:)` called once per visible chip.
+    var myDayStarredCounts: [String: Int] {
+        guard let snapshot else { return [:] }
+        return DayPlan.starredCountsByDay(favorites: favorites, events: snapshot.events)
+    }
+
+    /// Which day `MyDayView` opens to by default — see
+    /// `DayWindow.defaultSelection`. `nil` on two distinct paths: no
+    /// snapshot yet (the guard below), or a snapshot with no favorited days
+    /// at all (`DayWindow.defaultSelection`'s own `starredDays.isEmpty`
+    /// guard). Either way the view shows its all-season empty state instead.
+    ///
+    /// Computes `myDayAvailableDays` once and reuses it for both the bounds
+    /// and the default-selection call, rather than going through
+    /// `myDayBounds` (which would recompute it internally) — avoids walking
+    /// the full event list twice per access.
     var myDayDefaultDay: String? {
-        DayPlan.defaultDayKey(available: myDayAvailableDays, now: now())
+        guard snapshot != nil else { return nil }
+        let starredDays = myDayAvailableDays
+        return DayWindow.defaultSelection(
+            bounds: DayWindow.bounds(year: selectedYear, starredDays: starredDays),
+            today: ChqTime.dayKey(for: now()),
+            starredDays: starredDays)
     }
 
     /// Builds the day plan for `dayKey` from the current snapshot and
@@ -942,6 +994,35 @@ final class AppModel {
     func setWeekSelection(_ weeks: Set<Int>) {
         filter.dateScope = .all
         filter.selectedWeeks = weeks
+        persistFilter()
+    }
+
+    /// Pins the event list to one named calendar day — the action behind My
+    /// Day's empty-day "Browse …" button (#192).
+    ///
+    /// `dayKey` must parse as a calendar day (`ChqTime.parse`'s underlying
+    /// `DateFormatter` accepts some non-canonical shapes, e.g. `"2026-8-9"`,
+    /// alongside the canonical `"yyyy-MM-dd"`); anything unparseable is
+    /// ignored rather than applied, because a `.day` scope carrying a key
+    /// that matches no event would show an empty list under a pill that
+    /// still says "All Year". A key that does parse is normalized to
+    /// `ChqTime.dayKey(for:)`'s canonical form before being stored, since
+    /// `EventFilter.apply` compares `selectedDayKey` against that same
+    /// canonical form with plain string equality — storing the input
+    /// verbatim would silently produce the same empty-list failure mode for
+    /// a non-canonical (but validly parsed) key.
+    ///
+    /// Clears `selectedWeeks`, since a standing week filter can exclude the
+    /// very day the user asked for, and `extraDays`, which is a `.next`-only
+    /// concept. Deliberately leaves `searchText`, venues, categories, and
+    /// favorites-only alone: those are the user's standing preferences, not
+    /// date state.
+    func browseDay(_ dayKey: String) {
+        guard let parsed = ChqTime.parse("\(dayKey) 00:00:00") else { return }
+        filter.dateScope = .day
+        filter.selectedDayKey = ChqTime.dayKey(for: parsed)
+        filter.selectedWeeks = []
+        filter.extraDays = 0
         persistFilter()
     }
 

@@ -355,4 +355,44 @@ struct DayPlanTests {
 
         #expect(DayPlan.defaultDayKey(available: available, now: now) == "2026-07-18")
     }
+
+    // MARK: - starredCountsByDay
+
+    @Test func starredCountsByDayCountsOnlyFavoritedEvents() throws {
+        let morning = try #require(ChqTime.parse("2026-08-09 10:00:00"))
+        let evening = try #require(ChqTime.parse("2026-08-09 20:00:00"))
+        let nextDay = try #require(ChqTime.parse("2026-08-10 10:00:00"))
+        let events = [
+            makeEvent(id: "a", start: morning),
+            makeEvent(id: "b", start: evening),
+            makeEvent(id: "c", start: nextDay),
+            makeEvent(id: "unstarred", start: morning),
+        ]
+
+        let counts = DayPlan.starredCountsByDay(favorites: ["a", "b", "c"], events: events)
+
+        #expect(counts == ["2026-08-09": 2, "2026-08-10": 1])
+    }
+
+    @Test func starredCountsByDayOmitsDaysWithNoFavorites() throws {
+        let start = try #require(ChqTime.parse("2026-08-09 10:00:00"))
+        let counts = DayPlan.starredCountsByDay(
+            favorites: [], events: [makeEvent(id: "a", start: start)])
+
+        #expect(counts.isEmpty)
+        // A caller reading a missing key gets nil and must treat it as 0.
+        #expect(counts["2026-08-09"] == nil)
+    }
+
+    @Test func starredCountsByDayIncludesCancelledEvents() throws {
+        // Consistent with `build`, which keeps cancelled events on the
+        // timeline: a day the user starred something on still reads as a
+        // day with something on it.
+        let start = try #require(ChqTime.parse("2026-08-09 10:00:00"))
+        let counts = DayPlan.starredCountsByDay(
+            favorites: ["a"],
+            events: [makeEvent(id: "a", start: start, status: .cancelled)])
+
+        #expect(counts == ["2026-08-09": 1])
+    }
 }

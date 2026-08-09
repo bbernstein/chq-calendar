@@ -108,11 +108,15 @@ struct MyDayModelTests {
         #expect(model.myDayDefaultDay == "2026-07-20")
     }
 
-    @Test func myDayDefaultDayFallsBackToNextFutureDayWhenTodayIsUnavailable() throws {
-        // Injected "now" falls between the two favorited days, so neither
-        // is "today" — the default should pick the earliest day still in
-        // the future relative to the injected clock, matching
-        // `DayPlan.defaultDayKey`'s own contract.
+    @Test func myDayDefaultDayPicksTodayEvenWhenTodayHasNothingStarred() throws {
+        // Injected "now" falls between the two favorited days, so today has
+        // nothing starred on it. It is still what the planner opens to.
+        //
+        // This test previously asserted "2026-07-20" — the next day that had
+        // favorites. That was the defect #192 reported: skipping an empty
+        // today relocates a visitor who asked "what am I doing today" and
+        // answers a different question. Now that every day in the window is
+        // selectable, an empty today shows as empty.
         let between = try #require(ChqTime.parse("2026-07-17 09:00:00"))
         let model = makeSnapshotModel(
             events: [
@@ -122,7 +126,7 @@ struct MyDayModelTests {
             now: between,
             favorites: ["a", "b"])
 
-        #expect(model.myDayDefaultDay == "2026-07-20")
+        #expect(model.myDayDefaultDay == "2026-07-17")
     }
 
     @Test func myDayDefaultDayIsNilWithNoFavoritedDays() throws {
@@ -130,5 +134,157 @@ struct MyDayModelTests {
         let model = makeSnapshotModel(events: [], now: now, favorites: [])
 
         #expect(model.myDayDefaultDay == nil)
+    }
+
+    // MARK: - myDayBounds / myDayWindow / myDayStarredCounts
+
+    @Test func myDayBoundsIsNilWithoutASnapshot() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        #expect(model.myDayBounds == nil)
+    }
+
+    @Test func myDayBoundsSpansThe2026SeasonWidenedByStarredDays() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(
+            events: [makeEvent(id: "a", start: try #require(ChqTime.parse("2026-09-05 10:00:00")))],
+            now: now,
+            favorites: ["a"])
+
+        let bounds = try #require(model.myDayBounds)
+        #expect(bounds.lowerBound == "2026-06-27")
+        #expect(bounds.upperBound == "2026-09-05")
+    }
+
+    @Test func myDayWindowIsEmptyWithoutASnapshot() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        let window = model.myDayWindow(showsEarlier: false, showsLater: false)
+
+        #expect(window.days.isEmpty)
+        #expect(!window.canExpandEarlier)
+        #expect(!window.canExpandLater)
+        #expect(window.hiddenEarlierCount == 0)
+        #expect(window.hiddenLaterCount == 0)
+    }
+
+    @Test func myDayWindowHonorsTheInjectedClock() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(
+            events: [makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-09 10:00:00")))],
+            now: now,
+            favorites: ["a"])
+
+        let window = model.myDayWindow(showsEarlier: false, showsLater: false)
+
+        #expect(window.days.first == "2026-08-02")
+        #expect(window.days.last == "2026-08-23")
+    }
+
+    @Test func myDayStarredCountsBucketsFavoritesByDay() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(
+            events: [
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-09 10:00:00"))),
+                makeEvent(id: "b", start: try #require(ChqTime.parse("2026-08-09 20:00:00"))),
+                makeEvent(id: "c", start: try #require(ChqTime.parse("2026-08-10 10:00:00"))),
+            ],
+            now: now,
+            favorites: ["a", "b"])
+
+        #expect(model.myDayStarredCounts == ["2026-08-09": 2])
+    }
+
+    @Test func myDayStarredCountsIsEmptyWithoutASnapshot() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() })
+        )
+        #expect(model.myDayStarredCounts.isEmpty)
+    }
+
+    // MARK: - browseDay
+
+    @Test func browseDayPinsTheScopeAndClearsConflictingDateState() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+        model.filter.selectedWeeks = [3]
+        model.filter.extraDays = 2
+
+        model.browseDay("2026-08-09")
+
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+        // A standing week filter can exclude the very day the user asked
+        // for, and extraDays is a `.next`-only concept.
+        #expect(model.filter.selectedWeeks.isEmpty)
+        #expect(model.filter.extraDays == 0)
+    }
+
+    @Test func browseDayLeavesStandingNonDatePreferencesAlone() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+        model.filter.searchText = "yoga"
+        model.filter.selectedLocations = ["Amphitheater"]
+        model.filter.selectedCategories = ["Music"]
+        model.filter.showFavoritesOnly = true
+
+        model.browseDay("2026-08-09")
+
+        #expect(model.filter.searchText == "yoga")
+        #expect(model.filter.selectedLocations == ["Amphitheater"])
+        #expect(model.filter.selectedCategories == ["Music"])
+        #expect(model.filter.showFavoritesOnly)
+    }
+
+    @Test func browseDayIgnoresAMalformedKeyAndLeavesTheFilterUntouched() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+        model.filter.dateScope = .all
+        model.filter.selectedWeeks = [3]
+        model.filter.extraDays = 2
+        model.filter.searchText = "yoga"
+        let before = model.filter
+
+        model.browseDay("")
+
+        // A `.day` scope carrying a key that matches no event would show an
+        // empty list under a pill still reading "All Year" — worse than
+        // doing nothing, so a malformed key must leave every field alone.
+        #expect(model.filter == before)
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedDayKey == nil)
+    }
+
+    @Test func browseDayStillWorksWithAWellFormedKey() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+
+        model.browseDay("2026-08-09")
+
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+    }
+
+    /// `DateFormatter`'s underlying ICU parsing accepts single-digit
+    /// month/day components (`"2026-8-9"`) even though `ChqTime`'s
+    /// formatters use the strict `"yyyy-MM-dd HH:mm:ss"` pattern — verified
+    /// empirically, not assumed. If `browseDay` stored that string verbatim,
+    /// `EventFilter.apply`'s `.day` case (plain string equality against
+    /// `ChqTime.dayKey(for:)`'s canonical output) would never match it,
+    /// silently producing an empty list under a pill naming a real day.
+    /// `browseDay` must normalize on the way in.
+    @Test func browseDayNormalizesANonCanonicalKeyToTheCanonicalForm() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+
+        model.browseDay("2026-8-9")
+
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
     }
 }

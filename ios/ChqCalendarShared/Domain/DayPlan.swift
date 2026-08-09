@@ -136,6 +136,26 @@ nonisolated struct DayPlan: Equatable, Sendable {
         return sorted.last
     }
 
+    /// How many favorited events fall on each NY calendar day, in a single
+    /// pass over `events`. Days with no favorited events are absent from the
+    /// dictionary; a caller reading a missing key gets `nil` and should
+    /// treat it as `0`.
+    ///
+    /// Cancelled events are counted, matching `build`, which keeps them on
+    /// the timeline: a day the user starred something on still reads as a
+    /// day with something on it.
+    ///
+    /// Exists so `MyDayView` can label its ~22 visible chips without calling
+    /// `build` once per chip — each `build` walks the whole event list, so
+    /// per-chip calls would be 22 full passes per render (#192).
+    static func starredCountsByDay(favorites: Set<String>, events: [Event]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for event in events where favorites.contains(event.id) {
+            counts[ChqTime.dayKey(for: event.start), default: 0] += 1
+        }
+        return counts
+    }
+
     // MARK: - Transition math
 
     private static func effectiveEnd(_ event: Event) -> Date {

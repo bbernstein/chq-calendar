@@ -135,4 +135,118 @@ struct FilterChipStateTests {
         #expect(!FilterChipState.isScopeSelected(
             .all, selection: withWeeks, currentWeek: nil, isCurrentYear: false))
     }
+
+    // MARK: - .day scope
+
+    @Test func dayScopeUnselectsTheAllChipOnAPastSeason() {
+        // The subtle one. On a past season every *relative* scope is ignored
+        // by the pipeline, which is why "All" lights up whenever no weeks
+        // are selected. `.day` is exempt from that downgrade, so dates
+        // really are being filtered — and "All" must not claim otherwise.
+        #expect(!FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: "2025-08-23"),
+            currentWeek: nil,
+            isCurrentYear: false))
+    }
+
+    @Test func allChipStaysSelectedOnAPastSeasonWithoutADayOrWeekFilter() {
+        // Guards the fix above against over-reach: a persisted relative
+        // scope still leaves "All" selected, since the pipeline ignores it.
+        #expect(FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .next),
+            currentWeek: nil,
+            isCurrentYear: false))
+    }
+
+    @Test func dayScopeUnselectsTheAllChipOnTheCurrentSeason() {
+        #expect(!FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: "2026-08-09"),
+            currentWeek: 7,
+            isCurrentYear: true))
+    }
+
+    // MARK: - .day scope with no key (Task 8 review, Important finding)
+
+    @Test func dayScopeWithNoKeyLeavesTheAllChipLitOnTheCurrentSeason() {
+        // `.day` with no key filters nothing (`EventFilter.apply`), so "All"
+        // must stay lit even though `dateScope` isn't literally `.all`.
+        #expect(FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: nil),
+            currentWeek: 7,
+            isCurrentYear: true))
+    }
+
+    @Test func dayScopeWithNoKeyLeavesTheAllChipLitOnAPastSeason() {
+        #expect(FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: nil),
+            currentWeek: nil,
+            isCurrentYear: false))
+    }
+
+    @Test func dayScopeWithNoKeyButWeeksSelectedStillUnselectsTheAllChip() {
+        // The weeks stage runs independently of the `.day` key, so a week
+        // selection alongside a keyless `.day` still un-selects "All".
+        #expect(!FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .day, selectedWeeks: [3], selectedDayKey: nil),
+            currentWeek: 7,
+            isCurrentYear: true))
+    }
+
+    // MARK: - The `.day` chip itself (never rendered, answered per convention)
+
+    @Test func dayChipTracksTheScopeDirectlyOnTheCurrentSeason() {
+        #expect(FilterChipState.isScopeSelected(
+            .day,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: "2026-08-09"),
+            currentWeek: 7,
+            isCurrentYear: true))
+        #expect(!FilterChipState.isScopeSelected(
+            .day,
+            selection: FilterSelection(dateScope: .all),
+            currentWeek: 7,
+            isCurrentYear: true))
+    }
+
+    @Test func dayChipTracksTheScopeDirectlyOnAPastSeason() {
+        #expect(FilterChipState.isScopeSelected(
+            .day,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: "2025-08-23"),
+            currentWeek: nil,
+            isCurrentYear: false))
+        #expect(!FilterChipState.isScopeSelected(
+            .day,
+            selection: FilterSelection(dateScope: .next),
+            currentWeek: nil,
+            isCurrentYear: false))
+    }
+
+    // MARK: - The `.day` chip agrees with `.all` on a keyless `.day` scope
+
+    /// A keyless `.day` scope filters nothing, so the two chips must not
+    /// contradict each other: "All" reports selected (asserted above by
+    /// `dayScopeWithNoKeyLeavesTheAllChipLitOnTheCurrentSeason`) and `.day`
+    /// must therefore report *not* selected, pinned here alongside it.
+    @Test func dayChipAgreesWithAllChipWhenDayScopeHasNoKeyOnTheCurrentSeason() {
+        let sel = FilterSelection(dateScope: .day, selectedDayKey: nil)
+        #expect(!FilterChipState.isScopeSelected(
+            .day, selection: sel, currentWeek: 7, isCurrentYear: true))
+        #expect(FilterChipState.isScopeSelected(
+            .all, selection: sel, currentWeek: 7, isCurrentYear: true))
+    }
+
+    /// Same agreement, off the current year, where `.day` is exempt from the
+    /// relative-scope downgrade but a keyless key still filters nothing.
+    @Test func dayChipAgreesWithAllChipWhenDayScopeHasNoKeyOnAPastSeason() {
+        let sel = FilterSelection(dateScope: .day, selectedDayKey: nil)
+        #expect(!FilterChipState.isScopeSelected(
+            .day, selection: sel, currentWeek: nil, isCurrentYear: false))
+        #expect(FilterChipState.isScopeSelected(
+            .all, selection: sel, currentWeek: nil, isCurrentYear: false))
+    }
 }

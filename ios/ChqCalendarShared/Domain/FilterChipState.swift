@@ -11,10 +11,12 @@ nonisolated enum FilterChipState {
     /// - Parameter isCurrentYear: must be the same value the caller passes
     ///   to `EventFilter.apply` (and to `DateFilterLabel.text`). When it is
     ///   `false` the stored `dateScope` is **meaningless** — the pipeline
-    ///   forces it to `.all` (`let scope: DateScope = isCurrentYear ?
-    ///   sel.dateScope : .all`), because a past or future season has no
-    ///   "now". Selection is therefore derived from that reality rather
-    ///   than from what happens to be persisted.
+    ///   forces it to `.all` (`let scope: DateScope = (isCurrentYear ||
+    ///   sel.dateScope == .day) ? sel.dateScope : .all`), because a past or
+    ///   future season has no "now" — **except `.day`**, which names an
+    ///   absolute date and is exempt from that downgrade. Selection is
+    ///   therefore derived from that reality rather than from what happens
+    ///   to be persisted.
     ///
     ///   Deliberately **not defaulted**, for the same reason
     ///   `DateFilterLabel.text` isn't: a default lets a future call site
@@ -41,12 +43,27 @@ nonisolated enum FilterChipState {
             switch scope {
             case .all:
                 // The weeks stage of `EventFilter` runs regardless of
-                // `isCurrentYear`, so a week selection is the one date
-                // filter that *is* still in force on a past season — and
-                // it un-selects "All" exactly as it does on the current
-                // year. With no weeks, nothing is filtering dates, which
-                // is precisely what "All" means.
-                return selection.selectedWeeks.isEmpty
+                // `isCurrentYear`, and an *active* `.day` filter is exempt
+                // from the downgrade outright (it names an absolute date
+                // rather than a window around "now") — so those are the two
+                // date filters still in force on a past season, and either
+                // one un-selects "All" exactly as it does on the current
+                // year. A `.day` scope with no key isn't one of them —
+                // `isDayFilterActive` is `false` and it filters nothing —
+                // so it doesn't un-select "All" either. With none of the
+                // above, nothing is filtering dates, which is precisely what
+                // "All" means.
+                return selection.selectedWeeks.isEmpty && !selection.isDayFilterActive
+            case .day:
+                // Never rendered as a chip — `.day` is derived, not
+                // pickable — but answered honestly rather than left to the
+                // caller, per this type's existing convention. Unlike the
+                // relative scopes below, the pipeline does *not* ignore this
+                // one on a past season. Honesty means agreeing with the
+                // `.all` case above: a `.day` scope with no key isn't
+                // filtering anything, so it must not report itself selected
+                // while "All" simultaneously reports itself selected too.
+                return selection.isDayFilterActive
             case .next, .today, .season, .thisWeek:
                 // Unreachable through `DateFilterSheet`, whose
                 // `visibleScopes` collapses to `[.all]` off the current
@@ -66,8 +83,22 @@ nonisolated enum FilterChipState {
             return selection.selectedWeeks == [currentWeek]
         case .all:
             // "All" means unfiltered dates, so a week selection un-selects it
-            // even though `dateScope` is still `.all`.
-            return selection.dateScope == .all && selection.selectedWeeks.isEmpty
+            // even though `dateScope` is still `.all` — and so does an
+            // *active* `.day` filter. A `.day` scope with no key isn't
+            // filtering anything (`isDayFilterActive` is `false`), so it
+            // counts as "All" too, same as `FilterSelection.hasDateFilters`
+            // treats it.
+            let dateScopeAllowsAll = selection.dateScope == .all
+                || (selection.dateScope == .day && !selection.isDayFilterActive)
+            return dateScopeAllowsAll && selection.selectedWeeks.isEmpty
+        case .day:
+            // Never rendered as a chip; answered rather than trusted. The
+            // `.all` case above already excludes an *active* `.day` filter,
+            // since `.day` is not `.all` — but a keyless `.day` scope isn't
+            // filtering anything, so honesty means agreeing with `.all`
+            // rather than contradicting it: it must not report itself
+            // selected while "All" does too.
+            return selection.isDayFilterActive
         case .next, .today, .season:
             return selection.dateScope == scope
         }

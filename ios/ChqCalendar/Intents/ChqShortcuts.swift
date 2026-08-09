@@ -79,15 +79,21 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             shortTitle: "Open Event",
             systemImageName: "arrow.up.right.circle"
         )
+        // The first phrase in each array below is the one SiriTipView and
+        // the Shortcuts gallery display verbatim (phraseTemplates[0]) —
+        // `\(.applicationName)` resolves there, but a parameter slot like
+        // `\(\.$week)` does not, so it must lead with a plain phrase. The
+        // parameterized variants stay in the list (just not first) because
+        // they're what makes the slots fillable by voice.
         AppShortcut(
             intent: WeekThemeIntent(),
             phrases: [
+                "What's the weekly theme in \(.applicationName)",
+                "What's the weekly theme at \(.applicationName)",
                 "What's the theme \(\.$week) in \(.applicationName)",
                 "What's the theme \(\.$week) at \(.applicationName)",
                 "What is the theme \(\.$week) in \(.applicationName)",
                 "What is the theme \(\.$week) at \(.applicationName)",
-                "What's the weekly theme in \(.applicationName)",
-                "What's the weekly theme at \(.applicationName)",
             ],
             shortTitle: "Weekly Theme",
             systemImageName: "lightbulb"
@@ -95,10 +101,10 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: MyScheduleIntent(),
             phrases: [
-                "What am I doing \(\.$timeframe) in \(.applicationName)",
-                "What am I doing \(\.$timeframe) at \(.applicationName)",
                 "What am I doing in \(.applicationName)",
                 "What am I doing at \(.applicationName)",
+                "What am I doing \(\.$timeframe) in \(.applicationName)",
+                "What am I doing \(\.$timeframe) at \(.applicationName)",
                 "What's on my schedule \(\.$timeframe) in \(.applicationName)",
                 "What's on my schedule \(\.$timeframe) at \(.applicationName)",
                 "What's my plan \(\.$timeframe) in \(.applicationName)",
@@ -110,12 +116,12 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: WhoIsSpeakingIntent(),
             phrases: [
+                "Who is speaking in \(.applicationName)",
+                "Who is speaking at \(.applicationName)",
                 "Who is speaking \(\.$timeframe) in \(.applicationName)",
                 "Who is speaking \(\.$timeframe) at \(.applicationName)",
                 "Who's speaking \(\.$timeframe) in \(.applicationName)",
                 "Who's speaking \(\.$timeframe) at \(.applicationName)",
-                "Who is speaking in \(.applicationName)",
-                "Who is speaking at \(.applicationName)",
             ],
             shortTitle: "Who's Speaking",
             systemImageName: "person.wave.2"

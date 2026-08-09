@@ -24,10 +24,12 @@ nonisolated enum DateFilterLabel {
     /// - Parameter isCurrentYear: must be the same value the caller passes
     ///   to `EventFilter.apply`. The label has to know it because
     ///   `EventFilter` **ignores** a time-relative `dateScope` when it is
-    ///   `false` (`let scope: DateScope = isCurrentYear ? sel.dateScope : .all`)
-    ///   — a past or future season has no "now". Without this parameter a
-    ///   user whose persisted scope is `.next`, viewing 2025, read "Now" on
-    ///   a list that was not date-filtered at all.
+    ///   `false` (`let scope: DateScope = (isCurrentYear || sel.dateScope ==
+    ///   .day) ? sel.dateScope : .all`) — a past or future season has no
+    ///   "now" — **except `.day`**, which names an absolute date and is
+    ///   exempt from that downgrade. Without this parameter a user whose
+    ///   persisted scope is `.next`, viewing 2025, read "Now" on a list that
+    ///   was not date-filtered at all.
     ///
     ///   Deliberately **not defaulted**: a default is exactly what would let
     ///   a future call site forget to pass it and silently reintroduce that
@@ -45,10 +47,38 @@ nonisolated enum DateFilterLabel {
         let weeks = selection.selectedWeeks.sorted()
 
         guard !weeks.isEmpty else {
+            // `.day` is handled *before* the `isCurrentYear` shortcut below.
+            // That shortcut is correct only because every other scope is
+            // downgraded to `.all` for a non-current year, which makes
+            // "All Year" a true statement about what the list is showing.
+            // `.day` survives that downgrade (see `EventFilter.apply`), so
+            // taking the shortcut would leave the pill claiming "All Year"
+            // over a day-filtered list — the pill lying about the filter,
+            // which is exactly the failure this type's doc comment warns
+            // about for `.next` (#192).
+            if selection.dateScope == .day,
+               let dayKey = selection.selectedDayKey,
+               let date = ChqTime.parse("\(dayKey) 00:00:00") {
+                return ChqTime.pillDayLabel(for: date, includingYear: !isCurrentYear)
+            }
+
             guard isCurrentYear else { return "All Year" }
             switch selection.dateScope {
             case .all: return DateScope.all.label            // "All Year"
             case .next, .today, .thisWeek, .season: return selection.dateScope.label
+            // Reached when `selectedDayKey` is `nil` (in which case
+            // `EventFilter` filters nothing, so "All Year" is true) or when
+            // it's a non-nil string this parse can't read. The latter can no
+            // longer happen through the app's only writer: `AppModel.browseDay`
+            // parses the key with this same `ChqTime.parse("\(dayKey)
+            // 00:00:00")` call before ever assigning `selectedDayKey`, so a
+            // key that fails here would already have failed there and never
+            // been set. This branch only runs for a current-year selection —
+            // on a non-current year a malformed key fails the same parse in
+            // the early `.day` branch above and falls through the
+            // `isCurrentYear` guard below to "All Year" instead, closed by
+            // the same guarantee.
+            case .day: return DateScope.all.label
             }
         }
 
