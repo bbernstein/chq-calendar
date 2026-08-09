@@ -36,4 +36,12 @@ struct IntentEnumsTests {
         let venue = VenueEntity(name: "Amphitheater")
         #expect(venue.id == "Amphitheater")
     }
+
+    @Test func daypartSlotRepresentationsCoverAllCases() {
+        for s in DaypartSlot.allCases {
+            let rep = DaypartSlot.caseDisplayRepresentations[s]
+            #expect(rep != nil, "missing display representation for \(s)")
+            #expect(String(localized: rep!.title) == s.spokenLabel)
+        }
+    }
 }

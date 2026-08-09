@@ -78,3 +78,14 @@ nonisolated extension ThemeWeek: AppEnum {
         .week9: DisplayRepresentation(title: "week 9"),
     ]
 }
+
+nonisolated extension DaypartSlot: AppEnum {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Show")
+
+    static let caseDisplayRepresentations: [DaypartSlot: DisplayRepresentation] = [
+        .eveningShow: DisplayRepresentation(title: "evening show",
+            synonyms: ["tonight's show", "evening performance", "show tonight"]),
+        .morningLecture: DisplayRepresentation(title: "morning lecture",
+            synonyms: ["10:45 lecture", "morning talk"]),
+    ]
+}

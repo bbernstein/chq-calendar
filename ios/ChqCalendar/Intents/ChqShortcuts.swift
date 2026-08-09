@@ -86,5 +86,24 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             shortTitle: "My Schedule",
             systemImageName: "star"
         )
+        AppShortcut(
+            intent: WhoIsSpeakingIntent(),
+            phrases: [
+                "Who is speaking \(\.$timeframe) in \(.applicationName)",
+                "Who's speaking \(\.$timeframe) in \(.applicationName)",
+                "Who is speaking in \(.applicationName)",
+            ],
+            shortTitle: "Who's Speaking",
+            systemImageName: "person.wave.2"
+        )
+        AppShortcut(
+            intent: ShowTimeIntent(),
+            phrases: [
+                "What time is the \(\.$slot) in \(.applicationName)",
+                "When is the \(\.$slot) in \(.applicationName)",
+            ],
+            shortTitle: "Show Time",
+            systemImageName: "clock.badge.questionmark"
+        )
     }
 }
