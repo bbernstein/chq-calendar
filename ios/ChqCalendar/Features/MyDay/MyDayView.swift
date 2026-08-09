@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 
 /// The My Day planner (#181): a day-by-day itinerary built from the user's
@@ -17,6 +18,11 @@ struct MyDayView: View {
     /// `defaultDayKey`'s logic in a property initializer that can't read
     /// `model` yet).
     @State private var selectedDay: String?
+
+    /// One-time discovery tip for the My Schedule Siri phrase (#193) —
+    /// shown only where it's personally relevant (the user has starred
+    /// days), dismissed forever via the tip's own close button.
+    @AppStorage("chq-myday-siri-tip-visible") private var siriTipVisible = true
 
     var body: some View {
         NavigationStack {
@@ -95,6 +101,10 @@ struct MyDayView: View {
     private func planContent(for day: String, availableDays: [String]) -> some View {
         let plan = model.dayPlan(for: day)
         return VStack(alignment: .leading, spacing: 12) {
+            if siriTipVisible {
+                SiriTipView(intent: MyScheduleIntent(), isVisible: $siriTipVisible)
+                    .padding(.horizontal)
+            }
             dayChipsRow(availableDays: availableDays, selectedDay: day)
             summaryHeader(for: plan)
             Divider()
