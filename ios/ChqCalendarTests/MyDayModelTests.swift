@@ -240,4 +240,33 @@ struct MyDayModelTests {
         #expect(model.filter.selectedCategories == ["Music"])
         #expect(model.filter.showFavoritesOnly)
     }
+
+    @Test func browseDayIgnoresAMalformedKeyAndLeavesTheFilterUntouched() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+        model.filter.dateScope = .all
+        model.filter.selectedWeeks = [3]
+        model.filter.extraDays = 2
+        model.filter.searchText = "yoga"
+        let before = model.filter
+
+        model.browseDay("")
+
+        // A `.day` scope carrying a key that matches no event would show an
+        // empty list under a pill still reading "All Year" — worse than
+        // doing nothing, so a malformed key must leave every field alone.
+        #expect(model.filter == before)
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedDayKey == nil)
+    }
+
+    @Test func browseDayStillWorksWithAWellFormedKey() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+
+        model.browseDay("2026-08-09")
+
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+    }
 }

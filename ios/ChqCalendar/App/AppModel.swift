@@ -995,12 +995,18 @@ final class AppModel {
     /// Pins the event list to one named calendar day — the action behind My
     /// Day's empty-day "Browse …" button (#192).
     ///
+    /// `dayKey` must be a `ChqTime.dayKey`-formatted `"yyyy-MM-dd"` string;
+    /// anything else is ignored rather than applied, because a `.day` scope
+    /// carrying a key that matches no event would show an empty list under
+    /// a pill that still says "All Year".
+    ///
     /// Clears `selectedWeeks`, since a standing week filter can exclude the
     /// very day the user asked for, and `extraDays`, which is a `.next`-only
     /// concept. Deliberately leaves `searchText`, venues, categories, and
     /// favorites-only alone: those are the user's standing preferences, not
     /// date state.
     func browseDay(_ dayKey: String) {
+        guard ChqTime.parse("\(dayKey) 00:00:00") != nil else { return }
         filter.dateScope = .day
         filter.selectedDayKey = dayKey
         filter.selectedWeeks = []
