@@ -121,4 +121,35 @@ nonisolated struct DayWindow: Equatable, Sendable {
             hiddenEarlierCount: hiddenEarlier,
             hiddenLaterCount: hiddenLater)
     }
+
+    /// Which day the planner opens to.
+    ///
+    /// - Nothing starred at all → `nil`. The view shows its all-season
+    ///   empty state, so there is no day to select.
+    /// - `today` inside `bounds` → **`today`, even when today has nothing
+    ///   starred.** This is the fix for #192: the previous behavior skipped
+    ///   an empty today forward to the next day that did have favorites,
+    ///   which relocates a visitor who asked "what am I doing today" and
+    ///   answers a different question. Now that every day in the window is
+    ///   selectable, an empty today can simply show as empty.
+    /// - Otherwise → `DayPlan.defaultDayKey`, which already returns the
+    ///   earliest future starred day when `today` precedes them all (the
+    ///   pre-season case) and the latest starred day when `today` follows
+    ///   them all (post-season, and any past season). Reused rather than
+    ///   reimplemented, so its existing tests keep pinning it.
+    static func defaultSelection(
+        bounds: ClosedRange<String>,
+        today: String,
+        starredDays: [String]
+    ) -> String? {
+        guard !starredDays.isEmpty else { return nil }
+        if bounds.contains(today) { return today }
+        guard let todayDate = ChqTime.parse("\(today) 00:00:00") else {
+            return starredDays.min()
+        }
+        // `defaultDayKey` is non-nil whenever `available` is non-empty,
+        // which the guard above has already established; the coalesce keeps
+        // this a total function rather than relying on that from a distance.
+        return DayPlan.defaultDayKey(available: starredDays, now: todayDate) ?? starredDays.min()
+    }
 }

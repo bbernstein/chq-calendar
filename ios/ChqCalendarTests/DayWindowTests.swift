@@ -195,4 +195,68 @@ struct DayWindowTests {
 
         #expect(collapsed == expanded)
     }
+
+    // MARK: - defaultSelection
+
+    @Test func defaultSelectionIsTodayWhenTodayHasStarredEvents() {
+        let selection = DayWindow.defaultSelection(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            starredDays: ["2026-07-15", "2026-08-09"])
+
+        #expect(selection == "2026-08-09")
+    }
+
+    @Test func defaultSelectionIsTodayEvenWhenTodayHasNothingStarred() {
+        // The regression #192 is about. Skipping an empty today to the next
+        // starred day relocates a visitor who asked "what am I doing today"
+        // and answers a different question instead.
+        let selection = DayWindow.defaultSelection(
+            bounds: midSeasonBounds, today: "2026-07-17",
+            starredDays: ["2026-07-15", "2026-07-20"])
+
+        #expect(selection == "2026-07-17")
+    }
+
+    @Test func defaultSelectionIsTodayOnASeasonBoundaryDay() {
+        #expect(DayWindow.defaultSelection(
+            bounds: midSeasonBounds, today: seasonFirst,
+            starredDays: ["2026-08-09"]) == seasonFirst)
+        #expect(DayWindow.defaultSelection(
+            bounds: midSeasonBounds, today: seasonLast,
+            starredDays: ["2026-08-09"]) == seasonLast)
+    }
+
+    @Test func defaultSelectionIsNilWhenNothingIsStarred() {
+        // The view shows its all-season empty state, so there is no day to
+        // select. A 64-chip strip of uniformly empty days would be worse.
+        #expect(DayWindow.defaultSelection(
+            bounds: midSeasonBounds, today: "2026-08-09", starredDays: []) == nil)
+    }
+
+    @Test func defaultSelectionIsTheFirstStarredDayPreSeason() {
+        let selection = DayWindow.defaultSelection(
+            bounds: midSeasonBounds, today: "2026-05-01",
+            starredDays: ["2026-07-15", "2026-08-09"])
+
+        #expect(selection == "2026-07-15")
+    }
+
+    @Test func defaultSelectionIsTheLastStarredDayPostSeason() {
+        let selection = DayWindow.defaultSelection(
+            bounds: midSeasonBounds, today: "2026-10-15",
+            starredDays: ["2026-07-15", "2026-08-09"])
+
+        #expect(selection == "2026-08-09")
+    }
+
+    @Test func defaultSelectionIsTheLastStarredDayForAPastSeason() {
+        // Viewing 2025 from August 2026: no "today" exists in that season,
+        // and a user reviewing last August should not land in June.
+        let bounds2025 = DayWindow.bounds(year: 2025, starredDays: ["2025-07-05", "2025-08-23"])
+        let selection = DayWindow.defaultSelection(
+            bounds: bounds2025, today: "2026-08-09",
+            starredDays: ["2025-07-05", "2025-08-23"])
+
+        #expect(selection == "2025-08-23")
+    }
 }
