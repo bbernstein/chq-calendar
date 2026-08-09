@@ -16,6 +16,8 @@ protocol WidgetReloading {
     /// — called whenever cached data a widget could be showing (events,
     /// favorites) changes, so a Home Screen/Lock Screen widget already
     /// placed doesn't have to wait for its own `.atEnd` policy to notice.
+    /// Also refreshes Siri App Shortcut parameter values (e.g., venue vocabulary),
+    /// ensuring voice-activated commands resolve against current app state.
     func reloadAll()
 }
 
@@ -26,5 +28,11 @@ protocol WidgetReloading {
 struct LiveWidgetReloading: WidgetReloading {
     func reloadAll() {
         WidgetCenter.shared.reloadAllTimelines()
+        // Same trigger, same reason: cached data a system surface renders
+        // from has changed. Republishing the App Shortcut parameter values
+        // keeps Siri's venue vocabulary (`VenueEntity`) in step with the
+        // feed — without this, venue-slot phrases resolve against stale or
+        // empty values until the next app install.
+        ChqShortcuts.updateAppShortcutParameters()
     }
 }

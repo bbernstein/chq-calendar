@@ -15,5 +15,22 @@
 			</array>
 		</dict>
 	</array>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Chautauqua</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>shuh-TAW-kwuh</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Chautauqua Calendar</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>CHQ</string>
+		</dict>
+	</array>
 </dict>
 </plist>
