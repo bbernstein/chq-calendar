@@ -39,8 +39,10 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
 ///
 /// `searchText`, `extraDays`, and `selectedDayKey` are session-only: they
 /// affect what's shown right now but are deliberately excluded from
-/// `isDefault` and are never persisted by `UserStateStore` (matches web
-/// intent — a fresh app launch always starts with an empty search box).
+/// `isDefault` and are never persisted by `UserStateStore` — which also
+/// persists a live `.day` scope as `.next`, since without its day key it
+/// would mean nothing on the way back in (matches web intent — a fresh app
+/// launch always starts with an empty search box) (#192).
 nonisolated struct FilterSelection: Codable, Equatable, Sendable {
     var searchText: String = ""
     var dateScope: DateScope = .next
@@ -94,10 +96,19 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
             && dateScope == .next
     }
 
+    /// Whether a `.day` scope is actually narrowing anything. `.day` without a
+    /// `selectedDayKey` names no date, so `EventFilter` filters nothing — and
+    /// every consumer that describes the active date filter has to agree with
+    /// that rather than trusting the scope alone (#192).
+    var isDayFilterActive: Bool { dateScope == .day && selectedDayKey != nil }
+
     /// Whether a date range is narrowing the results. Mirrors the web's
-    /// `hasDateFilters`.
+    /// `hasDateFilters`. A `.day` scope only counts while `isDayFilterActive`
+    /// — a keyless `.day` filters nothing, so it must not be reported as a
+    /// date filter either (#192).
     var hasDateFilters: Bool {
-        dateScope != .all || !selectedWeeks.isEmpty
+        if dateScope == .day { return isDayFilterActive || !selectedWeeks.isEmpty }
+        return dateScope != .all || !selectedWeeks.isEmpty
     }
 
     /// Whether anything *other* than a date range is narrowing the results.
@@ -136,10 +147,12 @@ nonisolated struct RecentFilters: Codable, Equatable, Sendable {
 /// each with a 30-day expiry so a user who hasn't opened the app in a
 /// month starts fresh rather than seeing stale/confusing filters.
 ///
-/// `searchText`/`extraDays` are session-only and are never written to
-/// disk: `saveFilters` persists a payload with those fields reset to
-/// their defaults, so `loadFilters` always returns an empty search and
-/// zero extra days even immediately after a round trip.
+/// `searchText`/`extraDays`/`selectedDayKey` are session-only and are never
+/// written to disk: `saveFilters` persists a payload with those fields
+/// reset to their defaults, so `loadFilters` always returns an empty
+/// search, zero extra days, and no day key even immediately after a round
+/// trip. A live `.day` scope is likewise persisted as `.next`, since
+/// without its day key it would mean nothing on the way back in (#192).
 nonisolated struct UserStateStore {
     private static let filtersKey = "chq-filters"
     private static let favoritesKey = "chq-favorites"
@@ -148,7 +161,8 @@ nonisolated struct UserStateStore {
     private static let expiry: TimeInterval = 30 * 24 * 3600
 
     /// The subset of `FilterSelection` that's actually persisted —
-    /// `searchText`/`extraDays` are intentionally omitted.
+    /// `searchText`/`extraDays`/`selectedDayKey` are intentionally omitted,
+    /// and a `.day` scope is stored as `.next` (#192).
     private struct PersistedFilters: Codable {
         var dateScope: DateScope
         var selectedWeeks: Set<Int>

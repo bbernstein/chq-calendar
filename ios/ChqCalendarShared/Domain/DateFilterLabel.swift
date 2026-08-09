@@ -24,10 +24,12 @@ nonisolated enum DateFilterLabel {
     /// - Parameter isCurrentYear: must be the same value the caller passes
     ///   to `EventFilter.apply`. The label has to know it because
     ///   `EventFilter` **ignores** a time-relative `dateScope` when it is
-    ///   `false` (`let scope: DateScope = isCurrentYear ? sel.dateScope : .all`)
-    ///   — a past or future season has no "now". Without this parameter a
-    ///   user whose persisted scope is `.next`, viewing 2025, read "Now" on
-    ///   a list that was not date-filtered at all.
+    ///   `false` (`let scope: DateScope = (isCurrentYear || sel.dateScope ==
+    ///   .day) ? sel.dateScope : .all`) — a past or future season has no
+    ///   "now" — **except `.day`**, which names an absolute date and is
+    ///   exempt from that downgrade. Without this parameter a user whose
+    ///   persisted scope is `.next`, viewing 2025, read "Now" on a list that
+    ///   was not date-filtered at all.
     ///
     ///   Deliberately **not defaulted**: a default is exactly what would let
     ///   a future call site forget to pass it and silently reintroduce that
@@ -64,9 +66,16 @@ nonisolated enum DateFilterLabel {
             switch selection.dateScope {
             case .all: return DateScope.all.label            // "All Year"
             case .next, .today, .thisWeek, .season: return selection.dateScope.label
-            // Only reachable when `selectedDayKey` is nil or unparseable, in
-            // which case `EventFilter` filters nothing — so "All Year" is
-            // true, not a lie.
+            // Reached when `selectedDayKey` is `nil` (in which case
+            // `EventFilter` filters nothing, so "All Year" is true) or when
+            // it's a non-nil string this parse can't read. The latter is
+            // unreachable today — every key in practice comes from
+            // `ChqTime.dayKey`, which this always parses back — but if it
+            // ever weren't, `EventFilter.apply` does a raw string compare
+            // rather than parsing, so a malformed key would filter every
+            // event out while this still says "All Year" over the empty
+            // result. Documented rather than guarded against, since nothing
+            // constructs that key today.
             case .day: return DateScope.all.label
             }
         }

@@ -22,6 +22,37 @@ struct FilterSelectionTests {
         #expect(filter.hasDateFilters)
     }
 
+    // MARK: - .day and isDayFilterActive
+
+    @Test func dayScopeWithAKeyIsActiveAndCountsAsADateFilter() {
+        let filter = FilterSelection(dateScope: .day, selectedDayKey: "2026-08-09")
+        #expect(filter.isDayFilterActive)
+        #expect(filter.hasDateFilters)
+    }
+
+    @Test func dayScopeWithNoKeyIsNotActiveAndHasNoDateFilter() {
+        // The Important fix from Task 8 review: `.day` with no key names no
+        // date, so `EventFilter` filters nothing — `hasDateFilters` must
+        // agree, or the "N of M events" banner would show over an unfiltered
+        // list (#192).
+        let filter = FilterSelection(dateScope: .day, selectedDayKey: nil)
+        #expect(!filter.isDayFilterActive)
+        #expect(!filter.hasDateFilters)
+    }
+
+    @Test func dayScopeWithNoKeyButWeeksSelectedStillCountsAsADateFilter() {
+        // A keyless `.day` isn't itself filtering, but a week selection
+        // alongside it still is.
+        let filter = FilterSelection(dateScope: .day, selectedWeeks: [3], selectedDayKey: nil)
+        #expect(!filter.isDayFilterActive)
+        #expect(filter.hasDateFilters)
+    }
+
+    @Test func nonDayScopeIsNeverDayFilterActive() {
+        #expect(!FilterSelection(dateScope: .all).isDayFilterActive)
+        #expect(!FilterSelection(dateScope: .next).isDayFilterActive)
+    }
+
     @Test func whitespaceOnlySearchIsNotAFilter() {
         var filter = FilterSelection(dateScope: .all)
         filter.searchText = "   "
