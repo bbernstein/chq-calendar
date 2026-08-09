@@ -75,5 +75,16 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             shortTitle: "Weekly Theme",
             systemImageName: "lightbulb"
         )
+        AppShortcut(
+            intent: MyScheduleIntent(),
+            phrases: [
+                "What am I doing \(\.$timeframe) in \(.applicationName)",
+                "What am I doing in \(.applicationName)",
+                "What's on my schedule \(\.$timeframe) in \(.applicationName)",
+                "What's my plan \(\.$timeframe) in \(.applicationName)",
+            ],
+            shortTitle: "My Schedule",
+            systemImageName: "star"
+        )
     }
 }
