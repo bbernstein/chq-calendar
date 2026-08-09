@@ -313,8 +313,28 @@ list while the pill claimed `"All Year"` — the pill lying about the filter,
 which is the precise failure mode this function's doc comment already warns
 about for `.next`. The `.day` case must be handled **before** that guard.
 
-This is the second of exactly two places where `.day`'s absolute-date nature
-has to be spelled out. They must agree, and a test pins each.
+### `FilterChipState` — a third place, found during plan review
+
+This section originally claimed there were exactly two places needing the
+exemption. There are **three**. `FilterChipState.isScopeSelected` has two
+exhaustive `switch`es over `DateScope`, and its non-current-year branch
+answers the "All" chip with:
+
+```swift
+case .all:
+    return selection.selectedWeeks.isEmpty
+```
+
+That is sound only while a week selection is the single date filter that
+survives a past season. `.day` now survives too, so a day-filtered archived
+season would light the "All" chip over a list narrowed to one day. It becomes
+`selection.selectedWeeks.isEmpty && selection.dateScope != .day`, and both
+`switch`es gain an honest `.day` case.
+
+So: `.day`'s absolute-date nature has to be spelled out in `EventFilter.apply`,
+`DateFilterLabel.text`, and `FilterChipState.isScopeSelected`. All three must
+agree, and a test pins each. Because Swift `switch` exhaustiveness breaks all
+three the moment the enum case is added, they land in one commit.
 
 ### `DateFilterSheet.visibleScopes` — unchanged
 
@@ -357,7 +377,14 @@ survives `isCurrentYear == false`; a `nil` day key filters nothing.
 
 **`DateFilterLabelTests`** — `.day` with and without the year, and
 specifically **`.day` with `isCurrentYear == false` returning the date rather
-than `"All Year"`**, pinning the exemption against the early guard.
+than `"All Year"`**, pinning the exemption against the early guard. Its
+existing `DateScope.allCases` loop (`offYearAlwaysReadsAllYear`) is narrowed
+to exclude `.day`, which would otherwise keep passing only by accident — the
+loop's selections carry no `selectedDayKey`.
+
+**`FilterChipStateTests`** — the "All" chip is **not** selected on a past
+season while a `.day` scope is active, and still **is** selected there with a
+merely-relative scope persisted.
 
 **`UserStateStoreTests`** — a `.day` scope round-trips as `.next`;
 `selectedDayKey` is never written to disk.
