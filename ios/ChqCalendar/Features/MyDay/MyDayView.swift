@@ -32,15 +32,25 @@ struct MyDayView: View {
     @AppStorage("chq-myday-siri-tip-visible") private var siriTipVisible = true
 
     var body: some View {
+        // Read once: `myDayBounds` is O(events) (filter+map+Set+sort over
+        // ~1,470 events) and uncached, and both `content` and the toolbar
+        // condition below need it. `.onChange(of: model.myDayBounds)`
+        // further down still reads the property directly — SwiftUI has to
+        // evaluate that expression itself to diff it, so this local can't
+        // substitute there.
+        let bounds = model.myDayBounds
         NavigationStack {
-            content
+            content(bounds: bounds)
                 .navigationTitle("My Day")
                 .toolbar {
                     // Absent in a past season — there is no today to return
-                    // to — and absent when you are already on today.
-                    if let bounds = model.myDayBounds,
-                       bounds.contains(todayKey),
-                       selectedDay != todayKey {
+                    // to — and absent when you are already on today. The
+                    // `selectedDay != nil` check also keeps the button from
+                    // flashing in the one frame before `.task` runs
+                    // `reconcileSelection`, since `nil != todayKey` would
+                    // otherwise satisfy the "not already on today" guard.
+                    if let bounds, bounds.contains(todayKey),
+                       let currentDay = selectedDay, currentDay != todayKey {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button("Today") { selectedDay = todayKey }
                         }
@@ -57,10 +67,10 @@ struct MyDayView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(bounds: ClosedRange<String>?) -> some View {
         if model.myDayAvailableDays.isEmpty {
             emptyState
-        } else if let selectedDay, let bounds = model.myDayBounds, bounds.contains(selectedDay) {
+        } else if let selectedDay, let bounds, bounds.contains(selectedDay) {
             planContent(for: selectedDay)
         } else {
             // One frame, between the bounds changing and `reconcileSelection`
