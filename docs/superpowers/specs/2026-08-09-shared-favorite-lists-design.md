@@ -107,7 +107,7 @@ alternatives noted.
 | # | Decision | Chosen over |
 |---|---|---|
 | 1 | **Named lists with per-list visibility.** One concept covers household sharing, friend following, and public broadcasting. | A single shared/private flag per favorite (only one audience); a separate "household" feature plus a separate "follow" feature (two permission systems). |
-| 2 | **One owner, read-only followers.** | Co-editable lists (a second permission tier plus multi-writer conflict handling); designing a `role` field in now for later co-edit (YAGNI). |
+| 2 | **One owner, read-only followers.** | Co-editable lists (a second permission tier plus multi-writer conflict handling); designing a `role` field in now for later co-edit (YAGNI — add it when co-edit is actually wanted). |
 | 3 | **Live subscription with opt-in alerts.** Followed events stay distinct from the follower's own stars. | One-time import/fork (a snapshot, which breaks the "one of us maintains it" premise); live plus per-event adopt (extra affordance, upstream-removal ambiguity). |
 | 4 | **Invite links, no approval inbox.** Possession of the link is the approval. Owner holds a follower roster, can remove followers, and can rotate the link. | A request-to-follow approval queue (needs an inbox, a notification path, and solves the wrong problem — you can't tell which "J. Smith" is requesting); both mechanisms (doubles the access-control surface). |
 | 5 | **Public lists are link-only, plus an admin-curated featured surface.** No browsable directory, no search of user lists. | An open directory (hosting user-generated public content: moderation, reporting, takedown, impersonation policing); no featured surface at all (zero in-app discovery). |
@@ -207,9 +207,19 @@ in the new tables at all. Three new tables:
 ### `${var.app_name}-list-events`
 - Hash key: `listId`, range key: `eventId`. One row per event per list.
 - Attributes: `{ at: number }`.
-- Same per-row shape and last-write-wins semantics the accounts spec already
-  uses for personal favorites, so the reconciliation logic is a known
-  quantity.
+- **Removal is a real `DELETE`, not a tombstone — this table deliberately
+  does *not* copy the accounts spec's favorites row.** That row is
+  `{ favorited: boolean, at: number }` and is never deleted, only flipped,
+  because two of the *same user's* devices can each edit offline and
+  last-write-wins needs a stored timestamp on the removal to beat a stale add.
+  None of that applies here: a list has exactly one writer (§4), and owner
+  writes are synchronous against the server rather than queued-and-reconciled
+  (§7), so there is no second offline replica to lose an argument with. Hard
+  delete is correct and the `favorited` field would be dead weight.
+- **Implementation note, stated because it is the likely mistake:** an
+  implementer reusing the personal-favorites reconciliation code will bring
+  tombstone handling with it, and here it has nothing to compare against. The
+  two tables look alike and do not behave alike.
 - No `by-event` GSI in this scope: popularity stays a personal-favorites
   question, and counting a public figure's list toward "popularity" would
   conflate one person's broadcast with a thousand individual choices.
@@ -423,8 +433,29 @@ pending reminders in a busy week.
    followed list is not.
 4. **Notification copy names the source** — a followed-list alert should read
    as "from Ours", not as if the user had starred it.
-5. **De-duplication:** an event in both the user's favorites and a followed
-   list schedules **one** notification, attributed to the user's own favorite.
+5. **De-duplication is global, per `eventID`, and happens before
+   truncation.** Exactly one notification per event, whatever combination of
+   sources contains it. Attribution precedence: the user's own favorite first;
+   otherwise the followed list with the earliest `joinedAt`, ties broken by
+   `listId` so the output stays deterministic (the same reason the existing
+   sort breaks ties on `eventID`).
+
+   This covers **two** collisions, not one. The favorite-vs-followed case is
+   the obvious one; the case that is easy to miss is **the same event on two
+   followed lists** — a concert on both "Ours" and a public "Institution
+   Highlights". Today the collision is structurally impossible, because
+   `plan()` takes a single `Set<String>` and emits at most one reminder per
+   `eventID` by construction. Making the input source-attributed (point 1)
+   destroys that invariant, so it has to be re-established deliberately.
+
+   The failure mode if it isn't: `ReminderCenter` schedules with identifier
+   `"event-\(eventID)"` (`ios/ChqCalendar/Data/ReminderCenter.swift:203`), so a
+   duplicate does not error — the second `UNUserNotificationCenter` request
+   **silently overwrites** the first, whichever list happens to sort last wins
+   the source badge, and the duplicate has already consumed two of the
+   `maxPending` 60 slots for one delivered notification. Deduplicating after
+   truncation instead of before reproduces the same miscount, so the ordering
+   in this rule is load-bearing.
 
 **Filter integration:** followed lists become chips in the existing inline
 filter facet rows (the pattern from the #151 filtering overhaul), so "show
@@ -574,7 +605,12 @@ coverage floor (`.coverage-floor.json`, `docs/coverage.md`).
 **iOS planner** (§10):
 - Own favorites outrank followed events at the cap boundary.
 - An event in both a favorite and a followed list yields exactly one
-  notification.
+  notification, attributed to the favorite.
+- An event on **two followed lists** yields exactly one notification,
+  attributed to the earlier-joined list, and consumes exactly one of the 60
+  slots — assert the slot count, not just the notification count, since
+  deduplicating in the wrong order produces the right notifications and the
+  wrong cap math.
 - Disabling alerts for one list leaves the other list's alerts intact.
 - Unfollowing cancels only that list's pending notifications.
 
