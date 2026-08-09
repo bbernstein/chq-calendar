@@ -39,7 +39,7 @@ struct AboutView: View {
                 } header: {
                     Text("Ask Siri")
                 } footer: {
-                    Text("Siri also understands “CHQ” and “CHQ Calendar” as the app's name.")
+                    Text("Siri also understands “CHQ,” “CHQ Calendar,” and “Chautauqua Calendar” as the app's name.")
                 }
 
                 Section {
