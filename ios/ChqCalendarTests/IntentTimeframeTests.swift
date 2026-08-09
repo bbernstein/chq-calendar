@@ -55,6 +55,16 @@ struct IntentTimeframeTests {
         #expect(!interval.contains(now))
     }
 
+    @Test func nextWeekDuringWeekNineIsAnEmptyWindowAtSeasonEnd() throws {
+        // 2026-08-26 is inside week 9 (Aug 22 noon – Aug 29 noon).
+        let now = try #require(ChqTime.parse("2026-08-26 10:00:00"))
+        let interval = IntentTimeframe.nextWeek.interval(now: now, year: 2026)
+        let seasonEnd = SeasonCalendar.weeks(forYear: 2026)[8].end
+        #expect(interval.start == seasonEnd)
+        #expect(interval.end == seasonEnd)
+        #expect(interval.duration == 0)
+    }
+
     @Test func explicitWeekResolvesItsSeasonWeek() throws {
         let now = try #require(ChqTime.parse("2026-07-15 10:00:00"))
         let interval = IntentTimeframe.week7.interval(now: now, year: year)
