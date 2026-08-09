@@ -24,6 +24,14 @@ struct IntentEnumsTests {
         }
     }
 
+    @Test func themeWeekRepresentationsCoverAllCases() {
+        for w in ThemeWeek.allCases {
+            let rep = ThemeWeek.caseDisplayRepresentations[w]
+            #expect(rep != nil, "missing display representation for \(w)")
+            #expect(String(localized: rep!.title) == w.spokenLabel)
+        }
+    }
+
     @Test func venueEntityUsesItsNameAsIdentity() {
         let venue = VenueEntity(name: "Amphitheater")
         #expect(venue.id == "Amphitheater")

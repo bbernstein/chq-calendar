@@ -65,5 +65,15 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             shortTitle: "Open Event",
             systemImageName: "arrow.up.right.circle"
         )
+        AppShortcut(
+            intent: WeekThemeIntent(),
+            phrases: [
+                "What's the theme \(\.$week) in \(.applicationName)",
+                "What is the theme \(\.$week) in \(.applicationName)",
+                "What's the weekly theme in \(.applicationName)",
+            ],
+            shortTitle: "Weekly Theme",
+            systemImageName: "lightbulb"
+        )
     }
 }

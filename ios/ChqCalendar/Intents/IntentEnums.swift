@@ -60,3 +60,21 @@ nonisolated extension IntentTimeframe: AppEnum {
         .week9: DisplayRepresentation(title: "week 9"),
     ]
 }
+
+nonisolated extension ThemeWeek: AppEnum {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Week")
+
+    static let caseDisplayRepresentations: [ThemeWeek: DisplayRepresentation] = [
+        .thisWeek: DisplayRepresentation(title: "this week"),
+        .nextWeek: DisplayRepresentation(title: "next week"),
+        .week1: DisplayRepresentation(title: "week 1"),
+        .week2: DisplayRepresentation(title: "week 2"),
+        .week3: DisplayRepresentation(title: "week 3"),
+        .week4: DisplayRepresentation(title: "week 4"),
+        .week5: DisplayRepresentation(title: "week 5"),
+        .week6: DisplayRepresentation(title: "week 6"),
+        .week7: DisplayRepresentation(title: "week 7"),
+        .week8: DisplayRepresentation(title: "week 8"),
+        .week9: DisplayRepresentation(title: "week 9"),
+    ]
+}
