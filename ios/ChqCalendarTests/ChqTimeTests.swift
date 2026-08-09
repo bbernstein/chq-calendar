@@ -23,10 +23,21 @@ struct ChqTimeTests {
 
     @Test func dayOffsetIsCorrectAcrossTheSpringForwardTransition() {
         // 2026-03-08 is the second Sunday of March: clocks jump 2am -> 3am,
-        // so that NY day is only 23 hours long.
+        // so that NY day is only 23 hours long. The forward assertions below
+        // do NOT discriminate a naive "add 86_400 seconds" implementation
+        // from the correct one: the 1-hour drift they'd accumulate never
+        // crosses a subsequent midnight going forward here, so both
+        // implementations land on the same day key. They're kept for
+        // documentation/regression value. The *backward* assertions are the
+        // load-bearing ones: naive "subtract 86_400 seconds" from
+        // 2026-03-09 lands at 23:00 EST on 2026-03-07 (one hour short of
+        // midnight) and reports the wrong day, while calendar-day
+        // subtraction is correct.
         #expect(ChqTime.day("2026-03-07", offsetBy: 1) == "2026-03-08")
         #expect(ChqTime.day("2026-03-08", offsetBy: 1) == "2026-03-09")
         #expect(ChqTime.day("2026-03-07", offsetBy: 2) == "2026-03-09")
+        #expect(ChqTime.day("2026-03-09", offsetBy: -1) == "2026-03-08")
+        #expect(ChqTime.day("2026-03-09", offsetBy: -2) == "2026-03-07")
     }
 
     @Test func dayOffsetIsCorrectAcrossTheFallBackTransition() {
@@ -56,7 +67,10 @@ struct ChqTimeTests {
     }
 
     @Test func dayKeysIsEmptyForAnUnparseableKey() {
-        #expect(ChqTime.dayKeys(from: "nope", through: "2026-08-09").isEmpty)
+        // "!!!" sorts below "2026-08-09" (the string comparison ChqTime uses
+        // to short-circuit an inverted range), so this reaches the
+        // parse-failure branch rather than the `from <= through` guard.
+        #expect(ChqTime.dayKeys(from: "!!!", through: "2026-08-09").isEmpty)
         #expect(ChqTime.dayKeys(from: "2026-08-09", through: "nope").isEmpty)
     }
 

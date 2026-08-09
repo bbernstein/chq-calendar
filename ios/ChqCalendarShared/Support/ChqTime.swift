@@ -205,12 +205,13 @@ nonisolated enum ChqTime {
             parse("\(through) 00:00:00") != nil
         else { return [] }
 
+        let cal = calendar
         var result: [String] = []
         var cursor = startDate
         var key = dayKey(for: cursor)
         while key <= through {
             result.append(key)
-            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            guard let next = cal.date(byAdding: .day, value: 1, to: cursor) else { break }
             cursor = next
             key = dayKey(for: cursor)
         }
