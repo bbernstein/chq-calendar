@@ -49,7 +49,10 @@ nonisolated enum IntentDialogText {
     }
 
     static func theme(summary: WeekThemeSummary) -> String {
-        "Week \(summary.weekNumber) (\(summary.dateRange ?? "")): \(summary.title)."
+        guard let dateRange = summary.dateRange, !dateRange.isEmpty else {
+            return "Week \(summary.weekNumber): \(summary.title)."
+        }
+        return "Week \(summary.weekNumber) (\(dateRange)): \(summary.title)."
     }
 
     static func noTheme() -> String { "No theme is listed for that week." }

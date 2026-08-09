@@ -107,7 +107,7 @@ struct NextEventsIntent: AppIntent {
         } else if timeframe != nil {
             text = IntentDialogText.listSummary(
                 count: results.count, kindTitle: kind?.displayTitle,
-                timeframeLabel: timeframe?.spokenLabel, first: firstMatch)
+                timeframeLabel: timeframe?.spokenLabel, first: results[0])
         } else {
             text = IntentDialogText.nextUp(kindTitle: kind?.displayTitle, event: firstMatch)
         }

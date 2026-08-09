@@ -22,6 +22,9 @@ struct WhoIsSpeakingIntent: AppIntent {
         let results = IntentDataSource.selectMatching(
             events: events, kind: .lectures, timeframe: scope, venue: nil, now: now, year: year)
         guard let featured = IntentDataSource.featured(in: results) else {
+            if let offSeason = IntentDialogText.offSeason(SeasonStatus.make(now: now, year: year), year: year) {
+                return .result(value: [], dialog: "\(offSeason)")
+            }
             let next = IntentDataSource.selectMatching(
                 events: events, kind: .lectures, timeframe: nil, venue: nil, now: now, year: year).first
             let text = IntentDialogText.noMatch(
@@ -51,6 +54,9 @@ struct ShowTimeIntent: AppIntent {
         let upcoming = IntentDataSource.selectMatching(
             events: events, kind: nil, timeframe: nil, venue: nil, now: now, year: year)
         guard let match = upcoming.first(where: { slot.matches($0) }) else {
+            if let offSeason = IntentDialogText.offSeason(SeasonStatus.make(now: now, year: year), year: year) {
+                return .result(value: [], dialog: "\(offSeason)")
+            }
             let text = IntentDialogText.noMatch(kindTitle: nil, timeframeLabel: nil, next: nil)
             return .result(value: [], dialog: "\(text)")
         }

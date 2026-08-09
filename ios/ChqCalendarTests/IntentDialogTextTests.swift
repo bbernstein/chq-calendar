@@ -77,6 +77,11 @@ struct IntentDialogTextTests {
         #expect(IntentDialogText.noTheme() == "No theme is listed for that week.")
     }
 
+    @Test func themeWithNilDateRangeOmitsParens() {
+        let summary = WeekThemeSummary(weekNumber: 7, title: "The Human Brain", dateRange: nil)
+        #expect(IntentDialogText.theme(summary: summary) == "Week 7: The Human Brain.")
+    }
+
     @Test func offSeasonMessages() throws {
         let start = try #require(ChqTime.parse("2026-06-27 12:00:00"))
         #expect(IntentDialogText.offSeason(.preSeason(start: start), year: 2026)

@@ -5,7 +5,7 @@ import AppIntents
 /// Calendar by their `AppIntent.title`: "What's Next", "Today at
 /// Chautauqua", "Open Event") show up without the user configuring
 /// anything, and lets Siri run them by voice. "What's Next" alone now
-/// carries 15 phrases across four families — plain, kind-parameterized,
+/// carries 27 phrases across four families — plain, kind-parameterized,
 /// timeframe-parameterized, and venue-parameterized — so a user can ask
 /// "what's next", "what movies are playing", "what's happening tonight",
 /// or "what's playing at the Amp" and land on the same intent with a
@@ -29,17 +29,29 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             intent: NextEventsIntent(),
             phrases: [
                 "What's next in \(.applicationName)",
+                "What's next at \(.applicationName)",
                 "What's coming up in \(.applicationName)",
+                "What's coming up at \(.applicationName)",
                 "What \(\.$kind) are playing in \(.applicationName)",
+                "What \(\.$kind) are playing at \(.applicationName)",
                 "What \(\.$kind) are on in \(.applicationName)",
+                "What \(\.$kind) are on at \(.applicationName)",
                 "What \(\.$kind) are coming up in \(.applicationName)",
+                "What \(\.$kind) are coming up at \(.applicationName)",
                 "What's the next \(\.$kind) in \(.applicationName)",
+                "What's the next \(\.$kind) at \(.applicationName)",
                 "When is the next \(\.$kind) in \(.applicationName)",
+                "When is the next \(\.$kind) at \(.applicationName)",
                 "What \(\.$kind) are playing tonight in \(.applicationName)",
+                "What \(\.$kind) are playing tonight at \(.applicationName)",
                 "What \(\.$kind) are playing this week in \(.applicationName)",
+                "What \(\.$kind) are playing this week at \(.applicationName)",
                 "What's happening \(\.$timeframe) in \(.applicationName)",
+                "What's happening \(\.$timeframe) at \(.applicationName)",
                 "What's going on \(\.$timeframe) in \(.applicationName)",
+                "What's going on \(\.$timeframe) at \(.applicationName)",
                 "What's coming up \(\.$timeframe) in \(.applicationName)",
+                "What's coming up \(\.$timeframe) at \(.applicationName)",
                 "What's happening at \(\.$venue) in \(.applicationName)",
                 "What's playing at \(\.$venue) in \(.applicationName)",
                 "What's next at \(\.$venue) in \(.applicationName)"
@@ -69,8 +81,11 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             intent: WeekThemeIntent(),
             phrases: [
                 "What's the theme \(\.$week) in \(.applicationName)",
+                "What's the theme \(\.$week) at \(.applicationName)",
                 "What is the theme \(\.$week) in \(.applicationName)",
+                "What is the theme \(\.$week) at \(.applicationName)",
                 "What's the weekly theme in \(.applicationName)",
+                "What's the weekly theme at \(.applicationName)",
             ],
             shortTitle: "Weekly Theme",
             systemImageName: "lightbulb"
@@ -79,9 +94,13 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             intent: MyScheduleIntent(),
             phrases: [
                 "What am I doing \(\.$timeframe) in \(.applicationName)",
+                "What am I doing \(\.$timeframe) at \(.applicationName)",
                 "What am I doing in \(.applicationName)",
+                "What am I doing at \(.applicationName)",
                 "What's on my schedule \(\.$timeframe) in \(.applicationName)",
+                "What's on my schedule \(\.$timeframe) at \(.applicationName)",
                 "What's my plan \(\.$timeframe) in \(.applicationName)",
+                "What's my plan \(\.$timeframe) at \(.applicationName)",
             ],
             shortTitle: "My Schedule",
             systemImageName: "star"
@@ -90,8 +109,11 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             intent: WhoIsSpeakingIntent(),
             phrases: [
                 "Who is speaking \(\.$timeframe) in \(.applicationName)",
+                "Who is speaking \(\.$timeframe) at \(.applicationName)",
                 "Who's speaking \(\.$timeframe) in \(.applicationName)",
+                "Who's speaking \(\.$timeframe) at \(.applicationName)",
                 "Who is speaking in \(.applicationName)",
+                "Who is speaking at \(.applicationName)",
             ],
             shortTitle: "Who's Speaking",
             systemImageName: "person.wave.2"
@@ -100,7 +122,9 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             intent: ShowTimeIntent(),
             phrases: [
                 "What time is the \(\.$slot) in \(.applicationName)",
+                "What time is the \(\.$slot) at \(.applicationName)",
                 "When is the \(\.$slot) in \(.applicationName)",
+                "When is the \(\.$slot) at \(.applicationName)",
             ],
             shortTitle: "Show Time",
             systemImageName: "clock.badge.questionmark"
