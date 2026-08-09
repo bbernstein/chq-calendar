@@ -402,7 +402,11 @@ final class AppModel {
 
     /// The slice of `myDayBounds` the strip shows for a given expansion
     /// state — see `DayWindow.make`. An empty window without a snapshot.
-    func myDayWindow(showsEarlier: Bool, showsLater: Bool) -> DayWindow {
+    ///
+    /// `selectedDay` is threaded straight through to `DayWindow.make` so a
+    /// selection reachable only while expanded is never orphaned when the
+    /// end it lives in collapses.
+    func myDayWindow(showsEarlier: Bool, showsLater: Bool, selectedDay: String? = nil) -> DayWindow {
         guard let bounds = myDayBounds else {
             return DayWindow(
                 days: [], canExpandEarlier: false, canExpandLater: false,
@@ -412,7 +416,8 @@ final class AppModel {
             bounds: bounds,
             today: ChqTime.dayKey(for: now()),
             showsEarlier: showsEarlier,
-            showsLater: showsLater)
+            showsLater: showsLater,
+            selectedDay: selectedDay)
     }
 
     /// Starred-event counts per day, for the chip labels. One pass over the

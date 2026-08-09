@@ -81,11 +81,27 @@ nonisolated struct DayWindow: Equatable, Sendable {
     /// a window measured from "today" is meaningless, so the whole of
     /// `bounds` is shown, both flags are `false`, and `showsEarlier` /
     /// `showsLater` are ignored.
+    ///
+    /// - Parameter selectedDay: the day currently selected in the strip, if
+    ///   any. A day can be selected only while its end is expanded — e.g.
+    ///   tapping a chip revealed by `showsEarlier` — and collapsing that end
+    ///   afterwards must not orphan the selection: no chip would carry
+    ///   `.id(selectedDay)`, so the view's re-anchoring `scrollTo` would
+    ///   silently do nothing and the strip would render with no chip
+    ///   highlighted at all, even while the plan below is still showing that
+    ///   day. When `selectedDay` falls inside `bounds`, the slice is widened
+    ///   to include it so the invariant "the visible window always contains
+    ///   the selection" holds regardless of expansion state — and holds as a
+    ///   property of this type, pinned by a unit test, rather than being
+    ///   reproduced (or missed) at each view call site. A `selectedDay`
+    ///   outside `bounds` entirely is not this function's problem — that's
+    ///   `reconcileSelection`'s job — so it's ignored here.
     static func make(
         bounds: ClosedRange<String>,
         today: String,
         showsEarlier: Bool,
-        showsLater: Bool
+        showsLater: Bool,
+        selectedDay: String? = nil
     ) -> DayWindow {
         guard bounds.contains(today) else {
             return DayWindow(
@@ -101,18 +117,26 @@ nonisolated struct DayWindow: Equatable, Sendable {
         let clampedLower = Swift.max(defaultLower, bounds.lowerBound)
         let clampedUpper = Swift.min(defaultUpper, bounds.upperBound)
 
-        let lower = showsEarlier ? bounds.lowerBound : clampedLower
-        let upper = showsLater ? bounds.upperBound : clampedUpper
+        var lower = showsEarlier ? bounds.lowerBound : clampedLower
+        var upper = showsLater ? bounds.upperBound : clampedUpper
+
+        if let selectedDay, bounds.contains(selectedDay) {
+            lower = Swift.min(lower, selectedDay)
+            upper = Swift.max(upper, selectedDay)
+        }
 
         // `dayKeys` is inclusive of both ends, so the number of days
         // strictly outside the clamp is the inclusive span minus the shared
-        // boundary day.
+        // boundary day. Measured against the final `lower`/`upper` (which
+        // may have been widened above to keep the selection visible), not
+        // against the clamp, so the counts stay truthful about what is
+        // actually hidden right now.
         let hiddenEarlier = showsEarlier
             ? 0
-            : Swift.max(0, ChqTime.dayKeys(from: bounds.lowerBound, through: clampedLower).count - 1)
+            : Swift.max(0, ChqTime.dayKeys(from: bounds.lowerBound, through: lower).count - 1)
         let hiddenLater = showsLater
             ? 0
-            : Swift.max(0, ChqTime.dayKeys(from: clampedUpper, through: bounds.upperBound).count - 1)
+            : Swift.max(0, ChqTime.dayKeys(from: upper, through: bounds.upperBound).count - 1)
 
         return DayWindow(
             days: ChqTime.dayKeys(from: lower, through: upper),

@@ -77,7 +77,8 @@ struct MyDayView: View {
 
     private func planContent(for day: String) -> some View {
         let plan = model.dayPlan(for: day)
-        let window = model.myDayWindow(showsEarlier: showsEarlier, showsLater: showsLater)
+        let window = model.myDayWindow(
+            showsEarlier: showsEarlier, showsLater: showsLater, selectedDay: day)
         // Read once per body evaluation and index per chip below —
         // `myDayStarredCounts` rebuilds its dictionary with a full pass over
         // the event list on every access, so calling it inside the `ForEach`
@@ -88,7 +89,7 @@ struct MyDayView: View {
                 SiriTipView(intent: MyScheduleIntent(), isVisible: $siriTipVisible)
                     .padding(.horizontal)
             }
-            dayChipsRow(window: window, selectedDay: day, starredCounts: starredCounts)
+            dayChipsRow(window: window, selectedDay: day, todayKey: todayKey, starredCounts: starredCounts)
             summaryHeader(for: plan)
             Divider()
                 .padding(.horizontal)
@@ -101,7 +102,9 @@ struct MyDayView: View {
 
     private var todayKey: String { ChqTime.dayKey(for: model.now()) }
 
-    private func dayChipsRow(window: DayWindow, selectedDay: String, starredCounts: [String: Int]) -> some View {
+    private func dayChipsRow(
+        window: DayWindow, selectedDay: String, todayKey: String, starredCounts: [String: Int]
+    ) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {

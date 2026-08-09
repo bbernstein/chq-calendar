@@ -196,6 +196,72 @@ struct DayWindowTests {
         #expect(collapsed == expanded)
     }
 
+    // A day can be selected only while its end is expanded (a chip revealed
+    // by `showsEarlier`/`showsLater`); collapsing that end afterwards must
+    // not orphan the selection, or no chip carries `.id(selectedDay)` and the
+    // strip's re-anchoring `scrollTo` silently does nothing (#192).
+
+    @Test func collapsedWindowWidensToKeepASelectionEarlierThanTheDefaultSlice() {
+        // June 28 is only reachable while `showsEarlier` is true; here it's
+        // back to false, as if the user expanded, selected it, and collapsed.
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false, selectedDay: "2026-06-28")
+
+        #expect(window.days.first == "2026-06-28")
+        #expect(window.days.contains("2026-06-28"))
+        #expect(window.days.contains("2026-08-09"))
+    }
+
+    @Test func collapsedWindowWidensToKeepASelectionLaterThanTheDefaultSlice() {
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false, selectedDay: "2026-08-29")
+
+        #expect(window.days.last == "2026-08-29")
+        #expect(window.days.contains("2026-08-29"))
+        #expect(window.days.contains("2026-08-09"))
+    }
+
+    @Test func selectionAlreadyInsideTheDefaultSliceChangesNothing() {
+        let withSelection = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false, selectedDay: "2026-08-10")
+        let withoutSelection = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false)
+
+        #expect(withSelection == withoutSelection)
+    }
+
+    @Test func selectionOutsideBoundsIsIgnored() {
+        // Out-of-bounds selections are `reconcileSelection`'s problem, not
+        // this function's — it must not crash or silently misbehave on one.
+        let withSelection = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false, selectedDay: "2026-01-01")
+        let withoutSelection = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false)
+
+        #expect(withSelection == withoutSelection)
+    }
+
+    @Test func hiddenEarlierCountStaysTruthfulWhenWidenedBySelection() {
+        // Default lower is Aug 2; widening to June 28 for the selection
+        // leaves only June 27 hidden, not the pre-widening 36.
+        let window = DayWindow.make(
+            bounds: midSeasonBounds, today: "2026-08-09",
+            showsEarlier: false, showsLater: false, selectedDay: "2026-06-28")
+
+        #expect(window.hiddenEarlierCount == 1)
+        #expect(window.hiddenLaterCount == 6)
+        // The control still reports itself expandable — the *default* slice
+        // still has room at that end, the widened one being an artifact of
+        // the selection rather than the user having expanded it.
+        #expect(window.canExpandEarlier)
+    }
+
     // MARK: - defaultSelection
 
     @Test func defaultSelectionIsTodayWhenTodayHasStarredEvents() {
