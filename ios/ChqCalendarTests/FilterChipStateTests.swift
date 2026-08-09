@@ -135,4 +135,36 @@ struct FilterChipStateTests {
         #expect(!FilterChipState.isScopeSelected(
             .all, selection: withWeeks, currentWeek: nil, isCurrentYear: false))
     }
+
+    // MARK: - .day scope
+
+    @Test func dayScopeUnselectsTheAllChipOnAPastSeason() {
+        // The subtle one. On a past season every *relative* scope is ignored
+        // by the pipeline, which is why "All" lights up whenever no weeks
+        // are selected. `.day` is exempt from that downgrade, so dates
+        // really are being filtered — and "All" must not claim otherwise.
+        #expect(!FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: "2025-08-23"),
+            currentWeek: nil,
+            isCurrentYear: false))
+    }
+
+    @Test func allChipStaysSelectedOnAPastSeasonWithoutADayOrWeekFilter() {
+        // Guards the fix above against over-reach: a persisted relative
+        // scope still leaves "All" selected, since the pipeline ignores it.
+        #expect(FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .next),
+            currentWeek: nil,
+            isCurrentYear: false))
+    }
+
+    @Test func dayScopeUnselectsTheAllChipOnTheCurrentSeason() {
+        #expect(!FilterChipState.isScopeSelected(
+            .all,
+            selection: FilterSelection(dateScope: .day, selectedDayKey: "2026-08-09"),
+            currentWeek: 7,
+            isCurrentYear: true))
+    }
 }

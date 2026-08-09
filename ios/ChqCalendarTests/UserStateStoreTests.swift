@@ -368,4 +368,43 @@ struct UserStateStoreTests {
         #expect(store.loadFavorites() == ["evt-1"])
         #expect(store.loadReminderSettings().defaultPreset == .none)
     }
+
+    // MARK: - .day scope is session-only
+
+    @Test func dayScopeIsPersistedAsNextAndTheDayKeyIsNeverWritten() {
+        // A date pinned three days ago and silently restored on launch would
+        // be worse than not restoring at all — same reasoning as
+        // searchText/extraDays. `.day` names an absolute date, so it cannot
+        // survive a relaunch the way a relative scope can.
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+
+        store.saveFilters(FilterSelection(
+            dateScope: .day,
+            selectedDayKey: "2026-08-09",
+            selectedLocations: ["Amphitheater"]))
+        let loaded = store.loadFilters()
+
+        #expect(loaded?.dateScope == .next)
+        #expect(loaded?.selectedDayKey == nil)
+        // The rest of the selection still round-trips normally.
+        #expect(loaded?.selectedLocations == ["Amphitheater"])
+    }
+
+    @Test func nonDayScopesStillRoundTripUnchanged() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = UserStateStore(defaults: defaults, now: { Date() })
+
+        store.saveFilters(FilterSelection(dateScope: .season))
+
+        #expect(store.loadFilters()?.dateScope == .season)
+    }
+
+    @Test func dayScopeIsNotDefaultAndCountsAsADateFilter() {
+        let selection = FilterSelection(dateScope: .day, selectedDayKey: "2026-08-09")
+
+        #expect(!selection.isDefault)
+        #expect(selection.hasDateFilters)
+        #expect(!selection.hasNonDateFilters)
+    }
 }

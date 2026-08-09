@@ -8,6 +8,19 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
     case thisWeek = "this-week"
     case season
     case all
+    /// A single named calendar day, held in `FilterSelection.selectedDayKey`.
+    ///
+    /// **Derived, not pickable.** It is never offered in
+    /// `DateFilterSheet.visibleScopes` — an arbitrary date cannot be chosen
+    /// from a fixed row of presets — and arrives only from My Day's
+    /// empty-day "Browse …" action (#192).
+    ///
+    /// Unlike every other case here it names an **absolute** date, not a
+    /// window relative to "now". That is why both `EventFilter.apply` and
+    /// `DateFilterLabel.text` exempt it from their non-current-year
+    /// downgrade to `.all`: a named day is just as meaningful in an archived
+    /// season as in the live one.
+    case day
 
     var label: String {
         switch self {
@@ -16,20 +29,29 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
         case .thisWeek: return "This Week"
         case .season: return "All Season"
         case .all: return "All Year"
+        // Never user-facing: `DateFilterLabel` renders the date itself.
+        case .day: return "Day"
         }
     }
 }
 
 /// The user's current filter/search state for the event list.
 ///
-/// `searchText` and `extraDays` are session-only: they affect what's shown
-/// right now but are deliberately excluded from `isDefault`
-/// and are never persisted by `UserStateStore` (matches web intent — a
-/// fresh app launch always starts with an empty search box).
+/// `searchText`, `extraDays`, and `selectedDayKey` are session-only: they
+/// affect what's shown right now but are deliberately excluded from
+/// `isDefault` and are never persisted by `UserStateStore` (matches web
+/// intent — a fresh app launch always starts with an empty search box).
 nonisolated struct FilterSelection: Codable, Equatable, Sendable {
     var searchText: String = ""
     var dateScope: DateScope = .next
     var selectedWeeks: Set<Int> = []
+    /// The single day a `.day` scope names, as a `ChqTime.dayKey`
+    /// (`"yyyy-MM-dd"`). Meaningful only while `dateScope == .day`.
+    ///
+    /// **Session-only**, like `searchText` and `extraDays`: never persisted
+    /// by `UserStateStore`. Restoring a date pinned days ago would be worse
+    /// than not restoring at all (#192).
+    var selectedDayKey: String?
     /// Venue and category selections hold the feed's **original casing** in
     /// selection order, matching the web's `selectedLocations` /
     /// `selectedTags`. Comparison is lowercased at the point of use
@@ -45,6 +67,7 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
         searchText: String = "",
         dateScope: DateScope = .next,
         selectedWeeks: Set<Int> = [],
+        selectedDayKey: String? = nil,
         selectedLocations: [String] = [],
         selectedCategories: [String] = [],
         showFavoritesOnly: Bool = false,
@@ -53,6 +76,7 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
         self.searchText = searchText
         self.dateScope = dateScope
         self.selectedWeeks = selectedWeeks
+        self.selectedDayKey = selectedDayKey
         self.selectedLocations = selectedLocations
         self.selectedCategories = selectedCategories
         self.showFavoritesOnly = showFavoritesOnly
@@ -214,9 +238,9 @@ nonisolated struct UserStateStore {
     }
 
     /// Loads the persisted filter facets, or `nil` if nothing was saved or
-    /// the saved state is 30+ days old. `searchText` and `extraDays` are
-    /// always returned at their defaults (empty/0) since they aren't
-    /// persisted.
+    /// the saved state is 30+ days old. `searchText`, `extraDays`, and
+    /// `selectedDayKey` are always returned at their defaults (empty/0/nil)
+    /// since they aren't persisted.
     func loadFilters() -> FilterSelection? {
         guard
             let data = defaults.data(forKey: Self.filtersKey),
@@ -234,11 +258,13 @@ nonisolated struct UserStateStore {
         )
     }
 
-    /// Persists `f`'s facets, stamped with the current time. `searchText`
-    /// and `extraDays` are deliberately dropped — they're session-only.
+    /// Persists `f`'s facets, stamped with the current time. `searchText`,
+    /// `extraDays`, and `selectedDayKey` are deliberately dropped — they're
+    /// session-only — and a live `.day` scope is persisted as `.next`, since
+    /// without its day key it would mean nothing on the way back in.
     func saveFilters(_ f: FilterSelection) {
         let persisted = PersistedFilters(
-            dateScope: f.dateScope,
+            dateScope: f.dateScope == .day ? .next : f.dateScope,
             selectedWeeks: f.selectedWeeks,
             selectedLocations: f.selectedLocations,
             selectedCategories: f.selectedCategories,

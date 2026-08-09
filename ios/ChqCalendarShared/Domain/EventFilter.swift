@@ -9,7 +9,10 @@ nonisolated enum EventFilter {
     /// date-relative stages: `now` is the reference instant, `year` selects
     /// the season used for week math, and `isCurrentYear == false` forces
     /// any time-relative `dateScope` (`.next`/`.today`/`.thisWeek`) to
-    /// behave as `.all` — a past/future season has no "now".
+    /// behave as `.all` — a past/future season has no "now". `.day` is
+    /// excluded from that downgrade: it names an absolute date rather than a
+    /// window relative to "now", so it is just as meaningful off the current
+    /// year.
     ///
     /// `SeasonCalendar.weeks(forYear:)` is computed exactly once here and
     /// reused for both the `.thisWeek` scope and the weeks filter — it
@@ -31,7 +34,12 @@ nonisolated enum EventFilter {
         }
 
         let weeks = SeasonCalendar.weeks(forYear: year)
-        let scope: DateScope = isCurrentYear ? sel.dateScope : .all
+        // `.day` is exempt from the non-current-year downgrade: it names an
+        // absolute NY calendar day, not a window relative to "now", so it is
+        // just as meaningful in an archived season as in the live one.
+        // Downgrading it would silently un-filter the list in exactly the
+        // case My Day's browse-this-day action is most useful for (#192).
+        let scope: DateScope = (isCurrentYear || sel.dateScope == .day) ? sel.dateScope : .all
 
         switch scope {
         case .all:
@@ -45,6 +53,13 @@ nonisolated enum EventFilter {
         case .today:
             let nowKey = ChqTime.dayKey(for: now)
             result = result.filter { ChqTime.dayKey(for: $0.start) == nowKey }
+
+        case .day:
+            // A `nil` key means no day was ever set — filter nothing rather
+            // than filtering everything out.
+            if let dayKey = sel.selectedDayKey {
+                result = result.filter { ChqTime.dayKey(for: $0.start) == dayKey }
+            }
 
         case .next:
             let from = now.addingTimeInterval(-3600)

@@ -13,8 +13,9 @@ nonisolated enum FilterChipState {
     ///   `false` the stored `dateScope` is **meaningless** — the pipeline
     ///   forces it to `.all` (`let scope: DateScope = isCurrentYear ?
     ///   sel.dateScope : .all`), because a past or future season has no
-    ///   "now". Selection is therefore derived from that reality rather
-    ///   than from what happens to be persisted.
+    ///   "now" — **except `.day`**, which names an absolute date and is
+    ///   exempt from that downgrade. Selection is therefore derived from
+    ///   that reality rather than from what happens to be persisted.
     ///
     ///   Deliberately **not defaulted**, for the same reason
     ///   `DateFilterLabel.text` isn't: a default lets a future call site
@@ -41,12 +42,21 @@ nonisolated enum FilterChipState {
             switch scope {
             case .all:
                 // The weeks stage of `EventFilter` runs regardless of
-                // `isCurrentYear`, so a week selection is the one date
-                // filter that *is* still in force on a past season — and
-                // it un-selects "All" exactly as it does on the current
-                // year. With no weeks, nothing is filtering dates, which
-                // is precisely what "All" means.
-                return selection.selectedWeeks.isEmpty
+                // `isCurrentYear`, and `.day` is exempt from the downgrade
+                // outright (it names an absolute date rather than a window
+                // around "now") — so those are the two date filters still in
+                // force on a past season, and either one un-selects "All"
+                // exactly as it does on the current year. With neither,
+                // nothing is filtering dates, which is precisely what "All"
+                // means.
+                return selection.selectedWeeks.isEmpty && selection.dateScope != .day
+            case .day:
+                // Never rendered as a chip — `.day` is derived, not
+                // pickable — but answered honestly rather than left to the
+                // caller, per this type's existing convention. Unlike the
+                // relative scopes below, the pipeline does *not* ignore this
+                // one on a past season.
+                return selection.dateScope == .day
             case .next, .today, .season, .thisWeek:
                 // Unreachable through `DateFilterSheet`, whose
                 // `visibleScopes` collapses to `[.all]` off the current
@@ -68,6 +78,11 @@ nonisolated enum FilterChipState {
             // "All" means unfiltered dates, so a week selection un-selects it
             // even though `dateScope` is still `.all`.
             return selection.dateScope == .all && selection.selectedWeeks.isEmpty
+        case .day:
+            // Never rendered as a chip; answered rather than trusted. The
+            // `.all` case above already excludes it, since `.day` is not
+            // `.all`.
+            return selection.dateScope == .day
         case .next, .today, .season:
             return selection.dateScope == scope
         }

@@ -45,10 +45,29 @@ nonisolated enum DateFilterLabel {
         let weeks = selection.selectedWeeks.sorted()
 
         guard !weeks.isEmpty else {
+            // `.day` is handled *before* the `isCurrentYear` shortcut below.
+            // That shortcut is correct only because every other scope is
+            // downgraded to `.all` for a non-current year, which makes
+            // "All Year" a true statement about what the list is showing.
+            // `.day` survives that downgrade (see `EventFilter.apply`), so
+            // taking the shortcut would leave the pill claiming "All Year"
+            // over a day-filtered list — the pill lying about the filter,
+            // which is exactly the failure this type's doc comment warns
+            // about for `.next` (#192).
+            if selection.dateScope == .day,
+               let dayKey = selection.selectedDayKey,
+               let date = ChqTime.parse("\(dayKey) 00:00:00") {
+                return ChqTime.pillDayLabel(for: date, includingYear: !isCurrentYear)
+            }
+
             guard isCurrentYear else { return "All Year" }
             switch selection.dateScope {
             case .all: return DateScope.all.label            // "All Year"
             case .next, .today, .thisWeek, .season: return selection.dateScope.label
+            // Only reachable when `selectedDayKey` is nil or unparseable, in
+            // which case `EventFilter` filters nothing — so "All Year" is
+            // true, not a lie.
+            case .day: return DateScope.all.label
             }
         }
 

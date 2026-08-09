@@ -324,4 +324,68 @@ struct EventFilterTests {
 
         #expect(result.map(\.id) == ["a"])
     }
+
+    // MARK: - .day scope
+
+    @Test func dayScopeMatchesOnlyThatNYCalendarDay() throws {
+        let onDay = try #require(ChqTime.parse("2026-08-09 10:00:00"))
+        let lateOnDay = try #require(ChqTime.parse("2026-08-09 23:30:00"))
+        let nextDay = try #require(ChqTime.parse("2026-08-10 00:30:00"))
+        let events = [
+            makeEvent(id: "a", start: onDay),
+            makeEvent(id: "b", start: lateOnDay),
+            makeEvent(id: "c", start: nextDay),
+        ]
+        let now = try #require(ChqTime.parse("2026-08-01 09:00:00"))
+
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .day, selectedDayKey: "2026-08-09"),
+            to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["a", "b"])
+    }
+
+    @Test func dayScopeSurvivesANonCurrentYear() throws {
+        // The exemption that matters. Every *time-relative* scope is
+        // downgraded to .all for a past season because it has no "now" —
+        // but .day names an absolute date and is meaningful in any season.
+        // Downgrading it would silently un-filter the list in exactly the
+        // case the browse-this-day button is most useful for.
+        let onDay = try #require(ChqTime.parse("2025-08-23 10:00:00"))
+        let otherDay = try #require(ChqTime.parse("2025-08-24 10:00:00"))
+        let now = try #require(ChqTime.parse("2026-08-09 09:00:00"))
+
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .day, selectedDayKey: "2025-08-23"),
+            to: [makeEvent(id: "a", start: onDay), makeEvent(id: "b", start: otherDay)],
+            favorites: [], now: now, year: 2025, isCurrentYear: false)
+
+        #expect(result.map(\.id) == ["a"])
+    }
+
+    @Test func timeRelativeScopesAreStillDowngradedForANonCurrentYear() throws {
+        // Guards the exemption against over-reach: only .day is exempt.
+        let old = try #require(ChqTime.parse("2025-08-23 10:00:00"))
+        let now = try #require(ChqTime.parse("2026-08-09 09:00:00"))
+
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .today),
+            to: [makeEvent(id: "a", start: old)],
+            favorites: [], now: now, year: 2025, isCurrentYear: false)
+
+        #expect(result.map(\.id) == ["a"])
+    }
+
+    @Test func dayScopeWithNoDayKeyFiltersNothing() throws {
+        let first = try #require(ChqTime.parse("2026-08-09 10:00:00"))
+        let second = try #require(ChqTime.parse("2026-08-10 10:00:00"))
+        let now = try #require(ChqTime.parse("2026-08-01 09:00:00"))
+
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .day, selectedDayKey: nil),
+            to: [makeEvent(id: "a", start: first), makeEvent(id: "b", start: second)],
+            favorites: [], now: now, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["a", "b"])
+    }
 }
