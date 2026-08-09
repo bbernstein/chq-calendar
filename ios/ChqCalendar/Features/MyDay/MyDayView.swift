@@ -19,6 +19,13 @@ struct MyDayView: View {
     /// `model` yet).
     @State private var selectedDay: String?
 
+    /// Whether each end of the strip is expanded to the season edge.
+    /// Session-scoped deliberately: these survive tab switches for the life
+    /// of the process but reset on launch, so the app always reopens on the
+    /// tight window (#192).
+    @State private var showsEarlier = false
+    @State private var showsLater = false
+
     /// One-time discovery tip for the My Schedule Siri phrase (#193) —
     /// shown only where it's personally relevant (the user has starred
     /// days), dismissed forever via the tip's own close button.
@@ -32,80 +39,56 @@ struct MyDayView: View {
                     EventDetailView(event: event, model: model)
                 }
         }
-        .task { reconcileSelection(in: model.myDayAvailableDays) }
-        // `myDayAvailableDays` changes whenever a favorite is toggled (or a
-        // fresh snapshot lands) — reconcile every time, not just once, so a
-        // day that loses its last favorited event doesn't leave the view
-        // showing a plan `dayPlan(for:)` would now report as empty.
-        .onChange(of: model.myDayAvailableDays) { _, newDays in
-            reconcileSelection(in: newDays)
+        .task { reconcileSelection(in: model.myDayBounds) }
+        .onChange(of: model.myDayBounds) { _, newBounds in
+            reconcileSelection(in: newBounds)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        let availableDays = model.myDayAvailableDays
-        if availableDays.isEmpty {
+        if model.myDayAvailableDays.isEmpty {
             emptyState
-        } else if let selectedDay, availableDays.contains(selectedDay) {
-            planContent(for: selectedDay, availableDays: availableDays)
+        } else if let selectedDay, let bounds = model.myDayBounds, bounds.contains(selectedDay) {
+            planContent(for: selectedDay)
         } else {
-            // Between `availableDays` changing and `onChange` above running
-            // `reconcileSelection` for it, `selectedDay` can briefly point
-            // at a day that's no longer available. Render nothing rather
-            // than a stale/empty plan for that one frame.
+            // One frame, between the bounds changing and `reconcileSelection`
+            // running for them.
             Color.clear
         }
     }
 
     // MARK: - Selection
 
-    /// Keeps `selectedDay` valid as favorites (and therefore
-    /// `availableDays`) change.
+    /// Keeps `selectedDay` inside the current bounds.
     ///
-    /// - First appearance (`selectedDay == nil`): picks
-    ///   `AppModel.myDayDefaultDay`.
-    /// - The previously-selected day dropped out of `availableDays` (its
-    ///   last favorited event was unstarred, or all its events were
-    ///   filtered from the snapshot): falls back to whichever remaining day
-    ///   is calendar-closest to the one that disappeared, not straight back
-    ///   to `myDayDefaultDay` — jumping to "today" (or the next future day)
-    ///   would relocate a user who was deliberately looking at a specific
-    ///   past or future day just because one event on it got unstarred.
-    /// - No day is close enough to fall back to (`availableDays` itself is
-    ///   now empty): falls back to `myDayDefaultDay`, which is `nil` in
-    ///   that case — `content` above shows the empty state instead.
-    private func reconcileSelection(in availableDays: [String]) {
-        if let selectedDay, availableDays.contains(selectedDay) { return }
-        if let selectedDay, let nearest = nearestDay(to: selectedDay, in: availableDays) {
-            self.selectedDay = nearest
-        } else {
-            self.selectedDay = model.myDayDefaultDay
-        }
-    }
-
-    private func nearestDay(to missingDay: String, in candidates: [String]) -> String? {
-        guard !candidates.isEmpty else { return nil }
-        guard let missingDate = ChqTime.parse("\(missingDay) 00:00:00") else {
-            return candidates.sorted().first
-        }
-        return candidates.min { lhs, rhs in
-            let lhsDelta = abs((ChqTime.parse("\(lhs) 00:00:00") ?? .distantFuture).timeIntervalSince(missingDate))
-            let rhsDelta = abs((ChqTime.parse("\(rhs) 00:00:00") ?? .distantFuture).timeIntervalSince(missingDate))
-            return lhsDelta < rhsDelta
-        }
+    /// Since #192 the strip is driven by the calendar rather than by the
+    /// favorites set, so a day can no longer vanish because its last starred
+    /// event was unstarred — the only things that move the bounds are a new
+    /// snapshot and a year switch. The previous `nearestDay` fallback existed
+    /// solely for the vanishing case and is gone with it.
+    private func reconcileSelection(in bounds: ClosedRange<String>?) {
+        guard let bounds else { return }
+        if let selectedDay, bounds.contains(selectedDay) { return }
+        selectedDay = model.myDayDefaultDay
     }
 
     // MARK: - Day plan
 
-    private func planContent(for day: String, availableDays: [String]) -> some View {
+    private func planContent(for day: String) -> some View {
         let plan = model.dayPlan(for: day)
+        let window = model.myDayWindow(showsEarlier: showsEarlier, showsLater: showsLater)
+        // Read once per body evaluation and index per chip below —
+        // `myDayStarredCounts` rebuilds its dictionary with a full pass over
+        // the event list on every access, so calling it inside the `ForEach`
+        // would turn one O(events) pass into one per visible chip.
+        let starredCounts = model.myDayStarredCounts
         return VStack(alignment: .leading, spacing: 12) {
             if siriTipVisible {
                 SiriTipView(intent: MyScheduleIntent(), isVisible: $siriTipVisible)
                     .padding(.horizontal)
             }
-            dayChipsRow(availableDays: availableDays, selectedDay: day)
+            dayChipsRow(window: window, selectedDay: day, starredCounts: starredCounts)
             summaryHeader(for: plan)
             Divider()
                 .padding(.horizontal)
@@ -116,30 +99,61 @@ struct MyDayView: View {
 
     // MARK: - Day chips
 
-    private func compactDayLabel(for dayKey: String) -> String {
-        guard let date = ChqTime.parse("\(dayKey) 00:00:00") else { return dayKey }
-        return ChqTime.compactDayLabel(for: date)
-    }
+    private var todayKey: String { ChqTime.dayKey(for: model.now()) }
 
-    private func fullDayTitle(for dayKey: String) -> String {
-        guard let date = ChqTime.parse("\(dayKey) 00:00:00") else { return dayKey }
-        return ChqTime.dayTitle(for: date)
-    }
+    private func dayChipsRow(window: DayWindow, selectedDay: String, starredCounts: [String: Int]) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if window.canExpandEarlier {
+                        MyDayExpandControl(
+                            direction: .earlier,
+                            isExpanded: showsEarlier,
+                            hiddenCount: window.hiddenEarlierCount
+                        ) {
+                            showsEarlier.toggle()
+                        }
+                    }
 
-    private func dayChipsRow(availableDays: [String], selectedDay: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(availableDays, id: \.self) { day in
-                    MyDayChip(
-                        label: compactDayLabel(for: day),
-                        fullTitle: fullDayTitle(for: day),
-                        isSelected: day == selectedDay
-                    ) {
-                        self.selectedDay = day
+                    ForEach(window.days, id: \.self) { day in
+                        if let content = MyDayChipContent.make(
+                            dayKey: day,
+                            todayKey: todayKey,
+                            starCount: starredCounts[day] ?? 0,
+                            includingYear: !model.isCurrentYear
+                        ) {
+                            MyDayChip(content: content, isSelected: day == selectedDay) {
+                                self.selectedDay = day
+                            }
+                            .id(day)
+                        }
+                    }
+
+                    if window.canExpandLater {
+                        MyDayExpandControl(
+                            direction: .later,
+                            isExpanded: showsLater,
+                            hiddenCount: window.hiddenLaterCount
+                        ) {
+                            showsLater.toggle()
+                        }
                     }
                 }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
+            .onAppear { scroll(proxy, to: selectedDay) }
+            .onChange(of: selectedDay) { _, day in scroll(proxy, to: day) }
+            // Expanding an end prepends or appends chips, which shifts the
+            // content under the user. Re-anchoring on the same day holds the
+            // selection still, so revealing the past never moves you.
+            .onChange(of: showsEarlier) { _, _ in scroll(proxy, to: selectedDay) }
+            .onChange(of: showsLater) { _, _ in scroll(proxy, to: selectedDay) }
+        }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy, to day: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            proxy.scrollTo(day, anchor: .center)
         }
     }
 
@@ -334,31 +348,114 @@ struct MyDayView: View {
     }
 }
 
-/// One selectable day chip in `MyDayView`'s horizontal day strip.
+/// One selectable day chip in `MyDayView`'s strip (#192).
 ///
-/// `label` is the compact form shown on-screen ("Sat 27"); `fullTitle` is
-/// the same day spelled out ("Saturday, July 27") and is exposed only to
-/// VoiceOver via `accessibilityLabel`.
+/// All labelling lives in `MyDayChipContent` so it can be tested without a
+/// view host; this type owns only the visual encoding of the four states,
+/// which must compose because a day can be empty *and* today *and* selected
+/// at once:
+///
+/// - **Fill** = selected, and nothing else uses fill.
+/// - **Today** = the word `"Today"` in `content.topLine` — carried in text
+///   precisely so a selected fill cannot swallow it.
+/// - **Empty** = dashed stroke plus secondary content, kept (in white) even
+///   while selected.
+/// - **Count** = the third line, which always occupies its space so chip
+///   heights never jitter as events are starred and unstarred.
 private struct MyDayChip: View {
-    let label: String
-    let fullTitle: String
+    let content: MyDayChipContent
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
-                    in: Capsule()
-                )
-                .foregroundStyle(isSelected ? .white : .primary)
+            VStack(spacing: 2) {
+                Text(content.topLine)
+                    .font(.caption.weight(content.isToday ? .bold : .regular))
+                Text(content.dateLine)
+                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                countLine
+            }
+            .frame(minWidth: 58)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
+                in: RoundedRectangle(cornerRadius: 12)
+            )
+            .overlay {
+                if content.isEmpty {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(
+                            isSelected ? Color.white.opacity(0.7) : Color.secondary.opacity(0.5),
+                            style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                }
+            }
+            .foregroundStyle(foreground)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(fullTitle)
+        .accessibilityLabel(content.accessibilityLabel)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// Always rendered, blank when the count is zero, so every chip is the
+    /// same height whether or not anything is starred on it.
+    @ViewBuilder
+    private var countLine: some View {
+        if content.starCount > 0 {
+            Label("\(content.starCount)", systemImage: "star.fill")
+                .font(.caption2)
+                .labelStyle(.titleAndIcon)
+        } else {
+            Text(" ").font(.caption2)
+        }
+    }
+
+    private var foreground: AnyShapeStyle {
+        if isSelected { return AnyShapeStyle(.white) }
+        return content.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
+    }
+}
+
+/// The chevron chip at each end of `MyDayView`'s strip, revealing the rest of
+/// the season in that direction (#192).
+///
+/// The visible chip stays narrow — the count lives in the accessibility
+/// label, not on screen.
+private struct MyDayExpandControl: View {
+    enum Direction { case earlier, later }
+
+    let direction: Direction
+    let isExpanded: Bool
+    let hiddenCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 34, height: 62)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var symbol: String {
+        switch (direction, isExpanded) {
+        case (.earlier, false): return "chevron.left"
+        case (.earlier, true): return "chevron.right"
+        case (.later, false): return "chevron.right"
+        case (.later, true): return "chevron.left"
+        }
+    }
+
+    private var accessibilityLabel: String {
+        switch (direction, isExpanded) {
+        case (.earlier, false): return "Show \(hiddenCount) earlier days"
+        case (.earlier, true): return "Hide earlier days"
+        case (.later, false): return "Show \(hiddenCount) later days"
+        case (.later, true): return "Hide later days"
+        }
     }
 }
