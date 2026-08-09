@@ -388,11 +388,51 @@ final class AppModel {
         return DayPlan.availableDayKeys(favorites: favorites, events: snapshot.events, year: selectedYear)
     }
 
-    /// Which day `MyDayView` should open to by default — see
-    /// `DayPlan.defaultDayKey`. `nil` when there are no favorited days at
-    /// all (including when there's no snapshot yet).
+    /// The outer limit of the My Day strip — see `DayWindow.bounds`.
+    ///
+    /// `nil` without a snapshot. Season bounds are computable from
+    /// `selectedYear` alone, but until the first snapshot lands
+    /// `selectedYear` is still the placeholder year, and a placeholder
+    /// season has no business reaching the UI. Mirrors the guard
+    /// `myDayAvailableDays` already uses.
+    var myDayBounds: ClosedRange<String>? {
+        guard snapshot != nil else { return nil }
+        return DayWindow.bounds(year: selectedYear, starredDays: myDayAvailableDays)
+    }
+
+    /// The slice of `myDayBounds` the strip shows for a given expansion
+    /// state — see `DayWindow.make`. An empty window without a snapshot.
+    func myDayWindow(showsEarlier: Bool, showsLater: Bool) -> DayWindow {
+        guard let bounds = myDayBounds else {
+            return DayWindow(
+                days: [], canExpandEarlier: false, canExpandLater: false,
+                hiddenEarlierCount: 0, hiddenLaterCount: 0)
+        }
+        return DayWindow.make(
+            bounds: bounds,
+            today: ChqTime.dayKey(for: now()),
+            showsEarlier: showsEarlier,
+            showsLater: showsLater)
+    }
+
+    /// Starred-event counts per day, for the chip labels. One pass over the
+    /// event list — see `DayPlan.starredCountsByDay` for why this is not
+    /// `dayPlan(for:)` called once per visible chip.
+    var myDayStarredCounts: [String: Int] {
+        guard let snapshot else { return [:] }
+        return DayPlan.starredCountsByDay(favorites: favorites, events: snapshot.events)
+    }
+
+    /// Which day `MyDayView` opens to by default — see
+    /// `DayWindow.defaultSelection`. `nil` when there are no favorited days
+    /// at all (including when there's no snapshot yet), which is the case
+    /// where the view shows its all-season empty state instead.
     var myDayDefaultDay: String? {
-        DayPlan.defaultDayKey(available: myDayAvailableDays, now: now())
+        guard let bounds = myDayBounds else { return nil }
+        return DayWindow.defaultSelection(
+            bounds: bounds,
+            today: ChqTime.dayKey(for: now()),
+            starredDays: myDayAvailableDays)
     }
 
     /// Builds the day plan for `dayKey` from the current snapshot and
