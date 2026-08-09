@@ -269,4 +269,22 @@ struct MyDayModelTests {
         #expect(model.filter.dateScope == .day)
         #expect(model.filter.selectedDayKey == "2026-08-09")
     }
+
+    /// `DateFormatter`'s underlying ICU parsing accepts single-digit
+    /// month/day components (`"2026-8-9"`) even though `ChqTime`'s
+    /// formatters use the strict `"yyyy-MM-dd HH:mm:ss"` pattern — verified
+    /// empirically, not assumed. If `browseDay` stored that string verbatim,
+    /// `EventFilter.apply`'s `.day` case (plain string equality against
+    /// `ChqTime.dayKey(for:)`'s canonical output) would never match it,
+    /// silently producing an empty list under a pill naming a real day.
+    /// `browseDay` must normalize on the way in.
+    @Test func browseDayNormalizesANonCanonicalKeyToTheCanonicalForm() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(events: [], now: now)
+
+        model.browseDay("2026-8-9")
+
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+    }
 }

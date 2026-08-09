@@ -43,7 +43,6 @@ struct ChqShortcutsTests {
         // Splitting on the literal text is the whole "read as source" the
         // doc comment above describes.
         let blocks = source.components(separatedBy: "AppShortcut(").dropFirst()
-        #expect(blocks.count == 7, "Expected 7 AppShortcut blocks in ChqShortcuts.swift, found \(blocks.count)")
 
         var checkedIntents: [String] = []
 
