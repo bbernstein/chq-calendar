@@ -297,10 +297,13 @@ recorded as bounded rather than naive.
 
 ### Unauthenticated preview
 
-`GET /lists/preview/{shareKey}` renders a read-only web page: list name,
-owner display name, and the events. No account required. This exists so an
-invite link is useful the instant it is received, rather than dead-ending at
-a sign-in wall.
+The `/f/{shareKey}` **page** renders a read-only view — list name, owner
+display name, and the events — from the JSON returned by the
+`GET /lists/preview/{shareKey}` **API route** (§6). The split matters: the
+route returns data only and never HTML, consistent with the app being a static
+site with no server-side rendering. No account is required for either. This
+exists so an invite link is useful the instant it is received, rather than
+dead-ending at a sign-in wall.
 
 Consequence, accepted and documented: **an invite link leaks the schedule to
 anyone it is forwarded to, with or without an account.** This is already true
@@ -514,8 +517,9 @@ works.
   Carries the capability-URL warning copy (§4).
 - **Follow screen** — admin-curated featured lists plus a code entry field
   (decision 5), with no browse-all.
-- **Preview page** — an unauthenticated route rendering
-  `/lists/preview/{shareKey}`, with a sign-in call to action to follow.
+- **Preview page** — the unauthenticated `/f/{shareKey}` page, rendering the
+  JSON from `GET /lists/preview/{shareKey}`, with a sign-in call to action to
+  follow.
 - **`useFavorites` and the sync layer** — the accounts spec already moves
   favorites to per-event records; this design adds the list dimension on top,
   and the default list keeps that hook's existing contract so the calendar's
