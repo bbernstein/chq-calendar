@@ -7,6 +7,25 @@ on:
 jobs:
   claude-review:
     runs-on: ubuntu-latest
+    # Fork PRs cannot run this job, and no `permissions:` block or repo setting
+    # can change that. GitHub withholds all three things the job needs from a
+    # `pull_request` run whose head is a fork. Run 31428615838 (PR #210, #211)
+    # shows each one:
+    #   1. Repository secrets  — logged `Secret source: None` and
+    #      `CLAUDE_CODE_OAUTH_TOKEN: ""`, so there are no Anthropic credentials
+    #      to review with.
+    #   2. A writable GITHUB_TOKEN — the run was granted `PullRequests: read`
+    #      despite the `pull-requests: write` declared below, so Claude could
+    #      not post a review even if it authenticated.
+    #   3. An OIDC token — which is what actually errored and got reported.
+    # Passing `github_token: ${{ secrets.GITHUB_TOKEN }}` (the fix suggested in
+    # #211) addresses only 3; the job would then fail on 1 instead. Switching to
+    # `pull_request_target` would supply all three, but it checks out untrusted
+    # fork code and hands it to an agent with Bash — not a trade worth making to
+    # get a code review. Skipping is the only correct option, and a skipped job
+    # is neutral where the old behaviour was a permanently-red, unactionable
+    # check on every external contribution.
+    if: github.event.pull_request.head.repo.fork != true
     permissions:
       contents: read
       pull-requests: write
