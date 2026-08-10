@@ -451,10 +451,12 @@ pending reminders in a busy week.
    `eventID` by construction. Making the input source-attributed (point 1)
    destroys that invariant, so it has to be re-established deliberately.
 
-   The failure mode if it isn't: `ReminderCenter` schedules with identifier
-   `"event-\(eventID)"` (`ios/ChqCalendar/Data/ReminderCenter.swift:203`), so a
-   duplicate does not error — the second `UNUserNotificationCenter` request
-   **silently overwrites** the first, whichever list happens to sort last wins
+   The failure mode if it isn't: `ReminderCenter` schedules with
+   `"\(Self.identifierPrefix)\(reminder.eventID)"`
+   (`ios/ChqCalendar/Data/ReminderCenter.swift:203`), where `identifierPrefix`
+   is `"event-"` (same file, line 127). The identifier is therefore one per
+   event, so a duplicate does not error — the second `UNUserNotificationCenter`
+   request **silently overwrites** the first, whichever list sorts last wins
    the source badge, and the duplicate has already consumed two of the
    `maxPending` 60 slots for one delivered notification. Deduplicating after
    truncation instead of before reproduces the same miscount, so the ordering
