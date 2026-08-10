@@ -107,7 +107,7 @@ alternatives noted.
 | # | Decision | Chosen over |
 |---|---|---|
 | 1 | **Named lists with per-list visibility.** One concept covers household sharing, friend following, and public broadcasting. | A single shared/private flag per favorite (only one audience); a separate "household" feature plus a separate "follow" feature (two permission systems). |
-| 2 | **One owner, read-only followers.** | Co-editable lists (a second permission tier plus multi-writer conflict handling); designing a `role` field in now for later co-edit (YAGNI — add it when co-edit is actually wanted). |
+| 2 | **One owner, read-only followers.** | Co-editable lists (a second permission tier plus multi-writer conflict handling); designing a `role` field now for later co-edit (YAGNI — add it when co-edit is actually wanted). |
 | 3 | **Live subscription with opt-in alerts.** Followed events stay distinct from the follower's own stars. | One-time import/fork (a snapshot, which breaks the "one of us maintains it" premise); live plus per-event adopt (extra affordance, upstream-removal ambiguity). |
 | 4 | **Invite links, no approval inbox.** Possession of the link is the approval. Owner holds a follower roster, can remove followers, and can rotate the link. | A request-to-follow approval queue (needs an inbox, a notification path, and solves the wrong problem — you can't tell which "J. Smith" is requesting); both mechanisms (doubles the access-control surface). |
 | 5 | **Public lists are link-only, plus an admin-curated featured surface.** No browsable directory, no search of user lists. | An open directory (hosting user-generated public content: moderation, reporting, takedown, impersonation policing); no featured surface at all (zero in-app discovery). |
