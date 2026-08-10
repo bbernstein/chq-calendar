@@ -281,14 +281,17 @@ The owner has no membership row; ownership lives on the list row.
 
 All routes extend the **existing specced `user_handler` Lambda** and its
 `user_lambda_role`, which gains access to the three new tables and their
-GSIs. Cognito access tokens are verified in-handler against the pool JWKS,
+GSIs. It needs no new grant for `PUT /user/profile` — the accounts work
+already gives that role write access to the `users` table, and `displayName`
+is one more attribute on a row it already writes. Cognito access tokens are verified in-handler against the pool JWKS,
 per the accounts spec's convention. No API Gateway authorizer.
 
 | Method | Route | Purpose |
 |---|---|---|
+| `PUT` | `/user/profile` | Set the account-level `displayName` (§5). The only route that writes it. |
 | `GET` | `/user/lists` | Owner's lists + the lists they follow, with per-list metadata. |
 | `POST` | `/user/lists` | Create a list. |
-| `PATCH` | `/user/lists/{listId}` | Rename, change visibility, rotate `shareKey`, unpublish. |
+| `PATCH` | `/user/lists/{listId}` | Rename, edit `ownerDisplayName`, change visibility, rotate `shareKey`, unpublish. |
 | `DELETE` | `/user/lists/{listId}` | Delete a list (cascades, §8). |
 | `PUT`/`DELETE` | `/user/lists/{listId}/events/{eventId}` | Add/remove an event. Owner only. |
 | `GET` | `/user/lists/{listId}/followers` | Follower roster. Owner only. |
@@ -299,6 +302,21 @@ per the accounts spec's convention. No API Gateway authorizer.
 | `GET` | `/user/feed` | The follower read path (§7). |
 | `GET` | `/lists/preview/{shareKey}` | **Unauthenticated** read-only preview data (§7). |
 | `GET` | `/lists/featured` | **Unauthenticated** admin-curated featured lists. |
+
+**Why `displayName` gets its own route rather than riding
+`PUT /user/preferences`.** The accounts spec treats `preferences` as an
+opaque blob reconciled by whole-blob last-write-wins. `displayName` is
+neither: it is a rendered, server-validated field that other people see, and
+losing it to a stale blob write from a second device would silently rename
+someone to their audience. `PUT /user/profile` keeps it out of the blob's
+last-write-wins path. It is the **only** writer of that attribute.
+
+**Ordering, since the follow route depends on it:** a client with no account
+`displayName` must `PUT /user/profile` before, or supply
+`followerDisplayName` in, the follow request. A follow that would leave the
+membership row nameless is rejected with a distinguishable error the UI
+resolves by prompting — not a generic 400, since "you need a name first" and
+"that share key is invalid" must not look alike to the user.
 
 **The link an owner copies is a page, not an API route.** Shape:
 `https://www.chqcal.org/f/{shareKey}` — a static page (a new Vite entry, per
