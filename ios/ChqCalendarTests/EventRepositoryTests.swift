@@ -363,6 +363,42 @@ struct EventRepositoryTests {
         #expect(after?.events.contains { $0.id == "555555" } == true)
     }
 
+    /// A successful refresh has already decoded the payload it just wrote —
+    /// so the memo should carry that snapshot rather than being left empty
+    /// for the next caller to re-read and re-decode.
+    ///
+    /// This is not hypothetical: `AppModel.refresh` calls
+    /// `enqueueReminderSync()` and `enqueueSpotlightReindex()` immediately
+    /// on success (`AppModel.swift:550-552`), and both walk every cached
+    /// year through `cachedSnapshot(year:)`. Without this, every refresh is
+    /// followed straight away by a redundant decode of the year it just
+    /// decoded — the exact cost this memo exists to remove.
+    @Test func refreshPopulatesTheMemoWithTheSnapshotItJustDecoded() async throws {
+        let cache = MockCache()
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1", for: .events(year: 2026))
+        // All three sidecars must succeed here, not just events. Each one
+        // writes its own cache entry, and every write clears the whole memo —
+        // so scripting them is what makes this a guard on *ordering*: seeding
+        // the memo before the sidecar `await`s would be wiped by them landing,
+        // and only a sidecar-succeeding refresh can catch that.
+        await api.setSuccess(data: fixtureData("article-links-sample"), etag: "l1", for: .articleLinks(year: 2026))
+        await api.setSuccess(data: fixtureData("program-links-sample"), etag: "p1", for: .programLinks(year: 2026))
+        await api.setSuccess(data: fixtureData("themes-sample"), etag: "t1", for: .weeklyThemes(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+
+        let refreshed = try await repo.refresh(year: 2026, force: true)
+        let readsAfterRefresh = cache.readCount(for: "events-2026")
+
+        let cached = await repo.cachedSnapshot(year: 2026)
+
+        #expect(cache.readCount(for: "events-2026") == readsAfterRefresh)
+        // ...and the memoized value must actually match what was refreshed,
+        // not merely be present.
+        #expect(cached?.events.count == refreshed.events.count)
+        #expect(cached?.fetchedAt == refreshed.fetchedAt)
+    }
+
     /// A 304 takes the `touch` path: the payload on disk is unchanged but
     /// its `fetchedAt` moves. The snapshot handed out afterwards must carry
     /// the new `fetchedAt` rather than the memoized older one, since that

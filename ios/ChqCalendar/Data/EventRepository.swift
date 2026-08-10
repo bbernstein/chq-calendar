@@ -207,7 +207,7 @@ actor EventRepository {
             writeCache(eventsResource.cacheKey, data: data, etag: etag, fetchedAt: now)
         }
 
-        return CalendarSnapshot(
+        let snapshot = CalendarSnapshot(
             year: year,
             events: events,
             articleLinks: await linksResult,
@@ -215,6 +215,25 @@ actor EventRepository {
             themes: await themesResult,
             fetchedAt: now
         )
+
+        // Seed the memo with what we just decoded, rather than leaving it
+        // cleared for the next caller to re-read and re-decode. That caller
+        // arrives immediately: `AppModel.refresh` fires `enqueueReminderSync()`
+        // and `enqueueSpotlightReindex()` the moment a refresh succeeds
+        // (`AppModel.swift:550-552`), and both walk every cached year through
+        // `cachedSnapshot(year:)` — so without this, every successful refresh
+        // is followed at once by a redundant decode of the year it had just
+        // finished decoding.
+        //
+        // This must come *after* the three sidecar `await`s above, not before.
+        // Each sidecar fetch writes its own cache entry on success, and every
+        // write clears the whole memo — so seeding any earlier would simply be
+        // wiped by a sidecar landing. Awaiting first also makes this snapshot
+        // equal to what `cachedSnapshot` would rebuild: `fetchedAt` is the same
+        // `now` just written to the events metadata, and the sidecars are the
+        // same payloads now on disk.
+        snapshotMemo[year] = snapshot
+        return snapshot
     }
 
     /// The known years for the app to offer, preferring a fresh cached
