@@ -13,11 +13,20 @@ bottom for completeness only).
 
 **Obsolete.** The mechanism the issue describes no longer exists. PR #159
 (`7a530dd`, "scroll-first chrome — bottom-bar filters") replaced the
-collapsing top filter bar with a fixed bottom-edge pill bar, deleting
-`ios/ChqCalendar/Domain/FilterBarCollapse.swift`,
-`FilterBarCollapseDriver.swift`, and `FilterBarCollapseTests`. Nothing in
-the tree references them. With no bar that collapses there is no
-give-back gate and no ~190pt overflow floor.
+collapsing top filter bar with a fixed bottom-edge pill bar, deleting both
+files the state machine lived in:
+
+- `ios/ChqCalendar/Domain/FilterBarCollapse.swift`
+- `ios/ChqCalendarTests/FilterBarCollapseTests.swift`
+
+Both were added by PR #151 (`189235a`) and deleted by `7a530dd`; those are
+the only two commits in the repo's history that touch a `FilterBarCollapse*`
+path, and `git grep FilterBarCollapse origin/main` returns nothing. With no
+bar that collapses there is no give-back gate and no ~190pt overflow floor.
+
+The issue also names a `FilterBarCollapseDriver.swift`, hedged at the time
+as "or wherever the give-back measurement now lives". No file by that name
+ever existed — the measurement lived in the deleted state machine.
 
 Its companion, #153 ("which filter-bar rows are pinned vs. collapsible"),
 was already closed on 2026-08-04 as part of the same redesign. #154 was
