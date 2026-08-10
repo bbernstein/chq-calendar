@@ -49,8 +49,21 @@ jobs:
 
           changed=$(git diff --name-only "$merge_base" "$HEAD_SHA")
 
+          # ChqCalendarShared/ is in scope even though it is not a UI target
+          # (#189). User-visible strings and display logic live there —
+          # DisplayNames (venue/category chip labels), DateFilterLabel (the
+          # date pill), MyDayChipContent (the My Day strip), ReminderPreset
+          # labels, VenueAtlas names — so a change there can repaint a
+          # screenshot without touching Features/ or App/ at all. Matching
+          # the whole directory rather than an enumerated subset of it is
+          # deliberate: an allowlist of "the display-ish files" would need
+          # updating every time Shared/ grows a file, and the failure mode of
+          # forgetting is silent. The cost is more frequent opt-outs for
+          # genuinely invisible changes (ChqTime internals, UserStateStore
+          # persistence), which is the intended trade — an opt-out is a
+          # recorded decision, a missed pixel is not.
           ui_changed=$(echo "$changed" | grep -E \
-            '^ios/ChqCalendar/(Features|App)/|^ios/ChqCalendar/Assets\.xcassets/|^ios/ChqCalendarWidgets/' || true)
+            '^ios/ChqCalendar/(Features|App)/|^ios/ChqCalendar/Assets\.xcassets/|^ios/ChqCalendarWidgets/|^ios/ChqCalendarShared/' || true)
 
           if [ -z "$ui_changed" ]; then
             echo "No UI-affecting iOS changes. Nothing to check."
