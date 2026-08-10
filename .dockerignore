@@ -1,7 +1,37 @@
+# The Docker build context is the repo root (npm workspaces keeps a single
+# lockfile there), so everything the dev images do not need is excluded here.
+# Without this the context is ~1.9 GB, almost all of it Terraform providers
+# and iOS assets.
+#
+# NOTE: .dockerignore applies to the build context only — it has no effect on
+# the bind mounts in docker-compose.yml. Those are scoped explicitly instead.
+
+# Dependencies — reinstalled inside the image from the lockfile
 node_modules
-backend/node_modules
-frontend/node_modules
-tools/publisher-format/node_modules
+**/node_modules
+
+# Build output
+frontend/out
+backend/dist
+tools/publisher-format/dist
+**/coverage
+
+# Not needed by the frontend or backend dev images.
+#
+# docs/ is deliberately NOT excluded: tools/publisher-format's build reads
+# docs/publisher/{categories,venues}.json into dist/refs and writes
+# docs/publisher/feed.schema.json back out. The backend container runs that
+# build at start, so it needs its own copy in the image — and because docs/ is
+# not bind-mounted, those writes stay inside the container instead of landing
+# on the host as root. It is only ~5 MB.
 .git
-docs
+.github
+.worktrees
 infrastructure
+ios
+
+# Local noise
+*.log
+.DS_Store
+.env
+.env.*

@@ -112,8 +112,17 @@ The application can run completely locally using Docker:
 ./scripts/setup-local.sh
 
 # Or manual setup
-docker compose up -d --build
+docker compose up -d --build --renew-anon-volumes
 ```
+
+> **After changing `package.json` or `package-lock.json`, rebuild with
+> `--renew-anon-volumes`.** Each container's `node_modules` lives in an
+> anonymous volume so the host's copy doesn't shadow it, and those volumes
+> survive a plain `docker compose up --build` — the new image is built
+> correctly and then masked by the previous run's dependency tree. Symptoms are
+> confusing: a package you just pinned stays at the old version, or a newly
+> added dependency is missing entirely. `./scripts/setup-local.sh` passes the
+> flag for you.
 
 ### Local Services
 - **Frontend**: http://localhost:3000 (Vite dev server with HMR)

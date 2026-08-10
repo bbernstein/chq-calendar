@@ -4,6 +4,10 @@
 
 set -e
 
+# Run from the repo root no matter where this was invoked from: every
+# `docker compose` call below resolves docker-compose.yml relative to cwd.
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
 echo "🎪 Setting up Chautauqua Calendar for local development..."
 
 # Check if Docker is installed
@@ -18,27 +22,50 @@ if ! docker compose version &> /dev/null; then
     exit 1
 fi
 
-# Function to check if port is available. Uses a raw TCP connect instead of
+# Is anything listening on this port? Uses a raw TCP connect rather than
 # lsof/ss process inspection: Docker's port-forwarding sockets are owned by
-# root, so a non-root lsof silently fails to see them as in-use, letting a
-# real conflict slip through unnoticed.
+# root, so a non-root lsof cannot see them and a real conflict slips through
+# unnoticed. /dev/tcp is a bash builtin — this is why the shebang above is
+# bash and not sh; do not "portability-fix" it.
 port_in_use() {
-    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&- 3<&-; return 0; } || return 1
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
+# The container that legitimately owns each port when this project's stack is
+# already up. Re-running setup against a live stack should be a no-op rather
+# than a hard exit, but only this project's own container earns that pass —
+# anything else on the port is a genuine conflict.
+port_owner() {
+    case "$1" in
+        3000) echo "chq-calendar-frontend" ;;
+        3001) echo "chq-calendar-backend" ;;
+        8000) echo "chq-calendar-dynamodb" ;;
+        8001) echo "chq-calendar-dynamodb-admin" ;;
+        *)    echo "" ;;
+    esac
+}
+
+# `docker ps` rather than `docker compose ps`: it does not depend on cwd or on
+# the Compose version supporting Go-template --format.
+container_running() {
+    [ -n "$1" ] || return 1
+    docker ps --filter "name=^${1}$" --filter status=running --format '{{.Names}}' 2>/dev/null \
+        | grep -qx "$1"
 }
 
 check_port() {
     local port=$1
-    if port_in_use "$port"; then
-        # If this project's own containers are already up, docker compose up
-        # below will just reuse/recreate them — not a real conflict, and
-        # re-running this script against an already-running stack should
-        # succeed rather than bailing out.
-        if docker compose ps --status running --format '{{.Names}}' 2>/dev/null | grep -q '^chq-calendar-'; then
-            return 0
-        fi
-        echo "❌ Port $port is already in use. Please stop the service using this port."
-        exit 1
+    local owner
+    port_in_use "$port" || return 0
+
+    owner=$(port_owner "$port")
+    if container_running "$owner"; then
+        echo "ℹ️  Port $port is held by $owner — reusing the running stack."
+        return 0
     fi
+
+    echo "❌ Port $port is already in use. Please stop the service using this port."
+    exit 1
 }
 
 # Check required ports
@@ -52,21 +79,21 @@ check_port 8001
 echo "🌐 Creating Docker network..."
 docker network create chq-calendar-network 2>/dev/null || echo "Network already exists"
 
-# Install backend dependencies
-echo "📦 Installing backend dependencies..."
-cd backend
-npm install
-cd ..
+# Install host-side dependencies. This is an npm workspaces monorepo with a
+# single root lockfile; installing per-workspace builds nested trees that fight
+# it. One root `npm ci` installs every workspace at exactly the locked versions.
+echo "📦 Installing dependencies (all workspaces)..."
+npm ci
 
-# Install frontend dependencies
-echo "📦 Installing frontend dependencies..."
-cd frontend
-npm install
-cd ..
-
-# Build and start services
+# Build and start services.
+#
+# --renew-anon-volumes is load-bearing: the anonymous volumes that hold each
+# container's node_modules survive `up --build`, so without it a rebuilt image
+# is masked by the previous run's dependency tree and a lockfile change never
+# takes effect. That silent staleness is the same class of bug this setup
+# exists to fix, so pay the reinstall rather than risk it.
 echo "🚀 Building and starting services..."
-docker compose up -d --build
+docker compose up -d --build --renew-anon-volumes
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
@@ -116,7 +143,9 @@ echo "🔧 Useful commands:"
 echo "   • View logs:       docker compose logs -f"
 echo "   • Stop services:   docker compose down"
 echo "   • Restart:         docker compose restart"
-echo "   • Rebuild:         docker compose up -d --build"
+echo "   • Rebuild:         docker compose up -d --build --renew-anon-volumes"
+echo "                      (--renew-anon-volumes is required after any"
+echo "                       package.json / package-lock.json change)"
 echo ""
 echo "🗄️  Database:"
 echo "   • DynamoDB tables will be created automatically"

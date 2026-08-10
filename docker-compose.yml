@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # DynamoDB Local
   dynamodb:
@@ -36,10 +34,24 @@ services:
       - DATA_SOURCES_TABLE_NAME=chautauqua-calendar-data-sources  
       - FEEDBACK_TABLE_NAME=chautauqua-calendar-feedback
     volumes:
-      - .:/app
-      - /app/node_modules
+      # Scoped mounts: only the workspaces this container runs, plus the root
+      # manifests npm needs to resolve them. Mounting the repo root instead
+      # would put infrastructure/ (Terraform state), .git, ios/ and any .env
+      # inside the container — .dockerignore does not apply to bind mounts.
+      # The root manifests are read-only so the container can never rewrite
+      # the host's lockfile.
+      - ./backend:/app/backend
+      - ./tools/publisher-format:/app/tools/publisher-format
+      - ./package.json:/app/package.json:ro
+      - ./package-lock.json:/app/package-lock.json:ro
+      # Anonymous volumes keep the image's installed node_modules (and the
+      # dist built at container start) instead of letting the host's shadow
+      # them. NOTE: these survive `up --build`, so after a lockfile change run
+      # `docker compose up -d --build --renew-anon-volumes` or the container
+      # keeps the old dependency tree. scripts/setup-local.sh does this for you.
       - /app/backend/node_modules
       - /app/tools/publisher-format/node_modules
+      - /app/tools/publisher-format/dist
     depends_on:
       - dynamodb
     networks:
@@ -58,14 +70,17 @@ services:
       # Points browser directly to backend (Docker proxy can't reach localhost:3001)
       - VITE_API_URL=http://localhost:3001
     volumes:
-      - .:/app
-      - /app/node_modules
+      # Scoped mounts — see the backend service above for the rationale.
+      - ./frontend:/app/frontend
+      - ./package.json:/app/package.json:ro
+      - ./package-lock.json:/app/package-lock.json:ro
+      # See the note on the backend service: rebuild with --renew-anon-volumes
+      # after a lockfile change.
       - /app/frontend/node_modules
     depends_on:
       - dynamodb
     networks:
       - chq-calendar-network
-    command: npx vite --host
 
   # LocalStack — S3-compatible endpoint for local integration testing of the
   # article-links pipeline (EventSnapshotLoader / ArticleLinksPublisher run the
