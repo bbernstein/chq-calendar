@@ -84,9 +84,23 @@ nonisolated struct MyDayChipContent: Equatable, Sendable {
     ///
     /// Callers build `days` from `ChqTime.dayKeys` / `ChqTime.day`, which
     /// only ever emit canonical keys, so a non-canonical one here is a bug
-    /// upstream. DEBUG builds trap on it; release builds skip the chip as
-    /// before, because a strip missing one day is better than a crash in the
-    /// user's hand.
+    /// upstream. DEBUG builds trap on it. Release builds render it anyway
+    /// whenever `make` can read it — `assert` compiles out, and a key like
+    /// `"2026-8-9"` parses (see `ChqTime.isCanonicalDayKey` for why
+    /// "parses" and "is canonical" differ), so it yields a chip carrying
+    /// that non-canonical string as its `.id`.
+    ///
+    /// That is deliberate, not an oversight. Skipping it would reopen the
+    /// gap-in-the-strip failure this helper exists to close, and the `.id`
+    /// stays usable because `selectedDay` and `days` both come from the
+    /// same `DayWindow` — they are wrong together or right together, so
+    /// `scrollTo` still finds its target. Only a key `make` cannot parse at
+    /// all is dropped, which is the pre-existing behavior.
+    ///
+    /// The non-canonical path is therefore unreachable from the test suite,
+    /// which runs DEBUG and would trap: the assertion is the contract, and
+    /// `ChqTimeTests.everyGeneratedDayKeyIsCanonical` is what keeps it from
+    /// firing on legitimate data.
     static func makeAll(
         days: [String],
         todayKey: String,
