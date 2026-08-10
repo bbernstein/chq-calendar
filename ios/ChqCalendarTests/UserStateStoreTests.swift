@@ -391,13 +391,22 @@ struct UserStateStoreTests {
         #expect(loaded?.selectedLocations == ["Amphitheater"])
     }
 
+    /// Every scope but `.day` — the name was plural while the body pinned
+    /// only `.season`, so the "only `.day` is rewritten" half of the
+    /// contract above was largely unguarded (#197 item 4). Driven off
+    /// `DateScope.allCases` so a scope added later is covered by default
+    /// rather than by someone remembering to extend a literal list.
     @Test func nonDayScopesStillRoundTripUnchanged() {
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
-        let store = UserStateStore(defaults: defaults, now: { Date() })
+        for scope in DateScope.allCases where scope != .day {
+            let defaults = UserDefaults(suiteName: UUID().uuidString)!
+            let store = UserStateStore(defaults: defaults, now: { Date() })
 
-        store.saveFilters(FilterSelection(dateScope: .season))
+            store.saveFilters(FilterSelection(dateScope: scope))
 
-        #expect(store.loadFilters()?.dateScope == .season)
+            #expect(
+                store.loadFilters()?.dateScope == scope,
+                "\(scope) must survive a round trip unchanged")
+        }
     }
 
     @Test func dayScopeIsNotDefaultAndCountsAsADateFilter() {

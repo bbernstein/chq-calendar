@@ -101,7 +101,7 @@ struct MyDayView: View {
         if model.myDayAvailableDays.isEmpty {
             emptyState
         } else if let selectedDay, let bounds, bounds.contains(selectedDay) {
-            planContent(for: selectedDay)
+            planContent(for: selectedDay, bounds: bounds)
         } else {
             // One frame, between the bounds changing and `reconcileSelection`
             // running for them.
@@ -126,10 +126,15 @@ struct MyDayView: View {
 
     // MARK: - Day plan
 
-    private func planContent(for day: String) -> some View {
+    /// - Parameter bounds: the `myDayBounds` value `body` already derived.
+    ///   Taken as a parameter rather than re-read so the hoist in `body`
+    ///   actually holds it to one O(events) derivation per evaluation
+    ///   (#197 item 2); `content(bounds:)` has already unwrapped it and
+    ///   confirmed it contains `day`.
+    private func planContent(for day: String, bounds: ClosedRange<String>) -> some View {
         let plan = model.dayPlan(for: day)
         let window = model.myDayWindow(
-            showsEarlier: showsEarlier, showsLater: showsLater, selectedDay: day)
+            bounds: bounds, showsEarlier: showsEarlier, showsLater: showsLater, selectedDay: day)
         // Read once per body evaluation and index per chip below —
         // `myDayStarredCounts` rebuilds its dictionary with a full pass over
         // the event list on every access, so calling it inside the `ForEach`
@@ -175,18 +180,20 @@ struct MyDayView: View {
                         }
                     }
 
-                    ForEach(window.days, id: \.self) { day in
-                        if let content = MyDayChipContent.make(
-                            dayKey: day,
-                            todayKey: todayKey,
-                            starCount: starredCounts[day] ?? 0,
-                            includingYear: !model.isCurrentYear
-                        ) {
-                            MyDayChip(content: content, isSelected: day == selectedDay) {
-                                self.selectedDay = day
-                            }
-                            .id(day)
+                    // `makeAll` rather than `make` per chip: it keeps the
+                    // nil-swallowing in one place and DEBUG-traps a
+                    // non-canonical day key instead of silently dropping the
+                    // chip and its `.id` (#197 item 6).
+                    ForEach(MyDayChipContent.makeAll(
+                        days: window.days,
+                        todayKey: todayKey,
+                        starredCounts: starredCounts,
+                        includingYear: !model.isCurrentYear
+                    )) { entry in
+                        MyDayChip(content: entry.content, isSelected: entry.day == selectedDay) {
+                            self.selectedDay = entry.day
                         }
+                        .id(entry.day)
                     }
 
                     if window.canExpandLater {

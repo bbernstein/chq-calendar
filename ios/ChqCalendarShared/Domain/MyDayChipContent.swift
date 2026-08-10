@@ -62,4 +62,48 @@ nonisolated struct MyDayChipContent: Equatable, Sendable {
             isToday: isToday,
             accessibilityLabel: spokenParts.joined(separator: ", "))
     }
+
+    /// One chip, paired with the day key it was built from — the key doubles
+    /// as the `ForEach`/`scrollTo` identity in `MyDayView`.
+    nonisolated struct Entry: Equatable, Identifiable, Sendable {
+        let day: String
+        let content: MyDayChipContent
+        var id: String { day }
+    }
+
+    /// Chip contents for a whole strip, in the order given.
+    ///
+    /// **Why this exists rather than calling `make` inside the `ForEach`.**
+    /// `make` returns `nil` for a key it cannot read, and an `if let` in a
+    /// `ForEach` body drops that chip — *and its `.id`* — leaving nothing on
+    /// screen but a gap. A missing `.id` is precisely the orphaned-selection
+    /// failure `DayWindow.make`'s `selectedDay` widening exists to prevent,
+    /// so a regression in day-key generation would resurface as a strip that
+    /// silently will not scroll to the selection, with no other symptom
+    /// (#197 item 6).
+    ///
+    /// Callers build `days` from `ChqTime.dayKeys` / `ChqTime.day`, which
+    /// only ever emit canonical keys, so a non-canonical one here is a bug
+    /// upstream. DEBUG builds trap on it; release builds skip the chip as
+    /// before, because a strip missing one day is better than a crash in the
+    /// user's hand.
+    static func makeAll(
+        days: [String],
+        todayKey: String,
+        starredCounts: [String: Int],
+        includingYear: Bool
+    ) -> [Entry] {
+        days.compactMap { day in
+            assert(
+                ChqTime.isCanonicalDayKey(day),
+                "non-canonical day key \"\(day)\" reached the My Day strip — check day-key generation")
+            guard let content = make(
+                dayKey: day,
+                todayKey: todayKey,
+                starCount: starredCounts[day] ?? 0,
+                includingYear: includingYear
+            ) else { return nil }
+            return Entry(day: day, content: content)
+        }
+    }
 }

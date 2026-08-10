@@ -412,7 +412,27 @@ final class AppModel {
                 days: [], canExpandEarlier: false, canExpandLater: false,
                 hiddenEarlierCount: 0, hiddenLaterCount: 0)
         }
-        return DayWindow.make(
+        return myDayWindow(
+            bounds: bounds,
+            showsEarlier: showsEarlier,
+            showsLater: showsLater,
+            selectedDay: selectedDay)
+    }
+
+    /// `myDayWindow` for a caller that has already derived `myDayBounds`.
+    ///
+    /// `myDayBounds` is O(events) and uncached (filter+map+Set+sort over
+    /// ~1,470 events). `MyDayView.body` deliberately reads it once into a
+    /// local and threads it down; without this overload the day-plan branch
+    /// would call the deriving version and pay for a second full pass,
+    /// defeating the hoist (#197 item 2).
+    func myDayWindow(
+        bounds: ClosedRange<String>,
+        showsEarlier: Bool,
+        showsLater: Bool,
+        selectedDay: String? = nil
+    ) -> DayWindow {
+        DayWindow.make(
             bounds: bounds,
             today: ChqTime.dayKey(for: now()),
             showsEarlier: showsEarlier,
@@ -978,11 +998,40 @@ final class AppModel {
     /// Re-tapping the active scope is a no-op. The web toggles back to
     /// "all" here, but it has no All button; iOS does, so the scope row
     /// behaves as a radio group instead.
+    ///
+    /// Also drops the two pieces of state that only mean something under a
+    /// scope the user is leaving, via `clearScopeLocalDateState()` — see
+    /// that method for why both belong to the scope rather than to the
+    /// selection as a whole (#156, #197).
     func selectScope(_ scope: DateScope) {
         guard filter.dateScope != scope || !filter.selectedWeeks.isEmpty else { return }
         filter.dateScope = scope
         filter.selectedWeeks = []
+        clearScopeLocalDateState()
         persistFilter()
+    }
+
+    /// Resets the date state that belongs to a *specific* scope rather than
+    /// to the selection as a whole, so changing scope cannot leave a
+    /// previous scope's state behind to take effect again later.
+    ///
+    /// - `extraDays` is `.next`-only (`EventFilter.apply` reads it in that
+    ///   branch and nowhere else). Without this, "Show next day" ×2 → This
+    ///   Week → Now returns to a window two days wider than a fresh `.next`
+    ///   selection, with nothing on screen explaining why (#156).
+    /// - `selectedDayKey` is `.day`-only. Leaving it set is inert *today*
+    ///   because it is read only while `dateScope == .day`, but that is an
+    ///   invariant held by convention across three methods; clearing it
+    ///   here makes it hold by construction (#197 item 3). It also removes
+    ///   the "week filter over a day-filtered list" state that
+    ///   `DateFilterLabel` would have to describe (#197 item 5).
+    ///
+    /// `browseDay` deliberately does *not* call this: it is the one writer
+    /// that sets `selectedDayKey` and clears `extraDays` in the same
+    /// assignment, in that order.
+    private func clearScopeLocalDateState() {
+        filter.extraDays = 0
+        filter.selectedDayKey = nil
     }
 
     /// Replaces the week selection wholesale — the strip owns tap/drag
@@ -991,9 +1040,14 @@ final class AppModel {
     /// exclusive, one date range at a time, and an empty commit means "no
     /// week filter" — which `.all` represents, same as every other deselect
     /// path.
+    ///
+    /// Forcing `.all` is a scope change like any other, so it owes the same
+    /// `clearScopeLocalDateState()` cleanup `selectScope` does — this is the
+    /// other route out of `.day` and out of a `.next`-widened window.
     func setWeekSelection(_ weeks: Set<Int>) {
         filter.dateScope = .all
         filter.selectedWeeks = weeks
+        clearScopeLocalDateState()
         persistFilter()
     }
 

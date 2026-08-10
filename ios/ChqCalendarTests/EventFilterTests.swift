@@ -365,15 +365,28 @@ struct EventFilterTests {
 
     @Test func timeRelativeScopesAreStillDowngradedForANonCurrentYear() throws {
         // Guards the exemption against over-reach: only .day is exempt.
+        //
+        // Loops every time-relative scope rather than pinning one. The name
+        // was plural while the body checked only `.today`, which left the
+        // guard against over-reach itself only a third covered — a change
+        // that exempted, say, `.next` would have passed (#197 item 4).
+        //
+        // `.season` is excluded deliberately: it is bounded by the season's
+        // own week dates rather than by "now", so it is not time-relative
+        // and is not part of the downgrade this test guards.
         let old = try #require(ChqTime.parse("2025-08-23 10:00:00"))
         let now = try #require(ChqTime.parse("2026-08-09 09:00:00"))
 
-        let result = EventFilter.apply(
-            FilterSelection(dateScope: .today),
-            to: [makeEvent(id: "a", start: old)],
-            favorites: [], now: now, year: 2025, isCurrentYear: false)
+        for scope in [DateScope.next, .today, .thisWeek] {
+            let result = EventFilter.apply(
+                FilterSelection(dateScope: scope),
+                to: [makeEvent(id: "a", start: old)],
+                favorites: [], now: now, year: 2025, isCurrentYear: false)
 
-        #expect(result.map(\.id) == ["a"])
+            #expect(
+                result.map(\.id) == ["a"],
+                "\(scope) must be downgraded to .all on a non-current year")
+        }
     }
 
     @Test func dayScopeWithNoDayKeyFiltersNothing() throws {
