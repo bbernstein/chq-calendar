@@ -199,7 +199,9 @@ Plus three new tables:
   - `name` — owner-supplied list name, shown to followers.
   - `ownerDisplayName` — owner-supplied, shown to followers, defaulted from
     the account `displayName` and copied at write time (see `list-members`
-    below). **Never the account email or any Cognito claim** (§9b).
+    below). Absent is legal while the list is `private`; required from the
+    moment it becomes follower-visible (§6). **Never the account email or any
+    Cognito claim** (§9b).
   - `visibility` — `private` | `invite` | `public`.
   - `shareKey` — high-entropy random string (≥128 bits, URL-safe). Present
     for `invite` and `public`; absent for `private`. Rotating writes a new
@@ -317,6 +319,17 @@ last-write-wins path. It is the **only** writer of that attribute.
 membership row nameless is rejected with a distinguishable error the UI
 resolves by prompting — not a generic 400, since "you need a name first" and
 "that share key is invalid" must not look alike to the user.
+
+**The owner side has the same rule but a later trigger.** A `private` list has
+no audience, so it needs no `ownerDisplayName` and `POST /user/lists` must not
+demand one — requiring a name to keep a private list would contradict §9a,
+where the private path is supposed to cost the user nothing. The name becomes
+required at the moment the list first becomes follower-visible: creating a
+list directly as `invite`/`public`, or a `PATCH` promoting a `private` one.
+Those requests are rejected with the same distinguishable
+name-required error when the account has no `displayName` and none is
+supplied. Promotion is the natural prompt point anyway — it is already the
+moment the UI has to explain what publishing exposes.
 
 **The link an owner copies is a page, not an API route.** Shape:
 `https://www.chqcal.org/f/{shareKey}` — a static page (a new Vite entry, per
@@ -671,6 +684,10 @@ coverage floor (`.coverage-floor.json`, `docs/coverage.md`).
   other follower-identifying field — same serialized-payload assertion. The
   `userId` the `DELETE` route needs must not appear in the roster's rendered
   output.
+- A `private` list can be created and kept with no `ownerDisplayName`;
+  creating one as `invite`/`public`, or promoting a `private` one, is rejected
+  with the name-required error when no name is available (§6). The error is
+  distinguishable from an invalid-share-key error.
 - Following an `invite` list defaults `alertsEnabled` **on**; following a
   `public` or featured list through the same route defaults it **off**; a later
   visibility change leaves existing members' flags untouched (§4).
