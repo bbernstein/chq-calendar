@@ -42,9 +42,9 @@ actor EventRepository {
     /// `cachedSnapshot(year:)` is on a hot path that is not obvious from
     /// its call sites: `AppModel.allCachedYearEvents()` unions *every*
     /// cached year, and both the reminder sync and the Spotlight reindex
-    /// call it — so a single star tap cost one payload read plus a full
-    /// JSON decode per cached year, twice. The events payload is the
-    /// largest thing the app decodes.
+    /// call it — so without this memo a single star tap would cost one
+    /// payload read plus a full JSON decode per cached year, twice over.
+    /// The events payload is the largest thing the app decodes.
     ///
     /// Safe to hold because this actor is the only writer to the cache:
     /// the widget extension reads the shared App Group cache but never

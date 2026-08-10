@@ -318,9 +318,12 @@ struct EventRepositoryTests {
     /// single star tap fires both. Without memoization that is one full
     /// payload read + JSON decode per cached year, twice per tap.
     ///
-    /// Reading the payload is the proxy for decoding it — the repository
-    /// never reads one without decoding it — so counting reads counts the
-    /// expensive work.
+    /// Counting reads is the proxy for counting decodes here because
+    /// `cachedSnapshot(year:)` never reads a payload without immediately
+    /// decoding it. That equivalence is specific to this method — `refresh`
+    /// reads the cached entry for its ETag/freshness check and may then
+    /// decode a network payload instead — so this test drives
+    /// `cachedSnapshot` only.
     @Test func repeatedCachedSnapshotCallsDecodeAnUnchangedYearOnlyOnce() async {
         let cache = MockCache()
         cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
