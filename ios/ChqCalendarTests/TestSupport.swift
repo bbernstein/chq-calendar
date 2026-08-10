@@ -168,10 +168,26 @@ actor MockAPI: CalendarAPIClient {
 final class MockCache: DataCaching, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: CacheEntry] = [:]
+    private var reads: [String: Int] = [:]
+
+    /// How many times `read(_:)` has been called for `key`.
+    ///
+    /// Exists so tests can assert on *how often* the repository goes to the
+    /// cache, not just what it gets back — the observable for the snapshot
+    /// memoization in #187. A payload read is the proxy for the expensive
+    /// part (the full JSON decode that follows it), because the two are
+    /// one-to-one: `EventRepository` never reads a payload it does not then
+    /// decode.
+    func readCount(for key: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return reads[key] ?? 0
+    }
 
     func read(_ key: String) -> CacheEntry? {
         lock.lock()
         defer { lock.unlock() }
+        reads[key, default: 0] += 1
         return storage[key]
     }
 

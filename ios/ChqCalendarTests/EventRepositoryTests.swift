@@ -310,4 +310,74 @@ struct EventRepositoryTests {
         let version = await repo.remoteVersion()
         #expect(version == nil)
     }
+
+    // MARK: - Snapshot memoization (#187)
+
+    /// `cachedSnapshot(year:)` sits on a hot path: `AppModel`'s reminder
+    /// sync and Spotlight reindex each union *every* cached year, and a
+    /// single star tap fires both. Without memoization that is one full
+    /// payload read + JSON decode per cached year, twice per tap.
+    ///
+    /// Reading the payload is the proxy for decoding it — the repository
+    /// never reads one without decoding it — so counting reads counts the
+    /// expensive work.
+    @Test func repeatedCachedSnapshotCallsDecodeAnUnchangedYearOnlyOnce() async {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+
+        let first = await repo.cachedSnapshot(year: 2026)
+        #expect(first != nil)
+        let readsAfterFirst = cache.readCount(for: "events-2026")
+
+        _ = await repo.cachedSnapshot(year: 2026)
+        _ = await repo.cachedSnapshot(year: 2026)
+
+        #expect(cache.readCount(for: "events-2026") == readsAfterFirst)
+    }
+
+    /// Memoizing must not outlive the data it memoized. A refresh that
+    /// writes a new payload has to be visible to the very next
+    /// `cachedSnapshot` call, or starring an event would plan reminders
+    /// against events the app has already replaced.
+    @Test func writingNewEventsInvalidatesTheMemoizedSnapshot() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date(timeIntervalSince1970: 1_000_000))
+        let api = MockAPI()
+        let refreshed = try #require("""
+        {"data": [{"id": "555555", "title": "Freshly Published", "startDate": "2026-08-10 10:00:00"}]}
+        """.data(using: .utf8))
+        await api.setSuccess(data: refreshed, etag: "e2", for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+
+        // Prime the memo with the stale payload.
+        let before = await repo.cachedSnapshot(year: 2026)
+        #expect(before?.events.contains { $0.id == "555555" } == false)
+
+        _ = try await repo.refresh(year: 2026, force: true)
+
+        let after = await repo.cachedSnapshot(year: 2026)
+        #expect(after?.events.contains { $0.id == "555555" } == true)
+    }
+
+    /// A 304 takes the `touch` path: the payload on disk is unchanged but
+    /// its `fetchedAt` moves. The snapshot handed out afterwards must carry
+    /// the new `fetchedAt` rather than the memoized older one, since that
+    /// timestamp is what freshness decisions are made against.
+    @Test func notModifiedRefreshLeavesCachedSnapshotReadableWithUpdatedFetchedAt() async throws {
+        let cache = MockCache()
+        let stale = Date(timeIntervalSince1970: 1_000_000)
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: stale)
+        let api = MockAPI()
+        await api.setNotModified(for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache)
+
+        _ = await repo.cachedSnapshot(year: 2026)
+        _ = try await repo.refresh(year: 2026, force: true)
+
+        let after = await repo.cachedSnapshot(year: 2026)
+        #expect(after != nil)
+        #expect(after?.events.isEmpty == false)
+        #expect((after?.fetchedAt ?? stale) > stale)
+    }
 }

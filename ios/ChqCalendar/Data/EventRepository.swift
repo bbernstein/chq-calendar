@@ -37,11 +37,51 @@ actor EventRepository {
     private let ttl: TimeInterval
     private let sidecarTimeout: TimeInterval
 
+    /// Decoded snapshots, keyed by year (#187).
+    ///
+    /// `cachedSnapshot(year:)` is on a hot path that is not obvious from
+    /// its call sites: `AppModel.allCachedYearEvents()` unions *every*
+    /// cached year, and both the reminder sync and the Spotlight reindex
+    /// call it — so a single star tap cost one payload read plus a full
+    /// JSON decode per cached year, twice. The events payload is the
+    /// largest thing the app decodes.
+    ///
+    /// Safe to hold because this actor is the only writer to the cache:
+    /// the widget extension reads the shared App Group cache but never
+    /// writes to it. Every mutation therefore goes through
+    /// `writeCache`/`touchCache` below, which drop the memo.
+    private var snapshotMemo: [Int: CalendarSnapshot] = [:]
+
     init(api: CalendarAPIClient, cache: DataCaching, ttl: TimeInterval = 3600, sidecarTimeout: TimeInterval = 3) {
         self.api = api
         self.cache = cache
         self.ttl = ttl
         self.sidecarTimeout = sidecarTimeout
+    }
+
+    // MARK: - Cache mutation (memo-invalidating)
+
+    /// Writes through to the cache and drops the whole snapshot memo.
+    ///
+    /// Clearing every year rather than just the one whose key changed is
+    /// deliberate: a `CalendarSnapshot` composes an events payload with
+    /// three sidecars, and mapping an arbitrary cache key back to the year
+    /// whose snapshot it feeds would be a second source of truth about the
+    /// key scheme — one that fails silently if a new sidecar is ever added.
+    /// Writes only happen on refresh; reads are the hot path. Do not call
+    /// `cache.write`/`cache.touch` directly from this actor.
+    private func writeCache(_ key: String, data: Data, etag: String?, fetchedAt: Date) {
+        cache.write(key, data: data, etag: etag, fetchedAt: fetchedAt)
+        snapshotMemo.removeAll()
+    }
+
+    /// As `writeCache`, for the 304 path. `touch` leaves the payload alone
+    /// and moves only `fetchedAt` — but `CalendarSnapshot.fetchedAt` is
+    /// copied from that metadata, and freshness decisions are made against
+    /// it, so a memo kept across a touch would hand out a stale timestamp.
+    private func touchCache(_ key: String, fetchedAt: Date) {
+        cache.touch(key, fetchedAt: fetchedAt)
+        snapshotMemo.removeAll()
     }
 
     // MARK: - Reading cached data (no network)
@@ -50,7 +90,18 @@ actor EventRepository {
     /// Returns `nil` only if no cached events payload exists at all — the
     /// sidecars (article links, program links, weekly themes) are optional
     /// and simply come back empty when absent or undecodable.
+    /// Memoized per year — see `snapshotMemo`. Only a `nil` result is
+    /// recomputed on every call, which is the cheap case: it means there is
+    /// no cached payload to decode (or it is corrupt), so there is no work
+    /// being repeated. Caching the *absence* would also need a way to
+    /// notice a payload appearing, which `writeCache` already handles for
+    /// the present case but would make the empty case subtly order-
+    /// dependent for no gain.
     func cachedSnapshot(year: Int) -> CalendarSnapshot? {
+        if let memoized = snapshotMemo[year] {
+            return memoized
+        }
+
         guard let eventsEntry = cache.read(RemoteResource.events(year: year).cacheKey) else {
             return nil
         }
@@ -58,7 +109,7 @@ actor EventRepository {
             return nil
         }
 
-        return CalendarSnapshot(
+        let snapshot = CalendarSnapshot(
             year: year,
             events: events,
             articleLinks: cachedArticleLinks(year: year),
@@ -66,6 +117,8 @@ actor EventRepository {
             themes: cachedThemes(year: year),
             fetchedAt: eventsEntry.metadata.fetchedAt
         )
+        snapshotMemo[year] = snapshot
+        return snapshot
     }
 
     /// `true` when there is no cached events payload for `year`, or the
@@ -112,7 +165,7 @@ actor EventRepository {
         let events: [Event]
         switch eventsFetch {
         case .notModified:
-            cache.touch(eventsResource.cacheKey, fetchedAt: now)
+            touchCache(eventsResource.cacheKey, fetchedAt: now)
             guard let cachedEventsEntry else {
                 throw EventRepositoryError.notModifiedWithoutCache
             }
@@ -121,7 +174,7 @@ actor EventRepository {
             // Decode before writing: a malformed 200 body must never
             // overwrite a previously-good cached payload.
             events = try decodeEvents(data)
-            cache.write(eventsResource.cacheKey, data: data, etag: etag, fetchedAt: now)
+            writeCache(eventsResource.cacheKey, data: data, etag: etag, fetchedAt: now)
         }
 
         return CalendarSnapshot(
@@ -151,7 +204,7 @@ actor EventRepository {
         if let result = try? await api.fetch(resource, ifNoneMatch: cachedEntry?.metadata.etag, timeout: nil) {
             switch result {
             case .notModified:
-                cache.touch(resource.cacheKey, fetchedAt: now)
+                touchCache(resource.cacheKey, fetchedAt: now)
                 if let cachedEntry, let manifest = try? JSONDecoder().decode(YearsManifest.self, from: cachedEntry.data) {
                     return manifest
                 }
@@ -159,7 +212,7 @@ actor EventRepository {
                 // Decode before writing: a malformed 200 body must never
                 // overwrite a previously-good cached payload.
                 if let manifest = try? JSONDecoder().decode(YearsManifest.self, from: data) {
-                    cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
+                    writeCache(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
                     return manifest
                 }
             }
@@ -240,13 +293,13 @@ actor EventRepository {
 
         switch result {
         case .notModified:
-            cache.touch(resource.cacheKey, fetchedAt: now)
+            touchCache(resource.cacheKey, fetchedAt: now)
             return cachedArticleLinks(year: year)
         case .success(let data, let etag):
             guard let file = try? JSONDecoder().decode(ArticleLinksFile.self, from: data) else {
                 return cachedArticleLinks(year: year)
             }
-            cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
+            writeCache(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
             return file.links
         }
     }
@@ -262,13 +315,13 @@ actor EventRepository {
 
         switch result {
         case .notModified:
-            cache.touch(resource.cacheKey, fetchedAt: now)
+            touchCache(resource.cacheKey, fetchedAt: now)
             return cachedProgramLinks(year: year)
         case .success(let data, let etag):
             guard let file = try? JSONDecoder().decode(ProgramLinksFile.self, from: data) else {
                 return cachedProgramLinks(year: year)
             }
-            cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
+            writeCache(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
             return file.links
         }
     }
@@ -284,13 +337,13 @@ actor EventRepository {
 
         switch result {
         case .notModified:
-            cache.touch(resource.cacheKey, fetchedAt: now)
+            touchCache(resource.cacheKey, fetchedAt: now)
             return cachedThemes(year: year)
         case .success(let data, let etag):
             guard let file = try? JSONDecoder().decode(WeeklyThemesFile.self, from: data) else {
                 return cachedThemes(year: year)
             }
-            cache.write(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
+            writeCache(resource.cacheKey, data: data, etag: etag, fetchedAt: now)
             return file.weeks
         }
     }
