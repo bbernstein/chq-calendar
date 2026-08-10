@@ -5,9 +5,9 @@
 **Scope:** Named favorite lists with per-list visibility; invite-link and
 public following; follower alerts on iOS. Web first, iOS after.
 **Hard prerequisite:** user accounts
-(`docs/superpowers/specs/2026-07-03-user-accounts-preferences-sync-design.md`,
-issue #132), which is specced but **not built**. Nothing here can ship before
-it.
+([design](2026-07-03-user-accounts-preferences-sync-design.md),
+[issue #132](https://github.com/bbernstein/chq-calendar/issues/132)), which is
+specced but **not built**. Nothing here can ship before it.
 
 ---
 
@@ -484,6 +484,7 @@ limiter (PR #85) is the precedent.
 | `shareKey` rotations | rate-limited | Cheap abuse vector against the `by-share-key` GSI. |
 | `POST /user/follow` attempts | rate-limited per user | Prevents share-key guessing (already infeasible at ≥128 bits, but cheap to bound). |
 | `GET /lists/preview/{shareKey}` | rate-limited **per IP** | See below. |
+| `GET /user/feed` | **no dedicated limit** | Authenticated, so it is bounded by the follow cap above and by the cost of holding an account. Recorded explicitly so its absence reads as a decision rather than an oversight. |
 
 **The preview route needs its own limit, and it is the important one.** Every
 other limit above is per-`userId` and therefore protected by the cost of
@@ -573,7 +574,9 @@ there" half of the original ask.
 
 A secondary benefit worth noting: shared lists driving local notifications
 and Watch-mirrored alerts strengthens the iOS-only-capability story that
-Guideline 4.2 turned on in 2026-08.
+**App Store Review Guideline 4.2** turned on in 2026-08
+([rejection response](../../plans/2026-08-07-app-store-4.2-rejection-response.md),
+[implementation plan](../../plans/2026-08-07-app-store-4.2-implementation-plan.md)).
 
 ---
 
