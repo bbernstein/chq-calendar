@@ -131,6 +131,29 @@ jobs:
         # ChqCalendarWidgets/WidgetViews.swift and watching `xcodebuild build
         # -scheme ChqCalendar` fail on it — a separate widgets build step
         # would be redundant.
+        #
+        # -parallel-testing-enabled NO is load-bearing on this runner, and was
+        # arrived at by measurement, not preference. A GitHub-hosted macos-15
+        # box is a 3-core VirtualMac2,1 with 7 GB; a dev laptop has several
+        # times that. With Swift Testing's default parallelism the suite fails
+        # here — but not reproducibly on the same tests: two runs of the
+        # identical commit failed 4 tests / 10 issues and 3 tests / 7 issues
+        # respectively, with only partial overlap. A shifting victim set on
+        # unchanged code is contention, not a logic defect.
+        #
+        # The victims are always the concurrency tests that park a suspended
+        # mock mid-flight and then poll @MainActor state through
+        # `waitUntil` (ChqCalendarTests/TestSupport.swift). On 3 cores the
+        # cooperative pool is oversubscribed, the awaited state does not
+        # settle inside that helper's 5s deadline, and it records an issue.
+        # Locally the entire 716-test suite finishes in under a second, so
+        # the pressure never materializes and the headroom is invisible.
+        #
+        # Serial is also simply faster here than the contended parallel run
+        # (47.7s vs 101.7s of test time), so this costs nothing. Note it
+        # masks a real latent fragility in the suite rather than fixing it —
+        # tracked separately; see the follow-up issue referenced in the PR.
+        # Do not drop this flag without re-measuring on a 3-core runner.
         run: |
           set -euo pipefail
           cd ios
@@ -139,6 +162,7 @@ jobs:
             -scheme ChqCalendar \
             -destination "id=$SIMULATOR_UDID" \
             -resultBundlePath "$RUNNER_TEMP/ChqCalendar.xcresult" \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload test results
