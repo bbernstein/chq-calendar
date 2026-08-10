@@ -79,3 +79,64 @@ real day. Items 2–7 of #197 remain live, so the issue stays open.
 #200 (shared favorite lists), #198 (Home Base), #194 (Apple Watch),
 #186 (year-aware `browsePastSeason` — confirmed unimplemented; the gap is
 documented in a comment at `AppModel.swift:947`), #132 (accounts/login).
+
+---
+
+# Re-triage — 2026-08-10, after #203
+
+**Status:** Active. Re-run of the audit above against `main` at `f87b959`,
+restricted to bugs and problems. Features are deliberately out of scope
+until the apps are in good shape; a separate feature scan comes later.
+
+PR #203 closed #156, #189 and #154, and #197 closed with every item
+addressed. That leaves **four** genuine defects among the twelve open
+issues — the other eight are feature requests (#200, #198, #194, #186,
+#174, #143, #132, plus #204, which its own body labels a decision rather
+than a bug).
+
+## The four, re-verified against `f87b959`
+
+| # | Verified how | State |
+|---|---|---|
+| 205 | `grep -l xcodebuild .github/workflows/*.yml` → nothing, across all 7 workflows | Live |
+| 187 | `AppModel.swift:944` loops `repository.cachedSnapshot(year:)`, no memoization | Live, **worse than filed** |
+| 188 | `GroundsMapView.swift:60` — `.presentationDetents([.height(220), .medium])` | Live |
+| 146 | `checkout@v4` ×8, `setup-node@v4` ×5, `upload-artifact@v4` ×2, `configure-aws-credentials@v4` ×1 | Live |
+
+**#187 is hotter than either the issue or the first triage records.**
+`toggleFavorite` (`AppModel.swift:625`) fires `enqueueReminderSync()` *and*
+`enqueueSpotlightReindex()`, and each independently calls
+`allCachedYearEvents()`. So a single star tap costs **2 × N** full JSON
+decodes, not one. The issue says "per trigger"; there are two triggers per
+tap.
+
+## Sequencing
+
+1. **#205 + #146 together** — both touch only `.github/workflows/`, so one
+   `chore(ci)` PR. #205 first because it is the meta-defect: until it
+   lands, every iOS fix below is unverifiable by machine, and "CI is
+   green" is not evidence for a Swift change on this repo.
+2. **#187 + #188** — one iOS bugfix PR. Landing #205 first makes these the
+   first Swift changes actually verified by CI, which doubles as proof the
+   new job works on a real change.
+
+## #205's blocker, resolved
+
+The issue named toolchain availability as the open question that "decides
+most of it" and explicitly did not propose a design. Settled by checking
+the runner image manifest: `macos-15` ships Xcode **26.3, 26.2, 26.1.1,
+26.0.1** and iOS simulator runtimes **18.5, 18.6, 26.0, 26.1, 26.2** —
+above both the Xcode 26 floor (synchronized folder groups) and the iOS
+18.0 deployment target. The repo is public, so macOS runner minutes are
+free. Xcode 26 is *not* the image default (a 16.x is), which is why the
+job resolves the newest 26+ at runtime instead of pinning.
+
+## Left to the user
+
+**#204** — whether to trim `NextEventsIntent`'s 27 phrase templates. They
+generate ~300 of the ~370 Shortcuts Library rows and appear to crowd
+`OpenEventIntent`, `WhoIsSpeakingIntent` and `ShowTimeIntent` out of the
+Library entirely (all three still route correctly by voice). Trading voice
+coverage against browse discoverability is a product call, and it is
+time-boxed to the 1.2 submission because App Shortcuts ship with the
+build.
