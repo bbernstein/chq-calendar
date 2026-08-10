@@ -178,10 +178,18 @@ mitigations are rotation (§8) and the follower roster, not secrecy of the
 
 ## 5. Data Model
 
-Builds on the accounts spec's two tables **without changing either**.
-`${var.app_name}-favorites` remains the storage for the private default list
-and keeps its `by-event` popularity GSI; the default list is not represented
-in the new tables at all. Three new tables:
+Builds on the accounts spec's two tables, leaving `-favorites` **entirely
+unchanged** and adding exactly **one attribute** to `-users`.
+
+- `${var.app_name}-favorites` — untouched. It remains the storage for the
+  private default list and keeps its `by-event` popularity GSI; the default
+  list is not represented in the new tables at all.
+- `${var.app_name}-users` — gains a single `displayName` attribute (see
+  `list-members` below for why one account-level name beats two parallel
+  ones). No key change, no GSI, no migration: absent means "not yet chosen",
+  and the prompt fires at first need.
+
+Plus three new tables:
 
 ### `${var.app_name}-lists`
 - Hash key: `listId` (UUID v4, opaque; see the note below on why it is not a
@@ -189,8 +197,9 @@ in the new tables at all. Three new tables:
 - Attributes:
   - `ownerId` — Cognito `sub`.
   - `name` — owner-supplied list name, shown to followers.
-  - `ownerDisplayName` — owner-supplied, shown to followers. **Never the
-    account email or any Cognito claim** (§9b).
+  - `ownerDisplayName` — owner-supplied, shown to followers, defaulted from
+    the account `displayName` and copied at write time (see `list-members`
+    below). **Never the account email or any Cognito claim** (§9b).
   - `visibility` — `private` | `invite` | `public`.
   - `shareKey` — high-entropy random string (≥128 bits, URL-safe). Present
     for `invite` and `public`; absent for `private`. Rotating writes a new
@@ -238,11 +247,22 @@ in the new tables at all. Three new tables:
   owner has to identify a follower well enough to decide whether to remove
   them, and email is not available for that — the same guarantee that protects
   the owner's identity from followers applies symmetrically to followers. So
-  the follower supplies a display name at follow time (defaulting to whatever
-  name they use on their own lists, editable then and later), it is stored on
-  the membership row, and it is the **only** follower-identifying field the
-  roster ever returns. `userId` is used for the `DELETE` route and never
-  rendered.
+  the follower supplies a display name at follow time, it is stored on the
+  membership row, and it is the **only** follower-identifying field the roster
+  ever returns. `userId` is used for the `DELETE` route and never rendered.
+- **Where the default comes from — one name per account, not two parallel
+  ones.** The accounts spec's `users` row gains a single `displayName`
+  attribute, prompted for at first need (creating a shareable list or
+  following one, whichever happens first) and never derived from the email or
+  any Cognito claim. It is the default for both `ownerDisplayName` and
+  `followerDisplayName`. This closes the case the field would otherwise leave
+  undefined: **a follower who has never owned a list has no name to inherit**,
+  and is prompted rather than silently defaulted.
+- The default is **copied at write time**, not referenced. Changing the
+  account `displayName` later does not retroactively rename existing lists or
+  memberships — otherwise renaming yourself would silently rewrite how you
+  appear to every audience you have ever joined. Both copies stay editable in
+  place (`PATCH /user/lists/{listId}` and `PATCH /user/follow/{listId}`).
 - Consequences to accept: display names are **neither unique nor verified**,
   so the roster shows `joinedAt` alongside the name to disambiguate two
   Pats, and an owner cannot treat a name as proof of who someone is. Because
@@ -273,9 +293,9 @@ per the accounts spec's convention. No API Gateway authorizer.
 | `PUT`/`DELETE` | `/user/lists/{listId}/events/{eventId}` | Add/remove an event. Owner only. |
 | `GET` | `/user/lists/{listId}/followers` | Follower roster. Owner only. |
 | `DELETE` | `/user/lists/{listId}/followers/{userId}` | Remove a follower. Owner only. |
-| `POST` | `/user/follow` | Body `{ shareKey }`. Creates a membership. Requires sign-in. |
+| `POST` | `/user/follow` | Body `{ shareKey, followerDisplayName? }`. Creates a membership. Requires sign-in. Omitting the name uses the account default (§5); the server rejects a follow that would leave the row nameless. |
 | `DELETE` | `/user/follow/{listId}` | Unfollow. |
-| `PATCH` | `/user/follow/{listId}` | Toggle `alertsEnabled`. |
+| `PATCH` | `/user/follow/{listId}` | Update `alertsEnabled` and/or `followerDisplayName` for this membership. |
 | `GET` | `/user/feed` | The follower read path (§7). |
 | `GET` | `/lists/preview/{shareKey}` | **Unauthenticated** read-only preview data (§7). |
 | `GET` | `/lists/featured` | **Unauthenticated** admin-curated featured lists. |
@@ -541,7 +561,12 @@ works.
 - **Share sheet** — copy link, QR code, rotate, follower roster, unpublish.
   Carries the capability-URL warning copy (§4).
 - **Follow screen** — admin-curated featured lists plus a code entry field
-  (decision 5), with no browse-all.
+  (decision 5), with no browse-all. Confirming a follow collects
+  `followerDisplayName`, prefilled from the account `displayName` and
+  prompting when there isn't one yet (§5). The screen must say plainly that
+  this name is visible to the list's owner — it is the one place a follower
+  learns they are not anonymous. The name is editable afterwards from the
+  followed list's row.
 - **Preview page** — the unauthenticated `/f/{shareKey}` page, rendering the
   JSON from `GET /lists/preview/{shareKey}`, with a sign-in call to action to
   follow.
@@ -577,8 +602,11 @@ Adds, on top of everything the accounts spec adds:
 - `user_lambda_role` policy extension for the new tables and GSIs. It gains
   no admin or publisher privileges.
 - `admin_lambda_role` policy extension for the moderation controls.
-- One new CloudFront behavior for `/lists/*` (`/user/*` already exists from
-  the accounts work).
+- **Two** new CloudFront behaviors: `/lists/*` for the unauthenticated API
+  routes, and `/f/*` for the share-link preview page, which §6 requires as its
+  own Vite entry and therefore its own S3-origin behavior. (`/user/*` already
+  exists from the accounts work.) Both are easy to omit from a Terraform plan
+  precisely because one is an API path and the other is a page path.
 - Feature flag `VITE_ENABLE_SHARED_LISTS`, following
   `VITE_ENABLE_PUBLISHER_FEEDS` and the accounts spec's
   `VITE_ENABLE_ACCOUNTS`, with a `?lists=1` opt-in param for self-testing
