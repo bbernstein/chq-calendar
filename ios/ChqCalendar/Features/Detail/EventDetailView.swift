@@ -1,0 +1,532 @@
+import SwiftUI
+import UIKit
+import UserNotifications
+
+/// Full detail screen for a single event: hero image (when present), title
+/// with cancellation/reschedule badge, labeled metadata rows, description,
+/// category chips, related Chautauquan Daily article links, and actions
+/// (favorite, share, add to calendar, open on chq.org).
+struct EventDetailView: View {
+    let event: Event
+    let model: AppModel
+
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isAddToCalendarPresented = false
+
+    private var isFavorite: Bool { model.favorites.contains(event.id) }
+    private var articleLinks: [ArticleLink] { model.articleLinks(for: event.id) }
+    private var programLinks: [ProgramLink] { model.programLinks(for: event.id) }
+    private var visibleCategories: [String] {
+        event.categoryNames.filter { !$0.hasPrefix("Week ") }
+    }
+
+    /// Whether the venue row's location resolves to a `VenueAtlas` building
+    /// — gates the "Show on Map" affordance (#182) so it never appears for
+    /// an unmapped feed name (TBD, Zoom, a denominational-houses grouping,
+    /// etc.), where there'd be nothing on the map to show.
+    private var resolvedVenue: VenueLocation? {
+        event.displayLocation.flatMap(VenueAtlas.location(for:))
+    }
+
+    var body: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                if let imageURL = event.imageURL {
+                    heroImage(imageURL)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    titleSection
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        detailRow(icon: "clock") {
+                            Text(timeRangeText)
+                        }
+
+                        if event.displayLocation != nil || event.venueAddress != nil {
+                            detailRow(icon: "mappin.and.ellipse") {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    if let location = event.displayLocation {
+                                        Text(DisplayNames.location(location))
+                                    }
+                                    if let address = event.venueAddress {
+                                        Text(address)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if resolvedVenue != nil {
+                                        Button {
+                                            showOnMap()
+                                        } label: {
+                                            Label("Show on Map", systemImage: "map")
+                                                .font(.caption)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.tint)
+                                    }
+                                }
+                            }
+                        }
+
+                        if let presenter = event.presenter {
+                            detailRow(icon: "person") {
+                                Text(presenter)
+                            }
+                        }
+
+                        if let cost = event.cost {
+                            detailRow(icon: "ticket") {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(cost)
+                                    if GatePassPolicy.includesGeneralAdmission(event) {
+                                        Text("General admission included with a Gate Pass")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+
+                        if isFavorite {
+                            reminderRow
+                        }
+                    }
+
+                    if !visibleCategories.isEmpty {
+                        categoryChips
+                    }
+
+                    if let details = event.details, !details.isEmpty {
+                        descriptionSection(details)
+                    }
+
+                    if !programLinks.isEmpty {
+                        programLinksSection
+                    }
+
+                    if !articleLinks.isEmpty {
+                        articleLinksSection
+                            .id(Self.articleLinksAnchor)
+                    }
+
+                    actionButtons
+                }
+                .padding(.horizontal)
+            }
+            .padding(.bottom, 24)
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
+        .sheet(isPresented: $isAddToCalendarPresented) {
+            AddToCalendarView(event: event)
+        }
+        .task(id: event.id) {
+            await model.refreshReminderAuthorizationStatus()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Query-only refresh (#178 review fix): fixes the case where the
+            // user grants access via the "Open Settings" link and returns to
+            // the app — no `star`/menu interaction happens on that return, so
+            // nothing else would re-query. Deliberately never calls
+            // `ensureReminderAuthorization()` here, which would re-prompt a
+            // user who simply backgrounded the app mid-decision.
+            guard newPhase == .active else { return }
+            Task {
+                await model.refreshReminderAuthorizationStatus()
+            }
+        }
+        #if DEBUG
+        // MARK: UI-test hooks (DEBUG only)
+        // Consumes the flag `CalendarView.applyUITestHooks` sets for
+        // `-uitest-show-add-to-calendar`. Both `onAppear` and `onChange` are
+        // wired so this fires regardless of whether the flag flips before or
+        // after this view mounts. Separately, `-uitest-scroll-to-articles` (used
+        // alongside `-uitest-select-linked-event`) scrolls to the
+        // article-links section after a brief settle delay — `xcrun simctl`
+        // can't synthesize the swipe a real verification pass would use, so
+        // this is what makes that section's live rendering
+        // screenshot-checkable. It's a separate launch argument (rather than
+        // firing for every linked-event launch) so a plain
+        // `-uitest-select-linked-event` launch still lands at the top of the
+        // detail view. Compiles out of Release builds entirely.
+        .onAppear(perform: presentAddToCalendarIfNeeded)
+        .onChange(of: model.uiTestShowAddToCalendar) { _, _ in presentAddToCalendarIfNeeded() }
+        .task {
+            guard isUITestScrollingToArticles, !articleLinks.isEmpty else { return }
+            try? await Task.sleep(for: .milliseconds(600))
+            withAnimation { scrollProxy.scrollTo(Self.articleLinksAnchor, anchor: .top) }
+        }
+        #endif
+        }
+    }
+
+    /// Anchor id for `articleLinksSection`, used by the DEBUG-only
+    /// auto-scroll hook below (`isUITestScrollingToArticles`) — declared
+    /// unconditionally since it's referenced from the always-compiled
+    /// `.id(Self.articleLinksAnchor)` in `body`.
+    private static let articleLinksAnchor = "article-links"
+
+    #if DEBUG
+    private var isUITestScrollingToArticles: Bool {
+        ProcessInfo.processInfo.arguments.contains("-uitest-scroll-to-articles")
+    }
+
+    private func presentAddToCalendarIfNeeded() {
+        if model.uiTestShowAddToCalendar {
+            model.uiTestShowAddToCalendar = false
+            isAddToCalendarPresented = true
+        }
+    }
+    #endif
+
+    /// Routes to the Map tab centered on this event's venue (#182), reusing
+    /// the exact deep-link pipeline a `chqcal://map/<venue>` link already
+    /// drives — `RootTabView`'s `.onChange(of: model.pendingDeepLink)`
+    /// switches to the Map tab and hands the venue off to
+    /// `model.mapFocusVenue`, which `GroundsMapView` reads, centers/selects,
+    /// and clears. Deliberately not a second, bespoke mechanism: setting
+    /// `mapFocusVenue` directly here would skip the tab switch, since only
+    /// `RootTabView`'s deep-link routing does that.
+    private func showOnMap() {
+        model.pendingDeepLink = .map(venue: event.displayLocation)
+    }
+
+    // MARK: - Sections
+
+    private func heroImage(_ url: URL) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            case .failure:
+                imageFailurePlaceholder
+            case .empty:
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            @unknown default:
+                imageFailurePlaceholder
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: 220)
+        .clipped()
+    }
+
+    /// Shown when `AsyncImage` finishes with `.failure` (broken/404 URL,
+    /// decode error) — a static placeholder so the row reads as "finished,
+    /// no image" rather than hanging on an indefinite spinner.
+    private var imageFailurePlaceholder: some View {
+        Rectangle()
+            .fill(.quaternary)
+            .overlay {
+                Image(systemName: "photo")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+            }
+    }
+
+    private var titleSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(event.title)
+                .font(.largeTitle.bold())
+                .strikethrough(event.status == .cancelled)
+                .foregroundStyle(event.status == .cancelled ? .secondary : .primary)
+
+            statusBadge
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch event.status {
+        case .cancelled:
+            badge("Cancelled", color: .red)
+        case .rescheduled:
+            badge("Rescheduled", color: .orange)
+        case .scheduled:
+            EmptyView()
+        }
+    }
+
+    private func badge(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color, in: Capsule())
+    }
+
+    private var categoryChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(visibleCategories, id: \.self) { category in
+                    Text(DisplayNames.category(category))
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.secondary.opacity(0.15), in: Capsule())
+                }
+            }
+        }
+    }
+
+    private func descriptionSection(_ details: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(paragraphs(of: details).enumerated()), id: \.offset) { _, paragraph in
+                Text(paragraph)
+                    .font(.body)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var programLinksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Digital Program")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(programLinks, id: \.url) { link in
+                    Link(destination: link.url) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "book")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24)
+
+                            Text(link.title)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var articleLinksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("In the Chautauquan Daily")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(articleLinks, id: \.url) { link in
+                    Link(destination: link.url) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "newspaper")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(link.title)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .multilineTextAlignment(.leading)
+                                Text("\(link.kind.rawValue) · \(formattedPubDate(link.pubDate))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Reminders (#178)
+
+    /// "Remind me" row, shown only for a favorited event — reminders exist
+    /// to alert someone about an event they've already committed to, and a
+    /// per-event override for an event that isn't even starred has nothing
+    /// to override (star/unstar retracts its schedule entirely — see
+    /// `ReminderPlanner`).
+    private var reminderRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            detailRow(icon: "bell") {
+                Menu {
+                    reminderMenuButtons
+                } label: {
+                    Text("Remind me: \(currentReminderLabel)")
+                }
+            }
+            if model.reminderAuthorizationStatus == .denied {
+                deniedReminderHint
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reminderMenuButtons: some View {
+        Button("Default (\(model.reminderSettings.defaultPreset.label))") {
+            selectReminder(nil)
+        }
+        ForEach(ReminderPreset.allCases.filter { $0 != ReminderPreset.none }, id: \.rawValue) { preset in
+            Button(preset.label) {
+                selectReminder(preset)
+            }
+        }
+        Button(ReminderPreset.none.label) {
+            selectReminder(ReminderPreset.none)
+        }
+    }
+
+    /// The effective choice for this event: its override's label if one is
+    /// set, otherwise "Default (<current default's label>)" — matching the
+    /// first menu option above so the row's own text and the menu agree on
+    /// what "no override" looks like.
+    private var currentReminderLabel: String {
+        guard let override = model.reminderSettings.overrides[event.id] else {
+            return "Default (\(model.reminderSettings.defaultPreset.label))"
+        }
+        return override.label
+    }
+
+    /// Same "denied → Settings" pattern as `AddToCalendarView.deniedView`,
+    /// scaled down to an inline hint under the row rather than a full-sheet
+    /// takeover — this is one row among many on the detail screen, not the
+    /// screen's sole purpose.
+    private var deniedReminderHint: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Notifications are off for CHQ Calendar")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                Link("Open Settings", destination: settingsURL)
+                    .font(.caption)
+            }
+        }
+        // Roughly aligns under the row's text: `detailRow`'s icon (24pt) +
+        // its HStack spacing (12pt).
+        .padding(.leading, 36)
+    }
+
+    /// Persists the override, and — only when the resulting effective
+    /// preset actually turns reminders *on* — requests notification
+    /// authorization first, awaiting its result before persisting so the
+    /// reminder sync that `setReminderOverride` triggers sees up-to-date
+    /// authorization rather than racing a still-in-flight system prompt.
+    /// Choosing "Off" (or "Default" while the default itself is off) skips
+    /// the permission flow entirely — nothing there needs the user's
+    /// permission.
+    ///
+    /// Routes through `model.ensureReminderAuthorization()` (#178 review
+    /// fix) rather than calling `reminderCenter.ensureAuthorization()`
+    /// directly and refreshing a view-local copy: that method already
+    /// publishes the resolved status to `model.reminderAuthorizationStatus`,
+    /// which is what `deniedReminderHint` above reads, so a denial from
+    /// this menu updates the same state a denial from the star flow does.
+    private func selectReminder(_ preset: ReminderPreset?) {
+        let effectivePreset = preset ?? model.reminderSettings.defaultPreset
+        guard effectivePreset != ReminderPreset.none, model.reminderCenter != nil else {
+            model.setReminderOverride(preset, for: event.id)
+            return
+        }
+        Task {
+            _ = await model.ensureReminderAuthorization()
+            model.setReminderOverride(preset, for: event.id)
+        }
+    }
+
+    private var actionButtons: some View {
+        VStack(spacing: 10) {
+            Button {
+                isAddToCalendarPresented = true
+            } label: {
+                Label("Add to Calendar", systemImage: "calendar.badge.plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+
+            if let pageURL = event.pageURL {
+                Button {
+                    openURL(pageURL)
+                } label: {
+                    Text("Open on chq.org")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                model.toggleFavorite(event.id)
+            } label: {
+                Image(systemName: isFavorite ? "star.fill" : "star")
+                    .foregroundStyle(isFavorite ? .yellow : .primary)
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            ShareLink(item: event.pageURL ?? Self.fallbackShareURL)
+        }
+    }
+
+    // MARK: - Formatting helpers
+
+    private var timeRangeText: String {
+        let day = ChqTime.dayTitle(for: event.start)
+        let startTime = ChqTime.timeString(for: event.start)
+        if event.end == event.start {
+            return "\(day) · \(startTime)"
+        }
+        let endTime = ChqTime.timeString(for: event.end)
+        return "\(day) · \(startTime) – \(endTime)"
+    }
+
+    private func paragraphs(of details: String) -> [String] {
+        details
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static let fallbackShareURL = URL(string: "https://www.chqcal.org")!
+
+    private static let pubDateInputFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = ChqTime.zone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let pubDateOutputFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = ChqTime.zone
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    private func formattedPubDate(_ raw: String) -> String {
+        guard let date = Self.pubDateInputFormatter.date(from: raw) else { return raw }
+        return Self.pubDateOutputFormatter.string(from: date)
+    }
+
+    @ViewBuilder
+    private func detailRow<Content: View>(
+        icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+            content()
+            Spacer(minLength: 0)
+        }
+    }
+}

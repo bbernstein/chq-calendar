@@ -1,0 +1,87 @@
+{
+  "data": [
+    {
+      "id": "101037",
+      "title": "Guided Kayak Eco Tour",
+      "description": "Enjoy paddling while learning about ecological info along the shores of Chautauqua Institution during this hour-long guided kayak tour.",
+      "startDate": "2026-07-27 12:45:00",
+      "endDate": "2026-07-27 13:45:00",
+      "timezone": "America/New_York",
+      "venue": {
+        "name": "Sports Club, Waterfront",
+        "id": 101025,
+        "showMap": true
+      },
+      "location": "Sports Club, Waterfront",
+      "categories": [
+        {
+          "name": "Chautauqua Institution Program",
+          "parent": 0,
+          "id": 387,
+          "taxonomy": "tribe_events_cat",
+          "slug": "chautauqua-institution-program"
+        },
+        {
+          "name": "Recreation",
+          "parent": 387,
+          "id": 351,
+          "taxonomy": "tribe_events_cat",
+          "slug": "recreation"
+        }
+      ],
+      "tags": [
+        "sports club, waterfront",
+        "chautauqua-institution-program",
+        "chautauqua institution program",
+        "recreation",
+        "tour"
+      ],
+      "category": "Recreation",
+      "url": "https://www.chq.org/event/guided-kayak-eco-tour-4/",
+      "cost": "$12",
+      "image": {
+        "sizes": {
+          "large": {
+            "width": 700,
+            "url": "https://www.chq.org/wp-content/uploads/2020/12/071318_Kayakers_Shoreline_DM_01-700x241.jpg",
+            "height": 241
+          }
+        },
+        "url": "https://www.chq.org/wp-content/uploads/2020/12/071318_Kayakers_Shoreline_DM_01.jpg"
+      },
+      "status": "publish",
+      "week": 5
+    },
+    {
+      "id": "200001",
+      "title": "Minimal Event",
+      "startDate": "2026-07-01 09:00:00",
+      "endDate": "2026-07-01 10:00:00"
+    },
+    {
+      "id": "200002",
+      "title": "Art &amp; Music",
+      "startDate": "2026-07-02 18:00:00",
+      "endDate": "2026-07-02 19:30:00",
+      "location": "Bestor Plaza&#8217;s Amphitheater"
+    },
+    {
+      "id": "200003",
+      "title": "Cancelled Lecture",
+      "startDate": "2026-07-03 10:00:00",
+      "endDate": "2026-07-03 11:00:00",
+      "status": "cancelled"
+    },
+    {
+      "id": "200004",
+      "title": "Fourth of July Fireworks",
+      "startDate": "2026-07-04T15:30:00",
+      "endDate": "2026-07-04T16:30:00"
+    },
+    {
+      "id": "200005",
+      "startDate": "2026-07-05 09:00:00",
+      "endDate": "2026-07-05 10:00:00"
+    }
+  ]
+}

@@ -67,6 +67,22 @@ services:
       - chq-calendar-network
     command: npx vite --host
 
+  # LocalStack — S3-compatible endpoint for local integration testing of the
+  # article-links pipeline (EventSnapshotLoader / ArticleLinksPublisher run the
+  # real AWS SDK against this instead of production S3). See
+  # backend/src/scripts/runArticleIngestLocalAws.ts and
+  # docs/runbooks/article-links.md.
+  localstack:
+    image: localstack/localstack:latest
+    container_name: chq-calendar-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=0
+    networks:
+      - chq-calendar-network
+
   # DynamoDB Admin UI (optional)
   dynamodb-admin:
     image: aaronshaf/dynamodb-admin:latest

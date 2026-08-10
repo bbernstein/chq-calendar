@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /publish/
+
+Sitemap: https://www.chqcal.org/sitemap.xml

@@ -24,17 +24,26 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Record deploy start time
+        id: deploy_start
+        # Captured before any Lambda deploys so the publisher E2E test can
+        # assert each function's LastModified is newer than this deploy. Used as
+        # the workflow_dispatch fallback for DEPLOY_START_RAW: github.run_started_at
+        # is not a real github-context field and resolves to '' on manual runs,
+        # which made the downstream datetime.fromisoformat('') throw.
+        run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Use Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
           cache-dependency-path: package-lock.json
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -335,23 +344,174 @@ jobs:
 
           rm -rf package_temp lambda-publisher-ingest.zip
 
+      - name: Deploy article-ingest Lambda
+        working-directory: ./backend
+        run: |
+          # The article-ingest Lambda is created by `terraform apply`
+          # (infrastructure/article-ingest.tf). On the very first deploy —
+          # before that apply — the function does not exist yet, so guard the
+          # code update and skip cleanly instead of failing the whole deploy.
+          FUNC="chautauqua-calendar-article-ingest"
+          # Skip cleanly only for a genuine "not created yet" (before the first
+          # terraform apply). Any other error — AccessDenied, throttling — fails
+          # loud instead of masquerading as "waiting on terraform apply".
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-article-deploy.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-article-deploy.err; then
+            echo "::notice::${FUNC} not created yet — run 'terraform apply' to create it; skipping code deploy this run"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-article-deploy.err
+            exit 1
+          fi
+
+          # article-ingest externalizes only the AWS SDK modules; cheerio and
+          # everything else are bundled inline by esbuild (the deploy zip carries
+          # no node_modules). It needs no dist/refs (it doesn't use
+          # publisher-format's loadReferences).
+          mkdir -p package_temp/node_modules
+
+          echo "Installing article-ingest handler dependencies..."
+          cd package_temp
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-article-ingest",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-dynamodb": "^3.0.0",
+              "@aws-sdk/client-s3": "^3.0.0",
+              "@aws-sdk/lib-dynamodb": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev
+          cd ..
+
+          mkdir -p package_temp/dist
+          cp dist/articleIngestHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-article-ingest.zip . \
+            -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          echo "Deploying article-ingest Lambda..."
+          aws lambda update-function-code \
+            --function-name "$FUNC" \
+            --zip-file fileb://lambda-article-ingest.zip
+
+          echo "Waiting for article-ingest Lambda to finish updating..."
+          aws lambda wait function-updated \
+            --function-name "$FUNC"
+
+          rm -rf package_temp lambda-article-ingest.zip
+
+      - name: Deploy program-ingest Lambda
+        working-directory: ./backend
+        run: |
+          # The program-ingest Lambda is created by `terraform apply`
+          # (infrastructure/program-ingest.tf). On the very first deploy —
+          # before that apply — the function does not exist yet, so guard the
+          # code update and skip cleanly instead of failing the whole deploy.
+          FUNC="chautauqua-calendar-program-ingest"
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-program-deploy.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-program-deploy.err; then
+            echo "::notice::${FUNC} not created yet — run 'terraform apply' to create it; skipping code deploy this run"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-program-deploy.err
+            exit 1
+          fi
+
+          # program-ingest externalizes only @aws-sdk/client-s3; cheerio and
+          # everything else are bundled inline by esbuild.
+          mkdir -p package_temp/node_modules
+
+          echo "Installing program-ingest handler dependencies..."
+          cd package_temp
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-program-ingest",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-s3": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev
+          cd ..
+
+          mkdir -p package_temp/dist
+          cp dist/programIngestHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-program-ingest.zip . \
+            -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          echo "Deploying program-ingest Lambda..."
+          aws lambda update-function-code \
+            --function-name "$FUNC" \
+            --zip-file fileb://lambda-program-ingest.zip
+
+          echo "Waiting for program-ingest Lambda to finish updating..."
+          aws lambda wait function-updated \
+            --function-name "$FUNC"
+
+          rm -rf package_temp lambda-program-ingest.zip
+
       - name: Deploy frontend to S3 and CloudFront
         working-directory: ./frontend
         run: |
-          # Sync to S3 bucket
-          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+          BUCKET="${{ secrets.S3_BUCKET_NAME }}"
+
+          # Pass 1 — content-hashed, immutable assets. Exclude the files that must always
+          # revalidate so they never get the year-long immutable header. --delete removes
+          # stale hashed bundles; excluded files are neither uploaded nor deleted here.
+          aws s3 sync out/ "s3://$BUCKET/" \
             --delete \
             --exclude "*.map" \
             --exclude "cache/*" \
-            --cache-control "public, max-age=31536000, immutable" \
-            --metadata-directive REPLACE
+            --exclude "*.html" \
+            --exclude "manifest.json" \
+            --exclude "version.json" \
+            --exclude "sw.js" \
+            --exclude "data/weekly-themes/*" \
+            --cache-control "public, max-age=31536000, immutable"
 
-          # Update HTML files with shorter cache
-          aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }}/ \
+          # Pass 2 — always-revalidate files. `cp` re-uploads unconditionally (unlike
+          # `sync`, which skips unchanged files and was the cause of the stale-shell bug),
+          # so the no-cache header is applied every time.
+          aws s3 cp out/ "s3://$BUCKET/" \
+            --recursive \
             --exclude "*" \
             --include "*.html" \
-            --cache-control "public, max-age=3600" \
-            --metadata-directive REPLACE
+            --content-type "text/html" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/manifest.json "s3://$BUCKET/manifest.json" \
+            --content-type "application/json" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/version.json "s3://$BUCKET/version.json" \
+            --content-type "application/json" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/sw.js "s3://$BUCKET/sw.js" \
+            --content-type "text/javascript" \
+            --cache-control "no-cache"
+
+          # weekly-themes JSON is fetched directly from /data/ in production
+          # (useWeeklyThemes has no dev/prod split) and is NOT content-hashed,
+          # so it must revalidate — otherwise a content edit under the same
+          # filename would never reach users (the same bug this deploy fixes).
+          aws s3 cp out/data/weekly-themes/ "s3://$BUCKET/data/weekly-themes/" \
+            --recursive \
+            --content-type "application/json" \
+            --cache-control "no-cache"
 
           # Invalidate CloudFront cache
           aws cloudfront create-invalidation \
@@ -410,9 +570,9 @@ jobs:
         # ci-e2e-test publisher row + static feed exist.
         shell: bash
         env:
-          # github.event.head_commit.timestamp is only set on push; fall back
-          # to the run start time for workflow_dispatch.
-          DEPLOY_START_RAW: ${{ github.event.head_commit.timestamp || github.run_started_at }}
+          # head_commit.timestamp is set only on push; on workflow_dispatch fall
+          # back to the "Record deploy start time" step (see its comment for why).
+          DEPLOY_START_RAW: ${{ github.event.head_commit.timestamp || steps.deploy_start.outputs.ts }}
           S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
         run: |
           set -euo pipefail
@@ -868,6 +1028,70 @@ jobs:
             /tmp/sync-response.json
 
           echo "Calendar sync triggered successfully - running in background to refresh cache data"
+
+      - name: Trigger article-links ingest
+        continue-on-error: true
+        run: |
+          # Refresh the Chautauquan Daily article links right after deploy
+          # instead of waiting up to an hour for the EventBridge schedule.
+          # Guarded + continue-on-error so a not-yet-created function (before
+          # the first terraform apply) or a transient error never fails deploy.
+          FUNC="chautauqua-calendar-article-ingest"
+          # Skip only for a genuine not-created-yet; surface any other error
+          # (this step is continue-on-error, so a loud failure logs but never
+          # fails the deploy).
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-article-trigger.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-article-trigger.err; then
+            echo "${FUNC} not created yet — run 'terraform apply' to create it; skipping trigger"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-article-trigger.err
+            exit 1
+          fi
+          echo "Triggering article-links ingest to refresh news links..."
+          # AWS CLI v2 expects base64 payloads by default; --cli-binary-format
+          # raw-in-base64-out lets us pass the JSON literal.
+          aws lambda invoke \
+            --function-name "$FUNC" \
+            --invocation-type Event \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{}' \
+            /tmp/article-ingest-response.json
+          echo "Article-links ingest triggered - running in background to refresh the sidecar"
+
+      - name: Trigger program-links ingest
+        continue-on-error: true
+        run: |
+          # Refresh the digital program links right after deploy instead of
+          # waiting up to an hour for the EventBridge schedule. Guarded +
+          # continue-on-error so a not-yet-created function or a transient
+          # error never fails deploy.
+          FUNC="chautauqua-calendar-program-ingest"
+          # Skip only for a genuine not-created-yet; surface any other error
+          # (this step is continue-on-error, so a loud failure logs but never
+          # fails the deploy).
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-program-trigger.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-program-trigger.err; then
+            echo "${FUNC} not created yet — run 'terraform apply' to create it; skipping trigger"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-program-trigger.err
+            exit 1
+          fi
+          echo "Triggering program-links ingest to refresh links..."
+          # AWS CLI v2 expects base64 payloads by default; --cli-binary-format
+          # raw-in-base64-out lets us pass the JSON literal.
+          aws lambda invoke \
+            --function-name "$FUNC" \
+            --invocation-type Event \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{}' \
+            /tmp/program-ingest-response.json
+          echo "Program-links ingest triggered - running in background to refresh the sidecar"
 
       - name: Notify deployment success
         if: success()

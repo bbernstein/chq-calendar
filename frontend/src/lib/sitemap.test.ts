@@ -1,0 +1,58 @@
+/// <reference types="vitest/globals" />
+import { buildSitemapXml, PUBLIC_PATHS, SITE_ORIGIN } from '@/lib/sitemap';
+
+describe('buildSitemapXml', () => {
+  it('renders each path as an absolute <loc> under the given origin', () => {
+    const xml = buildSitemapXml(['/', '/feedback'], 'https://example.org');
+    expect(xml).toContain('<loc>https://example.org/</loc>');
+    expect(xml).toContain('<loc>https://example.org/feedback</loc>');
+  });
+
+  it('emits exactly one <url> element per path', () => {
+    const xml = buildSitemapXml(PUBLIC_PATHS);
+    const count = (xml.match(/<url>/g) || []).length;
+    expect(count).toBe(PUBLIC_PATHS.length);
+  });
+
+  it('defaults to the production origin', () => {
+    expect(buildSitemapXml(['/'])).toContain(`<loc>${SITE_ORIGIN}/</loc>`);
+  });
+
+  it('never lists admin or publish routes', () => {
+    const xml = buildSitemapXml(PUBLIC_PATHS);
+    expect(xml).not.toContain('/admin');
+    expect(xml).not.toContain('/publish');
+  });
+
+  it('includes the privacy and support pages required for App Store submission', () => {
+    expect(PUBLIC_PATHS).toContain('/privacy');
+    expect(PUBLIC_PATHS).toContain('/support');
+    const xml = buildSitemapXml(PUBLIC_PATHS);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/privacy</loc>`);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/support</loc>`);
+  });
+
+  it('includes the about guide pages used as the App Store marketing URL', () => {
+    expect(PUBLIC_PATHS).toContain('/about');
+    expect(PUBLIC_PATHS).toContain('/about/iphone');
+    expect(PUBLIC_PATHS).toContain('/about/web');
+    const xml = buildSitemapXml(PUBLIC_PATHS);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/about</loc>`);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/about/iphone</loc>`);
+    expect(xml).toContain(`<loc>${SITE_ORIGIN}/about/web</loc>`);
+  });
+
+  it('is well-formed XML with a urlset root', () => {
+    const xml = buildSitemapXml(PUBLIC_PATHS);
+    expect(xml.startsWith('<?xml')).toBe(true);
+    expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
+    expect(xml.trimEnd().endsWith('</urlset>')).toBe(true);
+  });
+
+  it('XML-escapes reserved characters in paths (e.g. & in a query string)', () => {
+    const xml = buildSitemapXml(['/events?cat=music&week=1'], 'https://example.org');
+    expect(xml).toContain('<loc>https://example.org/events?cat=music&amp;week=1</loc>');
+    // A raw, unescaped ampersand would make the sitemap invalid XML.
+    expect(xml).not.toContain('music&week');
+  });
+});

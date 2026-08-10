@@ -1,0 +1,196 @@
+import Foundation
+import Testing
+@testable import ChqCalendar
+
+/// Polls `condition` on the main actor every `pollInterval` until it
+/// returns `true`, or fails the test if `timeout` elapses first.
+///
+/// `AppModelTests` synchronizes with `Task`s it starts but doesn't
+/// directly `await` (e.g. `Task { await model.start() }`) by waiting for
+/// the state that `Task` is expected to eventually produce. A **fixed**
+/// `Task.sleep` used for that purpose is inherently racy: Swift Testing
+/// runs suites in parallel, and under full-suite load a fixed wait can
+/// elapse before the awaited state has actually settled — producing a
+/// failure that has nothing to do with the production code under test.
+/// `waitUntil` polls instead of guessing a duration, so it stays correct
+/// regardless of scheduler load. Do not reintroduce fixed sleeps to
+/// synchronize with an expected state change; if a new async test needs
+/// to wait for something to happen, poll for it with this helper instead.
+///
+/// This is **not** appropriate for proving a negative ("this must NOT
+/// happen") — polling can only detect that a condition became true, never
+/// that it stayed false forever, so tests asserting an absence should
+/// keep a bounded `Task.sleep` before asserting.
+@MainActor
+func waitUntil(
+    _ description: String,
+    timeout: Duration = .seconds(5),
+    pollInterval: Duration = .milliseconds(10),
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ condition: () async -> Bool
+) async {
+    let deadline = ContinuousClock.now + timeout
+    while true {
+        if await condition() {
+            return
+        }
+        if ContinuousClock.now >= deadline {
+            Issue.record("Timed out waiting for: \(description)", sourceLocation: sourceLocation)
+            return
+        }
+        try? await Task.sleep(for: pollInterval)
+    }
+}
+
+/// Builds an `Event` directly (via `Event`'s internal memberwise
+/// initializer) for filter/grouping/display-name tests, without needing to
+/// round-trip through JSON. Only the fields a given test cares about need
+/// to be supplied — everything else defaults to an inert value.
+func makeEvent(
+    id: String,
+    start: Date,
+    title: String = "Test Event",
+    location: String? = nil,
+    categories: [String] = [],
+    tags: [String] = [],
+    details: String? = nil,
+    presenter: String? = nil,
+    end: Date? = nil,
+    week: Int? = nil,
+    status: EventStatus = .scheduled
+) -> Event {
+    Event(
+        id: id,
+        title: title,
+        start: start,
+        end: end,
+        details: details,
+        displayLocation: location,
+        venueAddress: nil,
+        categoryNames: categories,
+        tags: tags,
+        presenter: presenter,
+        cost: nil,
+        pageURL: nil,
+        imageURL: nil,
+        status: status,
+        week: week
+    )
+}
+
+/// Errors used to script `MockAPI` failures in tests.
+enum MockAPIError: Error, Sendable, Equatable {
+    case unscripted(String)
+}
+
+/// A scripted, in-memory `CalendarAPIClient` for tests: each resource's
+/// response is set ahead of time (success/notModified/failure), and every
+/// call — including the `ifNoneMatch` it was sent — is recorded for later
+/// assertion.
+///
+/// An `actor` (rather than a lock-guarded class) both because it needs to
+/// satisfy the `Sendable` `CalendarAPIClient` protocol and because tests
+/// naturally call it with `await` alongside the `EventRepository` under
+/// test.
+actor MockAPI: CalendarAPIClient {
+    struct Call: Sendable {
+        let resource: RemoteResource
+        let ifNoneMatch: String?
+        let timeout: TimeInterval?
+    }
+
+    private(set) var calls: [Call] = []
+    private var results: [String: Result<FetchResult, Error>] = [:]
+    private var neverResolvesKeys: Set<String> = []
+    private var suspendedKeys: Set<String> = []
+    private var suspendedContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+    func setSuccess(data: Data, etag: String?, for resource: RemoteResource) {
+        results[resource.cacheKey] = .success(.success(data: data, etag: etag))
+    }
+
+    func setNotModified(for resource: RemoteResource) {
+        results[resource.cacheKey] = .success(.notModified)
+    }
+
+    func setFailure(_ error: Error, for resource: RemoteResource) {
+        results[resource.cacheKey] = .failure(error)
+    }
+
+    /// Makes `fetch` suspend forever for `resource`, instead of ever
+    /// returning a scripted result. Used to prove a code path renders from
+    /// cache alone, without depending on (or waiting for) any network call
+    /// to complete.
+    func setNeverResolves(for resource: RemoteResource) {
+        neverResolvesKeys.insert(resource.cacheKey)
+    }
+
+    /// Makes `fetch` suspend for `resource` until `resume(for:)` is called
+    /// for the same resource — a controllable version of
+    /// `setNeverResolves`, for tests that need to let an in-flight call
+    /// complete at a precise, chosen moment (e.g. proving a stale result is
+    /// discarded rather than merely never observed).
+    func setSuspended(for resource: RemoteResource) {
+        suspendedKeys.insert(resource.cacheKey)
+    }
+
+    /// Releases any `fetch` call(s) currently parked by `setSuspended(for:)`
+    /// for `resource`, letting them proceed to the scripted result (or
+    /// throw `.unscripted` if none was set).
+    func resume(for resource: RemoteResource) {
+        suspendedKeys.remove(resource.cacheKey)
+        let waiting = suspendedContinuations.removeValue(forKey: resource.cacheKey) ?? []
+        for continuation in waiting {
+            continuation.resume()
+        }
+    }
+
+    func fetch(_ resource: RemoteResource, ifNoneMatch: String?, timeout: TimeInterval?) async throws -> FetchResult {
+        calls.append(Call(resource: resource, ifNoneMatch: ifNoneMatch, timeout: timeout))
+        if neverResolvesKeys.contains(resource.cacheKey) {
+            try? await Task.sleep(nanoseconds: .max)
+        }
+        if suspendedKeys.contains(resource.cacheKey) {
+            await withCheckedContinuation { continuation in
+                suspendedContinuations[resource.cacheKey, default: []].append(continuation)
+            }
+        }
+        guard let result = results[resource.cacheKey] else {
+            throw MockAPIError.unscripted(resource.cacheKey)
+        }
+        return try result.get()
+    }
+}
+
+/// A dictionary-backed `DataCaching` for tests, guarded by a lock since
+/// `DataCaching`'s methods are synchronous but may be called both from
+/// inside the `EventRepository` actor and directly from test assertions.
+final class MockCache: DataCaching, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String: CacheEntry] = [:]
+
+    func read(_ key: String) -> CacheEntry? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage[key]
+    }
+
+    func write(_ key: String, data: Data, etag: String?, fetchedAt: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage[key] = CacheEntry(data: data, metadata: CacheMetadata(etag: etag, fetchedAt: fetchedAt))
+    }
+
+    func touch(_ key: String, fetchedAt: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = storage[key] else { return }
+        storage[key] = CacheEntry(data: entry.data, metadata: CacheMetadata(etag: entry.metadata.etag, fetchedAt: fetchedAt))
+    }
+
+    func remove(_ key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.removeValue(forKey: key)
+    }
+}

@@ -1,0 +1,177 @@
+name: iOS
+
+# Builds and runs the Swift test suite (#205). Before this workflow existed,
+# no job in the repo compiled a line of Swift: an iOS-only PR could break the
+# app outright and still show a full green check run, because every other
+# workflow tests the frontend, the backend, or (in app-store-assets.yml's
+# case) nothing but file paths. The only thing standing between a broken
+# `main` and a merge was a human remembering to run `xcodebuild` locally.
+
+# The two `paths:` lists are duplicated rather than shared via a YAML anchor
+# because GitHub Actions' workflow parser does not support anchors/aliases.
+# Keep them in sync by hand.
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test-ios:
+    name: Build and test (iOS)
+    runs-on: macos-15
+    # Mirrors build-and-test.yml's dedupe: for same-repo PRs the `push` event
+    # already covers the branch, so the `pull_request` run would be a
+    # duplicate. Fork PRs get no `push` event on this repo, so they are the
+    # one case that must run on `pull_request`.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == true
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select the newest Xcode 26+
+        # The project uses Xcode 26 synchronized folder groups
+        # (PBXFileSystemSynchronizedRootGroup), so Xcode 26 is a hard floor —
+        # see ios/README.md. It is NOT the runner default: macos-15 images
+        # ship several Xcodes and default to a 16.x. Resolving the newest 26+
+        # at runtime rather than pinning an exact version keeps this working
+        # when the image drops or adds a point release, which pinning
+        # `Xcode_26.3.app` would not. Sets DEVELOPER_DIR instead of running
+        # `sudo xcode-select` — same effect, no sudo.
+        run: |
+          set -euo pipefail
+          selected=$(for app in /Applications/Xcode*.app; do
+            [ -d "$app" ] || continue
+            v=$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null) || continue
+            printf '%s %s\n' "$v" "$app"
+          done | sort -V -r | awk '$1+0 >= 26 { print $2; exit }')
+
+          if [ -z "$selected" ]; then
+            echo "ERROR: no Xcode 26 or newer on this runner image." >&2
+            echo "Installed Xcodes:" >&2
+            ls -d /Applications/Xcode*.app >&2 || true
+            echo "The project requires Xcode 26+ for synchronized folder groups (ios/README.md)." >&2
+            exit 1
+          fi
+
+          echo "DEVELOPER_DIR=$selected/Contents/Developer" >> "$GITHUB_ENV"
+          echo "Selected $selected"
+          "$selected/Contents/Developer/usr/bin/xcodebuild" -version
+
+      - name: Resolve an iOS 18+ simulator
+        # Pinning `-destination` to a name+OS (as ios/README.md's local recipe
+        # does, e.g. OS=26.1) is a portability trap: the runner image's
+        # installed runtimes differ from any given laptop's and change between
+        # image releases. Resolving a concrete UDID at runtime — newest
+        # available iOS >= the project's 18.0 deployment target, on an iPhone —
+        # means this job does not break when the image's simulator set moves.
+        run: |
+          set -euo pipefail
+          resolved=$(xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+
+          devices = json.load(sys.stdin)["devices"]
+          best = None
+          for runtime, devs in devices.items():
+              m = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              if not m:
+                  continue
+              version = (int(m.group(1)), int(m.group(2)))
+              if version < (18, 0):  # project deployment target
+                  continue
+              for d in devs:
+                  if not d.get("isAvailable") or not d["name"].startswith("iPhone"):
+                      continue
+                  if best is None or version > best[0]:
+                      best = (version, d["name"], d["udid"])
+          if best:
+              print("%s\t%s\t%s" % (best[2], best[1], ".".join(map(str, best[0]))))
+          ')
+
+          if [ -z "$resolved" ]; then
+            echo "ERROR: no available iPhone simulator running iOS 18.0 or newer." >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+
+          udid=$(printf '%s' "$resolved" | cut -f1)
+          name=$(printf '%s' "$resolved" | cut -f2)
+          os=$(printf '%s' "$resolved" | cut -f3)
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+          echo "Using $name (iOS $os) — $udid"
+
+      - name: Build and test
+        env:
+          # Interleaves xcodebuild's stdout/stderr in real time so a failure
+          # appears next to the work that caused it in the job log.
+          NSUnbufferedIO: YES
+        # CODE_SIGNING_ALLOWED=NO is required, not cosmetic. Without it,
+        # AppGroupTests.containerURLIsNilInTheUnitTestHost fails on a signed
+        # run: it asserts there is NO App Group entitlement, which is exactly
+        # the condition this flag creates. Its own doc comment names the flag.
+        # Dropping it turns a green tree red.
+        #
+        # One step covers all three source trees: the ChqCalendar scheme
+        # builds the ChqCalendarWidgets target too (it is embedded in the app),
+        # so a compile error anywhere in ChqCalendarWidgets/ fails this job.
+        # Verified empirically by planting a type error in
+        # ChqCalendarWidgets/WidgetViews.swift and watching `xcodebuild build
+        # -scheme ChqCalendar` fail on it — a separate widgets build step
+        # would be redundant.
+        #
+        # -parallel-testing-enabled NO is load-bearing on this runner, and was
+        # arrived at by measurement, not preference. A GitHub-hosted macos-15
+        # box is a 3-core VirtualMac2,1 with 7 GB; a dev laptop has several
+        # times that. With Swift Testing's default parallelism the suite fails
+        # here — but not reproducibly on the same tests: two runs of the
+        # identical commit failed 4 tests / 10 issues and 3 tests / 7 issues
+        # respectively, with only partial overlap. A shifting victim set on
+        # unchanged code is contention, not a logic defect.
+        #
+        # The victims are always the concurrency tests that park a suspended
+        # mock mid-flight and then poll @MainActor state through
+        # `waitUntil` (ChqCalendarTests/TestSupport.swift). On 3 cores the
+        # cooperative pool is oversubscribed, the awaited state does not
+        # settle inside that helper's 5s deadline, and it records an issue.
+        # Locally the entire 716-test suite finishes in under a second, so
+        # the pressure never materializes and the headroom is invisible.
+        #
+        # Serial is also simply faster here than the contended parallel run
+        # (47.7s vs 101.7s of test time), so this costs nothing. Note it
+        # masks a real latent fragility in the suite rather than fixing it —
+        # tracked separately; see the follow-up issue referenced in the PR.
+        # Do not drop this flag without re-measuring on a 3-core runner.
+        run: |
+          set -euo pipefail
+          cd ios
+          xcodebuild test \
+            -project ChqCalendar.xcodeproj \
+            -scheme ChqCalendar \
+            -destination "id=$SIMULATOR_UDID" \
+            -resultBundlePath "$RUNNER_TEMP/ChqCalendar.xcresult" \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload test results
+        # Only on failure: the .xcresult bundle is large and uninteresting
+        # when everything passed, but it is the only way to see which of the
+        # 716 tests failed and why without re-running locally.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcresult
+          path: ${{ runner.temp }}/ChqCalendar.xcresult
+          retention-days: 7

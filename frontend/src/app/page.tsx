@@ -10,6 +10,8 @@ import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
 import { useWeeklyThemes } from '@/hooks/useWeeklyThemes';
+import { useArticleLinks } from '@/hooks/useArticleLinks';
+import { useProgramLinks } from '@/hooks/useProgramLinks';
 import { GlobalEventDataProvider, useGlobalEventData } from '@/components/providers/GlobalEventDataProvider';
 import { Header } from '@/components/layout/Header';
 import { CountdownBanner } from '@/components/layout/CountdownBanner';
@@ -42,6 +44,8 @@ function HomeContent() {
   }, [filters.recentLocations, filters.recentCategories, filters.availableLocations, filters.availableCategories]);
   const { events, loading } = useEventData({ year: selectedYear, globalEventData, seasonWeeks, setAvailableCategories: filters.setAvailableCategories, setAvailableLocations: filters.setAvailableLocations });
   const { themes: weeklyThemes } = useWeeklyThemes(selectedYear);
+  const { links: articleLinks } = useArticleLinks(selectedYear);
+  const { links: programLinks } = useProgramLinks(selectedYear);
   const isCurrentYear = selectedYear === defaultYear;
   const prevYearRef = useRef(selectedYear);
   const pendingYearChangeRef = useRef(false);
@@ -175,7 +179,7 @@ function HomeContent() {
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
                 dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay}
-                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} />
+                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks} />
             )}
           </div>
         </div>
@@ -183,6 +187,20 @@ function HomeContent() {
       <footer className="bg-gray-800 text-white mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
           <p className="text-gray-400">&copy; {new Date().getFullYear()} Chautauqua Calendar by Bernie</p>
+          <p className="text-gray-500 text-sm mt-3 max-w-2xl mx-auto">
+            CHQ Calendar is an independent app and is not affiliated with, endorsed by, or
+            sponsored by Chautauqua Institution. Event information is drawn from publicly
+            posted listings; chq.org remains the authoritative source.
+          </p>
+          <p className="text-gray-400 text-sm mt-3">
+            <a href="/about" className="hover:text-white underline">Guide</a>
+            <span className="mx-2" aria-hidden="true">·</span>
+            <a href="/privacy" className="hover:text-white underline">Privacy</a>
+            <span className="mx-2" aria-hidden="true">·</span>
+            <a href="/support" className="hover:text-white underline">Support</a>
+            <span className="mx-2" aria-hidden="true">·</span>
+            <a href="/feedback" className="hover:text-white underline">Feedback</a>
+          </p>
         </div>
       </footer>
     </div>
