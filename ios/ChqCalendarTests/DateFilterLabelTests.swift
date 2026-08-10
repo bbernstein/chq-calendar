@@ -137,6 +137,40 @@ struct DateFilterLabelTests {
             seasonWeekCount: nine, isCurrentYear: false) == "Week 2")
     }
 
+    /// #197 item 5. `.day` is unlike the other scopes here: `EventFilter`
+    /// applies it *and* the weeks stage, so a selection carrying both is
+    /// day-filtered as well as week-filtered. Naming the week would describe
+    /// the wider of the two ranges and overclaim what the list contains —
+    /// and if the day falls outside the selected week the list is empty,
+    /// which "Week 3" describes especially badly. The day is never wider
+    /// than the week filter, so it is the label that cannot lie.
+    ///
+    /// `AppModel` no longer produces this pairing (`browseDay` clears weeks;
+    /// `selectScope`/`setWeekSelection` clear the day), but this function is
+    /// pure and shared, and the previous structure made the wrong answer the
+    /// fall-through for any future caller that reintroduced the pairing.
+    @Test func dayScopeWinsOverAWeekSelection() {
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .day, selectedWeeks: [6], selectedDayKey: "2026-08-09"),
+            seasonWeekCount: nine, isCurrentYear: true) == "Sun, Aug 9")
+    }
+
+    /// The disjoint case, where the week label would be at its most
+    /// misleading: 2026-08-09 is in week 6, not week 3.
+    @Test func dayScopeWinsOverAWeekSelectionThatExcludesIt() {
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .day, selectedWeeks: [3], selectedDayKey: "2026-08-09"),
+            seasonWeekCount: nine, isCurrentYear: true) == "Sun, Aug 9")
+    }
+
+    /// A `.day` scope with no key filters nothing (see `EventFilter.apply`),
+    /// so the weeks are the only real filter left and must still be named.
+    @Test func aKeylessDayScopeStillDefersToTheWeekLabel() {
+        #expect(DateFilterLabel.text(
+            for: FilterSelection(dateScope: .day, selectedWeeks: [6]),
+            seasonWeekCount: nine, isCurrentYear: true) == "Week 6")
+    }
+
     @Test func seasonScopeReadsAllSeason() {
         #expect(DateFilterLabel.text(
             for: FilterSelection(dateScope: .season),
@@ -181,10 +215,10 @@ struct DateFilterLabelTests {
             seasonWeekCount: nine, isCurrentYear: true) == "All Year")
     }
 
-    @Test func weekSelectionStillWinsOverADayScope() {
-        // The weeks branch runs first and is unchanged.
-        #expect(DateFilterLabel.text(
-            for: FilterSelection(dateScope: .day, selectedWeeks: [6], selectedDayKey: "2026-08-09"),
-            seasonWeekCount: nine, isCurrentYear: true) == "Week 6")
-    }
+    // A former `weekSelectionStillWinsOverADayScope` pinned the opposite
+    // answer for this same input ("Week 6"), on the descriptive grounds that
+    // "the weeks branch runs first". #197 item 5 identified that ordering as
+    // the bug rather than the contract; the flipped expectation now lives in
+    // `dayScopeWinsOverAWeekSelection` above, alongside the disjoint-week
+    // case that shows why the week label is the one that can lie.
 }

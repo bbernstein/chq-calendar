@@ -46,38 +46,53 @@ nonisolated enum DateFilterLabel {
     ) -> String {
         let weeks = selection.selectedWeeks.sorted()
 
-        guard !weeks.isEmpty else {
-            // `.day` is handled *before* the `isCurrentYear` shortcut below.
-            // That shortcut is correct only because every other scope is
-            // downgraded to `.all` for a non-current year, which makes
-            // "All Year" a true statement about what the list is showing.
-            // `.day` survives that downgrade (see `EventFilter.apply`), so
-            // taking the shortcut would leave the pill claiming "All Year"
-            // over a day-filtered list — the pill lying about the filter,
-            // which is exactly the failure this type's doc comment warns
-            // about for `.next` (#192).
-            if selection.dateScope == .day,
-               let dayKey = selection.selectedDayKey,
-               let date = ChqTime.parse("\(dayKey) 00:00:00") {
-                return ChqTime.pillDayLabel(for: date, includingYear: !isCurrentYear)
-            }
+        // `.day` is resolved *before* both the week logic and the
+        // `isCurrentYear` shortcut, because it is the only scope that
+        // survives on both axes.
+        //
+        // Before the weeks: `EventFilter.apply` runs the weeks stage
+        // *outside* the scope `switch`, so a selection carrying both is
+        // day-filtered *and* week-filtered. The day is never the wider of
+        // the two, so naming it cannot overclaim; naming the week can — and
+        // when the day falls outside the selected week the list is empty,
+        // which "Week 3" describes especially badly (#197 item 5).
+        //
+        // Before the `isCurrentYear` shortcut: that shortcut is correct only
+        // because every other scope is downgraded to `.all` for a
+        // non-current year, which makes "All Year" a true statement about
+        // what the list is showing. `.day` survives that downgrade (see
+        // `EventFilter.apply`), so taking the shortcut would leave the pill
+        // claiming "All Year" over a day-filtered list — the pill lying
+        // about the filter, which is exactly the failure this type's doc
+        // comment warns about for `.next` (#192).
+        //
+        // A `.day` scope whose key is `nil` or unparseable filters nothing,
+        // so it deliberately falls through to the week/scope logic below
+        // rather than being caught here: with a week selection still
+        // standing, the weeks are then the only real filter and must be the
+        // ones named.
+        if selection.dateScope == .day,
+           let dayKey = selection.selectedDayKey,
+           let date = ChqTime.parse("\(dayKey) 00:00:00") {
+            return ChqTime.pillDayLabel(for: date, includingYear: !isCurrentYear)
+        }
 
+        guard !weeks.isEmpty else {
             guard isCurrentYear else { return "All Year" }
             switch selection.dateScope {
             case .all: return DateScope.all.label            // "All Year"
             case .next, .today, .thisWeek, .season: return selection.dateScope.label
-            // Reached when `selectedDayKey` is `nil` (in which case
-            // `EventFilter` filters nothing, so "All Year" is true) or when
-            // it's a non-nil string this parse can't read. The latter can no
-            // longer happen through the app's only writer: `AppModel.browseDay`
-            // parses the key with this same `ChqTime.parse("\(dayKey)
-            // 00:00:00")` call before ever assigning `selectedDayKey`, so a
-            // key that fails here would already have failed there and never
-            // been set. This branch only runs for a current-year selection —
-            // on a non-current year a malformed key fails the same parse in
-            // the early `.day` branch above and falls through the
-            // `isCurrentYear` guard below to "All Year" instead, closed by
-            // the same guarantee.
+            // Reached when the `.day` branch above declined the selection:
+            // `selectedDayKey` is `nil`, or it's a non-nil string that parse
+            // can't read. Either way `EventFilter` filters no days, so with
+            // no weeks selected either "All Year" is the true statement.
+            //
+            // The unparseable case can no longer arise through the app's
+            // only writer: `AppModel.browseDay` parses the key with the same
+            // `ChqTime.parse("\(dayKey) 00:00:00")` call, and normalizes it
+            // through `ChqTime.dayKey(for:)`, before ever assigning
+            // `selectedDayKey` — so a key that fails here would already have
+            // failed there and never been stored.
             case .day: return DateScope.all.label
             }
         }

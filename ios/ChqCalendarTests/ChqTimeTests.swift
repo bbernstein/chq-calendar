@@ -108,4 +108,45 @@ struct ChqTimeTests {
         #expect(ChqTime.pillDayLabel(for: date, includingYear: false) == "Sat, Aug 23")
         #expect(ChqTime.pillDayLabel(for: date, includingYear: true) == "Sat, Aug 23, 2025")
     }
+
+    // MARK: - isCanonicalDayKey (#197 item 7)
+
+    @Test func canonicalDayKeyAcceptsAZeroPaddedFourDigitYearKey() {
+        #expect(ChqTime.isCanonicalDayKey("2026-08-09"))
+        #expect(ChqTime.isCanonicalDayKey("2026-12-31"))
+    }
+
+    /// The shape that made #197 item 1 a real bug: `ChqTime.parse` reads it
+    /// fine (ICU's numeric-field parser accepts variable-width digits
+    /// regardless of `isLenient`), but it is not what `ChqTime.dayKey`
+    /// emits, so a raw string compare against a canonical key matches
+    /// nothing.
+    @Test func canonicalDayKeyRejectsUnpaddedFields() {
+        #expect(!ChqTime.isCanonicalDayKey("2026-8-9"))
+        #expect(!ChqTime.isCanonicalDayKey("2026-08-9"))
+        #expect(!ChqTime.isCanonicalDayKey("2026-8-09"))
+    }
+
+    /// #197 item 7 proper: `parse` reads this as year 26, not 2026. The
+    /// explicit `"yyyy"` in the format string suggests otherwise, which is
+    /// exactly why callers needing a canonical key cannot rely on "it
+    /// parsed" as validation.
+    @Test func canonicalDayKeyRejectsATwoDigitYear() {
+        #expect(ChqTime.parse("26-08-09 00:00:00") != nil, "precondition: parse is this permissive")
+        #expect(!ChqTime.isCanonicalDayKey("26-08-09"))
+    }
+
+    @Test func canonicalDayKeyRejectsUnparseableInput() {
+        #expect(!ChqTime.isCanonicalDayKey("not-a-day"))
+        #expect(!ChqTime.isCanonicalDayKey(""))
+        #expect(!ChqTime.isCanonicalDayKey("2026-08-09 10:00:00"))
+    }
+
+    /// Everything the app generates must satisfy it — otherwise the DEBUG
+    /// assertions built on this predicate would fire on legitimate data.
+    @Test func everyGeneratedDayKeyIsCanonical() {
+        for key in ChqTime.dayKeys(from: "2026-06-27", through: "2026-08-31") {
+            #expect(ChqTime.isCanonicalDayKey(key), "\(key) came from dayKeys and must be canonical")
+        }
+    }
 }

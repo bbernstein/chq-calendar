@@ -230,8 +230,9 @@ description promising a removed feature, is a defect that reaches users
 before any test catches it.
 
 **The rule:** any PR touching `ios/ChqCalendar/Features/**`,
-`ios/ChqCalendar/App/**`, or `ios/ChqCalendar/Assets.xcassets/**` in a way
-a user can see must:
+`ios/ChqCalendar/App/**`, `ios/ChqCalendar/Assets.xcassets/**`,
+`ios/ChqCalendarWidgets/**`, or `ios/ChqCalendarShared/**` in a way a user
+can see must:
 
 1. Regenerate the affected screenshots:
    ```bash
@@ -251,6 +252,15 @@ metadata changes to an already-released version require creating a new
 version and submitting it for review. The one field changeable without a
 review cycle is **Promotional Text**, which is where time-sensitive
 messaging belongs.
+
+`ios/ChqCalendarShared/**` is in that list even though it builds no UI
+(#189): user-visible strings and display logic live there — `DisplayNames`
+(chip labels), `DateFilterLabel` (the date pill), `MyDayChipContent` (the
+My Day strip), `ReminderPreset` labels, `VenueAtlas` names. The whole
+directory is matched rather than an enumerated subset, so expect routine
+opt-outs for genuinely invisible changes there (`ChqTime` internals,
+`UserStateStore` persistence). That is the intended trade: an opt-out is a
+recorded decision, a missed pixel is not.
 
 `.github/workflows/app-store-assets.yml` enforces this. If a change
 genuinely alters no pixel a user sees, opt out explicitly by putting

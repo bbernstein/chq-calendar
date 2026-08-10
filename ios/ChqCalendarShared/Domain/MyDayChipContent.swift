@@ -62,4 +62,62 @@ nonisolated struct MyDayChipContent: Equatable, Sendable {
             isToday: isToday,
             accessibilityLabel: spokenParts.joined(separator: ", "))
     }
+
+    /// One chip, paired with the day key it was built from — the key doubles
+    /// as the `ForEach`/`scrollTo` identity in `MyDayView`.
+    nonisolated struct Entry: Equatable, Identifiable, Sendable {
+        let day: String
+        let content: MyDayChipContent
+        var id: String { day }
+    }
+
+    /// Chip contents for a whole strip, in the order given.
+    ///
+    /// **Why this exists rather than calling `make` inside the `ForEach`.**
+    /// `make` returns `nil` for a key it cannot read, and an `if let` in a
+    /// `ForEach` body drops that chip — *and its `.id`* — leaving nothing on
+    /// screen but a gap. A missing `.id` is precisely the orphaned-selection
+    /// failure `DayWindow.make`'s `selectedDay` widening exists to prevent,
+    /// so a regression in day-key generation would resurface as a strip that
+    /// silently will not scroll to the selection, with no other symptom
+    /// (#197 item 6).
+    ///
+    /// Callers build `days` from `ChqTime.dayKeys` / `ChqTime.day`, which
+    /// only ever emit canonical keys, so a non-canonical one here is a bug
+    /// upstream. DEBUG builds trap on it. Release builds render it anyway
+    /// whenever `make` can read it — `assert` compiles out, and a key like
+    /// `"2026-8-9"` parses (see `ChqTime.isCanonicalDayKey` for why
+    /// "parses" and "is canonical" differ), so it yields a chip carrying
+    /// that non-canonical string as its `.id`.
+    ///
+    /// That is deliberate, not an oversight. Skipping it would reopen the
+    /// gap-in-the-strip failure this helper exists to close, and the `.id`
+    /// stays usable because `selectedDay` and `days` both come from the
+    /// same `DayWindow` — they are wrong together or right together, so
+    /// `scrollTo` still finds its target. Only a key `make` cannot parse at
+    /// all is dropped, which is the pre-existing behavior.
+    ///
+    /// The non-canonical path is therefore unreachable from the test suite,
+    /// which runs DEBUG and would trap: the assertion is the contract, and
+    /// `ChqTimeTests.everyGeneratedDayKeyIsCanonical` is what keeps it from
+    /// firing on legitimate data.
+    static func makeAll(
+        days: [String],
+        todayKey: String,
+        starredCounts: [String: Int],
+        includingYear: Bool
+    ) -> [Entry] {
+        days.compactMap { day in
+            assert(
+                ChqTime.isCanonicalDayKey(day),
+                "non-canonical day key \"\(day)\" reached the My Day strip — check day-key generation")
+            guard let content = make(
+                dayKey: day,
+                todayKey: todayKey,
+                starCount: starredCounts[day] ?? 0,
+                includingYear: includingYear
+            ) else { return nil }
+            return Entry(day: day, content: content)
+        }
+    }
 }

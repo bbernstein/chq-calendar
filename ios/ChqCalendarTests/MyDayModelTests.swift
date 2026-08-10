@@ -185,6 +185,40 @@ struct MyDayModelTests {
         #expect(window.days.last == "2026-08-23")
     }
 
+    /// #197 item 2: the `bounds`-taking overload exists so `MyDayView` can
+    /// derive `myDayBounds` once per body evaluation instead of twice. It
+    /// must agree with the deriving version when handed the same bounds.
+    @Test func myDayWindowWithExplicitBoundsMatchesTheDerivingVersion() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(
+            events: [makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-09 10:00:00")))],
+            now: now,
+            favorites: ["a"])
+        let bounds = try #require(model.myDayBounds)
+
+        let derived = model.myDayWindow(showsEarlier: false, showsLater: false, selectedDay: "2026-08-09")
+        let explicit = model.myDayWindow(
+            bounds: bounds, showsEarlier: false, showsLater: false, selectedDay: "2026-08-09")
+
+        #expect(explicit == derived)
+    }
+
+    /// Proves the overload actually *uses* its parameter rather than
+    /// re-deriving `myDayBounds` behind it — the whole point of item 2. A
+    /// bounds range narrower than the season must clamp the window.
+    @Test func myDayWindowWithExplicitBoundsHonorsThoseBoundsNotTheDerivedOnes() throws {
+        let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
+        let model = makeSnapshotModel(
+            events: [makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-09 10:00:00")))],
+            now: now,
+            favorites: ["a"])
+
+        let window = model.myDayWindow(
+            bounds: "2026-08-08"..."2026-08-10", showsEarlier: false, showsLater: false)
+
+        #expect(window.days == ["2026-08-08", "2026-08-09", "2026-08-10"])
+    }
+
     @Test func myDayStarredCountsBucketsFavoritesByDay() throws {
         let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
         let model = makeSnapshotModel(

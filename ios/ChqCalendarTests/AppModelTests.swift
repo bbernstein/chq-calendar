@@ -993,6 +993,68 @@ struct AppModelTests {
         #expect(reloaded?.selectedWeeks.isEmpty == true)
     }
 
+    /// #156: `extraDays` is a `.next`-only widening ("Show next day"), so it
+    /// must not survive a move to another scope and silently re-widen the
+    /// window when the user comes back to Now.
+    @Test func selectScopeResetsExtraDays() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        #expect(model.filter.dateScope == .next)
+        model.showNextDay()
+        model.showNextDay()
+        #expect(model.filter.extraDays == 2)
+
+        model.selectScope(.thisWeek)
+
+        #expect(model.filter.extraDays == 0)
+    }
+
+    /// The failure #156 actually describes: Now → This Week → Now leaves the
+    /// window wider than a fresh `.next` selection, with nothing on screen
+    /// explaining why.
+    @Test func returningToNowAfterAScopeChangeStartsFromAFreshWindow() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.showNextDay()
+        model.selectScope(.thisWeek)
+
+        model.selectScope(.next)
+
+        #expect(model.filter.extraDays == 0)
+    }
+
+    /// #197 item 3: `selectedDayKey` is only meaningful under `.day`. Leaving
+    /// it set after a scope change is inert today only because nothing else
+    /// reads it — this makes the invariant hold by construction.
+    @Test func selectScopeClearsTheBrowsedDay() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.browseDay("2026-08-09")
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+
+        model.selectScope(.today)
+
+        #expect(model.filter.selectedDayKey == nil)
+    }
+
+    /// `setWeekSelection` is the other route out of `.day` — it forces
+    /// `.all` — so it owes the same cleanup as `selectScope`.
+    @Test func setWeekSelectionClearsTheBrowsedDay() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.browseDay("2026-08-09")
+
+        model.setWeekSelection([3])
+
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.selectedDayKey == nil)
+    }
+
+    @Test func setWeekSelectionResetsExtraDays() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.showNextDay()
+
+        model.setWeekSelection([3])
+
+        #expect(model.filter.extraDays == 0)
+    }
+
     @Test func reselectingTheActiveScopeIsANoOp() throws {
         let model = try makeInSeasonModel(defaults: makeDefaults())
         model.selectScope(.today)

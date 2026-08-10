@@ -134,6 +134,22 @@ nonisolated enum ChqTime {
         dayKeyFormatter.string(from: date)
     }
 
+    /// Whether `key` is exactly what `dayKey(for:)` would emit — the check
+    /// to use where a caller needs a *canonical* day key rather than merely
+    /// a parseable one (#197 items 1 and 7).
+    ///
+    /// `parse` is more permissive than its `"yyyy-MM-dd HH:mm:ss"` format
+    /// string suggests: ICU's numeric-field parser accepts variable-width
+    /// digits whatever `isLenient` says, so `"2026-8-9"` reads as August 9th
+    /// and `"26-08-09"` reads as **year 26**. Both "parse successfully" and
+    /// neither is a key `EventFilter`'s raw string comparisons will ever
+    /// match, so "it parsed" is not validation. Round-tripping through
+    /// `dayKey(for:)` is, and it costs one format call.
+    static func isCanonicalDayKey(_ key: String) -> Bool {
+        guard let date = parse("\(key) 00:00:00") else { return false }
+        return dayKey(for: date) == key
+    }
+
     /// `"EEEE, MMMM d"`, e.g. `"Monday, July 27"`.
     static func dayTitle(for date: Date) -> String {
         dayTitleFormatter.string(from: date)

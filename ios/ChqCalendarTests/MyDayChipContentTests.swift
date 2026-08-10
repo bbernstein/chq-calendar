@@ -92,4 +92,23 @@ struct MyDayChipContentTests {
         #expect(MyDayChipContent.make(
             dayKey: "not-a-day", todayKey: "2026-08-09", starCount: 0, includingYear: false) == nil)
     }
+
+    // MARK: - makeAll (#197 item 6)
+
+    @Test func makeAllReturnsOneEntryPerDayInOrder() {
+        let contents = MyDayChipContent.makeAll(
+            days: ["2026-08-08", "2026-08-09", "2026-08-10"],
+            todayKey: "2026-08-09",
+            starredCounts: ["2026-08-09": 3],
+            includingYear: false)
+
+        #expect(contents.map(\.day) == ["2026-08-08", "2026-08-09", "2026-08-10"])
+        #expect(contents.map(\.content.starCount) == [0, 3, 0])
+        #expect(contents.map(\.content.isToday) == [false, true, false])
+    }
+
+    @Test func makeAllIsEmptyForNoDays() {
+        #expect(MyDayChipContent.makeAll(
+            days: [], todayKey: "2026-08-09", starredCounts: [:], includingYear: false).isEmpty)
+    }
 }
