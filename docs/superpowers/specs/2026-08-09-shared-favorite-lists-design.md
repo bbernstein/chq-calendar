@@ -54,8 +54,11 @@ constraint, not a footnote.
 - Handles, profiles, avatars, or any user-to-user surface beyond a list.
 - Attendance, check-in, presence, "here now", or last-seen.
 - Comments, reactions, or messaging.
-- Any change to the signed-out experience. Signed-out users are unaffected,
-  byte for byte.
+- Any change to the signed-out **calendar** experience. A signed-out visitor
+  browsing chqcal.org sees and does exactly what they do today, byte for byte.
+  The one new surface reachable without an account is the `/f/{shareKey}`
+  preview page (§7), which is unreachable unless someone hands you the link —
+  it adds a destination, it does not alter the existing one.
 
 ---
 
@@ -226,9 +229,26 @@ in the new tables at all. Three new tables:
 
 ### `${var.app_name}-list-members`
 - Hash key: `userId`, range key: `listId`. One row per follow.
-- Attributes: `{ alertsEnabled: boolean, joinedAt: number, viaShareKey:
-  string }` (`viaShareKey` recorded so a rotation can optionally be made to
-  cut previously-admitted followers, and for support/debug).
+- Attributes: `{ alertsEnabled: boolean, joinedAt: number, followerDisplayName:
+  string, viaShareKey: string }` (`viaShareKey` recorded so a rotation can
+  optionally be made to cut previously-admitted followers, and for
+  support/debug).
+- **`followerDisplayName` exists because §9c promises a roster and
+  per-follower removal, and §9b forbids the obvious way to render one.** The
+  owner has to identify a follower well enough to decide whether to remove
+  them, and email is not available for that — the same guarantee that protects
+  the owner's identity from followers applies symmetrically to followers. So
+  the follower supplies a display name at follow time (defaulting to whatever
+  name they use on their own lists, editable then and later), it is stored on
+  the membership row, and it is the **only** follower-identifying field the
+  roster ever returns. `userId` is used for the `DELETE` route and never
+  rendered.
+- Consequences to accept: display names are **neither unique nor verified**,
+  so the roster shows `joinedAt` alongside the name to disambiguate two
+  Pats, and an owner cannot treat a name as proof of who someone is. Because
+  a follower's chosen name becomes visible to the list owner, the follow flow
+  must say so — the §9b guarantee is about the *account identity*, not about
+  being invisible.
 - **GSI `by-list`** — hash `listId`: powers the follower roster, follower
   removal, unpublish revocation, and the account-deletion cascade (§8). This
   GSI is load-bearing for correctness, not just for a UI.
@@ -383,6 +403,9 @@ existing project rules, email is never logged.
 **(c) Owner control, including a kill switch.** The owner can see who
 follows each list, remove any follower, rotate the invite link, and unpublish
 in one action that revokes everyone at once. Account deletion cascades (§8).
+"Who follows" means each follower's chosen `followerDisplayName` and
+`joinedAt` — never their email or account identity, since guarantee (b) is
+symmetric and protects followers from owners as well (§5).
 
 **(d) Schedules only, never presence.** The feature publishes *intent* —
 "this event is on my list". There is no attendance, check-in, live location,
@@ -598,6 +621,10 @@ coverage floor (`.coverage-floor.json`, `docs/coverage.md`).
 - A `private` list's `shareKey` resolves to nothing.
 - `/lists/preview/{shareKey}` never returns email, `sub`, or any Cognito claim
   (assert on the serialized payload, not the object).
+- The follower roster returns `followerDisplayName` and `joinedAt` and no
+  other follower-identifying field — same serialized-payload assertion. The
+  `userId` the `DELETE` route needs must not appear in the roster's rendered
+  output.
 - Following an `invite` list defaults `alertsEnabled` **on**; following a
   `public` or featured list through the same route defaults it **off**; a later
   visibility change leaves existing members' flags untouched (§4).
