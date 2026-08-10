@@ -33,6 +33,16 @@ nonisolated enum EventRepositoryError: Error, Sendable, Equatable {
 /// all JSON decoding is done here, off the main actor.
 actor EventRepository {
     private let api: CalendarAPIClient
+
+    /// Never call `cache.write`/`cache.touch`/`cache.remove` directly from
+    /// this actor — go through `writeCache`/`touchCache` below, which also
+    /// invalidate `snapshotMemo`. A direct mutation would leave the memo
+    /// serving a snapshot of data that is no longer on disk.
+    ///
+    /// `remove` has no wrapper because it has no caller: nothing in the app
+    /// invokes `DataCaching.remove` today. If that changes — a "clear cached
+    /// data" setting is the obvious candidate — add a `removeCache` wrapper
+    /// rather than calling through, for exactly the reason above.
     private let cache: DataCaching
     private let ttl: TimeInterval
     private let sidecarTimeout: TimeInterval
@@ -104,13 +114,19 @@ actor EventRepository {
     /// Returns `nil` only if no cached events payload exists at all — the
     /// sidecars (article links, program links, weekly themes) are optional
     /// and simply come back empty when absent or undecodable.
-    /// Memoized per year — see `snapshotMemo`. Only a `nil` result is
-    /// recomputed on every call, which is the cheap case: it means there is
-    /// no cached payload to decode (or it is corrupt), so there is no work
-    /// being repeated. Caching the *absence* would also need a way to
-    /// notice a payload appearing, which `writeCache` already handles for
-    /// the present case but would make the empty case subtly order-
-    /// dependent for no gain.
+    /// Memoized per year — see `snapshotMemo`. A `nil` result is
+    /// deliberately *not* memoized, so it is recomputed on every call.
+    ///
+    /// Two `nil` cases, and they are not equally cheap. A missing payload
+    /// costs a failed cache lookup and nothing more. A **corrupt** payload
+    /// costs a full read plus a failed `decodeEvents` — so this does repeat
+    /// real work, just less of it than a successful decode of the largest
+    /// payload the app has. Not caching it anyway is still the right call:
+    /// caching an absence would need its own trigger for "a payload just
+    /// appeared", and the only thing that makes one appear is `writeCache`,
+    /// which already clears the whole memo. A separate negative cache would
+    /// duplicate that invalidation path to save a cost that only shows up
+    /// when the cache is already broken.
     func cachedSnapshot(year: Int) -> CalendarSnapshot? {
         if let memoized = snapshotMemo[year] {
             return memoized
