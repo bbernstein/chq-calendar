@@ -50,6 +50,20 @@ actor EventRepository {
     /// the widget extension reads the shared App Group cache but never
     /// writes to it. Every mutation therefore goes through
     /// `writeCache`/`touchCache` below, which drop the memo.
+    ///
+    /// The trade this makes is residency: decoding used to be transient
+    /// (decode, use, free), and now one decoded `[Event]` per cached year
+    /// stays alive for as long as the actor does. That is bounded by the
+    /// years manifest, which is small — it currently lists 2025/2026/2027,
+    /// and only seasons the user has actually opened are ever cached — so
+    /// the ceiling is a couple of full seasons plus a mostly-empty upcoming
+    /// one. `AppModel` already holds the selected year's `snapshot`
+    /// permanently, so the *incremental* cost is the non-selected years.
+    /// This lives in the app process only; the widget extension, which has
+    /// a far tighter memory budget, does not use `EventRepository` (it
+    /// reads through `SharedSnapshotLoader`). If the manifest ever grows to
+    /// many years, this should become bounded (an LRU, or just the
+    /// selected year plus `defaultYear`) rather than unbounded-by-manifest.
     private var snapshotMemo: [Int: CalendarSnapshot] = [:]
 
     init(api: CalendarAPIClient, cache: DataCaching, ttl: TimeInterval = 3600, sidecarTimeout: TimeInterval = 3) {
