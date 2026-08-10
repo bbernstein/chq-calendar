@@ -168,10 +168,32 @@ actor MockAPI: CalendarAPIClient {
 final class MockCache: DataCaching, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: CacheEntry] = [:]
+    private var reads: [String: Int] = [:]
+
+    /// How many times `read(_:)` has been called for `key`.
+    ///
+    /// Exists so tests can assert on *how often* the repository goes to the
+    /// cache, not just what it gets back — the observable for the snapshot
+    /// memoization in #187.
+    ///
+    /// Scoped to `cachedSnapshot(year:)`: *there*, a payload read is a
+    /// faithful proxy for the expensive part (the full JSON decode that
+    /// immediately follows it), because that method never reads a payload
+    /// without decoding it. That is not true of the repository generally —
+    /// `refresh` reads the cached entry for its ETag and freshness check
+    /// and then, on a `200`, decodes the *network* payload instead, leaving
+    /// that read with no decode attached. So only count reads in tests that
+    /// exercise `cachedSnapshot`.
+    func readCount(for key: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return reads[key] ?? 0
+    }
 
     func read(_ key: String) -> CacheEntry? {
         lock.lock()
         defer { lock.unlock() }
+        reads[key, default: 0] += 1
         return storage[key]
     }
 
