@@ -303,7 +303,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ChqCalendar.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX6EGLMU69;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -321,7 +321,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -337,7 +337,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ChqCalendar.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX6EGLMU69;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -355,7 +355,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -372,7 +372,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX6EGLMU69;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.calendarTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -390,7 +390,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX6EGLMU69;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.calendarTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -462,7 +462,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ChqCalendarWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX6EGLMU69;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ChqCalendarWidgets/Info.plist;
@@ -473,7 +473,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.app.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -489,7 +489,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ChqCalendarWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX6EGLMU69;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ChqCalendarWidgets/Info.plist;
@@ -500,7 +500,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.app.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
