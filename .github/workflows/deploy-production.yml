@@ -14,6 +14,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    # Guards against forks: this job deploys straight to chqcal.org on push
+    # to main with static AWS keys and no branch-protection gate. A fork
+    # would otherwise red-X on every push (no secrets configured) or, worse,
+    # actually deploy over production if someone ever added real creds to
+    # the fork's secrets.
+    if: github.repository == 'bbernstein/chq-calendar'
     # Serialize deploys: two concurrent runs would interleave the
     # ci-e2e-test publisher's enable/disable toggles and corrupt the
     # post-deploy retraction assertion. cancel-in-progress=false so an
