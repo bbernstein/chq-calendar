@@ -27,8 +27,12 @@ fi
 # root, so a non-root lsof cannot see them and a real conflict slips through
 # unnoticed. /dev/tcp is a bash builtin — this is why the shebang above is
 # bash and not sh; do not "portability-fix" it.
+# Both loopbacks are probed: Docker's published ports bind dual-stack, but a
+# stray host process bound only to ::1 would otherwise slip through a v4-only
+# check and fail confusingly later.
 port_in_use() {
-    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && return 0
+    (exec 3<>"/dev/tcp/::1/$1") 2>/dev/null
 }
 
 # The container that legitimately owns each port when this project's stack is
@@ -95,39 +99,38 @@ npm ci
 echo "🚀 Building and starting services..."
 docker compose up -d --build --renew-anon-volumes
 
-# Wait for services to be ready
-echo "⏳ Waiting for services to start..."
-sleep 10
+# Poll for readiness rather than sleeping a fixed interval and hoping. The
+# backend container compiles tools/publisher-format with tsc before it starts
+# the dev server, and the --renew-anon-volumes above discards that build on
+# every run — so a cold start routinely takes longer than the 10s this used to
+# sleep, and a fixed wait reports "failed to start" for a container that is
+# merely still compiling. That false negative is exactly the kind of first-run
+# confusion this script exists to prevent.
+wait_for() {
+    local label=$1 port=$2 url=$3 tries=${4:-90}
+    local i
+    for ((i = 1; i <= tries; i++)); do
+        if curl -s -o /dev/null --max-time 3 "$url"; then
+            echo "✅ $label is running on port $port"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "❌ $label failed to start (no response from $url after ${tries}s)"
+    return 1
+}
 
-# Check if services are running
-echo "🔍 Checking service health..."
+echo "⏳ Waiting for services to become ready..."
+all_ready=true
+wait_for "DynamoDB Local" 8000 http://localhost:8000        || all_ready=false
+wait_for "Backend API"    3001 http://localhost:3001/health || all_ready=false
+wait_for "Frontend"       3000 http://localhost:3000        || all_ready=false
+wait_for "DynamoDB Admin" 8001 http://localhost:8001        || all_ready=false
 
-# Check DynamoDB
-if curl -s http://localhost:8000 > /dev/null; then
-    echo "✅ DynamoDB Local is running on port 8000"
-else
-    echo "❌ DynamoDB Local failed to start"
-fi
-
-# Check Backend API
-if curl -s http://localhost:3001/health > /dev/null; then
-    echo "✅ Backend API is running on port 3001"
-else
-    echo "❌ Backend API failed to start"
-fi
-
-# Check Frontend
-if curl -s http://localhost:3000 > /dev/null; then
-    echo "✅ Frontend is running on port 3000"
-else
-    echo "❌ Frontend failed to start"
-fi
-
-# Check DynamoDB Admin
-if curl -s http://localhost:8001 > /dev/null; then
-    echo "✅ DynamoDB Admin is running on port 8001"
-else
-    echo "❌ DynamoDB Admin failed to start"
+if [ "$all_ready" != true ]; then
+    echo ""
+    echo "⚠️  Some services did not come up. Check their logs with:"
+    echo "     docker compose logs -f"
 fi
 
 echo ""
