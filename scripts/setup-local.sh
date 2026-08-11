@@ -139,10 +139,19 @@ wait_for "Backend API"    3001 http://localhost:3001/health || all_ready=false
 wait_for "Frontend"       3000 http://localhost:3000        || all_ready=false
 wait_for "DynamoDB Admin" 8001 http://localhost:8001        || all_ready=false
 
+# Fail loudly rather than printing the success banner over a broken stack.
+# `npm run setup` runs this script, so a zero exit here is a health claim that
+# automation and humans both act on — announcing "ready" when a service never
+# answered is worse than no message at all. The containers are deliberately
+# left running so the logs are still there to read.
 if [ "$all_ready" != true ]; then
     echo ""
-    echo "⚠️  Some services did not come up. Check their logs with:"
+    echo "❌ Some services never became ready. Inspect them with:"
     echo "     docker compose logs -f"
+    echo ""
+    echo "   The stack is still running. Fix the problem and re-run this"
+    echo "   script, or tear it down with: docker compose down"
+    exit 1
 fi
 
 echo ""
