@@ -89,11 +89,12 @@ check_port 8000
 check_port 8001
 
 # No manual `docker network create` here: docker-compose.yml declares the
-# network without a `name:`, so Compose creates and owns its own
-# project-prefixed one (docker-dev_chq-calendar-network). A hand-made
-# `chq-calendar-network` is attached to nothing, survives `docker compose
-# down -v`, and just accumulates on developer machines as a decoy when
-# debugging connectivity.
+# network without a `name:`, so Compose creates and owns its own network named
+# <project>_chq-calendar-network — where <project> is COMPOSE_PROJECT_NAME, or
+# the directory name if that is unset. A hand-made `chq-calendar-network` is
+# attached to nothing, survives `docker compose down -v`, and just accumulates
+# on developer machines as a decoy when debugging connectivity.
+# `docker compose config` prints the resolved name if you need it.
 
 # Install host-side dependencies. This is an npm workspaces monorepo with a
 # single root lockfile; installing per-workspace builds nested trees that fight

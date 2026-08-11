@@ -161,6 +161,8 @@ docker compose restart
 # Rebuild and restart (--renew-anon-volumes: see the note under Running Locally)
 docker compose up -d --build --renew-anon-volumes
 
-# Remove all data (reset database)
+# Stop and remove containers plus their volumes. This clears each container's
+# cached node_modules; it does not "reset the database", since DynamoDB Local
+# runs -inMemory and keeps nothing between restarts anyway.
 docker compose down -v
 ```
