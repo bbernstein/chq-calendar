@@ -120,7 +120,9 @@ npm run dev --workspace=frontend
 
 ### For Local Development
 - [Docker](https://docker.com) and Docker Compose
-- [Node.js](https://nodejs.org) >= 18 (optional for running outside Docker)
+- [Node.js](https://nodejs.org) 24+ (see `.nvmrc`) — required by
+  `./scripts/setup-local.sh` and by the manual setup above, both of which
+  install the workspace tree on the host
 - Access to production AWS endpoints (no local backend server)
 
 ## 🔍 Health Checks

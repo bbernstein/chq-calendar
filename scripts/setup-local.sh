@@ -88,9 +88,12 @@ check_port 3001
 check_port 8000
 check_port 8001
 
-# Create Docker network if it doesn't exist
-echo "🌐 Creating Docker network..."
-docker network create chq-calendar-network 2>/dev/null || echo "Network already exists"
+# No manual `docker network create` here: docker-compose.yml declares the
+# network without a `name:`, so Compose creates and owns its own
+# project-prefixed one (docker-dev_chq-calendar-network). A hand-made
+# `chq-calendar-network` is attached to nothing, survives `docker compose
+# down -v`, and just accumulates on developer machines as a decoy when
+# debugging connectivity.
 
 # Install host-side dependencies. This is an npm workspaces monorepo with a
 # single root lockfile; installing per-workspace builds nested trees that fight
