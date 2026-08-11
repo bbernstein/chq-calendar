@@ -102,7 +102,9 @@ cd backend && npm run deploy
 
 ### Prerequisites
 - Docker with the Compose plugin (Docker Compose v2)
-- Node.js 24+ (for development outside Docker; see `.nvmrc`)
+- Node.js 24+ (see `.nvmrc`) — required by `./scripts/setup-local.sh`, which
+  installs the workspace tree on the host as well as building the containers,
+  and for any development outside Docker
 
 ### Running Locally
 The application can run completely locally using Docker:
@@ -135,7 +137,7 @@ docker compose up -d --build --renew-anon-volumes
 
 ### Local Development Features
 - Hot reloading for frontend with instant filter updates
-- Local DynamoDB with persistent data storage
+- Local DynamoDB (runs `-inMemory`, so its data resets on container restart)
 - DynamoDB Admin UI for database management
 - Development mode authentication bypass for admin features
 - State persistence in localStorage with cache versioning

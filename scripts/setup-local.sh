@@ -22,6 +22,15 @@ if ! docker compose version &> /dev/null; then
     exit 1
 fi
 
+# npm is required even though the services themselves run in Docker: this
+# script installs the workspace tree on the host too, so editors, type-checking
+# and host-run tests work. Checked up front rather than letting `npm ci` below
+# fail with a bare "command not found".
+if ! command -v npm &> /dev/null; then
+    echo "❌ npm is not installed. Node.js 24+ is required (see .nvmrc)."
+    exit 1
+fi
+
 # Is anything listening on this port? Uses a raw TCP connect rather than
 # lsof/ss process inspection: Docker's port-forwarding sockets are owned by
 # root, so a non-root lsof cannot see them and a real conflict slips through
@@ -152,7 +161,8 @@ echo "                       package.json / package-lock.json change)"
 echo ""
 echo "🗄️  Database:"
 echo "   • DynamoDB tables will be created automatically"
-echo "   • Data persists in Docker volume 'dynamodb_data'"
+echo "   • DynamoDB Local runs with -inMemory: data is discarded whenever"
+echo "     the container restarts"
 echo "   • Use DynamoDB Admin UI to view/edit data"
 echo ""
 echo "Happy coding! 🚀"
