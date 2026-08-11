@@ -102,7 +102,9 @@ cd backend && npm run deploy
 
 ### Prerequisites
 - Docker with the Compose plugin (Docker Compose v2)
-- Node.js 22+ (minimum 20.19, for development outside Docker)
+- Node.js 24+ (see `.nvmrc`) — required by `./scripts/setup-local.sh`, which
+  installs the workspace tree on the host as well as building the containers,
+  and for any development outside Docker
 
 ### Running Locally
 The application can run completely locally using Docker:
@@ -112,8 +114,17 @@ The application can run completely locally using Docker:
 ./scripts/setup-local.sh
 
 # Or manual setup
-docker compose up -d --build
+docker compose up -d --build --renew-anon-volumes
 ```
+
+> **After changing `package.json` or `package-lock.json`, rebuild with
+> `--renew-anon-volumes`.** Each container's `node_modules` lives in an
+> anonymous volume so the host's copy doesn't shadow it, and those volumes
+> survive a plain `docker compose up --build` — the new image is built
+> correctly and then masked by the previous run's dependency tree. Symptoms are
+> confusing: a package you just pinned stays at the old version, or a newly
+> added dependency is missing entirely. `./scripts/setup-local.sh` passes the
+> flag for you.
 
 ### Local Services
 - **Frontend**: http://localhost:3000 (Vite dev server with HMR)
@@ -126,7 +137,7 @@ docker compose up -d --build
 
 ### Local Development Features
 - Hot reloading for frontend with instant filter updates
-- Local DynamoDB with persistent data storage
+- Local DynamoDB (runs `-inMemory`, so its data resets on container restart)
 - DynamoDB Admin UI for database management
 - Development mode authentication bypass for admin features
 - State persistence in localStorage with cache versioning
@@ -147,9 +158,11 @@ docker compose down
 # Restart services
 docker compose restart
 
-# Rebuild and restart
-docker compose up -d --build
+# Rebuild and restart (--renew-anon-volumes: see the note under Running Locally)
+docker compose up -d --build --renew-anon-volumes
 
-# Remove all data (reset database)
+# Stop and remove containers plus their volumes. This clears each container's
+# cached node_modules; it does not "reset the database", since DynamoDB Local
+# runs -inMemory and keeps nothing between restarts anyway.
 docker compose down -v
 ```

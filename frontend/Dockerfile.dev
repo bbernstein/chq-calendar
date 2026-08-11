@@ -2,17 +2,36 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# This monorepo keeps a single lockfile at the repo root, so the build context
+# is the repo root (see docker-compose.yml). Copy the root manifests plus every
+# workspace manifest the lockfile references — `npm ci` refuses to run against a
+# tree whose declared workspaces are missing, and it is `npm ci` we want: plain
+# `npm install` re-resolves semver ranges instead of installing the locked
+# versions. That drift is the original bug, which installed
+# @preact/preset-vite 2.10.5 over the pinned 2.10.3; 2.10.5 pulls in the
+# ESM-only zimmerframe, breaking its hook-name transform and blanking the page.
+COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/
+COPY backend/package.json backend/
+COPY tools/publisher-format/package.json tools/publisher-format/
 
-# Install dependencies
-RUN npm install
+# Scoped to this workspace: an unscoped `npm ci` installs all three workspaces
+# (1139 packages) into an image that only needs 407. All four manifests are
+# still copied above — dropping the unused ones changes resolution slightly
+# (405 packages instead of 407), and matching the lockfile exactly is the whole
+# point of using `npm ci` here.
+RUN npm ci -w frontend --include-workspace-root
 
 # Copy source code
 COPY . .
 
+WORKDIR /app/frontend
+
 # Expose port
 EXPOSE 3000
 
-# Start development server
-CMD ["npm", "run", "dev"]
+# Start development server. --host is required for the port publish to work:
+# Vite binds 127.0.0.1 by default, which is unreachable from outside the
+# container. Kept here rather than in docker-compose.yml so `docker run` on
+# this image behaves the same as `docker compose up`.
+CMD ["npm", "run", "dev", "--", "--host"]

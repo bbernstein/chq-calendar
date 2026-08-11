@@ -4,9 +4,15 @@ A Vite + Preact static site for the Chautauqua Institution event calendar.
 
 ## Development
 
+Run these from the **repo root**, not from this directory. The project is an
+npm workspaces monorepo with a single root lockfile; `npm install` in here
+resolves against `frontend/package.json`'s semver ranges instead of that
+lockfile, which is how an unpinned `@preact/preset-vite` gets installed and
+serves a blank page.
+
 ```bash
-npm install
-npm run dev
+npm ci
+npm run dev --workspace=frontend
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to view the app.

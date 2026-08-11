@@ -36,10 +36,11 @@ terraform apply
 
 ### Backend Only
 ```bash
-cd backend
-npm install
-npm run build
-npm run deploy
+# From the repo root — see Manual Local Setup below for why the install is not
+# run from inside backend/
+npm ci
+npm run build --workspace=backend
+npm run deploy --workspace=backend
 ```
 
 ### Frontend Only
@@ -54,8 +55,10 @@ npm run deploy
 # Start all services with Docker
 ./scripts/setup-local.sh
 
-# Or manually
-docker compose up -d --build
+# Or manually. --renew-anon-volumes discards each container's cached
+# node_modules volume, which otherwise survives --build and masks the rebuilt
+# image — see the note in README.md under Running Locally.
+docker compose up -d --build --renew-anon-volumes
 ```
 
 ### Local Services
@@ -66,16 +69,24 @@ docker compose up -d --build
 - **Backend**: Uses production AWS Lambda endpoints
 
 ### Manual Local Setup
+All commands run from the repo root. This is an npm workspaces monorepo with a
+single root lockfile, so dependencies install once at the root — `npm install`
+from inside `backend/` cannot resolve `@chq-calendar/publisher-format` (a local
+workspace package that is never published) and 404s against the registry.
+
 ```bash
+# Install every workspace at the locked versions
+npm ci
+
+# The backend imports publisher-format's generated refs, which are gitignored
+# and so must be built before the server will start
+npm run build --workspace=tools/publisher-format
+
 # Backend
-cd backend
-npm install
-npm run dev
+npm run dev --workspace=backend
 
 # Frontend (in another terminal)
-cd frontend
-npm install
-npm run dev
+npm run dev --workspace=frontend
 ```
 
 ## 📁 Script Reference
@@ -109,7 +120,9 @@ npm run dev
 
 ### For Local Development
 - [Docker](https://docker.com) and Docker Compose
-- [Node.js](https://nodejs.org) >= 18 (optional for running outside Docker)
+- [Node.js](https://nodejs.org) 24+ (see `.nvmrc`) — required by
+  `./scripts/setup-local.sh` and by the manual setup above, both of which
+  install the workspace tree on the host
 - Access to production AWS endpoints (no local backend server)
 
 ## 🔍 Health Checks

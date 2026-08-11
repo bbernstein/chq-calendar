@@ -2,17 +2,35 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# This monorepo keeps a single lockfile at the repo root, so the build context
+# is the repo root (see docker-compose.yml). Copy the root manifests plus every
+# workspace manifest the lockfile references — `npm ci` refuses to run against a
+# tree whose declared workspaces are missing, and it is `npm ci` we want: plain
+# `npm install` could not resolve @chq-calendar/publisher-format (a local
+# workspace package that is never published) and 404'd fetching it from the
+# registry.
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/
+COPY frontend/package.json frontend/
+COPY tools/publisher-format/package.json tools/publisher-format/
 
-# Install dependencies
-RUN npm install
+# Scoped to the workspaces this image runs: the backend itself, plus
+# publisher-format, whose dist/refs the backend imports and which is built at
+# container start. --include-workspace-root brings in the root devDependencies
+# (typescript) that build needs.
+RUN npm ci -w backend -w tools/publisher-format --include-workspace-root
 
 # Copy source code
 COPY . .
 
+WORKDIR /app/backend
+
 # Expose port
 EXPOSE 3001
 
-# Development command
-CMD ["npm", "run", "dev"]
+# publisher-format ships no prebuilt dist (it is gitignored) and the backend
+# imports its refs, so build it at container start. docker-compose.yml mounts
+# an anonymous volume over tools/publisher-format/dist so this output stays
+# inside the container: writing it into the bind-mounted host tree as root is
+# what left host-side `npm install` failing with EPERM.
+CMD ["sh", "-c", "cd /app && npm run build --workspace=tools/publisher-format && cd /app/backend && npm run dev"]
