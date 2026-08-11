@@ -156,8 +156,8 @@ docker compose down
 # Restart services
 docker compose restart
 
-# Rebuild and restart
-docker compose up -d --build
+# Rebuild and restart (--renew-anon-volumes: see the note under Running Locally)
+docker compose up -d --build --renew-anon-volumes
 
 # Remove all data (reset database)
 docker compose down -v

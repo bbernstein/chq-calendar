@@ -54,8 +54,10 @@ npm run deploy
 # Start all services with Docker
 ./scripts/setup-local.sh
 
-# Or manually
-docker compose up -d --build
+# Or manually. --renew-anon-volumes discards each container's cached
+# node_modules volume, which otherwise survives --build and masks the rebuilt
+# image — see the note in README.md under Running Locally.
+docker compose up -d --build --renew-anon-volumes
 ```
 
 ### Local Services

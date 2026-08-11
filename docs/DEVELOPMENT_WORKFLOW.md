@@ -45,8 +45,10 @@ cd chq-calendar
 # Start all services (frontend + local DynamoDB)
 ./scripts/start-local.sh
 
-# Or manually with Docker Compose
-docker compose up -d --build
+# Or manually with Docker Compose. --renew-anon-volumes discards each
+# container's cached node_modules volume, which otherwise survives --build and
+# masks the rebuilt image — see the note in README.md under Running Locally.
+docker compose up -d --build --renew-anon-volumes
 
 # Check service status
 docker compose ps
