@@ -266,6 +266,9 @@ the next submission.
   range and a filter count — beside the search field, each opening a
   sheet. About a third more of the screen is now event list.
 
+- Captions: the More menu now links to Chautauqua's live captioning at
+  captions.chq.org, for attendees who are deaf or hard of hearing.
+
 **Pending, not yet shipped** (do not fold into `whatsNew` until the PR
 that makes this change actually lands):
 

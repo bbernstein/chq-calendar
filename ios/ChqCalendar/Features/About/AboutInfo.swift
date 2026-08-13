@@ -41,6 +41,7 @@ enum AboutInfo {
         Link(id: "feedback", title: "Feedback", url: URL(string: "https://www.chqcal.org/feedback")!),
         Link(id: "programs", title: "Programs", url: URL(string: "https://programs.chq.org/")!),
         Link(id: "questions", title: "Questions", url: URL(string: "https://questions.chq.org/")!),
+        Link(id: "captions", title: "Captions", url: URL(string: "https://captions.chq.org/")!),
         Link(id: "bus-tram-tracker", title: "Bus Tracker", url: URL(string: "https://busandtramtracker.chq.org")!),
         Link(id: "chautauqua-fund", title: "CHQ Fund", url: URL(string: "https://giving.chq.org/")!),
     ]
