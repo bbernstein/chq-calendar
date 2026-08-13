@@ -262,12 +262,18 @@ Track user-visible changes here as they land, then fold the accepted
 bullets into `whatsNew` in `listing-fields.json` (Step 8) when preparing
 the next submission.
 
-- Filtering moved to the bottom of the screen: two controls — the date
-  range and a filter count — beside the search field, each opening a
-  sheet. About a third more of the screen is now event list.
+*(Empty — everything tracked here was folded into `whatsNew` for 1.1.2.)*
 
-- Captions: the More menu now links to Chautauqua's live captioning at
-  captions.chq.org, for attendees who are deaf or hard of hearing.
+Folded into 1.1.2: the Captions link, the expanded Siri vocabulary, the My
+Day date-navigation work, the date-filter corrections, and the star-tap
+performance fix.
+
+Dropped rather than folded: "filtering moved to the bottom of the screen."
+That change shipped **in 1.1** — it simply never made it into 1.1's
+`whatsNew`, which was written around the 4.2 response. Users on 1.1 already
+have it, so announcing it in 1.1.2 would be wrong. The lesson is the one
+this section exists to prevent: a bullet left sitting here is not evidence
+that it is unreleased. Date a bullet when you add it.
 
 **Pending, not yet shipped** (do not fold into `whatsNew` until the PR
 that makes this change actually lands):
