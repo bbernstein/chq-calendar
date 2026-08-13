@@ -8,6 +8,12 @@ describe('quickLinks (shared/links.json)', () => {
     expect(fund?.url).toBe('https://giving.chq.org/');
   });
 
+  it('includes the captions link', () => {
+    const captions = quickLinks.find((l) => l.id === 'captions');
+    expect(captions?.title).toBe('Captions');
+    expect(captions?.url).toBe('https://captions.chq.org/');
+  });
+
   it('every link has a non-empty id, title, and absolute https url', () => {
     for (const link of quickLinks) {
       expect(link.id).toMatch(/^[a-z0-9-]+$/);
