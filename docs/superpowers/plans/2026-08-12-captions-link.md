@@ -297,9 +297,8 @@ which compares the two lists as ordered arrays.
 ## What the URL actually is
 
 `captions.chq.org` is a 301 that CHQ re-points at whichever session is
-currently being captioned. On 2026-08-12 it resolved to a 1CapApp CART page
-titled "57919 chautauqua: the rev. frank a. thomas || 9:00-10:00 am" and read
-"Session has been stopped".
+currently being captioned. On 2026-08-12 it resolved to a 1CapApp CART session
+page for Chautauqua that read "Session has been stopped".
 
 Shown unconditionally anyway. Gating on liveness would need a second source of
 truth we cannot populate — CHQ controls the redirect, not us — and a hidden

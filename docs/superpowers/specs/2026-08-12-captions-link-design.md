@@ -1,6 +1,6 @@
 # Captions quick link — design
 
-**Status:** Approved, not yet implemented
+**Status:** Implemented on branch `feat/captions-link`
 **Date:** 2026-08-12
 
 ## Problem
@@ -19,8 +19,8 @@ already drives both the web header and the iOS toolbar **More** menu.
 
 `https://captions.chq.org` is a 301 redirect, not a page we control. On
 2026-08-12 it resolved to `https://2020archive.1capapp.com/event/chautauqua/`,
-a 1CapApp CART session titled *"57919 chautauqua: the rev. frank a. thomas ||
-9:00-10:00 am"*, and rendered "Session has been stopped".
+a 1CapApp CART session page for Chautauqua, and rendered "Session has been
+stopped".
 
 CHQ appears to re-point the hostname at whichever session is currently being
 captioned. Two consequences shape the design:
@@ -77,8 +77,10 @@ intended.
 
 `https://captions.chq.org/`. `programs.chq.org/`, `questions.chq.org/` and
 `giving.chq.org/` all carry it; `busandtramtracker.chq.org` does not. The slash
-matches the majority and avoids one redirect hop, since the host 301s
-regardless.
+matches the majority.
+
+It buys nothing beyond that consistency: both forms return exactly one 301 to
+the same target, so the slash saves no redirect hop.
 
 ## Changes
 
