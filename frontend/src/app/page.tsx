@@ -15,6 +15,7 @@ import { useProgramLinks } from '@/hooks/useProgramLinks';
 import { GlobalEventDataProvider, useGlobalEventData } from '@/components/providers/GlobalEventDataProvider';
 import { Header } from '@/components/layout/Header';
 import { CountdownBanner } from '@/components/layout/CountdownBanner';
+import { IosAppBanner } from '@/components/layout/IosAppBanner';
 import { LoadingSpinner } from '@/components/layout/LoadingSpinner';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { SearchBar } from '@/components/filters/SearchBar';
@@ -129,6 +130,7 @@ function HomeContent() {
         defaultYear={defaultYear}
         onYearChange={setSelectedYear}
       />
+      <IosAppBanner />
       {selectedYear === defaultYear && <CountdownBanner seasonWeeks={seasonWeeks} />}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6">

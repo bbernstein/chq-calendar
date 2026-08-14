@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { YearSelector } from '@/components/layout/YearSelector';
 import { quickLinks } from '@/lib/quickLinks';
+import { isAppLaunchAvailable, launchApp, readDeviceInfo, resolveDeepLink } from '@/lib/iosPromo';
 
 interface HeaderProps {
   selectedYear: number;
@@ -11,7 +12,23 @@ interface HeaderProps {
 
 export function Header({ selectedYear, availableYears, defaultYear, onYearChange }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // Eligible iOS devices keep a persistent "Open in app" entry regardless of
+  // whether the promo banner was dismissed. Detected in an effect so the first
+  // paint is deterministic (and the button never flashes on desktop).
+  const [appAvailable, setAppAvailable] = useState(false);
+  const launchCleanupRef = useRef<(() => void) | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setAppAvailable(isAppLaunchAvailable(readDeviceInfo()));
+    return () => { launchCleanupRef.current?.(); };
+  }, []);
+
+  const openInApp = () => {
+    launchCleanupRef.current?.();
+    launchCleanupRef.current = launchApp({ deepLink: resolveDeepLink() });
+    setMenuOpen(false);
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -51,6 +68,14 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
           </div>
           {/* Desktop */}
           <div className="hidden lg:flex items-center gap-2 flex-wrap justify-end">
+            {appAvailable && (
+              <button
+                onClick={openInApp}
+                className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+              >
+                Open in app
+              </button>
+            )}
             {quickLinks.map((link) => (
               <button
                 key={link.id}
@@ -79,6 +104,14 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             </button>
             {menuOpen && (
               <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-50">
+                {appAvailable && (
+                  <button
+                    onClick={openInApp}
+                    className="block w-full text-left px-4 py-2 text-sm font-medium text-green-700 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  >
+                    Open in app
+                  </button>
+                )}
                 {quickLinks.map((link) => (
                   <button
                     key={link.id}

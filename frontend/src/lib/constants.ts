@@ -1,6 +1,10 @@
 export const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
 export const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
 export const LONG_PRESS_MS = 500;
+/** How long the iOS-app promo banner stays hidden after the user dismisses it. */
+export const IOS_PROMO_SNOOZE_MS = 5 * 24 * 60 * 60 * 1000; // 5 days in milliseconds
+/** Minimum iOS/iPadOS major version the native app supports (deployment target). */
+export const IOS_MIN_VERSION = 18;
 export const YEARS_MANIFEST_PATH = '/cache/calendar-cache/years.json';
 /**
  * Compute the default season year based on October 1 turnover.
