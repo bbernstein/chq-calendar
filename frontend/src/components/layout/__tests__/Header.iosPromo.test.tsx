@@ -44,4 +44,17 @@ describe('Header "Get the app" affordance', () => {
     // One in the desktop nav, one in the now-open dropdown.
     expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(2);
   });
+
+  // Collapsing the menu would unmount this anchor from inside its own click
+  // handler, which can cancel the navigation to the App Store — so unlike the
+  // quick links, this entry deliberately leaves the dropdown open.
+  it('leaves the mobile dropdown open when its link is clicked', () => {
+    available.mockReturnValue(true);
+    render(<Header {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /More/ }));
+    const inDropdown = screen.getAllByRole('link', { name: 'Get the app' })[1];
+    fireEvent.click(inDropdown);
+    // Still two: the dropdown never collapsed, so its copy survived the click.
+    expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(2);
+  });
 });
