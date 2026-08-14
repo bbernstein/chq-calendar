@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { YearSelector } from '@/components/layout/YearSelector';
 import { quickLinks } from '@/lib/quickLinks';
+import { APP_STORE_URL } from '@/lib/constants';
+import { isAppPromoAvailable, readDeviceInfo } from '@/lib/iosPromo';
 
 interface HeaderProps {
   selectedYear: number;
@@ -11,7 +13,25 @@ interface HeaderProps {
 
 export function Header({ selectedYear, availableYears, defaultYear, onYearChange }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // Eligible iOS devices keep a persistent link to the app regardless of
+  // whether the promo banner was dismissed. Detected in an effect so the first
+  // paint is deterministic (and the link never flashes on desktop).
+  const [appAvailable, setAppAvailable] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setAppAvailable(isAppPromoAvailable(readDeviceInfo()));
+    return () => { if (menuCloseTimer.current) clearTimeout(menuCloseTimer.current); };
+  }, []);
+
+  // Collapsing the menu synchronously would unmount the App Store anchor from
+  // inside its own click handler, which can cancel the navigation it just
+  // started — so the close waits for the next task. The quick links above use
+  // `window.open` from a button and have no such constraint.
+  const closeMenuAfterNavigating = () => {
+    menuCloseTimer.current = setTimeout(() => setMenuOpen(false), 0);
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -51,6 +71,14 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
           </div>
           {/* Desktop */}
           <div className="hidden lg:flex items-center gap-2 flex-wrap justify-end">
+            {appAvailable && (
+              <a
+                href={APP_STORE_URL}
+                className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+              >
+                Get the app
+              </a>
+            )}
             {quickLinks.map((link) => (
               <button
                 key={link.id}
@@ -79,6 +107,15 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
             </button>
             {menuOpen && (
               <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-50">
+                {appAvailable && (
+                  <a
+                    href={APP_STORE_URL}
+                    onClick={closeMenuAfterNavigating}
+                    className="block w-full text-left px-4 py-2 text-sm font-medium text-green-700 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-600"
+                  >
+                    Get the app
+                  </a>
+                )}
                 {quickLinks.map((link) => (
                   <button
                     key={link.id}

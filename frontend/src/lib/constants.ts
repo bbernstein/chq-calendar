@@ -1,6 +1,17 @@
 export const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
 export const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
 export const LONG_PRESS_MS = 500;
+/** How long the iOS-app promo banner stays hidden after the user dismisses it. */
+export const IOS_PROMO_SNOOZE_MS = 5 * 24 * 60 * 60 * 1000; // 5 days in milliseconds
+/** Minimum iOS/iPadOS major version the native app supports (deployment target). */
+export const IOS_MIN_VERSION = 18;
+/**
+ * The native app's App Store listing. Every promo surface is gated on this
+ * being non-empty, so clearing it turns the whole feature off. It lives here
+ * rather than in the /about page content so the calendar bundle doesn't pull
+ * in that page's copy dataset just to read one URL.
+ */
+export const APP_STORE_URL = 'https://apps.apple.com/us/app/chqcalendar/id6797027562';
 export const YEARS_MANIFEST_PATH = '/cache/calendar-cache/years.json';
 /**
  * Compute the default season year based on October 1 turnover.
