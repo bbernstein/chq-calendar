@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/preact';
+import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
 
 const { shouldShow, snooze } = vi.hoisted(() => ({
   shouldShow: vi.fn(),
@@ -48,14 +48,17 @@ describe('IosAppBanner', () => {
     expect(link.getAttribute('href')).not.toContain('chqcal://');
   });
 
-  // The CTA snoozes but must NOT unmount itself: removing the anchor from
-  // inside its own click handler can cancel the navigation to the App Store.
-  it('taking the CTA snoozes and leaves the link in place to navigate', () => {
+  // The CTA snoozes but must NOT unmount itself during the click: removing the
+  // anchor from inside its own click handler can cancel the navigation to the
+  // App Store. It hides on the next task instead, so a user returning from the
+  // App Store (iOS keeps this page loaded) doesn't see a banner they acted on.
+  it('taking the CTA snoozes, leaves the link to navigate, then hides', async () => {
     shouldShow.mockReturnValue(true);
-    render(<IosAppBanner />);
+    const { container } = render(<IosAppBanner />);
     fireEvent.click(screen.getByRole('link', { name: 'Get the app' }));
     expect(snooze).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('link', { name: 'Get the app' })).toBeTruthy();
+    await waitFor(() => { expect(container.firstChild).toBeNull(); });
   });
 
   it('dismiss snoozes and hides the banner', () => {

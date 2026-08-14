@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/preact';
+import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
 
 const { available } = vi.hoisted(() => ({
   available: vi.fn(),
@@ -45,16 +45,20 @@ describe('Header "Get the app" affordance', () => {
     expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(2);
   });
 
-  // Collapsing the menu would unmount this anchor from inside its own click
-  // handler, which can cancel the navigation to the App Store — so unlike the
-  // quick links, this entry deliberately leaves the dropdown open.
-  it('leaves the mobile dropdown open when its link is clicked', () => {
+  // Collapsing the menu during the click would unmount this anchor from inside
+  // its own click handler, which can cancel the navigation to the App Store.
+  // Unlike the quick links, this entry closes on the next task instead.
+  it('keeps the dropdown open through the click, then closes it', async () => {
     available.mockReturnValue(true);
     render(<Header {...props} />);
     fireEvent.click(screen.getByRole('button', { name: /More/ }));
     const inDropdown = screen.getAllByRole('link', { name: 'Get the app' })[1];
     fireEvent.click(inDropdown);
-    // Still two: the dropdown never collapsed, so its copy survived the click.
+    // Still two: the dropdown had not collapsed by the time the click resolved.
     expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(2);
+    // Only the desktop-nav copy survives once the deferred close runs.
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(1);
+    });
   });
 });

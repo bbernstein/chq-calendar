@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { APP_STORE_URL } from '@/lib/constants';
 import { readDeviceInfo, shouldShowPromoBanner, snoozePromo } from '@/lib/iosPromo';
 
@@ -12,20 +12,25 @@ import { readDeviceInfo, shouldShowPromoBanner, snoozePromo } from '@/lib/iosPro
  */
 export function IosAppBanner() {
   const [visible, setVisible] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setVisible(shouldShowPromoBanner(readDeviceInfo(), Date.now()));
+    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, []);
 
   if (!visible) return null;
 
   const handleOpen = () => {
     // Heading to the store counts as engagement — snooze so we don't re-nag
-    // someone who just acted on the banner. Deliberately no `setVisible(false)`
-    // here: unmounting the anchor from inside its own click handler can cancel
-    // the navigation it was supposed to perform. The snooze hides the banner on
-    // the next load, which is when the user actually comes back to it.
+    // someone who just acted on the banner.
     snoozePromo(Date.now());
+    // Hide on the next task, never synchronously: unmounting the anchor from
+    // inside its own click handler can cancel the navigation it just started.
+    // Deferring still hides it in time, because iOS keeps this page loaded
+    // while the App Store is in the foreground — the user would otherwise
+    // swipe back to a banner they already acted on.
+    hideTimer.current = setTimeout(() => setVisible(false), 0);
   };
 
   const handleDismiss = () => {
