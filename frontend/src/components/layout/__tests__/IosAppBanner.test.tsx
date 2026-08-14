@@ -1,25 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/preact';
 
-const { shouldShow, snooze, launch } = vi.hoisted(() => ({
+const { shouldShow, snooze } = vi.hoisted(() => ({
   shouldShow: vi.fn(),
   snooze: vi.fn(),
-  launch: vi.fn(() => vi.fn()),
 }));
 
 vi.mock('@/lib/iosPromo', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/iosPromo')>();
-  return { ...actual, shouldShowPromoBanner: shouldShow, snoozePromo: snooze, launchApp: launch };
+  return { ...actual, shouldShowPromoBanner: shouldShow, snoozePromo: snooze };
 });
 
 import { IosAppBanner } from '../IosAppBanner';
-import { APP_STORE_URL } from '@/app/about/aboutContent';
+import { APP_STORE_URL } from '@/lib/constants';
 
 beforeEach(() => {
   shouldShow.mockReset();
   snooze.mockReset();
-  launch.mockReset();
-  launch.mockReturnValue(vi.fn());
 });
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -35,26 +32,37 @@ describe('IosAppBanner', () => {
     shouldShow.mockReturnValue(true);
     render(<IosAppBanner />);
     expect(screen.getByText(/Get the CHQ Calendar app/)).toBeTruthy();
-    const link = screen.getByRole('link', { name: 'App Store' }) as HTMLAnchorElement;
+    const link = screen.getByRole('link', { name: 'Get the app' }) as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe(APP_STORE_URL);
     expect(APP_STORE_URL).not.toBe('');
   });
 
-  it('"Open in app" launches the app, snoozes, and hides the banner', () => {
+  // The CTA must stay a plain link: navigating to the app's chqcal:// scheme
+  // instead raises Safari's "the address is invalid" alert for every visitor
+  // who doesn't have the app — the banner's whole audience.
+  it('points the CTA straight at the App Store, not a custom scheme', () => {
     shouldShow.mockReturnValue(true);
-    const { container } = render(<IosAppBanner />);
-    fireEvent.click(screen.getByRole('button', { name: 'Open in app' }));
-    expect(launch).toHaveBeenCalledTimes(1);
-    expect(snooze).toHaveBeenCalledTimes(1);
-    expect(container.firstChild).toBeNull();
+    render(<IosAppBanner />);
+    const link = screen.getByRole('link', { name: 'Get the app' }) as HTMLAnchorElement;
+    expect(link.getAttribute('href')?.startsWith('https://apps.apple.com/')).toBe(true);
+    expect(link.getAttribute('href')).not.toContain('chqcal://');
   });
 
-  it('dismiss snoozes and hides without launching', () => {
+  // The CTA snoozes but must NOT unmount itself: removing the anchor from
+  // inside its own click handler can cancel the navigation to the App Store.
+  it('taking the CTA snoozes and leaves the link in place to navigate', () => {
+    shouldShow.mockReturnValue(true);
+    render(<IosAppBanner />);
+    fireEvent.click(screen.getByRole('link', { name: 'Get the app' }));
+    expect(snooze).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('link', { name: 'Get the app' })).toBeTruthy();
+  });
+
+  it('dismiss snoozes and hides the banner', () => {
     shouldShow.mockReturnValue(true);
     const { container } = render(<IosAppBanner />);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(snooze).toHaveBeenCalledTimes(1);
-    expect(launch).not.toHaveBeenCalled();
     expect(container.firstChild).toBeNull();
   });
 });

@@ -8,6 +8,8 @@
  * against.
  */
 
+import { APP_STORE_URL } from '@/lib/constants';
+
 export type Platform = 'ios' | 'web';
 
 /** Points at a prepared WebP pair in /public/about/ (420w/840w for iOS
@@ -56,13 +58,14 @@ export const DISCLAIMER =
   'publicly posted listings; chq.org remains the authoritative source.';
 
 /**
- * Public App Store URL. App Store Connect assigns the numeric Apple ID at
- * app-record creation, but the /app/id… URL only resolves once a version is
- * live. `PlatformCard` renders a "coming soon" state while this is empty, so
- * the site can ship before the app is approved; the iOS-app promo banner is
- * likewise gated on this being non-empty.
+ * Public App Store URL, defined in `@/lib/constants` so the calendar bundle can
+ * read it without importing this page's copy. App Store Connect assigns the
+ * numeric Apple ID at app-record creation, but the /app/id… URL only resolves
+ * once a version is live. `PlatformCard` renders a "coming soon" state while
+ * this is empty, so the site can ship before the app is approved; the iOS-app
+ * promo surfaces are likewise gated on it being non-empty.
  */
-export const APP_STORE_URL = 'https://apps.apple.com/us/app/chqcalendar/id6797027562';
+export { APP_STORE_URL };
 
 const IOS_SHOT = { width: 840, height: 1825 };   // iPhone 6.9 (1320×2868) scaled
 const WEB_SHOT = { width: 1280, height: 900 };

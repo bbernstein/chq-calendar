@@ -3,29 +3,25 @@
  *
  * The web calendar runs in every browser, but iPhone/iPad visitors on a
  * device that can run our app (iOS >= 18, the app's deployment target) get a
- * nudge toward it: launch the app if it's installed, or send them to the App
- * Store if it isn't, remembering a dismissal for a few days.
+ * nudge toward its App Store listing, and a dismissal is remembered for a few
+ * days.
  *
- * There is no reliable browser API that answers "is this native app
- * installed?" for a custom URL scheme, so `launchApp` uses the classic
- * scheme-with-timeout trick: fire the `chqcal://` deep link and, if the page
- * is still visible a beat later (the app never came to the foreground),
- * fall back to the App Store. Phase 2 (Universal Links) will make the launch
- * silent and remove the guesswork; until then this is gated behind an
- * explicit user tap so Safari allows the scheme navigation.
- *
- * The pure helpers here (eligibility, snooze, deep-link resolution) are unit
- * tested; the DOM-heavy `launchApp` is a thin wrapper with injectable seams.
+ * Every promo surface links straight to the App Store rather than trying the
+ * app's `chqcal://` scheme first. There is no browser API that answers "is
+ * this app installed?", and the classic scheme-with-timeout trick fails loudly
+ * for anyone who doesn't have it: iOS Safari shows a modal "the address is
+ * invalid" alert for an unregistered scheme (confirmed on a simulator with the
+ * app absent), which is exactly the audience a promo banner is aimed at. The
+ * App Store listing costs an installed user one extra tap — the store shows
+ * "Open" — and costs everyone else nothing. Universal Links (silent launch
+ * when installed, App Store otherwise) are the real fix and are tracked as the
+ * Phase 2 follow-up; they need an `applinks` entitlement and an app release.
  */
 
-import { APP_STORE_URL } from '@/app/about/aboutContent';
-import { IOS_MIN_VERSION, IOS_PROMO_SNOOZE_MS } from '@/lib/constants';
+import { APP_STORE_URL, IOS_MIN_VERSION, IOS_PROMO_SNOOZE_MS } from '@/lib/constants';
 
 /** localStorage key holding the epoch-ms until which the banner stays hidden. */
-export const IOS_PROMO_SNOOZE_KEY = 'chq:iosPromoSnoozeUntil';
-
-/** The app's custom URL scheme (see ios/ChqCalendar/Info.plist). */
-const DEEP_LINK_SCHEME = 'chqcal://';
+export const IOS_PROMO_SNOOZE_KEY = 'chq-calendar-ios-promo-snooze';
 
 export interface DeviceInfo {
   userAgent: string;
@@ -144,90 +140,7 @@ export function shouldShowPromoBanner(
   return !isSnoozed(now, storage);
 }
 
-/** Whether the always-available "Open in app" affordance should render. */
-export function isAppLaunchAvailable(device: DeviceInfo): boolean {
+/** Whether the always-available header link to the app should render. */
+export function isAppPromoAvailable(device: DeviceInfo): boolean {
   return APP_STORE_URL.length > 0 && detectIosEligibility(device).eligible;
-}
-
-/**
- * Map a web context to the closest in-app screen. Today the scheme covers
- * events, My Day, and the map; an unknown context opens the app's default
- * screen. `eventId` is the only context the calendar surfaces so far.
- */
-export function resolveDeepLink(context?: { eventId?: string | number }): string {
-  if (context?.eventId != null && context.eventId !== '') {
-    return `${DEEP_LINK_SCHEME}event/${encodeURIComponent(String(context.eventId))}`;
-  }
-  return `${DEEP_LINK_SCHEME}my-day`;
-}
-
-/** The slice of `document` `launchApp` touches — kept minimal so tests can
- *  supply a lightweight fake without reconstructing the DOM's overloads. */
-export interface DocLike {
-  visibilityState: DocumentVisibilityState;
-  addEventListener: (type: string, listener: () => void) => void;
-  removeEventListener: (type: string, listener: () => void) => void;
-}
-
-export interface LaunchOptions {
-  deepLink?: string;
-  appStoreUrl?: string;
-  timeoutMs?: number;
-  /** Injectable seams for testing. */
-  now?: () => number;
-  navigate?: (url: string) => void;
-  doc?: DocLike;
-  setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
-  clearTimer?: (id: ReturnType<typeof setTimeout>) => void;
-}
-
-/**
- * Attempt to open the app via its custom scheme, falling back to the App Store
- * if the app doesn't take over the page within `timeoutMs`. Must be called
- * from a user gesture (Safari blocks non-gesture scheme navigations).
- *
- * Returns a cleanup function that cancels the pending fallback, so a caller
- * unmounting mid-launch doesn't fire a late redirect.
- */
-export function launchApp(options: LaunchOptions = {}): () => void {
-  const deepLink = options.deepLink ?? resolveDeepLink();
-  const appStoreUrl = options.appStoreUrl ?? APP_STORE_URL;
-  const timeoutMs = options.timeoutMs ?? 1200;
-  const navigate = options.navigate ?? ((url: string) => { window.location.assign(url); });
-  const doc = options.doc ?? (typeof document !== 'undefined' ? document : undefined);
-  const setTimer = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
-  const clearTimer = options.clearTimer ?? ((id) => clearTimeout(id));
-
-  let done = false;
-  const finish = () => {
-    if (done) return;
-    done = true;
-    clearTimer(timer);
-    doc?.removeEventListener('visibilitychange', onHide);
-    doc?.removeEventListener('pagehide', onHide);
-  };
-  // The app coming to the foreground hides/hidden-pages the web page; that's
-  // our signal it was installed, so cancel the App Store fallback.
-  const onHide = () => {
-    if (!doc || doc.visibilityState === 'hidden') finish();
-  };
-
-  const timer = setTimer(() => {
-    if (done) return;
-    done = true;
-    doc?.removeEventListener('visibilitychange', onHide);
-    doc?.removeEventListener('pagehide', onHide);
-    // Still visible → app never opened → send to the App Store.
-    if (!doc || doc.visibilityState === 'visible') {
-      if (appStoreUrl) navigate(appStoreUrl);
-    }
-  }, timeoutMs);
-
-  doc?.addEventListener('visibilitychange', onHide);
-  doc?.addEventListener('pagehide', onHide);
-
-  // Fire the deep link last so the listeners/timer are already armed.
-  navigate(deepLink);
-
-  return finish;
 }

@@ -1,12 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   detectIosEligibility,
   isSnoozed,
   snoozePromo,
   shouldShowPromoBanner,
-  isAppLaunchAvailable,
-  resolveDeepLink,
-  launchApp,
+  isAppPromoAvailable,
   readDeviceInfo,
   IOS_PROMO_SNOOZE_KEY,
   type DeviceInfo,
@@ -107,7 +105,7 @@ describe('snooze', () => {
   });
 });
 
-describe('shouldShowPromoBanner / isAppLaunchAvailable', () => {
+describe('shouldShowPromoBanner / isAppPromoAvailable', () => {
   const storage = {
     getItem: () => null,
     setItem: () => {},
@@ -120,101 +118,17 @@ describe('shouldShowPromoBanner / isAppLaunchAvailable', () => {
 
   it('hides for an ineligible device', () => {
     expect(shouldShowPromoBanner(ANDROID, 1000, storage)).toBe(false);
-    expect(isAppLaunchAvailable(ANDROID)).toBe(false);
+    expect(isAppPromoAvailable(ANDROID)).toBe(false);
   });
 
-  it('hides the banner while snoozed but keeps launch available', () => {
+  it('hides the banner while snoozed but keeps the header link available', () => {
     const snoozed = {
       getItem: () => String(2000 + IOS_PROMO_SNOOZE_MS),
       setItem: () => {},
       removeItem: () => {},
     };
     expect(shouldShowPromoBanner(IPHONE_18, 2000, snoozed)).toBe(false);
-    expect(isAppLaunchAvailable(IPHONE_18)).toBe(true);
-  });
-});
-
-describe('resolveDeepLink', () => {
-  it('defaults to my-day with no context', () => {
-    expect(resolveDeepLink()).toBe('chqcal://my-day');
-  });
-
-  it('targets an event when given an id', () => {
-    expect(resolveDeepLink({ eventId: '101037' })).toBe('chqcal://event/101037');
-  });
-
-  it('encodes an id and ignores an empty one', () => {
-    expect(resolveDeepLink({ eventId: 'a b' })).toBe('chqcal://event/a%20b');
-    expect(resolveDeepLink({ eventId: '' })).toBe('chqcal://my-day');
-  });
-});
-
-describe('launchApp', () => {
-  function makeDoc(visibilityState: DocumentVisibilityState) {
-    const listeners: Record<string, Array<() => void>> = {};
-    return {
-      visibilityState,
-      addEventListener: (t: string, fn: () => void) => {
-        (listeners[t] ??= []).push(fn);
-      },
-      removeEventListener: (t: string, fn: () => void) => {
-        listeners[t] = (listeners[t] ?? []).filter((f) => f !== fn);
-      },
-      fire: (t: string) => (listeners[t] ?? []).forEach((f) => f()),
-      count: (t: string) => (listeners[t] ?? []).length,
-    };
-  }
-
-  it('fires the deep link, then redirects to the App Store when still visible', () => {
-    const doc = makeDoc('visible');
-    const navigate = vi.fn();
-    let timerFn: (() => void) | null = null;
-    launchApp({
-      deepLink: 'chqcal://my-day',
-      appStoreUrl: 'https://apps.apple.com/app/id1',
-      doc,
-      navigate,
-      setTimer: (fn) => { timerFn = fn; return 1 as unknown as ReturnType<typeof setTimeout>; },
-      clearTimer: () => {},
-    });
-    expect(navigate).toHaveBeenNthCalledWith(1, 'chqcal://my-day');
-    timerFn!();
-    expect(navigate).toHaveBeenNthCalledWith(2, 'https://apps.apple.com/app/id1');
-  });
-
-  it('cancels the App Store fallback when the app takes over (page hidden)', () => {
-    const doc = makeDoc('visible');
-    const navigate = vi.fn();
-    const clearTimer = vi.fn();
-    launchApp({
-      deepLink: 'chqcal://my-day',
-      appStoreUrl: 'https://apps.apple.com/app/id1',
-      doc,
-      navigate,
-      setTimer: () => 1 as unknown as ReturnType<typeof setTimeout>,
-      clearTimer,
-    });
-    doc.visibilityState = 'hidden';
-    doc.fire('visibilitychange');
-    expect(clearTimer).toHaveBeenCalled();
-    expect(navigate).toHaveBeenCalledTimes(1); // only the deep link
-    expect(doc.count('visibilitychange')).toBe(0); // listener removed
-  });
-
-  it('cleanup cancels a pending fallback and detaches listeners', () => {
-    const doc = makeDoc('visible');
-    const clearTimer = vi.fn();
-    const cleanup = launchApp({
-      deepLink: 'chqcal://my-day',
-      doc,
-      navigate: vi.fn(),
-      setTimer: () => 7 as unknown as ReturnType<typeof setTimeout>,
-      clearTimer,
-    });
-    cleanup();
-    expect(clearTimer).toHaveBeenCalledWith(7);
-    expect(doc.count('visibilitychange')).toBe(0);
-    expect(doc.count('pagehide')).toBe(0);
+    expect(isAppPromoAvailable(IPHONE_18)).toBe(true);
   });
 });
 

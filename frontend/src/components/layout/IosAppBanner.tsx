@@ -1,39 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
-import { APP_STORE_URL } from '@/app/about/aboutContent';
-import {
-  launchApp,
-  readDeviceInfo,
-  resolveDeepLink,
-  shouldShowPromoBanner,
-  snoozePromo,
-} from '@/lib/iosPromo';
+import { useEffect, useState } from 'react';
+import { APP_STORE_URL } from '@/lib/constants';
+import { readDeviceInfo, shouldShowPromoBanner, snoozePromo } from '@/lib/iosPromo';
 
 /**
  * A dismissible strip shown to iPhone/iPad visitors (iOS >= 18) inviting them
- * into the native app: "Open in app" launches it (or falls back to the App
- * Store), while a plain App Store link is always offered. Dismissing snoozes
- * the banner for a few days. Renders nothing on ineligible devices, while
- * snoozed, or before the app is live (empty APP_STORE_URL). The eligibility
- * check runs in an effect so the server/first paint stays deterministic.
+ * into the native app via its App Store listing (see `iosPromo` for why we
+ * don't try the `chqcal://` scheme first). Dismissing snoozes the banner for a
+ * few days. Renders nothing on ineligible devices, while snoozed, or before the
+ * app is live (empty APP_STORE_URL). The eligibility check runs in an effect so
+ * the server/first paint stays deterministic.
  */
 export function IosAppBanner() {
   const [visible, setVisible] = useState(false);
-  const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     setVisible(shouldShowPromoBanner(readDeviceInfo(), Date.now()));
-    return () => { cleanupRef.current?.(); };
   }, []);
 
   if (!visible) return null;
 
   const handleOpen = () => {
-    cleanupRef.current?.();
-    // Opening the app counts as engagement — snooze so we don't re-nag someone
-    // who just chose to go to the app or the store.
+    // Heading to the store counts as engagement — snooze so we don't re-nag
+    // someone who just acted on the banner. Deliberately no `setVisible(false)`
+    // here: unmounting the anchor from inside its own click handler can cancel
+    // the navigation it was supposed to perform. The snooze hides the banner on
+    // the next load, which is when the user actually comes back to it.
     snoozePromo(Date.now());
-    cleanupRef.current = launchApp({ deepLink: resolveDeepLink() });
-    setVisible(false);
   };
 
   const handleDismiss = () => {
@@ -56,18 +48,12 @@ export function IosAppBanner() {
           <span className="font-medium">Get the CHQ Calendar app</span>
           <span className="hidden sm:inline"> — reminders, Home Screen widgets, and a map of the grounds.</span>
         </p>
-        <button
-          type="button"
+        <a
+          href={APP_STORE_URL}
           onClick={handleOpen}
           className="shrink-0 px-3 py-1 text-sm font-medium bg-white text-blue-700 rounded-md hover:bg-blue-50 transition-colors"
         >
-          Open in app
-        </button>
-        <a
-          href={APP_STORE_URL}
-          className="shrink-0 hidden sm:inline text-sm underline underline-offset-2 hover:text-blue-100"
-        >
-          App Store
+          Get the app
         </a>
         <button
           type="button"
