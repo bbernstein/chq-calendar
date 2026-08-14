@@ -34,7 +34,8 @@ export interface DeviceInfo {
 export interface IosEligibility {
   /** iPhone/iPad/iPod, including iPadOS reporting itself as desktop Safari. */
   isIos: boolean;
-  /** Parsed major iOS version, or null when the UA doesn't expose it. */
+  /** Parsed major iOS version, or null when the UA doesn't expose it. For an
+   *  iPad in desktop mode this is Safari's major, which tracks the OS major. */
   version: number | null;
   /** True when we should offer the app: iOS >= 18 and not already app-like. */
   eligible: boolean;
@@ -57,12 +58,17 @@ export function readDeviceInfo(): DeviceInfo {
 /**
  * Decide whether to promote the app to this device.
  *
- * iPadOS 13+ masquerades as desktop Safari ("MacIntel" + touch), which hides
- * the version string. Such a device is a modern iPad, so we treat the unknown
- * version as eligible: the worst case is a tap that lands on an App Store page
- * telling the user the app needs a newer OS — no error dialog, no data cost.
- * A UA that names iOS but carries no parseable version is treated as
- * ineligible rather than guessed.
+ * iPadOS 13+ masquerades as desktop Safari ("MacIntel" + touch), which drops
+ * the `OS <major>_` token. Safari still reports its own `Version/<major>`
+ * there, and Safari's major version has tracked the OS major since iOS 15, so
+ * that stands in as the version signal for this case.
+ *
+ * When neither token parses we stay eligible for iPad-as-desktop and fall back
+ * to ineligible everywhere else. That asymmetry is deliberate: showing the
+ * promo to an iPad we couldn't version-check costs one tap onto a store page
+ * that says the app needs a newer OS, while hiding it from a modern iPad costs
+ * an install we never hear about. A UA that names iOS but carries no version
+ * is a narrower, weirder case, so it stays ineligible rather than guessed.
  */
 export function detectIosEligibility(device: DeviceInfo): IosEligibility {
   const { userAgent, platform, maxTouchPoints, standalone } = device;
@@ -71,14 +77,16 @@ export function detectIosEligibility(device: DeviceInfo): IosEligibility {
   const ipadAsDesktop = platform === 'MacIntel' && maxTouchPoints > 1;
   const isIos = uaIsIos || ipadAsDesktop;
 
-  const match = userAgent.match(/OS (\d+)_/);
-  const version = match ? parseInt(match[1], 10) : null;
+  const osMatch = userAgent.match(/OS (\d+)_/);
+  const safariMatch = ipadAsDesktop ? userAgent.match(/Version\/(\d+)/) : null;
+  const versionMatch = osMatch ?? safariMatch;
+  const version = versionMatch ? parseInt(versionMatch[1], 10) : null;
 
   let versionOk: boolean;
   if (version !== null) {
     versionOk = version >= IOS_MIN_VERSION;
   } else {
-    // No version string: eligible only for iPad-as-desktop (a modern iPad).
+    // Nothing to check: eligible only for iPad-as-desktop (see above).
     versionOk = ipadAsDesktop;
   }
 

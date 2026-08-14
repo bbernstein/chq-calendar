@@ -23,11 +23,23 @@ const IPHONE_17: DeviceInfo = {
   userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1',
 };
 
+// iPadOS in desktop mode drops the `OS <major>_` token; Safari's own
+// `Version/<major>` is the stand-in, since it tracks the OS major.
 const IPAD_DESKTOP: DeviceInfo = {
-  userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+  userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
   platform: 'MacIntel',
   maxTouchPoints: 5,
   standalone: false,
+};
+
+const IPAD_DESKTOP_17: DeviceInfo = {
+  ...IPAD_DESKTOP,
+  userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+};
+
+const IPAD_DESKTOP_NO_VERSION: DeviceInfo = {
+  ...IPAD_DESKTOP,
+  userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Safari/605.1.15',
 };
 
 const MAC_DESKTOP: DeviceInfo = {
@@ -55,9 +67,28 @@ describe('detectIosEligibility', () => {
     expect(r).toMatchObject({ isIos: true, version: 17, eligible: false });
   });
 
-  it('accepts iPadOS reporting itself as desktop Safari (version unknown)', () => {
+  it('accepts iPadOS reporting itself as desktop Safari, via Safari\'s version', () => {
     const r = detectIosEligibility(IPAD_DESKTOP);
+    expect(r).toMatchObject({ isIos: true, version: 18, eligible: true });
+  });
+
+  it('rejects a desktop-mode iPad whose Safari version is below the minimum', () => {
+    const r = detectIosEligibility(IPAD_DESKTOP_17);
+    expect(r).toMatchObject({ isIos: true, version: 17, eligible: false });
+  });
+
+  // Fail open: a store page saying "requires a newer OS" is cheaper than
+  // hiding the app from a modern iPad we simply couldn't version-check.
+  it('accepts a desktop-mode iPad with no version token at all', () => {
+    const r = detectIosEligibility(IPAD_DESKTOP_NO_VERSION);
     expect(r).toMatchObject({ isIos: true, version: null, eligible: true });
+  });
+
+  // The Version/ fallback must not leak to non-iPad UAs: a touchless Mac
+  // reporting Safari 18 must stay ineligible.
+  it('does not treat a touchless Mac on Safari 18 as an iPad', () => {
+    const r = detectIosEligibility({ ...MAC_DESKTOP, userAgent: MAC_DESKTOP.userAgent.replace('Version/17.0', 'Version/18.0') });
+    expect(r).toMatchObject({ isIos: false, eligible: false });
   });
 
   it('rejects a real Mac desktop (no touch)', () => {
