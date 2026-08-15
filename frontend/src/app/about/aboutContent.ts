@@ -9,6 +9,7 @@
  */
 
 import { APP_STORE_URL } from '@/lib/constants';
+import { externalLinks } from '@/lib/quickLinks';
 
 export type Platform = 'ios' | 'web';
 
@@ -88,6 +89,61 @@ export const PLATFORMS: PlatformInfo[] = [
     ctaLabel: 'Open the calendar',
   },
 ];
+
+/**
+ * Guide copy for the off-site Chautauqua Institution destinations both clients
+ * surface — the web header's "Chautauqua" menu and the iOS More menu.
+ *
+ * Only the prose lives here. The destinations themselves, their order, and
+ * their labels are read from `shared/links.json` via `externalLinks`, so this
+ * file cannot disagree with the menus about what exists or what they are
+ * called. Keyed by the `id` in that file; `aboutContent.test.ts` fails if any
+ * `external` entry has no blurb, so a sixth link stays undocumented only until
+ * the next test run.
+ *
+ * One table serves both platforms deliberately: the same five destinations
+ * behind the same five labels, described two different ways, is precisely the
+ * drift this file exists to prevent.
+ */
+const CHQ_BLURBS: Record<string, string> = {
+  'programs':
+    'Chautauqua’s digital programs for theatre and music performances — the same listings the 📖 marker on an individual event links into.',
+  'questions':
+    'Chautauqua’s Q-and-A portal, for putting a question to the Institution.',
+  'captions':
+    'Chautauqua’s live captioning. The link follows whichever session is being captioned, so between sessions it may report that none is running.',
+  'bus-tram-tracker':
+    'Where the buses and trams on the grounds are right now.',
+  'chautauqua-fund':
+    'Giving to the Chautauqua Fund, the Institution’s annual fund.',
+};
+
+/**
+ * Headings the destinations file under, deliberately different per platform.
+ *
+ * iOS already has a "Calendar & links" group holding its other outbound links
+ * (Daily coverage, digital programs), and these belong with them. The web
+ * guide's nearest group is "Calendar export", which is about getting events
+ * out of the calendar rather than linking away from it, so the web side gets
+ * its own heading instead of a poor fit.
+ *
+ * Named constants rather than repeated literals: both carry punctuation — a
+ * curly apostrophe, an ampersand — that is easy to retype slightly
+ * differently, and a near-miss would silently split these across two headings
+ * on the page.
+ */
+const WEB_CHQ_GROUP = 'Chautauqua’s own sites';
+const IOS_CHQ_GROUP = 'Calendar & links';
+
+/** Renders the shared destinations as one platform's feature entries. */
+function chqDestinationFeatures(platform: Platform, group: string): Feature[] {
+  return externalLinks.map((link) => ({
+    id: `${platform}-chq-${link.id}`,
+    group,
+    title: link.title,
+    blurb: CHQ_BLURBS[link.id],
+  }));
+}
 
 export const SHARED_HIGHLIGHTS: Feature[] = [
   { id: 'shared-season', group: 'Everywhere', title: 'The whole season in one place',
@@ -212,12 +268,15 @@ export const IOS_FEATURES: Feature[] = [
     blurb: 'Swipe down on the Home Screen and search — the season and your starred events are indexed.' },
 
   // Calendar & links
-  { id: 'ios-calendar', group: 'Calendar & links', title: 'Add to your own calendar',
+  { id: 'ios-calendar', group: IOS_CHQ_GROUP, title: 'Add to your own calendar',
     blurb: 'Send an event to the calendar app you already use.' },
-  { id: 'ios-daily', group: 'Calendar & links', title: 'Chautauquan Daily coverage', notObvious: true,
+  { id: 'ios-daily', group: IOS_CHQ_GROUP, title: 'Chautauquan Daily coverage', notObvious: true,
     blurb: 'Event details link to Daily articles about that event where they exist.' },
-  { id: 'ios-programs', group: 'Calendar & links', title: 'Digital programs', notObvious: true,
+  { id: 'ios-programs', group: IOS_CHQ_GROUP, title: 'Digital programs', notObvious: true,
     blurb: 'Where a digital program has been published, the event links straight to it.' },
+  { id: 'ios-chq-menu', group: IOS_CHQ_GROUP, title: 'Chautauqua’s own sites, in the More menu', notObvious: true,
+    blurb: 'The More menu opens the Institution’s own services. They are Chautauqua’s, not part of this app, and each one opens in your browser.' },
+  ...chqDestinationFeatures('ios', IOS_CHQ_GROUP),
 
   // Anywhere
   { id: 'ios-offline', group: 'Anywhere', title: 'Works offline',
@@ -329,6 +388,11 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'The same, for Outlook.' },
   { id: 'web-ics', group: 'Calendar export', title: 'One tap on a phone or tablet', notObvious: true,
     blurb: 'Touch devices skip the menu — the calendar button downloads a standard .ics file straight away, which any calendar app can open.' },
+
+  // Chautauqua's own sites
+  { id: 'web-chq-menu', group: WEB_CHQ_GROUP, title: 'One menu in the header', notObvious: true,
+    blurb: 'The “Chautauqua” button in the header collects the Institution’s own services. They are Chautauqua’s, not part of this calendar, so each one opens in a new tab.' },
+  ...chqDestinationFeatures('web', WEB_CHQ_GROUP),
 
   // Seasons
   { id: 'web-year', group: 'Seasons', title: 'Past and upcoming seasons',

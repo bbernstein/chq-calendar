@@ -3,6 +3,7 @@ import {
   SHARED_HIGHLIGHTS, IOS_SCENARIOS, IOS_FEATURES,
   WEB_SCENARIOS, WEB_FEATURES, PLATFORMS, groupFeatures,
 } from './aboutContent';
+import { externalLinks } from '@/lib/quickLinks';
 
 const allFeatures = [...SHARED_HIGHLIGHTS, ...IOS_FEATURES, ...WEB_FEATURES];
 const allScenarios = [...IOS_SCENARIOS, ...WEB_SCENARIOS];
@@ -49,6 +50,35 @@ describe('aboutContent', () => {
     }
   });
 
+  // Group headings are free-form strings repeated across many entries, and
+  // several carry punctuation that is easy to retype differently — a curly
+  // apostrophe, an ampersand. A near-miss splits one section into two on the
+  // page without failing anything else, so catch the whole class here rather
+  // than trusting each literal.
+  it.each([
+    ['SHARED_HIGHLIGHTS', SHARED_HIGHLIGHTS] as const,
+    ['IOS_FEATURES', IOS_FEATURES] as const,
+    ['WEB_FEATURES', WEB_FEATURES] as const,
+  ])('has no two %s headings that differ only by punctuation', (_name, features) => {
+    const normalize = (group: string) =>
+      group
+        .toLowerCase()
+        .replace(/[’‘']/g, "'")   // curly vs straight apostrophe
+        .replace(/&/g, 'and')     // "Calendar & links" vs "Calendar and links"
+        .replace(/\s+/g, ' ')     // stray or doubled spaces
+        .trim();
+
+    const byNormalized = new Map<string, Set<string>>();
+    for (const f of features) {
+      const key = normalize(f.group);
+      if (!byNormalized.has(key)) byNormalized.set(key, new Set());
+      byNormalized.get(key)!.add(f.group);
+    }
+    for (const [key, variants] of byNormalized) {
+      expect([...variants], `near-duplicate headings for "${key}"`).toHaveLength(1);
+    }
+  });
+
   it('groups features preserving first-seen group order', () => {
     const grouped = groupFeatures([
       { id: 'a', title: 'A', blurb: 'a', group: 'One' },
@@ -67,5 +97,82 @@ describe('aboutContent', () => {
     ]) {
       expect(ids, `missing ${id}`).toContain(id);
     }
+  });
+
+  // Both clients surface the same off-site Chautauqua destinations from
+  // shared/links.json — the web header's "Chautauqua" menu and the iOS More
+  // menu. Tying the guide back to that file is what stops a sixth link from
+  // shipping undocumented: adding one fails here until someone writes a line
+  // for it, on both platforms.
+  describe('Chautauqua destinations', () => {
+    it.each(externalLinks)('documents $title on the web guide', (link) => {
+      const ids = WEB_FEATURES.map((f) => f.id);
+      expect(ids, `no web guide entry for ${link.id}`).toContain(`web-chq-${link.id}`);
+    });
+
+    it.each(externalLinks)('documents $title on the iOS guide', (link) => {
+      const ids = IOS_FEATURES.map((f) => f.id);
+      expect(ids, `no iOS guide entry for ${link.id}`).toContain(`ios-chq-${link.id}`);
+    });
+
+    it('introduces the menu itself on both guides, not just its destinations', () => {
+      // A list of five destinations is useless to someone who never finds the
+      // control that holds them.
+      expect(WEB_FEATURES.map((f) => f.id)).toContain('web-chq-menu');
+      expect(IOS_FEATURES.map((f) => f.id)).toContain('ios-chq-menu');
+    });
+
+    it('gives each destination the same copy on both platforms', () => {
+      for (const link of externalLinks) {
+        const web = WEB_FEATURES.find((f) => f.id === `web-chq-${link.id}`);
+        const ios = IOS_FEATURES.find((f) => f.id === `ios-chq-${link.id}`);
+        expect(web?.blurb, `${link.id} blurb drifted between platforms`).toBe(ios?.blurb);
+      }
+    });
+
+    it('titles each entry with the label the apps actually show', () => {
+      for (const link of externalLinks) {
+        for (const [platform, features] of [['web', WEB_FEATURES], ['ios', IOS_FEATURES]] as const) {
+          const entry = features.find((f) => f.id === `${platform}-chq-${link.id}`);
+          expect(entry?.title, `${platform} ${link.id} title`).toBe(link.title);
+        }
+      }
+    });
+
+    // Titles and order are derived from shared/links.json, but the prose is
+    // hand-written per destination. A new link therefore renders with an
+    // undefined blurb unless someone writes one.
+    it('has copy for every destination, not just an entry', () => {
+      for (const link of externalLinks) {
+        const entry = WEB_FEATURES.find((f) => f.id === `web-chq-${link.id}`);
+        expect(entry?.blurb, `no blurb written for ${link.id}`).toBeTruthy();
+      }
+    });
+
+    // The group name is a string literal carrying a curly apostrophe. A plain
+    // one anywhere would split these across two headings on the page without
+    // failing anything else.
+    it.each([
+      ['web', WEB_FEATURES] as const,
+      ['ios', IOS_FEATURES] as const,
+    ])('files every %s destination under the same heading as its menu entry', (platform, features) => {
+      const menuGroup = features.find((f) => f.id === `${platform}-chq-menu`)?.group;
+      expect(menuGroup).toBeTruthy();
+      for (const link of externalLinks) {
+        const entry = features.find((f) => f.id === `${platform}-chq-${link.id}`);
+        expect(entry?.group, `${platform} ${link.id} group`).toBe(menuGroup);
+      }
+    });
+
+    it('lists the destinations in the order the menus show them', () => {
+      const expected = externalLinks.map((l) => l.id);
+      for (const [platform, features] of [['web', WEB_FEATURES], ['ios', IOS_FEATURES]] as const) {
+        const listed = features
+          .map((f) => f.id)
+          .filter((id) => id.startsWith(`${platform}-chq-`) && id !== `${platform}-chq-menu`)
+          .map((id) => id.replace(`${platform}-chq-`, ''));
+        expect(listed, `${platform} order`).toEqual(expected);
+      }
+    });
   });
 });
