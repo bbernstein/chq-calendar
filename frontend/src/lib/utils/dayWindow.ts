@@ -179,11 +179,15 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
       // list: a window computed from the events being filtered would be
       // circular, and would behave differently for a caller that passed a
       // subset.
+      // Defensive copies: MIN_INSTANT/MAX_INSTANT are module-level
+      // singletons, and a `Date` is mutable. Handing out the singletons
+      // themselves would let one `w.start.setHours(...)` in a future caller
+      // permanently corrupt every subsequent `'all'` window.
       return {
         startDay: o.bounds.startDay,
         endDay: o.bounds.endDay,
-        start: MIN_INSTANT,
-        endExclusive: MAX_INSTANT,
+        start: new Date(MIN_INSTANT),
+        endExclusive: new Date(MAX_INSTANT),
       };
 
     case 'today': {
@@ -215,12 +219,15 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
       if (o.currentWeekNumber === null) return null;
       const week = o.seasonWeeks[o.currentWeekNumber - 1];
       // The week's own bounds, carried through verbatim — `SeasonWeek` is
-      // already half-open (`>= start && < end`).
+      // already half-open (`>= start && < end`). Copied, not aliased: these
+      // `Date`s belong to the caller's `seasonWeeks` array, and returning
+      // them by reference would let a mutation of the returned window reach
+      // back into that array.
       return {
         startDay: dayKeyOf(week.start),
         endDay: lastDayCovered(week.end),
-        start: week.start,
-        endExclusive: week.end,
+        start: new Date(week.start),
+        endExclusive: new Date(week.end),
       };
     }
   }

@@ -222,6 +222,45 @@ describe('baseWindow', () => {
     expect(w.startDay).toBe(bounds.startDay);
     expect(w.endDay).toBe(bounds.endDay);
   });
+
+  it("does not leak the 'all' singleton Dates — mutating a returned window must not corrupt a later one", () => {
+    const first = baseWindow({
+      dateFilter: 'all', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+    })!;
+    const originalStart = first.start.getTime();
+    const originalEnd = first.endExclusive.getTime();
+
+    first.start.setFullYear(2026, 6, 15);
+    first.endExclusive.setFullYear(2026, 6, 15);
+
+    const second = baseWindow({
+      dateFilter: 'all', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+    })!;
+    expect(second.start.getTime()).toBe(originalStart);
+    expect(second.endExclusive.getTime()).toBe(originalEnd);
+  });
+
+  it("does not leak the 'this-week' SeasonWeek Dates — mutating a returned window must not corrupt the season or a later window", () => {
+    const week = seasonWeeks[currentWeekNumber! - 1];
+    const originalWeekStart = week.start.getTime();
+    const originalWeekEnd = week.end.getTime();
+
+    const first = baseWindow({
+      dateFilter: 'this-week', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+    })!;
+    first.start.setFullYear(1999, 0, 1);
+    first.endExclusive.setFullYear(1999, 0, 1);
+
+    // The caller's seasonWeeks array itself must be untouched.
+    expect(week.start.getTime()).toBe(originalWeekStart);
+    expect(week.end.getTime()).toBe(originalWeekEnd);
+
+    const second = baseWindow({
+      dateFilter: 'this-week', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+    })!;
+    expect(second.start.getTime()).toBe(originalWeekStart);
+    expect(second.endExclusive.getTime()).toBe(originalWeekEnd);
+  });
 });
 
 describe('viewWindow expansion', () => {
