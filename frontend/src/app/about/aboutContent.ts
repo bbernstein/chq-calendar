@@ -268,11 +268,11 @@ export const IOS_FEATURES: Feature[] = [
     blurb: 'Swipe down on the Home Screen and search — the season and your starred events are indexed.' },
 
   // Calendar & links
-  { id: 'ios-calendar', group: 'Calendar & links', title: 'Add to your own calendar',
+  { id: 'ios-calendar', group: IOS_CHQ_GROUP, title: 'Add to your own calendar',
     blurb: 'Send an event to the calendar app you already use.' },
-  { id: 'ios-daily', group: 'Calendar & links', title: 'Chautauquan Daily coverage', notObvious: true,
+  { id: 'ios-daily', group: IOS_CHQ_GROUP, title: 'Chautauquan Daily coverage', notObvious: true,
     blurb: 'Event details link to Daily articles about that event where they exist.' },
-  { id: 'ios-programs', group: 'Calendar & links', title: 'Digital programs', notObvious: true,
+  { id: 'ios-programs', group: IOS_CHQ_GROUP, title: 'Digital programs', notObvious: true,
     blurb: 'Where a digital program has been published, the event links straight to it.' },
   { id: 'ios-chq-menu', group: IOS_CHQ_GROUP, title: 'Chautauqua’s own sites, in the More menu', notObvious: true,
     blurb: 'The More menu opens the Institution’s own services. They are Chautauqua’s, not part of this app, and each one opens in your browser.' },

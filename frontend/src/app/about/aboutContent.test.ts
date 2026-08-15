@@ -50,6 +50,30 @@ describe('aboutContent', () => {
     }
   });
 
+  // Group headings are free-form strings repeated across many entries, and
+  // several carry punctuation that is easy to retype differently — a curly
+  // apostrophe, an ampersand. A near-miss splits one section into two on the
+  // page without failing anything else, so catch the whole class here rather
+  // than trusting each literal.
+  it.each([
+    ['SHARED_HIGHLIGHTS', SHARED_HIGHLIGHTS] as const,
+    ['IOS_FEATURES', IOS_FEATURES] as const,
+    ['WEB_FEATURES', WEB_FEATURES] as const,
+  ])('has no two %s headings that differ only by punctuation', (_name, features) => {
+    const normalize = (group: string) =>
+      group.toLowerCase().replace(/[’‘']/g, "'").replace(/\s+/g, ' ').trim();
+
+    const byNormalized = new Map<string, Set<string>>();
+    for (const f of features) {
+      const key = normalize(f.group);
+      if (!byNormalized.has(key)) byNormalized.set(key, new Set());
+      byNormalized.get(key)!.add(f.group);
+    }
+    for (const [key, variants] of byNormalized) {
+      expect([...variants], `near-duplicate headings for "${key}"`).toHaveLength(1);
+    }
+  });
+
   it('groups features preserving first-seen group order', () => {
     const grouped = groupFeatures([
       { id: 'a', title: 'A', blurb: 'a', group: 'One' },
