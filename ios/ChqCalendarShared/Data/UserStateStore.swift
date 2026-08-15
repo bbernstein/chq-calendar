@@ -64,6 +64,16 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
     var selectedCategories: [String] = []
     var showFavoritesOnly: Bool = false
     var extraDays: Int = 0
+    /// How far the user has navigated beyond the current scope's own window,
+    /// as `ChqTime.dayKey` strings. `nil` means "not expanded that way".
+    ///
+    /// **Session-only**, like `searchText`, `extraDays` and `selectedDayKey`:
+    /// `UserStateStore.saveFilters` builds a separate `PersistedFilters`
+    /// that does not carry them, so no persistence change is needed — and
+    /// none may be added. Restoring a window pinned days ago would be worse
+    /// than not restoring (#192).
+    var windowStartDayKey: String?
+    var windowEndDayKey: String?
 
     init(
         searchText: String = "",
@@ -73,7 +83,9 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
         selectedLocations: [String] = [],
         selectedCategories: [String] = [],
         showFavoritesOnly: Bool = false,
-        extraDays: Int = 0
+        extraDays: Int = 0,
+        windowStartDayKey: String? = nil,
+        windowEndDayKey: String? = nil
     ) {
         self.searchText = searchText
         self.dateScope = dateScope
@@ -83,6 +95,8 @@ nonisolated struct FilterSelection: Codable, Equatable, Sendable {
         self.selectedCategories = selectedCategories
         self.showFavoritesOnly = showFavoritesOnly
         self.extraDays = extraDays
+        self.windowStartDayKey = windowStartDayKey
+        self.windowEndDayKey = windowEndDayKey
     }
 
     /// Whether the *persisted* facets (weeks/locations/categories/

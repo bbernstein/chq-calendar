@@ -1,0 +1,224 @@
+import Foundation
+
+/// The instants the event list is narrowed to, plus the calendar days that
+/// range covers. The iOS counterpart of the web's `dayWindow.ts`.
+///
+/// **Half-open**: `start <= x < endExclusive`, carried as a `Range<Date>` so
+/// the type system enforces it and `contains(_:)` comes for free. Never an
+/// inclusive bound with a subtracted epsilon: `Date` wraps a `Double`, so
+/// there is no last representable instant to subtract to, and an
+/// `end - 0.001` bound silently drops `23:59:59.9995` — while the identical
+/// expression is exact on the web, where `Date` is integer milliseconds. The
+/// same written rule meaning two different things is exactly the drift this
+/// shared model exists to prevent.
+///
+/// Half-open is also what the pipeline already used everywhere, so most
+/// scopes need no conversion at all: `SeasonWeek.contains` is
+/// `start <= x && x < end`, `.season` is `< last.end`, the `.thisWeek`
+/// fallback is `< now + 7d`, and `dayKey` equality is exactly
+/// `[startOfDay(d), startOfDay(d+1))`. Those bounds are carried through
+/// verbatim below rather than re-derived.
+///
+/// `startDay`/`endDay` are the navigation-facing projection — what a day rail
+/// or a step control moves through. They are derived from the range, never
+/// the other way round, so they cannot disagree with what is filtered.
+nonisolated struct ViewWindow: Equatable, Sendable {
+    let startDay: String
+    let endDay: String
+    let range: Range<Date>
+
+    var start: Date { range.lowerBound }
+    var endExclusive: Date { range.upperBound }
+
+    /// `start <= date < endExclusive`.
+    func contains(_ date: Date) -> Bool { range.contains(date) }
+
+    private static let minInstant = Date(timeIntervalSince1970: -62_135_596_800) // year 1
+    private static let maxInstant = Date(timeIntervalSince1970: 32_503_680_000)  // year 3000
+
+    /// The exclusive upper bound of `dayKey` — the next day's midnight.
+    ///
+    /// Goes through `Calendar`, not `+86_400`, because a DST day is 23 or 25
+    /// hours. **Deliberately not `ChqTime.endOfDay`**, which returns
+    /// `startOfDay + 1 day - 1 second` (`23:59:59.000`) and is an inclusive
+    /// bound of the wrong precision for a window.
+    static func dayAfter(_ dayKey: String) -> Date? {
+        guard
+            let start = ChqTime.parse("\(dayKey) 00:00:00"),
+            let next = ChqTime.calendar.date(byAdding: .day, value: 1, to: start)
+        else { return nil }
+        return next
+    }
+
+    /// The last day a window actually shows, given its exclusive upper bound.
+    ///
+    /// One rule for two cases that look unrelated at the call site: a window
+    /// ending at midnight does not show that day (`.today`, `.day`, `.next`),
+    /// while one ending mid-day does (`.thisWeek` and `.season` end at noon
+    /// Saturday, and that Saturday morning has events). Implemented once here
+    /// rather than reasoned about at each construction site.
+    static func lastDayCovered(_ endExclusive: Date) -> String {
+        let cal = ChqTime.calendar
+        let key = ChqTime.dayKey(for: endExclusive)
+        guard cal.startOfDay(for: endExclusive) == endExclusive else { return key }
+        return ChqTime.day(key, offsetBy: -1) ?? key
+    }
+
+    /// The outer limit of everything navigation can reach: the season, widened
+    /// to contain every day that carries an event and every starred day.
+    /// Reuses `DayWindow.bounds` for the season-and-starred half so its
+    /// existing tests keep pinning that.
+    static func navigableBounds(
+        year: Int, events: [Event], starredDays: [String]
+    ) -> ClosedRange<String> {
+        let base = DayWindow.bounds(year: year, starredDays: starredDays)
+        var lower = base.lowerBound
+        var upper = base.upperBound
+        for event in events {
+            let key = ChqTime.dayKey(for: event.start)
+            if key < lower { lower = key }
+            if key > upper { upper = key }
+        }
+        return lower...upper
+    }
+
+    /// The window a scope defines, widened by however far the user has
+    /// navigated. `nil` means the scope matches nothing right now.
+    ///
+    /// Expansion only ever grows the window — a `windowStartDayKey` or
+    /// `windowEndDayKey` that would narrow it is ignored, so a stale value can
+    /// never hide events. The added region uses whole days, while an untouched
+    /// end keeps the base window's exact instant: that is what preserves
+    /// `.next`'s one-hour grace and `.thisWeek`'s noon boundaries until the
+    /// user actually navigates past them.
+    ///
+    /// `bounds` clamps the *expansion inputs*, before they are merged with
+    /// `base` — never the merged result. The bounds limit how far navigation
+    /// can reach; they say nothing about a scope the user hasn't navigated,
+    /// and `base` can legitimately sit outside them (off-season `.today`,
+    /// most of the year). Clamping the merged result instead of the inputs
+    /// would invert the window (`startDay > endDay`) whenever that happens.
+    static func make(
+        selection: FilterSelection,
+        events: [Event],
+        now: Date,
+        year: Int,
+        isCurrentYear: Bool,
+        bounds: ClosedRange<String>
+    ) -> ViewWindow? {
+        guard let base = base(
+            selection: selection, events: events, now: now,
+            year: year, isCurrentYear: isCurrentYear, bounds: bounds)
+        else { return nil }
+
+        var expandedStartDayKey = selection.windowStartDayKey
+        if let expanded = expandedStartDayKey, expanded < bounds.lowerBound {
+            expandedStartDayKey = bounds.lowerBound
+        }
+        var expandedEndDayKey = selection.windowEndDayKey
+        if let expanded = expandedEndDayKey, expanded > bounds.upperBound {
+            expandedEndDayKey = bounds.upperBound
+        }
+
+        var startDay = base.startDay
+        var endDay = base.endDay
+        if let expanded = expandedStartDayKey, expanded < startDay { startDay = expanded }
+        if let expanded = expandedEndDayKey, expanded > endDay { endDay = expanded }
+
+        let start: Date
+        if startDay == base.startDay {
+            start = base.start
+        } else if let parsed = ChqTime.parse("\(startDay) 00:00:00") {
+            start = ChqTime.calendar.startOfDay(for: parsed)
+        } else {
+            start = base.start
+        }
+
+        let endExclusive = endDay == base.endDay
+            ? base.endExclusive
+            : (dayAfter(endDay) ?? base.endExclusive)
+
+        // No `guard start < endExclusive` here: unlike the clamp-after-merge
+        // form this replaced, expansion only ever widens outward from a
+        // `base` that is already a valid (non-empty) range, so `start` can
+        // never cross `endExclusive`.
+        return ViewWindow(startDay: startDay, endDay: endDay, range: start..<endExclusive)
+    }
+
+    private static func base(
+        selection: FilterSelection,
+        events: [Event],
+        now: Date,
+        year: Int,
+        isCurrentYear: Bool,
+        bounds: ClosedRange<String>
+    ) -> ViewWindow? {
+        let scope = EffectiveScope.resolve(selection, isCurrentYear: isCurrentYear)
+        let weeks = SeasonCalendar.weeks(forYear: year)
+
+        switch scope {
+        case .all:
+            // No instant bound. Deliberately not derived from `events`: a
+            // window computed from the very list being filtered would be
+            // circular and would behave differently for a caller passing a
+            // subset.
+            return ViewWindow(
+                startDay: bounds.lowerBound, endDay: bounds.upperBound,
+                range: minInstant..<maxInstant)
+
+        case .season:
+            // `first.start <= x && x < last.end`, carried through verbatim.
+            guard let first = weeks.first, let last = weeks.last else { return nil }
+            return windowed(first.start..<last.end)
+
+        case .today:
+            return day(ChqTime.dayKey(for: now))
+
+        case .day:
+            // `EffectiveScope` returns `.day` only with a non-nil key.
+            guard let key = selection.selectedDayKey else { return nil }
+            return day(key)
+
+        case .next:
+            let from = now.addingTimeInterval(-3600)
+            // Sized against the FULL event set, not a search-narrowed one — an
+            // active search must not change how wide the window is, only what
+            // it is applied to.
+            //
+            // `adaptiveEndDate` returns an inclusive `ChqTime.endOfDay`
+            // (23:59:59.000); the half-open equivalent is that day's exclusive
+            // end. No representable event falls in the difference — event
+            // times parse from "yyyy-MM-dd HH:mm:ss" and carry no sub-second
+            // component — which `ViewWindowTests` asserts rather than assumes.
+            let inclusiveEnd = EventFilter.adaptiveEndDate(events: events, from: from, minCount: 50)
+            guard let end = dayAfter(ChqTime.dayKey(for: inclusiveEnd)) else { return nil }
+            return windowed(from..<end)
+
+        case .thisWeek:
+            if let current = weeks.first(where: { $0.contains(now) }) {
+                // Literally `SeasonWeek.contains`.
+                return windowed(current.start..<current.end)
+            }
+            // Out of season: the pipeline's existing seven-day fallback.
+            return windowed(now..<now.addingTimeInterval(7 * 24 * 3600))
+        }
+    }
+
+    /// Wraps a half-open instant range with its day projection.
+    private static func windowed(_ range: Range<Date>) -> ViewWindow {
+        ViewWindow(
+            startDay: ChqTime.dayKey(for: range.lowerBound),
+            endDay: lastDayCovered(range.upperBound),
+            range: range)
+    }
+
+    private static func day(_ key: String) -> ViewWindow? {
+        guard
+            let parsed = ChqTime.parse("\(key) 00:00:00"),
+            let end = dayAfter(key)
+        else { return nil }
+        return ViewWindow(
+            startDay: key, endDay: key,
+            range: ChqTime.calendar.startOfDay(for: parsed)..<end)
+    }
+}
