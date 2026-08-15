@@ -303,9 +303,30 @@ describe('deploy-production job split', () => {
     // The herestring must feed the extracted subject, not the raw message.
     expect(grepLine).toContain('<<< "$SUBJECT"');
     expect(grepLine).not.toContain('"$COMMIT_MESSAGE"');
-    expect(workflow, 'SUBJECT must be the first line of the message').toContain(
-      "SUBJECT=$(printf '%s' \"$COMMIT_MESSAGE\" | head -1)"
+    // Pins the invariant (SUBJECT is the first line) rather than one
+    // particular way of extracting it, so a future safe rewrite does not
+    // have to edit this test to stay green.
+    expect(workflow, 'SUBJECT must be the first line of the message').toMatch(
+      /SUBJECT="\$\{COMMIT_MESSAGE%%/
     );
+  });
+
+  // The step runs under `set -euo pipefail`. Piping the commit message into
+  // `head` aborts it with 141: `head` exits after the first line and the
+  // writer takes SIGPIPE on its next write. Reproduced deterministically at
+  // 500KB, 3/3 runs — and a squash message is a PR title plus a full PR
+  // body, precisely the large input this code path exists to handle.
+  //
+  // This is the same bug class the herestrings elsewhere in the file were
+  // written to eliminate, reintroduced by the fix for the skip-marker trap
+  // and caught by review. The guard exists so it cannot come back a third
+  // time.
+  it('never pipes the commit message into another process', () => {
+    const offenders = workflow
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .filter((line) => /\$\{?COMMIT_MESSAGE\}?"?\s*\|/.test(line));
+    expect(offenders, `COMMIT_MESSAGE piped: ${offenders.join(' / ')}`).toHaveLength(0);
   });
 });
 

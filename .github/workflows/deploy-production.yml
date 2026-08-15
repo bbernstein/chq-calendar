@@ -200,7 +200,14 @@ jobs:
           #
           # The subject is the deliberate surface: it is the PR title, it shows
           # in `git log --oneline`, and prose in a description cannot reach it.
-          SUBJECT=$(printf '%s' "$COMMIT_MESSAGE" | head -1)
+          # Parameter expansion, not `printf ... | head -1`. That pipeline
+          # aborts this step under `set -euo pipefail`: `head` exits after the
+          # first line, `printf` takes SIGPIPE on the next write, and pipefail
+          # propagates 141. Reproduced deterministically at 500KB, 3/3 runs —
+          # and a squash message is a PR title plus a full PR body, which is
+          # exactly the large input this line exists to handle. Expansion uses
+          # no subprocess and no pipe, so the failure mode cannot exist.
+          SUBJECT="${COMMIT_MESSAGE%%$'\n'*}"
           if grep -qE '\[skip-deploy: *[^][:space:]][^]]*\]' <<< "$SUBJECT"; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice title=Deploy skipped::[skip-deploy:] marker found in the commit subject"
