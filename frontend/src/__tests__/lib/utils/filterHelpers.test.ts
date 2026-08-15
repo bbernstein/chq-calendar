@@ -208,3 +208,24 @@ describe('filterEvents date stage — characterization', () => {
     });
   });
 });
+
+// Post-refactor deltas: unlike every describe block above, this one pins
+// behavior the ViewWindow refactor deliberately CHANGED, not behavior it
+// preserved. Before the refactor, `dateFilter: 'all'` ran no date predicate
+// at all, so an event with an unparseable `startDate` reached
+// `groupEventsByDay` and rendered as an "Invalid Date" section. Now `'all'`
+// is a real ViewWindow (MIN_INSTANT..MAX_INSTANT) checked via
+// `windowContains`, and `new Date('garbage')` is `Invalid Date` — every
+// comparison against `NaN` is false, so the row is dropped. This is called
+// out in the PR description; this test exists so a future change to the
+// parsing path can't silently reintroduce the "Invalid Date" row.
+describe('filterEvents date stage — post-refactor deltas', () => {
+  it("dateFilter: 'all' drops an event with an unparseable startDate", () => {
+    const events = [
+      makeEvent('good', new Date(2026, 6, 15, 9, 0)),
+      { id: 'bad', title: 'Event bad', startDate: 'garbage' } as Event,
+    ];
+    const result = filterEvents(events, baseOptions({ dateFilter: 'all' }));
+    expect(result.map((e) => e.id)).toEqual(['good']);
+  });
+});
