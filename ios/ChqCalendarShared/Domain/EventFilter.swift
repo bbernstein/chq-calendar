@@ -34,12 +34,10 @@ nonisolated enum EventFilter {
         }
 
         let weeks = SeasonCalendar.weeks(forYear: year)
-        // `.day` is exempt from the non-current-year downgrade: it names an
-        // absolute NY calendar day, not a window relative to "now", so it is
-        // just as meaningful in an archived season as in the live one.
-        // Downgrading it would silently un-filter the list in exactly the
-        // case My Day's browse-this-day action is most useful for (#192).
-        let scope: DateScope = (isCurrentYear || sel.dateScope == .day) ? sel.dateScope : .all
+        // Which scope actually applies — the non-current-year downgrade and
+        // the `.day` exemption both live in `EffectiveScope` now, so this
+        // type, `DateFilterLabel` and `FilterChipState` cannot drift apart.
+        let scope = EffectiveScope.resolve(sel, isCurrentYear: isCurrentYear)
 
         switch scope {
         case .all:
@@ -55,8 +53,9 @@ nonisolated enum EventFilter {
             result = result.filter { ChqTime.dayKey(for: $0.start) == nowKey }
 
         case .day:
-            // A `nil` key means no day was ever set — filter nothing rather
-            // than filtering everything out.
+            // `EffectiveScope` only returns `.day` when the key is non-nil,
+            // so this binding cannot fail; it exists because the stored type
+            // is still optional.
             if let dayKey = sel.selectedDayKey {
                 result = result.filter { ChqTime.dayKey(for: $0.start) == dayKey }
             }
