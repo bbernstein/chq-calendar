@@ -62,9 +62,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Two commits so `git diff HEAD^ HEAD` works on a squash merge.
-          # 0 (full history) would be slower for no benefit here.
-          fetch-depth: 2
+          # Full history, NOT a shallow clone. At fetch-depth: 2 the
+          # `github.event.before` commit is absent from the clone on any
+          # multi-commit push, so `git diff "$BEFORE" HEAD` fails and the
+          # script falls back to deploying everything. That direction is
+          # safe, but it silently retires the no-deploy guarantee this
+          # phase exists to provide — the guarantee IS the deliverable, so
+          # the extra fetch time is the price of it.
+          fetch-depth: 0
 
       - name: Detect changed areas and the skip-deploy marker
         id: detect
@@ -102,10 +107,20 @@ jobs:
             echo "frontend=true" >> "$GITHUB_OUTPUT"
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
-            echo "$CHANGED" | grep -qE "$FRONTEND_PATHS" \
+            # Herestring, NOT `echo "$CHANGED" | grep -qE ...` — do not
+            # "tidy" this back into a pipe. `grep -q` exits at the first
+            # match, so on a large changed-file list the writer takes
+            # SIGPIPE, `set -o pipefail` reports the pipeline as 141, and
+            # the `|| ... =false` branch runs even though the pattern
+            # MATCHED. Reproduced with a 5.5MB all-frontend file list: it
+            # yields frontend=false, i.e. a silent no-deploy of a frontend
+            # change — the exact failure this job exists to prevent. A
+            # herestring feeds grep from a temp file, so there is no pipe
+            # and nothing to SIGPIPE.
+            grep -qE "$FRONTEND_PATHS" <<< "$CHANGED" \
               && echo "frontend=true" >> "$GITHUB_OUTPUT" \
               || echo "frontend=false" >> "$GITHUB_OUTPUT"
-            echo "$CHANGED" | grep -qE "$BACKEND_PATHS" \
+            grep -qE "$BACKEND_PATHS" <<< "$CHANGED" \
               && echo "backend=true" >> "$GITHUB_OUTPUT" \
               || echo "backend=false" >> "$GITHUB_OUTPUT"
           fi
@@ -120,7 +135,13 @@ jobs:
           # `[^]]+` instead matches `[skip-deploy: ]`, because ` *` simply
           # backtracks to zero and lets `[^]]+` consume the space itself —
           # so a whitespace-only "reason" would silently skip the deploy.
-          if printf '%s' "$COMMIT_MESSAGE" | grep -qE '\[skip-deploy: *[^][:space:]][^]]*\]'; then
+          #
+          # Herestring rather than `printf ... | grep`, for the same
+          # SIGPIPE-under-pipefail reason as the path checks above. A
+          # commit message is small enough that the pipe form would almost
+          # always work, which is precisely what makes it a bad thing to
+          # leave in place.
+          if grep -qE '\[skip-deploy: *[^][:space:]][^]]*\]' <<< "$COMMIT_MESSAGE"; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice title=Deploy skipped::[skip-deploy:] marker found in the commit message"
           else
@@ -1269,12 +1290,14 @@ jobs:
           echo "  2. CloudFront behavior rules for API paths"
           echo "  3. Lambda function URL configuration"
 
+      # True by construction: `verify` runs only when a deploy job reported
+      # success (see the job `if:` above).
+      #
+      # There is deliberately no matching "Notify deployment failure" step.
+      # The only step ahead of this one is `continue-on-error: true`, so
+      # `failure()` is unreachable inside this job — a step claiming to
+      # report failures that never fires is worse than no step at all.
       - name: Notify deployment success
         if: success()
         run: |
           echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
-
-      - name: Notify deployment failure
-        if: failure()
-        run: |
-          echo "::error title=Deployment Failed::Production deployment failed. Check logs for details."
