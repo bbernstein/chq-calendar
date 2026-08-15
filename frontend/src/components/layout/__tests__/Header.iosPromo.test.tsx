@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/preact';
 
 const { available } = vi.hoisted(() => ({
   available: vi.fn(),
@@ -15,6 +15,11 @@ import { APP_STORE_URL } from '@/lib/constants';
 
 const props = { selectedYear: 2026, availableYears: [2026], defaultYear: 2026, onYearChange: () => {} };
 
+// Tailwind's `hidden lg:flex` / `lg:hidden` are CSS, so both clusters are in
+// the DOM under jsdom and queries have to be scoped to one of them.
+const desktop = () => screen.getByTestId('header-desktop');
+const mobile = () => screen.getByTestId('header-mobile');
+
 beforeEach(() => {
   available.mockReset();
 });
@@ -28,11 +33,12 @@ describe('Header "Get the app" affordance', () => {
     expect(screen.queryByRole('link', { name: 'Get the app' })).toBeNull();
   });
 
-  it('appears in the desktop nav on eligible devices, linking to the App Store', () => {
+  it('appears in the desktop "Chautauqua" menu on eligible devices, linking to the App Store', () => {
     available.mockReturnValue(true);
     render(<Header {...props} />);
-    // Desktop nav link (the mobile dropdown is collapsed until "More").
-    const link = screen.getByRole('link', { name: 'Get the app' }) as HTMLAnchorElement;
+    // #228 moved the promo inside the menu, so it is collapsed until opened.
+    fireEvent.click(within(desktop()).getByRole('button', { name: /Chautauqua/ }));
+    const link = within(desktop()).getByRole('link', { name: 'Get the app' }) as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe(APP_STORE_URL);
     expect(link.getAttribute('href')).not.toContain('chqcal://');
   });
@@ -40,25 +46,25 @@ describe('Header "Get the app" affordance', () => {
   it('appears in the mobile dropdown on eligible devices', () => {
     available.mockReturnValue(true);
     render(<Header {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: /More/ }));
-    // One in the desktop nav, one in the now-open dropdown.
-    expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(2);
+    fireEvent.click(within(mobile()).getByRole('button', { name: /More/ }));
+    // The desktop menu is closed, so the dropdown's copy is the only one.
+    expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(1);
   });
 
   // Collapsing the menu during the click would unmount this anchor from inside
   // its own click handler, which can cancel the navigation to the App Store.
-  // Unlike the quick links, this entry closes on the next task instead.
+  // HeaderMenu defers the close for every item; this pins it for the promo,
+  // the entry the workaround was originally written for.
   it('keeps the dropdown open through the click, then closes it', async () => {
     available.mockReturnValue(true);
     render(<Header {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: /More/ }));
-    const inDropdown = screen.getAllByRole('link', { name: 'Get the app' })[1];
+    fireEvent.click(within(mobile()).getByRole('button', { name: /More/ }));
+    const inDropdown = within(mobile()).getByRole('link', { name: 'Get the app' });
     fireEvent.click(inDropdown);
-    // Still two: the dropdown had not collapsed by the time the click resolved.
-    expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(2);
-    // Only the desktop-nav copy survives once the deferred close runs.
+    // Still mounted: the dropdown had not collapsed by the time the click resolved.
+    expect(within(mobile()).getByRole('link', { name: 'Get the app' })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Get the app' })).toHaveLength(1);
+      expect(within(mobile()).queryByRole('link', { name: 'Get the app' })).toBeNull();
     });
   });
 });

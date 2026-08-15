@@ -37,10 +37,12 @@ export function YearSelector({ selectedYear, availableYears, defaultYear, onYear
   const showDropdown = availableYears.length > 1;
 
   return (
-    <div className="relative" ref={containerRef}>
+    // `shrink-0`: the pill keeps its natural width no matter how tight the
+    // header gets, so "2026 Season" can never be squeezed onto two lines.
+    <div className="relative shrink-0" ref={containerRef}>
       <button
         onClick={() => showDropdown && setIsOpen(!isOpen)}
-        className={`ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs sm:text-sm font-medium rounded-full inline-flex items-center gap-1 ${showDropdown ? 'cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors' : 'cursor-default'}`}
+        className={`ml-2 sm:ml-3 px-2 sm:px-3 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs sm:text-sm font-medium rounded-full inline-flex items-center gap-1 whitespace-nowrap ${showDropdown ? 'cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors' : 'cursor-default'}`}
         aria-haspopup={showDropdown ? 'menu' : undefined}
         aria-expanded={isOpen}
       >

@@ -1,0 +1,207 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/preact';
+import { HeaderMenu } from '../HeaderMenu';
+
+// Global cleanup runs from frontend/src/__tests__/setup.ts (afterEach hook).
+
+const items = [
+  { id: 'programs', title: 'Programs', href: 'https://programs.chq.org/' },
+  { id: 'captions', title: 'Captions', href: 'https://captions.chq.org/' },
+];
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('HeaderMenu', () => {
+  // Without an explicit type the trigger defaults to `submit`, so toggling
+  // the menu would submit any form this component is ever placed inside.
+  it('declares the trigger as a plain button, not a submit', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+
+    expect(screen.getByRole('button', { name: /Chautauqua/ })).toHaveAttribute('type', 'button');
+  });
+
+  it('starts collapsed, with the trigger reporting its state', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+
+    const trigger = screen.getByRole('button', { name: /Chautauqua/ });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: /Programs/ })).toBeNull();
+  });
+
+  it('reveals the items and flips aria-expanded when opened', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    expect(screen.getByRole('button', { name: /Chautauqua/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: /Programs/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Captions/ })).toBeInTheDocument();
+  });
+
+  // The panel is unmounted while collapsed, so a permanent aria-controls
+  // would reference an id that is not in the document — axe-core's
+  // aria-valid-attr-value flags exactly that.
+  it('drops aria-controls while there is no panel to point at', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    const trigger = screen.getByRole('button', { name: /Chautauqua/ });
+
+    expect(trigger).not.toHaveAttribute('aria-controls');
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-controls');
+  });
+
+  it('points aria-controls at the container it reveals', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    const trigger = screen.getByRole('button', { name: /Chautauqua/ });
+    fireEvent.click(trigger);
+
+    const controls = trigger.getAttribute('aria-controls');
+    expect(controls).toBeTruthy();
+    const container = document.getElementById(controls!);
+    expect(container).not.toBeNull();
+    expect(container).toContainElement(screen.getByRole('link', { name: /Programs/ }));
+  });
+
+  // #219: these are navigation destinations, so they must announce as links
+  // and carry the new-tab warning rather than being unlabelled buttons.
+  it('renders each item as a new-tab link that announces itself as one', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    const programs = screen.getByRole('link', { name: 'Programs (opens in a new tab)' });
+    expect(programs).toHaveAttribute('href', 'https://programs.chq.org/');
+    expect(programs).toHaveAttribute('target', '_blank');
+    expect(programs).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  // The App Store link is the exception: on iOS it hands off to the App Store
+  // app, so forcing a new tab strands an empty one behind it.
+  it('leaves a `newTab: false` item in the current tab, with no new-tab warning', () => {
+    render(
+      <HeaderMenu
+        label="More"
+        ariaLabel="More links"
+        items={[{ id: 'app', title: 'Get the app', href: 'https://apps.apple.com/x', newTab: false }]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /More/ }));
+
+    const link = screen.getByRole('link', { name: 'Get the app' });
+    expect(link).not.toHaveAttribute('target');
+    expect(link).not.toHaveAttribute('rel');
+  });
+
+  // A bare <div> has no role that supports an accessible name, so an
+  // aria-label on one is silently dropped. The panel needs a naming-capable
+  // role for the label to reach assistive tech at all.
+  it('gives the revealed panel a name assistive tech can actually read', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    expect(screen.getByRole('group', { name: 'Chautauqua links' })).toBeInTheDocument();
+  });
+
+  it('closes on Escape', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('link', { name: /Programs/ })).toBeNull();
+  });
+
+  // Without this a keyboard user who dismisses the menu is dropped back to the
+  // top of the document.
+  it('returns focus to the trigger when dismissed with Escape', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    const trigger = screen.getByRole('button', { name: /Chautauqua/ });
+    fireEvent.click(trigger);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes when a click lands outside it', () => {
+    render(
+      <div>
+        <HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />
+        <button>elsewhere</button>
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'elsewhere' }));
+
+    expect(screen.queryByRole('link', { name: /Programs/ })).toBeNull();
+  });
+
+  // Unmounting an anchor from inside its own click handler can cancel the
+  // navigation it just started, so the close has to wait for the next task.
+  it('keeps a clicked link mounted until after the click has been handled', () => {
+    vi.useFakeTimers();
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    fireEvent.click(screen.getByRole('link', { name: /Programs/ }));
+    expect(screen.getByRole('link', { name: /Programs/ })).toBeInTheDocument();
+
+    act(() => { vi.runAllTimers(); });
+    expect(screen.queryByRole('link', { name: /Programs/ })).toBeNull();
+  });
+
+  it('does not leave a pending close timer behind when unmounted mid-click', () => {
+    vi.useFakeTimers();
+    const { unmount } = render(
+      <HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+    fireEvent.click(screen.getByRole('link', { name: /Programs/ }));
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(() => act(() => { vi.runAllTimers(); })).not.toThrow();
+  });
+
+  // Only the most recent timer handle is stored, so without clearing the
+  // previous one each extra click leaks a timer that outlives unmount.
+  it('keeps at most one pending close timer across repeated clicks', () => {
+    vi.useFakeTimers();
+    const { unmount } = render(
+      <HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    fireEvent.click(screen.getByRole('link', { name: /Programs/ }));
+    fireEvent.click(screen.getByRole('link', { name: /Captions/ }));
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('sets a `setApart` item off from the rest with a separator', () => {
+    render(
+      <HeaderMenu
+        label="More"
+        ariaLabel="More links"
+        items={[{ id: 'app', title: 'Get the app', href: 'https://apps.apple.com/x', setApart: true }, ...items]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /More/ }));
+
+    expect(screen.getByRole('link', { name: /Get the app/ })).toBeInTheDocument();
+    expect(screen.getByRole('separator')).toBeInTheDocument();
+  });
+
+  it('renders no separator when nothing is set apart', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    expect(screen.queryByRole('separator')).toBeNull();
+  });
+});
