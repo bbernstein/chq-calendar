@@ -140,7 +140,13 @@ export function navigableBounds(
   let endDay = dayKeyOf(seasonWeeks[seasonWeeks.length - 1].end);
 
   for (const event of events) {
-    const key = dayKeyOf(new Date(event.startDate));
+    const parsed = new Date(event.startDate);
+    // An unparseable date must not poison the global bound: 'NaN-NaN-NaN'
+    // sorts above every real key, so a single bad row would otherwise widen
+    // endDay for the whole app. Every other call site (filterHelpers,
+    // eventHelpers, dateHelpers) already just drops such a row — match that.
+    if (Number.isNaN(parsed.getTime())) continue;
+    const key = dayKeyOf(parsed);
     if (key < startDay) startDay = key;
     if (key > endDay) endDay = key;
   }
@@ -229,19 +235,33 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
  * exact instant. That is what preserves `'next'`'s one-hour grace and
  * `'this-week'`'s noon boundaries until the user actually navigates past
  * them.
+ *
+ * `bounds` is clamped onto the *expansion inputs*, not onto the merged
+ * result. The base window itself is never touched by the clamp: a scope's
+ * own window (e.g. off-season `'today'`, which sits entirely outside
+ * `bounds` for ~10 months a year) is never rewritten on only one edge, which
+ * is what would invert `startDay`/`endDay` if the clamp ran after the merge.
+ * `bounds` exists to bound how far navigation can *reach* — it has nothing
+ * to say about a scope that hasn't been navigated at all.
  */
 export function viewWindow(o: WindowOptions): ViewWindow | null {
   const base = baseWindow(o);
   if (!base) return null;
 
+  let expandedStartDay = o.expandedStartDay;
+  if (expandedStartDay && expandedStartDay < o.bounds.startDay) {
+    expandedStartDay = o.bounds.startDay;
+  }
+  let expandedEndDay = o.expandedEndDay;
+  if (expandedEndDay && expandedEndDay > o.bounds.endDay) {
+    expandedEndDay = o.bounds.endDay;
+  }
+
   let startDay = base.startDay;
   let endDay = base.endDay;
 
-  if (o.expandedStartDay && o.expandedStartDay < startDay) startDay = o.expandedStartDay;
-  if (o.expandedEndDay && o.expandedEndDay > endDay) endDay = o.expandedEndDay;
-
-  if (startDay < o.bounds.startDay) startDay = o.bounds.startDay;
-  if (endDay > o.bounds.endDay) endDay = o.bounds.endDay;
+  if (expandedStartDay && expandedStartDay < startDay) startDay = expandedStartDay;
+  if (expandedEndDay && expandedEndDay > endDay) endDay = expandedEndDay;
 
   return {
     startDay,

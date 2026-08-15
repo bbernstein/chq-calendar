@@ -9,8 +9,9 @@ import {
   navigableBounds,
   baseWindow,
   viewWindow,
+  windowContains,
 } from '@/lib/utils/dayWindow';
-import { getChautauquaSeasonWeeks, getCurrentWeekNumber } from '@/lib/utils/dateHelpers';
+import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import type { Event } from '@/lib/types';
 
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
@@ -96,6 +97,44 @@ describe('navigableBounds', () => {
     const bounds = navigableBounds(seasonWeeks, []);
     expect(bounds.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
     expect(bounds.endDay).toBe(dayKeyOf(seasonWeeks[8].end));
+  });
+
+  it('ignores an event with an unparseable date rather than poisoning the bound', () => {
+    // 'NaN-NaN-NaN' sorts above every real day key, so letting a bad row
+    // through would silently widen endDay for the whole app. Every other
+    // call site just drops the row; this one must match.
+    const events: Event[] = [
+      { id: 'good', title: 'good', startDate: new Date(2026, 6, 20, 9, 0).toISOString() } as Event,
+      { id: 'bad', title: 'bad', startDate: 'not-a-date' } as Event,
+    ];
+    const bounds = navigableBounds(seasonWeeks, events);
+    expect(bounds.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
+    expect(bounds.endDay).toBe(dayKeyOf(seasonWeeks[8].end));
+  });
+});
+
+describe('windowContains', () => {
+  // A synthetic window is enough here: this is testing the half-open
+  // comparison itself, not any scope's derivation of start/endExclusive.
+  const w = {
+    startDay: '2026-07-15',
+    endDay: '2026-07-15',
+    start: new Date(2026, 6, 15, 0, 0, 0, 0),
+    endExclusive: new Date(2026, 6, 16, 0, 0, 0, 0),
+  };
+
+  it('contains an instant exactly at start', () => {
+    expect(windowContains(w, w.start)).toBe(true);
+  });
+
+  it('contains an instant strictly inside', () => {
+    expect(windowContains(w, new Date(2026, 6, 15, 12, 0, 0, 0))).toBe(true);
+  });
+
+  it('does not contain an instant exactly at endExclusive', () => {
+    // This is the half-openness the whole shared model exists to enforce:
+    // endExclusive belongs to the next window, not this one.
+    expect(windowContains(w, w.endExclusive)).toBe(false);
   });
 });
 
@@ -251,5 +290,24 @@ describe('viewWindow expansion', () => {
       expandedEndDay: '2026-12-31',
     });
     expect(w).toBeNull();
+  });
+
+  it("does not invert an off-season 'today' window", () => {
+    // The season runs roughly June-August 2026; this 'today' sits entirely
+    // outside `bounds` for the other ~10 months of the year — the app's
+    // normal state most of the time. `bounds` must clamp how far navigation
+    // can reach, not rewrite one edge of a scope's own window: doing the
+    // latter here would put startDay/endDay in December against endDay
+    // clamped back to the August season end, inverting the window.
+    const offSeasonNow = new Date(2026, 11, 25, 12, 0, 0, 0);
+    const w = viewWindow({
+      dateFilter: 'today',
+      seasonWeeks,
+      currentWeekNumber: null,
+      now: offSeasonNow,
+      bounds,
+    })!;
+    expect(w.startDay <= w.endDay).toBe(true);
+    expect(w.start.getTime()).toBeLessThan(w.endExclusive.getTime());
   });
 });
