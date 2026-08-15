@@ -61,3 +61,75 @@ describe('deploy-production paths-ignore', () => {
     }
   );
 });
+
+describe('deploy-production job split', () => {
+  it.each(['changes:', 'deploy-backend:', 'deploy-frontend:', 'verify:'])(
+    'declares the %s job',
+    (job) => {
+      expect(workflow).toContain(`  ${job}`);
+    }
+  );
+
+  // Secrets resolve per-job, not per-workflow. A deploy job without this
+  // gets no AWS credentials and fails at the first aws call.
+  it('puts environment: production on both deploy jobs', () => {
+    // ` {4}` rather than four literal spaces: same match, but eslint's
+    // no-regex-spaces rejects countable runs of spaces in a regex literal.
+    const occurrences = workflow.match(/^ {4}environment: production$/gm) ?? [];
+    expect(occurrences.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // The fork guard has to be on every job now that there are four. A fork
+  // would otherwise red-X on every push, or deploy over production if
+  // someone added real credentials to the fork's secrets.
+  //
+  // One per job: changes, deploy-backend, deploy-frontend, verify. A new
+  // job added without the guard is exactly the regression this catches —
+  // so the constant is meant to be updated deliberately, not derived.
+  it('repeats the fork guard on every job', () => {
+    const guards =
+      workflow.match(/github\.repository == 'bbernstein\/chq-calendar'/g) ?? [];
+    expect(guards.length).toBe(4);
+  });
+
+  // Two concurrent runs interleave the ci-e2e-test publisher's
+  // enable/disable toggles and corrupt the post-deploy retraction
+  // assertion. With four jobs the group has to be workflow-level.
+  it('declares concurrency at workflow level, not job level', () => {
+    const beforeJobs = workflow.slice(0, workflow.indexOf('\njobs:'));
+    expect(beforeJobs).toContain('concurrency:');
+    expect(beforeJobs).toContain('group: deploy-production');
+    expect(beforeJobs).toContain('cancel-in-progress: false');
+  });
+
+  // shared/** must be in the FRONTEND filter. This is the assertion that
+  // catches the failure mode where editing links.json deploys nothing that
+  // rebuilds the bundle it is compiled into.
+  it('routes shared/ to the frontend filter', () => {
+    const from = workflow.indexOf('FRONTEND_PATHS');
+    const to = workflow.indexOf('BACKEND_PATHS');
+    // Without these, a missed marker makes indexOf return -1 and the slice
+    // below silently degrade into a pass.
+    expect(from, 'FRONTEND_PATHS marker missing').toBeGreaterThan(-1);
+    expect(to, 'BACKEND_PATHS marker missing').toBeGreaterThan(from);
+    expect(workflow.slice(from, to)).toContain('shared/');
+  });
+
+  // A bare [skip-deploy] must NOT skip. The reason is required, so opting
+  // out is a recorded decision rather than silence — same contract as
+  // [skip-screenshots: <reason>] in app-store-assets.yml.
+  //
+  // The workflow uses grep -qE, so this is ERE: a bare +, and a POSIX
+  // [[:space:]] class rather than \s.
+  it('requires a non-empty reason on the skip-deploy marker', () => {
+    expect(workflow).toContain('skip-deploy: *[^][:space:]][^]]*');
+  });
+
+  // Pinning the bug, not just the fix. `[skip-deploy: *[^]]+]` looks
+  // equivalent and is not: against `[skip-deploy: ]` the ` *` backtracks to
+  // zero and `[^]]+` consumes the space, so a whitespace-only reason skips
+  // the deploy. Verified by running all four message shapes through grep.
+  it('does not use the naive marker regex that a blank reason satisfies', () => {
+    expect(workflow).not.toContain('skip-deploy: *[^]]+');
+  });
+});
