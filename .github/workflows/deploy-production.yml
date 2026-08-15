@@ -7,7 +7,7 @@ on:
     # existed, a docs-only or iOS-only merge redeployed six Lambdas, synced
     # S3, invalidated CloudFront and re-triggered three data ingests.
     #
-    # paths-ignore is OR-semantics: a push touching both docs/** and
+    # paths-ignore is OR-semantics: a push touching both ios/** and
     # frontend/** still runs, which is what we want — the run is skipped
     # only when EVERY changed file matches.
     #
@@ -16,11 +16,24 @@ on:
     # Vite alias at vite.config.ts:132). Ignoring it would let a links.json
     # edit merge and silently never reach the header.
     #
-    # docs/** IS safe to ignore: the publisher docs that are live content
-    # are served from frontend/publish/docs/index.html, a Vite entry
-    # (vite.config.ts:154), not from docs/publisher/.
+    # Deliberately NOT listed either: docs/**. `**/*.md` already covers the
+    # common case — a docs change is almost always all Markdown — and that
+    # is where the saving is. Non-Markdown files under docs/ are NOT ignored
+    # because some of them are Lambda BUILD INPUTS:
+    # docs/publisher/categories.json and docs/publisher/venues.json are
+    # copied into tools/publisher-format/dist/refs by its `copy-refs`
+    # script, then into backend/dist/refs by backend's `build:prod`, and
+    # shipped inside the admin and publisher-ingest zips. While docs/** was
+    # ignored, editing a venue list merged with no workflow run at all.
+    #
+    # The narrower "ignore docs/ except docs/publisher/" cannot be written:
+    # paths-ignore has no negation. An enumerated allow-list of "safe" docs
+    # subdirectories is worse than nothing, because it silently re-breaks
+    # the next time a subdirectory becomes a build input. With the area
+    # split below, the cost of not ignoring docs/ is one cheap `changes`
+    # job on a non-Markdown docs push, which then deploys nothing — unless
+    # it touched docs/publisher/, which is in BACKEND_PATHS.
     paths-ignore:
-      - 'docs/**'
       - 'ios/**'
       - '**/*.md'
       - '.github/ISSUE_TEMPLATE/**'
@@ -108,12 +121,38 @@ jobs:
           echo "$CHANGED"
 
           # FRONTEND_PATHS — anything that changes the built bundle.
-          # shared/ is here, NOT in BACKEND_PATHS: frontend/src/lib/quickLinks.ts
-          # imports @shared/links.json through the Vite alias at
-          # vite.config.ts:132, so a links.json edit must rebuild the frontend.
+          #
+          # shared/ is in BOTH filters, deliberately. It is a hard frontend
+          # build input: frontend/src/lib/quickLinks.ts imports
+          # @shared/links.json through the Vite alias at vite.config.ts:132,
+          # so a links.json edit must rebuild the frontend. It is in
+          # BACKEND_PATHS as a conservative over-deploy: shared/ is the
+          # repo's cross-cutting data directory, no backend source reads it
+          # *today*, and the day one does, the filter already covers it.
+          # Over-deploying costs a few minutes; under-deploying is the
+          # silent-green failure this whole job exists to prevent.
           FRONTEND_PATHS='^(frontend/|shared/|package\.json|package-lock\.json)'
-          # BACKEND_PATHS — anything that changes a Lambda bundle.
-          BACKEND_PATHS='^(backend/|shared/|package\.json|package-lock\.json)'
+          # BACKEND_PATHS — anything that changes a Lambda bundle. Two
+          # members here are NOT obvious and must not be "tidied" away:
+          #
+          #   tools/ — backend/package.json depends on
+          #     @chq-calendar/publisher-format, which is the workspace at
+          #     tools/publisher-format, and esbuild inlines it into
+          #     adminHandler.js and publisherIngestHandler.js. A push
+          #     touching only tools/publisher-format/src/** changes two
+          #     Lambda bundles while looking like it touched no deployable
+          #     code at all.
+          #
+          #   docs/publisher/ — categories.json and venues.json ship INSIDE
+          #     the Lambda zips as dist/refs: tools/publisher-format's
+          #     `copy-refs` copies them to its dist/refs, backend's
+          #     `build:prod` copies that to backend/dist/refs, and the
+          #     admin + publisher-ingest deploy steps `cp -r dist/refs` into
+          #     the package. Editing a venue list is a Lambda change, however
+          #     much its path says "docs". A docs/ path in a BACKEND filter
+          #     looks like a mistake; it is not — delete it and venue edits
+          #     stop reaching production.
+          BACKEND_PATHS='^(backend/|tools/|docs/publisher/|shared/|package\.json|package-lock\.json)'
 
           if [ "$CHANGED" = "FALLBACK_DEPLOY_ALL" ]; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
@@ -616,7 +655,12 @@ jobs:
         run: |
           # Update API Gateway or Lambda Function URL if needed
           echo "Backend deployed to Lambda function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
-          echo "Frontend deployed to: https://www.chqcal.org"
+          # This step runs in deploy-backend and must claim ONLY what
+          # deploy-backend did. It used to also print "Frontend deployed to:
+          # https://www.chqcal.org", which was harmless in the monolithic
+          # job but is false log evidence now: on a backend-only run
+          # deploy-frontend is skipped and nothing was published to the
+          # site.
 
       - name: Publisher disable→retract end-to-end test
         # Validates the full publisher-ingest pipeline against real DynamoDB +

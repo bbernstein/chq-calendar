@@ -410,20 +410,40 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'docs/**'
       - 'ios/**'
       - '**/*.md'
       - '.github/ISSUE_TEMPLATE/**'
 ```
 
-`paths-ignore` is OR-semantics: a push touching both `docs/**` and
+`paths-ignore` is OR-semantics: a push touching both `ios/**` and
 `frontend/**` still runs, which is correct.
 
-`docs/**` is safe to ignore — verified. The publisher docs that are live
-content are served from `frontend/publish/docs/index.html`, a Vite entry
-(`vite.config.ts:154`), not from `docs/publisher/`.
+**`docs/**` is deliberately NOT ignored.** An earlier draft of this spec
+listed it and claimed it was "safe to ignore — verified". That verification
+checked whether any *served page* comes from `docs/` (none — the publisher
+docs that are live content are a Vite entry at
+`frontend/publish/docs/index.html`, `vite.config.ts:154`) and never checked
+whether anything under `docs/` is a **build input**. Two files are:
+`docs/publisher/categories.json` and `docs/publisher/venues.json` are copied
+into `tools/publisher-format/dist/refs` by its `copy-refs` script, then into
+`backend/dist/refs` by backend's `build:prod`, and shipped inside the admin
+and publisher-ingest Lambda zips. With `docs/**` ignored, editing a venue
+list merged with no workflow run at all.
 
-**Split the job by area** via `dorny/paths-filter`:
+The narrow fix — ignore `docs/` except `docs/publisher/` — is not
+expressible: `paths-ignore` has no negation, and an enumerated allow-list of
+"safe" subdirectories silently re-breaks the next time one becomes a build
+input. `**/*.md` stays, so the common all-Markdown docs change still starts
+no run; a non-Markdown docs push runs only the cheap `changes` job and
+deploys nothing, unless it touched `docs/publisher/`, which is in
+`BACKEND_PATHS`.
+
+**Split the job by area** using plain `git diff --name-only` against
+`github.event.before`, compared to two regex path filters. A third-party
+action such as `dorny/paths-filter` (specified in an earlier draft) was
+rejected: the logic is a handful of lines and this avoids a new
+supply-chain dependency in the workflow that holds production AWS
+credentials.
 
 - `deploy-backend` — the 6 Lambda steps, the post-deploy publisher E2E and
   smoke steps, and the 3 data-sync triggers
@@ -440,10 +460,19 @@ than one job.
 
 **The brake:** a `[skip-deploy: <reason>]` marker in the squash commit
 message skips both deploy jobs. The reason is **required** — matched as
-`\[skip-deploy: *[^\]]+\]`, so a bare `[skip-deploy]` does not skip. This
-mirrors the existing `[skip-screenshots: <reason>]` idiom in
+`\[skip-deploy: *[^][:space:]][^]]*\]`, so a bare `[skip-deploy]` does not
+skip. This mirrors the existing `[skip-screenshots: <reason>]` idiom in
 `app-store-assets.yml`: opting out is a recorded decision rather than
 silence.
+
+The obvious form `\[skip-deploy: *[^]]+\]` (specified in an earlier draft)
+is wrong and must not be restored: against `[skip-deploy: ]` the ` *`
+backtracks to zero repetitions and `[^]]+` then consumes the space itself,
+so a whitespace-only "reason" satisfies it and silently skips the deploy —
+exactly the silence the required reason exists to prevent. The shipped form
+forces the reason's first character to be neither `]` nor whitespace.
+POSIX `[[:space:]]` rather than `\s` because the check runs under
+`grep -qE`, which is POSIX ERE.
 
 ### Rejected: unconditional required reviewers
 
