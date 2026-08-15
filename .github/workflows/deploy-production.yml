@@ -3,31 +3,239 @@ name: Deploy to Production
 on:
   push:
     branches: [main]
+    # A merge touching ONLY these paths deploys nothing. Before this
+    # existed, a docs-only or iOS-only merge redeployed six Lambdas, synced
+    # S3, invalidated CloudFront and re-triggered three data ingests.
+    #
+    # paths-ignore is OR-semantics: a push touching both ios/** and
+    # frontend/** still runs, which is what we want — the run is skipped
+    # only when EVERY changed file matches.
+    #
+    # Deliberately NOT listed: shared/**, which is a frontend build input
+    # (frontend/src/lib/quickLinks.ts imports @shared/links.json through the
+    # Vite alias at vite.config.ts:132). Ignoring it would let a links.json
+    # edit merge and silently never reach the header.
+    #
+    # Deliberately NOT listed either: docs/**. `**/*.md` already covers the
+    # common case — a docs change is almost always all Markdown — and that
+    # is where the saving is. Non-Markdown files under docs/ are NOT ignored
+    # because some of them are Lambda BUILD INPUTS:
+    # docs/publisher/categories.json and docs/publisher/venues.json are
+    # copied into tools/publisher-format/dist/refs by its `copy-refs`
+    # script, then into backend/dist/refs by backend's `build:prod`, and
+    # shipped inside the admin and publisher-ingest zips. While docs/** was
+    # ignored, editing a venue list merged with no workflow run at all.
+    #
+    # The narrower "ignore docs/ except docs/publisher/" cannot be written:
+    # paths-ignore has no negation. An enumerated allow-list of "safe" docs
+    # subdirectories is worse than nothing, because it silently re-breaks
+    # the next time a subdirectory becomes a build input. With the area
+    # split below, the cost of not ignoring docs/ is one cheap `changes`
+    # job on a non-Markdown docs push, which then deploys nothing — unless
+    # it touched docs/publisher/, which is in BACKEND_PATHS.
+    paths-ignore:
+      - 'ios/**'
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
+  # No inputs. A manual run IS the force-deploy: the `changes` job sends any
+  # non-push event straight to FALLBACK_DEPLOY_ALL. The old `force_deploy`
+  # boolean was never read by any step and is removed rather than left to
+  # imply a control that does not exist.
   workflow_dispatch:
-    inputs:
-      force_deploy:
-        description: "Force deployment even if tests fail"
-        type: boolean
-        default: false
+
+# Serialize deploys across every job in this workflow. Two concurrent runs
+# would interleave the ci-e2e-test publisher's enable/disable toggles and
+# corrupt the post-deploy retraction assertion. cancel-in-progress=false so
+# an in-flight deploy completes (including its cleanup trap) before the next
+# one starts.
+#
+# Workflow-level since the job split: a job-level group would serialize each
+# job against itself but let a backend deploy from run N overlap a frontend
+# deploy from run N+1.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Which areas this push actually touched, and whether the committer asked
+  # to skip deploying. Computed once and consumed by both deploy jobs so the
+  # decision lives in exactly one place.
+  #
+  # Uses plain git rather than a third-party paths-filter action: this needs
+  # no new supply-chain dependency, and the logic is four lines.
+  changes:
+    runs-on: ubuntu-latest
+    if: github.repository == 'bbernstein/chq-calendar'
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+      skip: ${{ steps.detect.outputs.skip }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history, NOT a shallow clone. At fetch-depth: 2 the
+          # `github.event.before` commit is absent from the clone on any
+          # multi-commit push, so `git diff "$BEFORE" HEAD` fails and the
+          # script falls back to deploying everything. That direction is
+          # safe, but it silently retires the no-deploy guarantee this
+          # phase exists to provide — the guarantee IS the deliverable, so
+          # the extra fetch time is the price of it.
+          fetch-depth: 0
+
+      - name: Detect changed areas and the skip-deploy marker
+        id: detect
+        env:
+          # Read via env rather than interpolated into the script: a commit
+          # message is attacker-controllable text and must never be spliced
+          # into a shell command.
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+
+          BEFORE="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" != 'push' ]; then
+            # A manual run is an explicit "deploy now" — there is no
+            # meaningful "what changed" for it, and gating it on the tip
+            # commit's paths would make workflow_dispatch report green
+            # having deployed nothing. This is the manual escape hatch.
+            #
+            # This branch must come FIRST. On workflow_dispatch `before` is
+            # absent, so the `-z "$BEFORE"` branch below would catch it and
+            # run `git diff HEAD^ HEAD` — which at fetch-depth: 0 always
+            # succeeds, so FALLBACK_DEPLOY_ALL would never fire and a
+            # dispatch on a docs-only tip commit would deploy nothing.
+            CHANGED="FALLBACK_DEPLOY_ALL"
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # First push to the branch, or a force-push — `before` is
+            # unusable (all-zeros or empty). Fall back to the single
+            # previous commit, and if even that is missing, deploy
+            # everything rather than silently deploying nothing.
+            CHANGED=$(git diff --name-only HEAD^ HEAD 2>/dev/null || echo "FALLBACK_DEPLOY_ALL")
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" HEAD 2>/dev/null || echo "FALLBACK_DEPLOY_ALL")
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # FRONTEND_PATHS — anything that changes the built bundle.
+          #
+          # shared/ is in BOTH filters, deliberately. It is a hard frontend
+          # build input: frontend/src/lib/quickLinks.ts imports
+          # @shared/links.json through the Vite alias at vite.config.ts:132,
+          # so a links.json edit must rebuild the frontend. It is in
+          # BACKEND_PATHS as a conservative over-deploy: shared/ is the
+          # repo's cross-cutting data directory, no backend source reads it
+          # *today*, and the day one does, the filter already covers it.
+          # Over-deploying costs a few minutes; under-deploying is the
+          # silent-green failure this whole job exists to prevent.
+          FRONTEND_PATHS='^(frontend/|shared/|package\.json|package-lock\.json)'
+          # BACKEND_PATHS — anything that changes a Lambda bundle. Two
+          # members here are NOT obvious and must not be "tidied" away:
+          #
+          #   tools/ — backend/package.json depends on
+          #     @chq-calendar/publisher-format, which is the workspace at
+          #     tools/publisher-format, and esbuild inlines it into
+          #     adminHandler.js and publisherIngestHandler.js. A push
+          #     touching only tools/publisher-format/src/** changes two
+          #     Lambda bundles while looking like it touched no deployable
+          #     code at all.
+          #
+          #   docs/publisher/ — categories.json and venues.json ship INSIDE
+          #     the Lambda zips as dist/refs: tools/publisher-format's
+          #     `copy-refs` copies them to its dist/refs, backend's
+          #     `build:prod` copies that to backend/dist/refs, and the
+          #     admin + publisher-ingest deploy steps `cp -r dist/refs` into
+          #     the package. Editing a venue list is a Lambda change, however
+          #     much its path says "docs". A docs/ path in a BACKEND filter
+          #     looks like a mistake; it is not — delete it and venue edits
+          #     stop reaching production.
+          BACKEND_PATHS='^(backend/|tools/|docs/publisher/|shared/|package\.json|package-lock\.json)'
+
+          if [ "$CHANGED" = "FALLBACK_DEPLOY_ALL" ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            # Herestring, NOT `echo "$CHANGED" | grep -qE ...` — do not
+            # "tidy" this back into a pipe. `grep -q` exits at the first
+            # match, so on a large changed-file list the writer takes
+            # SIGPIPE, `set -o pipefail` reports the pipeline as 141, and
+            # the `|| ... =false` branch runs even though the pattern
+            # MATCHED. Reproduced with a 5.5MB all-frontend file list: it
+            # yields frontend=false, i.e. a silent no-deploy of a frontend
+            # change — the exact failure this job exists to prevent. A
+            # herestring feeds grep from a temp file, so there is no pipe
+            # and nothing to SIGPIPE.
+            grep -qE "$FRONTEND_PATHS" <<< "$CHANGED" \
+              && echo "frontend=true" >> "$GITHUB_OUTPUT" \
+              || echo "frontend=false" >> "$GITHUB_OUTPUT"
+            grep -qE "$BACKEND_PATHS" <<< "$CHANGED" \
+              && echo "backend=true" >> "$GITHUB_OUTPUT" \
+              || echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # The manual brake. A NON-EMPTY reason is required, so opting out
+          # is a recorded decision rather than silence — the same contract
+          # as [skip-screenshots: <reason>] in app-store-assets.yml. A bare
+          # [skip-deploy] deliberately does NOT match and does NOT skip.
+          #
+          # The leading [^][:space:]] is load-bearing: it forces the first
+          # character of the reason to be non-whitespace. The obvious
+          # `[^]]+` instead matches `[skip-deploy: ]`, because ` *` simply
+          # backtracks to zero and lets `[^]]+` consume the space itself —
+          # so a whitespace-only "reason" would silently skip the deploy.
+          #
+          # Herestring rather than `printf ... | grep`, for the same
+          # SIGPIPE-under-pipefail reason as the path checks above. A
+          # commit message is small enough that the pipe form would almost
+          # always work, which is precisely what makes it a bad thing to
+          # leave in place.
+          # FIRST LINE ONLY. A squash merge's commit message is the PR title
+          # followed by the PR *body*, so matching the whole message means any
+          # PR whose description documents this marker — a runbook, a plan, or
+          # the PR that introduced it — silently skips its own deploy. That is
+          # not hypothetical: PR #231's description quoted the syntax twice,
+          # and matching the full message would have skipped it.
+          #
+          # The subject is the deliberate surface: it is the PR title, it shows
+          # in `git log --oneline`, and prose in a description cannot reach it.
+          # Parameter expansion, not `printf ... | head -1`. That pipeline
+          # aborts this step under `set -euo pipefail`: `head` exits after the
+          # first line, `printf` takes SIGPIPE on the next write, and pipefail
+          # propagates 141. Reproduced deterministically at 500KB, 3/3 runs —
+          # and a squash message is a PR title plus a full PR body, which is
+          # exactly the large input this line exists to handle. Expansion uses
+          # no subprocess and no pipe, so the failure mode cannot exist.
+          SUBJECT="${COMMIT_MESSAGE%%$'\n'*}"
+          if grep -qE '\[skip-deploy: *[^][:space:]][^]]*\]' <<< "$SUBJECT"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::[skip-deploy:] marker found in the commit subject"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        run: |
+          echo "backend=${{ steps.detect.outputs.backend }}"
+          echo "frontend=${{ steps.detect.outputs.frontend }}"
+          echo "skip=${{ steps.detect.outputs.skip }}"
+
+  # Lambda bundles, the publisher E2E suite and the post-deploy data-sync
+  # triggers. Runs only when a backend build input moved.
+  deploy-backend:
     runs-on: ubuntu-latest
     environment: production
+    needs: changes
     # Guards against forks: this job deploys straight to chqcal.org on push
     # to main with static AWS keys and no branch-protection gate. A fork
     # would otherwise red-X on every push (no secrets configured) or, worse,
     # actually deploy over production if someone ever added real creds to
     # the fork's secrets.
-    if: github.repository == 'bbernstein/chq-calendar'
-    # Serialize deploys: two concurrent runs would interleave the
-    # ci-e2e-test publisher's enable/disable toggles and corrupt the
-    # post-deploy retraction assertion. cancel-in-progress=false so an
-    # in-flight deploy completes (including its cleanup trap) before the
-    # next one starts.
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
+    if: >-
+      github.repository == 'bbernstein/chq-calendar'
+      && needs.changes.outputs.skip != 'true'
+      && needs.changes.outputs.backend == 'true'
 
     steps:
       - uses: actions/checkout@v7
@@ -60,16 +268,6 @@ jobs:
 
       - name: Build backend
         run: npm run build:prod --workspace=backend
-
-      - name: Build frontend
-        run: npm run build --workspace=frontend
-        env:
-          VITE_API_URL: ""
-          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
-          # Enable fetching/rendering of registered publisher feeds. Sidecar fetch
-          # is fault-tolerant: 404/parse errors fall back to primary-only behavior,
-          # so this is safe to leave on even before any publisher is onboarded.
-          VITE_ENABLE_PUBLISHER_FEEDS: "true"
 
       - name: Deploy calendar Lambda function
         working-directory: ./backend
@@ -469,100 +667,16 @@ jobs:
 
           rm -rf package_temp lambda-program-ingest.zip
 
-      - name: Deploy frontend to S3 and CloudFront
-        working-directory: ./frontend
-        run: |
-          BUCKET="${{ secrets.S3_BUCKET_NAME }}"
-
-          # Pass 1 — content-hashed, immutable assets. Exclude the files that must always
-          # revalidate so they never get the year-long immutable header. --delete removes
-          # stale hashed bundles; excluded files are neither uploaded nor deleted here.
-          aws s3 sync out/ "s3://$BUCKET/" \
-            --delete \
-            --exclude "*.map" \
-            --exclude "cache/*" \
-            --exclude "*.html" \
-            --exclude "manifest.json" \
-            --exclude "version.json" \
-            --exclude "sw.js" \
-            --exclude "data/weekly-themes/*" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          # Pass 2 — always-revalidate files. `cp` re-uploads unconditionally (unlike
-          # `sync`, which skips unchanged files and was the cause of the stale-shell bug),
-          # so the no-cache header is applied every time.
-          aws s3 cp out/ "s3://$BUCKET/" \
-            --recursive \
-            --exclude "*" \
-            --include "*.html" \
-            --content-type "text/html" \
-            --cache-control "no-cache"
-
-          aws s3 cp out/manifest.json "s3://$BUCKET/manifest.json" \
-            --content-type "application/json" \
-            --cache-control "no-cache"
-
-          aws s3 cp out/version.json "s3://$BUCKET/version.json" \
-            --content-type "application/json" \
-            --cache-control "no-cache"
-
-          aws s3 cp out/sw.js "s3://$BUCKET/sw.js" \
-            --content-type "text/javascript" \
-            --cache-control "no-cache"
-
-          # weekly-themes JSON is fetched directly from /data/ in production
-          # (useWeeklyThemes has no dev/prod split) and is NOT content-hashed,
-          # so it must revalidate — otherwise a content edit under the same
-          # filename would never reach users (the same bug this deploy fixes).
-          aws s3 cp out/data/weekly-themes/ "s3://$BUCKET/data/weekly-themes/" \
-            --recursive \
-            --content-type "application/json" \
-            --cache-control "no-cache"
-
-          # Invalidate CloudFront cache
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/*"
-
       - name: Update Lambda function URL (if using Function URL)
         run: |
           # Update API Gateway or Lambda Function URL if needed
           echo "Backend deployed to Lambda function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
-          echo "Frontend deployed to: https://www.chqcal.org"
-
-      - name: Run post-deployment tests
-        continue-on-error: true
-        run: |
-          # Wait for deployment to propagate
-          sleep 30
-
-          # Test production API
-          echo "Testing production API..."
-          echo "URL: https://www.chqcal.org/api/health"
-          curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
-
-          # Test calendar endpoint
-          EVENTS_COUNT=$(curl -s "https://www.chqcal.org/api/calendar?format=json" \
-            -H "Accept: application/json" | jq '.events | length' || echo "0")
-
-          if [ "$EVENTS_COUNT" -gt "0" ]; then
-            echo "✅ Production API returning $EVENTS_COUNT events"
-          else
-            echo "❌ Production API not returning events"
-            exit 1
-          fi
-
-          # Test frontend
-          echo "Testing production frontend..."
-          curl -f "https://www.chqcal.org" || exit 1
-
-          echo "🎉 Production deployment successful!"
-
-          echo ""
-          echo "⚠️  Note: If API tests failed with 403, check:"
-          echo "  1. API Gateway configuration for /api/* routes"
-          echo "  2. CloudFront behavior rules for API paths"
-          echo "  3. Lambda function URL configuration"
+          # This step runs in deploy-backend and must claim ONLY what
+          # deploy-backend did. It used to also print "Frontend deployed to:
+          # https://www.chqcal.org", which was harmless in the monolithic
+          # job but is false log evidence now: on a backend-only run
+          # deploy-frontend is skipped and nothing was published to the
+          # site.
 
       - name: Publisher disable→retract end-to-end test
         # Validates the full publisher-ingest pipeline against real DynamoDB +
@@ -1099,12 +1213,176 @@ jobs:
             /tmp/program-ingest-response.json
           echo "Program-links ingest triggered - running in background to refresh the sidecar"
 
-      - name: Notify deployment success
-        if: success()
-        run: |
-          echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
+  # Build + publish the static site. Independent of the Lambda deploys: a
+  # frontend-only merge has no reason to redeploy six functions or
+  # re-trigger three data ingests.
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    environment: production
+    needs: changes
+    if: >-
+      github.repository == 'bbernstein/chq-calendar'
+      && needs.changes.outputs.skip != 'true'
+      && needs.changes.outputs.frontend == 'true'
 
-      - name: Notify deployment failure
-        if: failure()
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend
+        env:
+          VITE_API_URL: ""
+          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+          # Enable fetching/rendering of registered publisher feeds. Sidecar fetch
+          # is fault-tolerant: 404/parse errors fall back to primary-only behavior,
+          # so this is safe to leave on even before any publisher is onboarded.
+          VITE_ENABLE_PUBLISHER_FEEDS: "true"
+
+      - name: Deploy frontend to S3 and CloudFront
+        working-directory: ./frontend
         run: |
-          echo "::error title=Deployment Failed::Production deployment failed. Check logs for details."
+          BUCKET="${{ secrets.S3_BUCKET_NAME }}"
+
+          # Pass 1 — content-hashed, immutable assets. Exclude the files that must always
+          # revalidate so they never get the year-long immutable header. --delete removes
+          # stale hashed bundles; excluded files are neither uploaded nor deleted here.
+          aws s3 sync out/ "s3://$BUCKET/" \
+            --delete \
+            --exclude "*.map" \
+            --exclude "cache/*" \
+            --exclude "*.html" \
+            --exclude "manifest.json" \
+            --exclude "version.json" \
+            --exclude "sw.js" \
+            --exclude "data/weekly-themes/*" \
+            --cache-control "public, max-age=31536000, immutable"
+
+          # Pass 2 — always-revalidate files. `cp` re-uploads unconditionally (unlike
+          # `sync`, which skips unchanged files and was the cause of the stale-shell bug),
+          # so the no-cache header is applied every time.
+          aws s3 cp out/ "s3://$BUCKET/" \
+            --recursive \
+            --exclude "*" \
+            --include "*.html" \
+            --content-type "text/html" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/manifest.json "s3://$BUCKET/manifest.json" \
+            --content-type "application/json" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/version.json "s3://$BUCKET/version.json" \
+            --content-type "application/json" \
+            --cache-control "no-cache"
+
+          aws s3 cp out/sw.js "s3://$BUCKET/sw.js" \
+            --content-type "text/javascript" \
+            --cache-control "no-cache"
+
+          # weekly-themes JSON is fetched directly from /data/ in production
+          # (useWeeklyThemes has no dev/prod split) and is NOT content-hashed,
+          # so it must revalidate — otherwise a content edit under the same
+          # filename would never reach users (the same bug this deploy fixes).
+          aws s3 cp out/data/weekly-themes/ "s3://$BUCKET/data/weekly-themes/" \
+            --recursive \
+            --content-type "application/json" \
+            --cache-control "no-cache"
+
+          # Invalidate CloudFront cache
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+  # Cross-cutting post-deploy smoke. Separate from both deploy jobs because
+  # it exercises the API *and* the site, so it belongs to neither and must
+  # run whichever one deployed.
+  #
+  # always() so it still runs when one deploy job was skipped; the explicit
+  # result checks below stop it running when a deploy actually FAILED, and
+  # stop it running at all when nothing deployed.
+  verify:
+    runs-on: ubuntu-latest
+    needs: [changes, deploy-backend, deploy-frontend]
+    if: >-
+      always()
+      && github.repository == 'bbernstein/chq-calendar'
+      && needs.deploy-backend.result != 'failure'
+      && needs.deploy-frontend.result != 'failure'
+      && (needs.deploy-backend.result == 'success' || needs.deploy-frontend.result == 'success')
+
+    steps:
+      - name: Run post-deployment tests
+        id: smoke
+        # Advisory on purpose: this runs AFTER the deploy has already
+        # happened, so failing the job cannot undo anything, and a 30s-sleep
+        # probe against a just-invalidated CDN and a cold Lambda is exactly
+        # the shape of check that produces false alarms. What it must not do
+        # is fail *silently* — hence the outcome-driven steps below, which
+        # replaced an unconditional "Deployment Successful" notice that fired
+        # even when the smoke had failed.
+        continue-on-error: true
+        run: |
+          # Wait for deployment to propagate
+          sleep 30
+
+          # Test production API
+          echo "Testing production API..."
+          echo "URL: https://www.chqcal.org/api/health"
+          curl -v "https://www.chqcal.org/api/health" || echo "API health check failed with status $?"
+
+          # Test calendar endpoint
+          EVENTS_COUNT=$(curl -s "https://www.chqcal.org/api/calendar?format=json" \
+            -H "Accept: application/json" | jq '.events | length' || echo "0")
+
+          if [ "$EVENTS_COUNT" -gt "0" ]; then
+            echo "✅ Production API returning $EVENTS_COUNT events"
+          else
+            echo "❌ Production API not returning events"
+            exit 1
+          fi
+
+          # Test frontend
+          echo "Testing production frontend..."
+          curl -f "https://www.chqcal.org" || exit 1
+
+          echo "🎉 Production deployment successful!"
+
+          echo ""
+          echo "⚠️  Note: If API tests failed with 403, check:"
+          echo "  1. API Gateway configuration for /api/* routes"
+          echo "  2. CloudFront behavior rules for API paths"
+          echo "  3. Lambda function URL configuration"
+
+      # True by construction: `verify` runs only when a deploy job reported
+      # success (see the job `if:` above).
+      #
+      # There is deliberately no matching "Notify deployment failure" step.
+      # The only step ahead of this one is `continue-on-error: true`, so
+      # `failure()` is unreachable inside this job — a step claiming to
+      # report failures that never fires is worse than no step at all.
+      - name: Notify deployment success
+        if: steps.smoke.outcome == 'success'
+        run: |
+          echo "::notice title=Deployment Successful::Production deployment completed and post-deploy checks passed at $(date)"
+
+      - name: Report post-deploy check failure
+        if: steps.smoke.outcome == 'failure'
+        run: |
+          echo "::warning title=Post-deploy checks FAILED::The deploy completed but the production smoke checks did not pass. Inspect the 'Run post-deployment tests' step above."
