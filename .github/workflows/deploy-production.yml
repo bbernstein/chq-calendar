@@ -3,6 +3,27 @@ name: Deploy to Production
 on:
   push:
     branches: [main]
+    # A merge touching ONLY these paths deploys nothing. Before this
+    # existed, a docs-only or iOS-only merge redeployed six Lambdas, synced
+    # S3, invalidated CloudFront and re-triggered three data ingests.
+    #
+    # paths-ignore is OR-semantics: a push touching both docs/** and
+    # frontend/** still runs, which is what we want — the run is skipped
+    # only when EVERY changed file matches.
+    #
+    # Deliberately NOT listed: shared/**, which is a frontend build input
+    # (frontend/src/lib/quickLinks.ts imports @shared/links.json through the
+    # Vite alias at vite.config.ts:132). Ignoring it would let a links.json
+    # edit merge and silently never reach the header.
+    #
+    # docs/** IS safe to ignore: the publisher docs that are live content
+    # are served from frontend/publish/docs/index.html, a Vite entry
+    # (vite.config.ts:154), not from docs/publisher/.
+    paths-ignore:
+      - 'docs/**'
+      - 'ios/**'
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
   workflow_dispatch:
     inputs:
       force_deploy:
