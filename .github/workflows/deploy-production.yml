@@ -82,11 +82,23 @@ jobs:
           set -euo pipefail
 
           BEFORE="${{ github.event.before }}"
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            # First push to the branch, a force-push, or workflow_dispatch —
-            # `before` is unusable. Fall back to the single previous commit,
-            # and if even that is missing, deploy everything rather than
-            # silently deploying nothing.
+          if [ "${{ github.event_name }}" != 'push' ]; then
+            # A manual run is an explicit "deploy now" — there is no
+            # meaningful "what changed" for it, and gating it on the tip
+            # commit's paths would make workflow_dispatch report green
+            # having deployed nothing. This is the manual escape hatch.
+            #
+            # This branch must come FIRST. On workflow_dispatch `before` is
+            # absent, so the `-z "$BEFORE"` branch below would catch it and
+            # run `git diff HEAD^ HEAD` — which at fetch-depth: 0 always
+            # succeeds, so FALLBACK_DEPLOY_ALL would never fire and a
+            # dispatch on a docs-only tip commit would deploy nothing.
+            CHANGED="FALLBACK_DEPLOY_ALL"
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # First push to the branch, or a force-push — `before` is
+            # unusable (all-zeros or empty). Fall back to the single
+            # previous commit, and if even that is missing, deploy
+            # everything rather than silently deploying nothing.
             CHANGED=$(git diff --name-only HEAD^ HEAD 2>/dev/null || echo "FALLBACK_DEPLOY_ALL")
           else
             CHANGED=$(git diff --name-only "$BEFORE" HEAD 2>/dev/null || echo "FALLBACK_DEPLOY_ALL")

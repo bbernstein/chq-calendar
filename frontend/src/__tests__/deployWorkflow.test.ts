@@ -106,13 +106,18 @@ describe('deploy-production job split', () => {
   // catches the failure mode where editing links.json deploys nothing that
   // rebuilds the bundle it is compiled into.
   it('routes shared/ to the frontend filter', () => {
-    const from = workflow.indexOf('FRONTEND_PATHS');
-    const to = workflow.indexOf('BACKEND_PATHS');
-    // Without these, a missed marker makes indexOf return -1 and the slice
-    // below silently degrade into a pass.
-    expect(from, 'FRONTEND_PATHS marker missing').toBeGreaterThan(-1);
-    expect(to, 'BACKEND_PATHS marker missing').toBeGreaterThan(from);
-    expect(workflow.slice(from, to)).toContain('shared/');
+    // Anchored on the ASSIGNMENT, not the bare name: the comments above
+    // these lines mention both markers, and slicing between those comments
+    // asserts against prose that describes the constraint rather than the
+    // regex that implements it. That version passed even with `shared/|`
+    // deleted from the real filter.
+    const from = workflow.indexOf("FRONTEND_PATHS='");
+    const to = workflow.indexOf("BACKEND_PATHS='");
+    expect(from, "FRONTEND_PATHS assignment missing").toBeGreaterThan(-1);
+    expect(to, "BACKEND_PATHS assignment missing").toBeGreaterThan(from);
+    const frontendFilter = workflow.slice(from, to);
+    expect(frontendFilter).toContain('shared/');
+    expect(frontendFilter).toContain('frontend/');
   });
 
   // A bare [skip-deploy] must NOT skip. The reason is required, so opting

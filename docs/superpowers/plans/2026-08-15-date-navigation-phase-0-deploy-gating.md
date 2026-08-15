@@ -612,6 +612,6 @@ CI changes cannot be fully tested before merge — the trigger only fires on pus
 
 1. **A docs-only merge** (the Phase 1 plan commit is one) shows **no workflow run at all** in the Actions tab.
 2. **A frontend-only merge** shows `changes` → `deploy-frontend` → `verify`, with `deploy-backend` skipped.
-3. **The first merge after this one** will itself deploy both areas, since it changes `.github/workflows/**` which matches neither ignore nor filter — expected, and the safe default.
+3. **This merge itself** changes only `.github/workflows/**` (plus a test and docs). That path matches neither `paths-ignore` nor either area filter, so the run **starts** — `changes` executes and reports `frontend=false backend=false` — and then **both deploy jobs and `verify` skip. Nothing is deployed.** That is correct behaviour, not a failure of the gating: a workflow-file edit changes no Lambda bundle and no frontend bundle, so there is nothing to ship. Expect a green run with three skipped jobs, and do not read the skips as a bug. If you actually want the deploy, use the `workflow_dispatch` escape hatch, which force-deploys both areas by design.
 
 If step 1 does not hold, the likeliest cause is that the merge also touched a non-ignored path. Check the run's `changes` job summary output before changing the filter.
