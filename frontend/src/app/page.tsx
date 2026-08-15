@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
+import { navigableBounds, viewWindow, addDays } from '@/lib/utils/dayWindow';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
@@ -79,31 +80,65 @@ function HomeContent() {
   const debouncedSearch = useDebounce(filters.searchTerm, 200);
   const adaptiveEndDate = useMemo(() => {
     if (filters.dateFilter !== 'next' || !events.length) return undefined;
-    const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    const baseEnd = getAdaptiveEndDate(events, oneHourAgo, 50);
-    if (filters.extraDays > 0) {
-      const extended = new Date(baseEnd);
-      extended.setDate(extended.getDate() + filters.extraDays);
-      extended.setHours(23, 59, 59, 999);
-      return extended;
-    }
-    return baseEnd;
-  }, [filters.dateFilter, events, filters.extraDays]);
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    return getAdaptiveEndDate(events, oneHourAgo, 50);
+  }, [filters.dateFilter, events]);
+
+  // The outer limit of everything navigation can reach: the season, widened
+  // to contain any event outside it.
+  const navBounds = useMemo(
+    () => navigableBounds(seasonWeeks, events),
+    [seasonWeeks, events]
+  );
+
+  // The single date filter. Every scope reduces to this range, and so does
+  // however far the user has navigated past the scope's own edge.
+  const dateWindow = useMemo(
+    () =>
+      viewWindow({
+        dateFilter: filters.dateFilter,
+        seasonWeeks,
+        currentWeekNumber,
+        now: new Date(),
+        adaptiveEndDate,
+        bounds: navBounds,
+        expandedStartDay: filters.windowStartDay,
+        expandedEndDay: filters.windowEndDay,
+      }),
+    [
+      filters.dateFilter, seasonWeeks, currentWeekNumber, adaptiveEndDate,
+      navBounds, filters.windowStartDay, filters.windowEndDay,
+    ]
+  );
+
   const filterOpts: FilterOptions = useMemo(() => ({
-    searchTerm: debouncedSearch, dateFilter: filters.dateFilter, selectedWeeks: filters.selectedWeeks,
-    selectedTagsLowerSet: filters.selectedTagsLowerSet, selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
-    seasonWeeks, currentWeekNumber,
+    searchTerm: debouncedSearch,
+    selectedWeeks: filters.selectedWeeks,
+    selectedTagsLowerSet: filters.selectedTagsLowerSet,
+    selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
+    seasonWeeks,
+    viewWindow: dateWindow,
     showFavoritesOnly: filters.showFavoritesOnly,
     favoriteIds: favorites.favoriteIds,
-    adaptiveEndDate,
-  }), [debouncedSearch, filters.dateFilter, filters.selectedWeeks, filters.selectedTagsLowerSet, filters.selectedLocationsLowerSet, seasonWeeks, currentWeekNumber, filters.showFavoritesOnly, favorites.favoriteIds, adaptiveEndDate]);
+  }), [
+    debouncedSearch, filters.selectedWeeks, filters.selectedTagsLowerSet,
+    filters.selectedLocationsLowerSet, seasonWeeks, dateWindow,
+    filters.showFavoritesOnly, favorites.favoriteIds,
+  ]);
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
   const hasMoreDays = useMemo(() => {
-    if (filters.dateFilter !== 'next' || !adaptiveEndDate || !events.length) return false;
-    return events.some(e => new Date(e.startDate) > adaptiveEndDate);
-  }, [filters.dateFilter, adaptiveEndDate, events]);
+    if (filters.dateFilter !== 'next' || !dateWindow || !events.length) return false;
+    return events.some(e => new Date(e.startDate) >= dateWindow.endExclusive);
+  }, [filters.dateFilter, dateWindow, events]);
+
+  // "Show next day" widens the window by one calendar day from wherever it
+  // currently ends — which is the same operation whether the end came from
+  // the scope or from a previous widening.
+  const showNextDay = useCallback(() => {
+    if (!dateWindow) return;
+    filters.expandWindowEnd(addDays(dateWindow.endDay, 1));
+  }, [dateWindow, filters.expandWindowEnd]);
   const activeChips = useMemo(() => buildActiveChips({
     searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
     dateFilter: filters.dateFilter, setDateFilter: filters.setDateFilter,
@@ -180,7 +215,7 @@ function HomeContent() {
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter} onShowNextDay={filters.addExtraDay}
+                dateFilter={filters.dateFilter} onShowNextDay={showNextDay}
                 hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks} />
             )}
           </div>

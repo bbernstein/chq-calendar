@@ -32,6 +32,15 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // Pin the test-run timezone to the app's own zone (Chautauqua
+    // Institution, America/New_York). Without this, DST-transition tests
+    // (see dayWindow.test.ts) only discriminate a DST-safe date-parts
+    // implementation from a naive millisecond-arithmetic one in a
+    // DST-observing zone — GitHub-hosted runners are UTC, where 2026-03-08
+    // and 2026-11-01 are not transitions, so the naive version would pass
+    // there. Set before test files load (see vitest `test.env` docs), which
+    // is early enough that Node's Date/Intl machinery picks it up.
+    env: { TZ: 'America/New_York' },
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     coverage: {

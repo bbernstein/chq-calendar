@@ -946,6 +946,13 @@ nonisolated struct ViewWindow: Equatable, Sendable {
     /// end keeps the base window's exact instant: that is what preserves
     /// `.next`'s one-hour grace and `.thisWeek`'s noon boundaries until the
     /// user actually navigates past them.
+    ///
+    /// `bounds` clamps the *expansion inputs*, before they are merged with
+    /// `base` — never the merged result. The bounds limit how far navigation
+    /// can reach; they say nothing about a scope the user hasn't navigated,
+    /// and `base` can legitimately sit outside them (off-season `.today`,
+    /// most of the year). Clamping the merged result instead of the inputs
+    /// would invert the window (`startDay > endDay`) whenever that happens.
     static func make(
         selection: FilterSelection,
         events: [Event],
@@ -959,12 +966,19 @@ nonisolated struct ViewWindow: Equatable, Sendable {
             year: year, isCurrentYear: isCurrentYear, bounds: bounds)
         else { return nil }
 
+        var expandedStartDayKey = selection.windowStartDayKey
+        if let expanded = expandedStartDayKey, expanded < bounds.lowerBound {
+            expandedStartDayKey = bounds.lowerBound
+        }
+        var expandedEndDayKey = selection.windowEndDayKey
+        if let expanded = expandedEndDayKey, expanded > bounds.upperBound {
+            expandedEndDayKey = bounds.upperBound
+        }
+
         var startDay = base.startDay
         var endDay = base.endDay
-        if let expanded = selection.windowStartDayKey, expanded < startDay { startDay = expanded }
-        if let expanded = selection.windowEndDayKey, expanded > endDay { endDay = expanded }
-        if startDay < bounds.lowerBound { startDay = bounds.lowerBound }
-        if endDay > bounds.upperBound { endDay = bounds.upperBound }
+        if let expanded = expandedStartDayKey, expanded < startDay { startDay = expanded }
+        if let expanded = expandedEndDayKey, expanded > endDay { endDay = expanded }
 
         let start: Date
         if startDay == base.startDay {
@@ -979,7 +993,10 @@ nonisolated struct ViewWindow: Equatable, Sendable {
             ? base.endExclusive
             : (dayAfter(endDay) ?? base.endExclusive)
 
-        guard start < endExclusive else { return nil }
+        // No `guard start < endExclusive` here: unlike the clamp-after-merge
+        // form this replaced, expansion only ever widens outward from a
+        // `base` that is already a valid (non-empty) range, so `start` can
+        // never cross `endExclusive`.
         return ViewWindow(startDay: startDay, endDay: endDay, range: start..<endExclusive)
     }
 

@@ -136,20 +136,24 @@ Base window, by scope:
 | weeks *n…m* | week *n* start → week *m* end |
 | `day` (iOS only) | that day → that day |
 
-Then:
+Then, clamp the *expansion inputs* — not the merged result — to
+**navigable bounds** = the season, widened to contain every day that has
+an event (web) and every starred day (iOS —
+`DayWindow.bounds(year:starredDays:)` already does exactly this widening):
 
 ```
+expandedStart = clamp(expandedStart, to: navigableBounds)
+expandedEnd   = clamp(expandedEnd,   to: navigableBounds)
+
 start = min(base.start, expandedStart)
 end   = max(base.end,   expandedEnd)
 ```
 
-clamped to **navigable bounds** = the season, widened to contain every day
-that has an event (web) and every starred day (iOS —
-`DayWindow.bounds(year:starredDays:)` already does exactly this widening).
-
-Because those bounds contain every event day by construction, the clamp is
-a no-op for `all` and a real constraint only for the scopes that can be
-expanded past a season edge.
+The clamp has to land before the merge: the bounds limit how far
+*navigation* can reach, and say nothing about a scope the user hasn't
+navigated. Clamping the merged result instead inverts the window
+(`start > end`) whenever the base window itself sits outside the bounds —
+which off-season `now`/`today` does for most of the year.
 
 **The list renders exactly the events inside this window. Nothing else.**
 
