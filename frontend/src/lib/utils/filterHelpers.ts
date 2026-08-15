@@ -1,44 +1,42 @@
 import type { Event, SeasonWeek } from '@/lib/types';
-import { isToday, isThisWeek, isInChautauquaWeek } from './dateHelpers';
+import { isInChautauquaWeek } from './dateHelpers';
+import { windowContains, type ViewWindow } from './dayWindow';
 import { searchEvents } from './searchHelpers';
 
 export interface FilterOptions {
   searchTerm: string;
-  dateFilter: 'all' | 'today' | 'next' | 'this-week';
   selectedWeeks: number[];
   selectedTagsLowerSet: Set<string>;
   selectedLocationsLowerSet: Set<string>;
   seasonWeeks: SeasonWeek[];
-  currentWeekNumber: number | null;
+  /**
+   * The instant range the list is narrowed to, derived by `dayWindow`.
+   * `null` means the current scope matches nothing — reachable only for
+   * `'this-week'` outside the season.
+   */
+  viewWindow: ViewWindow | null;
   showFavoritesOnly?: boolean;
   favoriteIds?: Set<string>;
-  adaptiveEndDate?: Date;
 }
 
 export function filterEvents(events: Event[], options: FilterOptions): Event[] {
+  // A null window means the scope matches nothing. Returning early also
+  // keeps the weeks/venue/category stages from running over a set that is
+  // already empty.
+  if (options.viewWindow === null) return [];
+
   let filtered = [...events];
 
-  // Search filter
   if (options.searchTerm) {
     filtered = searchEvents(filtered, options.searchTerm);
   }
 
-  // Date filter
-  if (options.dateFilter === 'today') {
-    filtered = filtered.filter(event => isToday(event.startDate));
-  } else if (options.dateFilter === 'next') {
-    const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    const endDateFallback = new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000);
-    endDateFallback.setHours(23, 59, 59, 999);
-    const endDate = options.adaptiveEndDate || endDateFallback;
-    filtered = filtered.filter(event => {
-      const eventDate = new Date(event.startDate);
-      return eventDate >= oneHourAgo && eventDate <= endDate;
-    });
-  } else if (options.dateFilter === 'this-week') {
-    filtered = filtered.filter(event => isThisWeek(event.startDate, options.seasonWeeks, options.currentWeekNumber));
-  }
+  // The date stage. One half-open range check for every scope — the four
+  // scope-specific predicates this replaced (isToday, isThisWeek, the
+  // inline 'next' arithmetic, and 'all' doing nothing) all reduce to this
+  // once the scope has been turned into a window.
+  const window = options.viewWindow;
+  filtered = filtered.filter((event) => windowContains(window, new Date(event.startDate)));
 
   // Week filter (independent of date filter)
   if (options.selectedWeeks.length > 0) {

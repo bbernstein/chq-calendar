@@ -193,15 +193,16 @@ describe('useFilterState', () => {
       expect(result.current.selectedLocations).toEqual(['Hall A']);
     });
 
-    it('clears extraDays on reconciliation', () => {
+    it('clears the date window on reconciliation', () => {
       const { result } = renderHook(() => useFilterState());
-      act(() => { result.current.addExtraDay(); });
-      act(() => { result.current.addExtraDay(); });
+      act(() => { result.current.expandWindowEnd('2026-07-16'); });
+      act(() => { result.current.expandWindowStart('2026-07-13'); });
 
       act(() => {
         result.current.reconcileFilters([], [], true);
       });
-      expect(result.current.extraDays).toBe(0);
+      expect(result.current.windowEndDay).toBeNull();
+      expect(result.current.windowStartDay).toBeNull();
     });
 
     it('preserves searchTerm on reconciliation', () => {

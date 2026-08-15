@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber } from '@/lib/utils/dateHelpers';
+import { navigableBounds, viewWindow } from '@/lib/utils/dayWindow';
 import type { Event } from '@/lib/types';
 
 // Fixed reference instant: Wednesday 2026-07-15, 15:00 local. Mid-season,
@@ -26,16 +27,33 @@ function makeEvent(id: string, date: Date): Event {
 
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
 
-function baseOptions(overrides: Partial<FilterOptions>): FilterOptions {
+function baseOptions(overrides: {
+  dateFilter?: 'all' | 'today' | 'next' | 'this-week';
+  selectedWeeks?: number[];
+  seasonWeeks?: typeof seasonWeeks;
+  currentWeekNumber?: number | null;
+  adaptiveEndDate?: Date;
+  searchTerm?: string;
+}): FilterOptions {
+  const weeks = overrides.seasonWeeks ?? seasonWeeks;
+  const currentWeekNumber =
+    overrides.currentWeekNumber !== undefined
+      ? overrides.currentWeekNumber
+      : getCurrentWeekNumber(weeks);
   return {
-    searchTerm: '',
-    dateFilter: 'all',
-    selectedWeeks: [],
+    searchTerm: overrides.searchTerm ?? '',
+    selectedWeeks: overrides.selectedWeeks ?? [],
     selectedTagsLowerSet: new Set<string>(),
     selectedLocationsLowerSet: new Set<string>(),
-    seasonWeeks,
-    currentWeekNumber: getCurrentWeekNumber(seasonWeeks),
-    ...overrides,
+    seasonWeeks: weeks,
+    viewWindow: viewWindow({
+      dateFilter: overrides.dateFilter ?? 'all',
+      seasonWeeks: weeks,
+      currentWeekNumber,
+      now: new Date(),
+      adaptiveEndDate: overrides.adaptiveEndDate,
+      bounds: navigableBounds(weeks, []),
+    }),
   };
 }
 

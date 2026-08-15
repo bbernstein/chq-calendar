@@ -49,24 +49,6 @@ export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
   return weeks;
 }
 
-export function isToday(dateString: string): boolean {
-  const today = new Date();
-  const eventDate = new Date(dateString);
-  return eventDate.toDateString() === today.toDateString();
-}
-
-
-export function isThisWeek(dateString: string, seasonWeeks: SeasonWeek[], currentWeekNumber: number | null): boolean {
-  const eventDate = new Date(dateString);
-
-  if (currentWeekNumber === null) {
-    return false; // Not in season
-  }
-
-  const currentWeek = seasonWeeks[currentWeekNumber - 1];
-  return eventDate >= currentWeek.start && eventDate < currentWeek.end;
-}
-
 export function isInChautauquaWeek(dateString: string, weekNumber: number, seasonWeeks: SeasonWeek[]): boolean {
   const eventDate = new Date(dateString);
   const week = seasonWeeks[weekNumber - 1];

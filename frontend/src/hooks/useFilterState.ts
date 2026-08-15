@@ -15,7 +15,17 @@ interface FilterState {
   availableCategories: string[];
   availableLocations: string[];
   showFavoritesOnly: boolean;
-  extraDays: number;
+  /**
+   * How far the user has navigated beyond the current scope's own window,
+   * as day keys. `null` means "not expanded in that direction".
+   *
+   * Session-only: deliberately absent from the localStorage payload below,
+   * matching iOS's `selectedDayKey` and the `extraDays` this replaced. A
+   * date pinned days ago and silently restored on launch would be worse
+   * than no restore.
+   */
+  windowStartDay: string | null;
+  windowEndDay: string | null;
 }
 
 type FilterAction =
@@ -28,8 +38,9 @@ type FilterAction =
   | { type: 'SET_AVAILABLE_CATEGORIES'; payload: string[] }
   | { type: 'SET_AVAILABLE_LOCATIONS'; payload: string[] }
   | { type: 'TOGGLE_FAVORITES_ONLY' }
-  | { type: 'ADD_EXTRA_DAY' }
-  | { type: 'CLEAR_EXTRA_DAYS' }
+  | { type: 'EXPAND_WINDOW_START'; payload: string }
+  | { type: 'EXPAND_WINDOW_END'; payload: string }
+  | { type: 'RESET_WINDOW' }
   | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[]; isCurrentYear: boolean } }
   | { type: 'CLEAR_FILTERS' }
   | { type: 'CLEAR_NON_DATE_FILTERS' };
@@ -49,7 +60,11 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
     case 'SET_SEARCH':
       return { ...state, searchTerm: action.payload };
     case 'SET_DATE_FILTER':
-      return { ...state, dateFilter: action.payload };
+      // Resetting here rather than in an effect keyed on dateFilter: the
+      // effect this replaces ran a second render pass to undo state the
+      // first pass had already applied, and left a frame in which the
+      // window belonged to the previous scope.
+      return { ...state, dateFilter: action.payload, windowStartDay: null, windowEndDay: null };
     case 'SET_SELECTED_WEEKS': {
       const weeks = typeof action.payload === 'function' ? action.payload(state.selectedWeeks) : action.payload;
       return { ...state, selectedWeeks: weeks };
@@ -81,10 +96,12 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       return { ...state, availableLocations: action.payload };
     case 'TOGGLE_FAVORITES_ONLY':
       return { ...state, showFavoritesOnly: !state.showFavoritesOnly };
-    case 'ADD_EXTRA_DAY':
-      return { ...state, extraDays: state.extraDays + 1 };
-    case 'CLEAR_EXTRA_DAYS':
-      return { ...state, extraDays: 0 };
+    case 'EXPAND_WINDOW_START':
+      return { ...state, windowStartDay: action.payload };
+    case 'EXPAND_WINDOW_END':
+      return { ...state, windowEndDay: action.payload };
+    case 'RESET_WINDOW':
+      return { ...state, windowStartDay: null, windowEndDay: null };
     case 'RECONCILE_FILTERS': {
       const { availableCategories, availableLocations, isCurrentYear } = action.payload;
       const availCatsLower = new Set(availableCategories.map(c => c.toLowerCase()));
@@ -95,11 +112,12 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
         selectedLocations: state.selectedLocations.filter(l => availLocsLower.has(l.toLowerCase())),
         selectedWeeks: [],
         dateFilter: isCurrentYear ? 'next' : 'all',
-        extraDays: 0,
+        windowStartDay: null,
+        windowEndDay: null,
       };
     }
     case 'CLEAR_FILTERS':
-      return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [], showFavoritesOnly: false, extraDays: 0 };
+      return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [], showFavoritesOnly: false, windowStartDay: null, windowEndDay: null };
     case 'CLEAR_NON_DATE_FILTERS':
       return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], showFavoritesOnly: false };
     default:
@@ -119,7 +137,8 @@ const initialState: FilterState = {
   availableCategories: [],
   availableLocations: [],
   showFavoritesOnly: false,
-  extraDays: 0,
+  windowStartDay: null,
+  windowEndDay: null,
 };
 
 function loadInitialState(): FilterState {
@@ -159,7 +178,9 @@ export function useFilterState() {
   const setAvailableCategories = useCallback((cats: string[]) => dispatch({ type: 'SET_AVAILABLE_CATEGORIES', payload: cats }), []);
   const setAvailableLocations = useCallback((locs: string[]) => dispatch({ type: 'SET_AVAILABLE_LOCATIONS', payload: locs }), []);
   const toggleFavoritesOnly = useCallback(() => dispatch({ type: 'TOGGLE_FAVORITES_ONLY' }), []);
-  const addExtraDay = useCallback(() => dispatch({ type: 'ADD_EXTRA_DAY' }), []);
+  const expandWindowStart = useCallback((day: string) => dispatch({ type: 'EXPAND_WINDOW_START', payload: day }), []);
+  const expandWindowEnd = useCallback((day: string) => dispatch({ type: 'EXPAND_WINDOW_END', payload: day }), []);
+  const resetWindow = useCallback(() => dispatch({ type: 'RESET_WINDOW' }), []);
   const clearFilters = useCallback(() => dispatch({ type: 'CLEAR_FILTERS' }), []);
   const clearNonDateFilters = useCallback(() => dispatch({ type: 'CLEAR_NON_DATE_FILTERS' }), []);
   const reconcileFilters = useCallback(
@@ -205,13 +226,6 @@ export function useFilterState() {
     } catch (e) { console.warn('Failed to save user state:', e); }
   }, [state]);
 
-  // Reset extra days when date filter changes
-  useEffect(() => {
-    if (state.extraDays > 0) {
-      dispatch({ type: 'CLEAR_EXTRA_DAYS' });
-    }
-  }, [state.dateFilter]); // intentionally only depends on dateFilter
-
   return {
     expandedDescriptions: state.expandedDescriptions,
     searchTerm: state.searchTerm, setSearchTerm,
@@ -228,7 +242,8 @@ export function useFilterState() {
     toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected,
     clearFilters, clearNonDateFilters,
     showFavoritesOnly: state.showFavoritesOnly, toggleFavoritesOnly,
-    extraDays: state.extraDays, addExtraDay,
+    windowStartDay: state.windowStartDay, windowEndDay: state.windowEndDay,
+    expandWindowStart, expandWindowEnd, resetWindow,
     reconcileFilters,
   };
 }
