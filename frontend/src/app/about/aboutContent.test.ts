@@ -61,7 +61,12 @@ describe('aboutContent', () => {
     ['WEB_FEATURES', WEB_FEATURES] as const,
   ])('has no two %s headings that differ only by punctuation', (_name, features) => {
     const normalize = (group: string) =>
-      group.toLowerCase().replace(/[’‘']/g, "'").replace(/\s+/g, ' ').trim();
+      group
+        .toLowerCase()
+        .replace(/[’‘']/g, "'")   // curly vs straight apostrophe
+        .replace(/&/g, 'and')     // "Calendar & links" vs "Calendar and links"
+        .replace(/\s+/g, ' ')     // stray or doubled spaces
+        .trim();
 
     const byNormalized = new Map<string, Set<string>>();
     for (const f of features) {
