@@ -17,7 +17,9 @@
 - **`season` scope is NOT added in this phase.** The scope-set change is phase 3. `baseWindow` handles exactly today's union: `'all' | 'today' | 'next' | 'this-week'`.
 - **Day keys are `yyyy-mm-dd`, zero-padded, local time.** Lexicographic order is chronological — that is what makes plain `<` / `>` comparison correct, and it matches iOS's `ChqTime.dayKey`. Never compare day keys as `Date`s.
 - **Date arithmetic is DST-safe.** Construct from `(year, month, date)` parts and use `setDate(+n)`. Never 86,400-second arithmetic. This mirrors iOS's `ChqTime.day(_:offsetBy:)`.
-- **The window is inclusive at both ends** — `[start, end]`. Week boundaries are exclusive at noon Saturday in the existing code, so they convert to `end - 1ms`. Verify equivalence rather than assuming it.
+- **The window is half-open: `start <= x < endExclusive`.** Never inclusive-with-an-epsilon. JavaScript's `Date` is integer milliseconds so `end - 1` happens to be exact here, but iOS's `Date` is a `Double` where it is not — the same written rule would mean different things on the two platforms, which is the drift this shared model exists to prevent. See the iOS counterpart's Global Constraints.
+- **Half-open is what the existing code already does**, so most scopes need no conversion at all: the week filter is `>= week.start && < week.end`, and `localDateKey` equality is exactly `[startOfDay(d), startOfDay(d+1))`. Carry those bounds through verbatim.
+- **`endDay` names the last day *shown*, not the boundary.** `'this-week'` ends at noon Saturday so that Saturday counts; `'today'` ends at midnight so the next day does not. One rule covers both — *the day containing the last instant strictly before `endExclusive`* — implemented once in `lastDayCovered()`.
 - **`windowStartDay` / `windowEndDay` are session-only.** Never added to the `localStorage` payload in `useFilterState.ts:197-204`. Cleared by `RECONCILE_FILTERS` and `CLEAR_FILTERS`.
 
 ---
@@ -290,10 +292,12 @@ replacing it — the behavior phase 1 must preserve and phase 3 changes."
   - `type DayKey = string`
   - `dayKeyOf(d: Date): DayKey`
   - `startOfDay(key: DayKey): Date`
-  - `endOfDay(key: DayKey): Date`
+  - `dayAfter(key: DayKey): Date` — the next day's midnight, i.e. that day's exclusive upper bound
+  - `lastDayCovered(endExclusive: Date): DayKey`
   - `addDays(key: DayKey, n: number): DayKey`
   - `dayKeys(from: DayKey, through: DayKey): DayKey[]`
-  - `interface ViewWindow { startDay: DayKey; endDay: DayKey; start: Date; end: Date }`
+  - `interface ViewWindow { startDay: DayKey; endDay: DayKey; start: Date; endExclusive: Date }`
+  - `windowContains(w: ViewWindow, d: Date): boolean` — `d >= w.start && d < w.endExclusive`
   - `interface NavigableBounds { startDay: DayKey; endDay: DayKey }`
   - `navigableBounds(seasonWeeks: SeasonWeek[], events: Event[]): NavigableBounds`
   - `interface WindowOptions { dateFilter: 'all' | 'today' | 'next' | 'this-week'; seasonWeeks: SeasonWeek[]; currentWeekNumber: number | null; now: Date; adaptiveEndDate?: Date; bounds: NavigableBounds; expandedStartDay?: DayKey | null; expandedEndDay?: DayKey | null }`
@@ -311,7 +315,8 @@ import { describe, it, expect } from 'vitest';
 import {
   dayKeyOf,
   startOfDay,
-  endOfDay,
+  dayAfter,
+  lastDayCovered,
   addDays,
   dayKeys,
   navigableBounds,
@@ -371,7 +376,14 @@ describe('day key arithmetic', () => {
 
   it('bounds a day at local midnight and one ms before the next', () => {
     expect(startOfDay('2026-07-15').getTime()).toBe(new Date(2026, 6, 15, 0, 0, 0, 0).getTime());
-    expect(endOfDay('2026-07-15').getTime()).toBe(new Date(2026, 6, 15, 23, 59, 59, 999).getTime());
+    expect(dayAfter('2026-07-15').getTime()).toBe(new Date(2026, 6, 16, 0, 0, 0, 0).getTime());
+  });
+
+  it('names the last day shown, stepping back only on an exact midnight', () => {
+    // A window ending at midnight does not show that day; one ending mid-day
+    // does. `this-week` ends at noon Saturday and that Saturday has events.
+    expect(lastDayCovered(new Date(2026, 6, 16, 0, 0, 0, 0))).toBe('2026-07-15');
+    expect(lastDayCovered(new Date(2026, 6, 18, 12, 0, 0, 0))).toBe('2026-07-18');
   });
 });
 
@@ -417,7 +429,7 @@ describe('baseWindow', () => {
     expect(w.startDay).toBe('2026-07-15');
     expect(w.endDay).toBe('2026-07-15');
     expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 0, 0, 0, 0).getTime());
-    expect(w.end.getTime()).toBe(new Date(2026, 6, 15, 23, 59, 59, 999).getTime());
+    expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 16, 0, 0, 0, 0).getTime());
   });
 
   it("'next' starts one hour before now, not at midnight", () => {
@@ -426,7 +438,9 @@ describe('baseWindow', () => {
       dateFilter: 'next', seasonWeeks, currentWeekNumber, now: NOW, adaptiveEndDate, bounds,
     })!;
     expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 14, 0, 0, 0).getTime());
-    expect(w.end.getTime()).toBe(adaptiveEndDate.getTime());
+    // adaptiveEndDate is an inclusive 23:59:59.999; the half-open bound is
+    // the following midnight. No representable event falls in the gap.
+    expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 18, 0, 0, 0, 0).getTime());
     expect(w.startDay).toBe('2026-07-15');
     expect(w.endDay).toBe('2026-07-17');
   });
@@ -446,13 +460,13 @@ describe('baseWindow', () => {
     expect(w.startDay).toBe('2026-07-14');
   });
 
-  it("'this-week' converts the exclusive noon end to an inclusive one", () => {
+  it("'this-week' carries the week's own exclusive noon bound through", () => {
     const week = seasonWeeks[currentWeekNumber! - 1];
     const w = baseWindow({
       dateFilter: 'this-week', seasonWeeks, currentWeekNumber, now: NOW, bounds,
     })!;
     expect(w.start.getTime()).toBe(week.start.getTime());
-    expect(w.end.getTime()).toBe(week.end.getTime() - 1);
+    expect(w.endExclusive.getTime()).toBe(week.end.getTime());
   });
 
   it("'this-week' spans both boundary Saturdays", () => {
@@ -478,7 +492,7 @@ describe('baseWindow', () => {
       dateFilter: 'all', seasonWeeks, currentWeekNumber, now: NOW, bounds,
     })!;
     expect(w.start.getTime()).toBeLessThan(new Date(1900, 0, 1).getTime());
-    expect(w.end.getTime()).toBeGreaterThan(new Date(2200, 0, 1).getTime());
+    expect(w.endExclusive.getTime()).toBeGreaterThan(new Date(2200, 0, 1).getTime());
     expect(w.startDay).toBe(bounds.startDay);
     expect(w.endDay).toBe(bounds.endDay);
   });
@@ -503,7 +517,7 @@ describe('viewWindow expansion', () => {
   it('extends the end and uses a full day for the added region', () => {
     const w = viewWindow({ ...todayOpts, expandedEndDay: '2026-07-17' })!;
     expect(w.endDay).toBe('2026-07-17');
-    expect(w.end.getTime()).toBe(new Date(2026, 6, 17, 23, 59, 59, 999).getTime());
+    expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 18, 0, 0, 0, 0).getTime());
     // The start is untouched, so it keeps the base window's exact instant.
     expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 0, 0, 0, 0).getTime());
   });
@@ -598,9 +612,35 @@ export function startOfDay(key: DayKey): Date {
   return new Date(y, m - 1, d, 0, 0, 0, 0);
 }
 
-export function endOfDay(key: DayKey): Date {
+/**
+ * The exclusive upper bound of `key` — the next day's midnight.
+ *
+ * Deliberately not "23:59:59.999": that is an inclusive bound whose
+ * correctness depends on `Date` being integer milliseconds. It is here, and
+ * it is not on iOS, where `Date` wraps a `Double`. A half-open bound needs
+ * no such assumption and tiles exactly with the next day's window.
+ */
+export function dayAfter(key: DayKey): Date {
   const [y, m, d] = partsOf(key);
-  return new Date(y, m - 1, d, 23, 59, 59, 999);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + 1);
+  return date;
+}
+
+/**
+ * The last day a window actually shows, given its exclusive upper bound.
+ *
+ * One rule for two cases that look unrelated at the call site: a window
+ * ending at midnight does not show that day (`'today'`, `'next'`), while one
+ * ending mid-day does (`'this-week'` ends at noon Saturday, and that
+ * Saturday morning has events).
+ */
+export function lastDayCovered(endExclusive: Date): DayKey {
+  const isMidnight =
+    endExclusive.getHours() === 0 && endExclusive.getMinutes() === 0 &&
+    endExclusive.getSeconds() === 0 && endExclusive.getMilliseconds() === 0;
+  const key = dayKeyOf(endExclusive);
+  return isMidnight ? addDays(key, -1) : key;
 }
 
 /**
@@ -632,10 +672,16 @@ export function dayKeys(from: DayKey, through: DayKey): DayKey[] {
 /**
  * The instants the list is filtered to, plus the days that range covers.
  *
- * `start`/`end` are **inclusive** on both sides. The week structure's own
- * `end` is an exclusive noon-Saturday boundary, so it is converted to
- * `end - 1ms` here — equivalent at any resolution an event time can carry,
- * and it lets every scope share one comparison.
+ * **Half-open**: `start <= x < endExclusive`. Never inclusive with a
+ * subtracted epsilon — `end - 1` is exact here because `Date` is integer
+ * milliseconds, but it is not on iOS where `Date` wraps a `Double`, and the
+ * same written rule meaning two different things per platform is the drift
+ * this shared model exists to prevent.
+ *
+ * Half-open is also what the existing code already used, so most scopes need
+ * no conversion: the week filter is `>= week.start && < week.end`, and
+ * `localDateKey` equality is exactly `[startOfDay(d), startOfDay(d+1))`.
+ * Those bounds are carried through verbatim below.
  *
  * `startDay`/`endDay` are the navigation-facing projection: what a day rail
  * or a step control moves through. They are derived from `start`/`end`, not
@@ -645,7 +691,12 @@ export interface ViewWindow {
   startDay: DayKey;
   endDay: DayKey;
   start: Date;
-  end: Date;
+  endExclusive: Date;
+}
+
+/** `d >= w.start && d < w.endExclusive`. */
+export function windowContains(w: ViewWindow, d: Date): boolean {
+  return d >= w.start && d < w.endExclusive;
 }
 
 /** The outer limit of everything navigation can reach. */
@@ -707,36 +758,44 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
         startDay: o.bounds.startDay,
         endDay: o.bounds.endDay,
         start: MIN_INSTANT,
-        end: MAX_INSTANT,
+        endExclusive: MAX_INSTANT,
       };
 
     case 'today': {
       const key = dayKeyOf(o.now);
-      return { startDay: key, endDay: key, start: startOfDay(key), end: endOfDay(key) };
+      return { startDay: key, endDay: key, start: startOfDay(key), endExclusive: dayAfter(key) };
     }
 
     case 'next': {
       // One hour of grace so an event that has just begun is still "next".
       const start = new Date(o.now.getTime() - 60 * 60 * 1000);
-      let end = o.adaptiveEndDate;
-      if (!end) {
-        end = new Date(o.now.getTime() + 6 * 24 * 60 * 60 * 1000);
-        end.setHours(23, 59, 59, 999);
+      // `adaptiveEndDate` is an inclusive end-of-day; the half-open
+      // equivalent is that day's exclusive end. No representable event falls
+      // in the difference — event times carry no sub-second component.
+      let inclusiveEnd = o.adaptiveEndDate;
+      if (!inclusiveEnd) {
+        inclusiveEnd = new Date(o.now.getTime() + 6 * 24 * 60 * 60 * 1000);
+        inclusiveEnd.setHours(23, 59, 59, 999);
       }
-      return { startDay: dayKeyOf(start), endDay: dayKeyOf(end), start, end };
+      const endExclusive = dayAfter(dayKeyOf(inclusiveEnd));
+      return {
+        startDay: dayKeyOf(start),
+        endDay: lastDayCovered(endExclusive),
+        start,
+        endExclusive,
+      };
     }
 
     case 'this-week': {
       if (o.currentWeekNumber === null) return null;
       const week = o.seasonWeeks[o.currentWeekNumber - 1];
-      // The week's `end` is exclusive at noon Saturday; this window is
-      // inclusive, so step back one millisecond.
-      const end = new Date(week.end.getTime() - 1);
+      // The week's own bounds, carried through verbatim — `SeasonWeek` is
+      // already half-open (`>= start && < end`).
       return {
         startDay: dayKeyOf(week.start),
-        endDay: dayKeyOf(end),
+        endDay: lastDayCovered(week.end),
         start: week.start,
-        end,
+        endExclusive: week.end,
       };
     }
   }
@@ -769,7 +828,7 @@ export function viewWindow(o: WindowOptions): ViewWindow | null {
     startDay,
     endDay,
     start: startDay === base.startDay ? base.start : startOfDay(startDay),
-    end: endDay === base.endDay ? base.end : endOfDay(endDay),
+    endExclusive: endDay === base.endDay ? base.endExclusive : dayAfter(endDay),
   };
 }
 ```
@@ -796,6 +855,19 @@ Expected: FAIL on `crosses a DST transition without drifting`.
 
 Restore the correct implementation and confirm the suite is green again. If the naive version *passes*, the test's dates are wrong for the machine's timezone — check `TZ` and pick a transition that applies.
 
+Then run a second mutation, on the bound this design turns on. Change `dayAfter` to return the inclusive form it replaced:
+
+```typescript
+export function dayAfter(key: DayKey): Date {
+  const [y, m, d] = partsOf(key);
+  return new Date(y, m - 1, d, 23, 59, 59, 999);
+}
+```
+
+Expected: FAIL on `bounds a day at local midnight...`, on `names the last day shown...` (an inclusive bound is never exactly midnight, so `lastDayCovered` stops stepping back), and on `'today' spans exactly the current calendar day`. Restore and confirm green.
+
+That second mutation is the one that matters: it is the version a reviewer would wave through as equivalent, and it *is* equivalent on this platform — while being wrong on iOS, where `Date` is a `Double`. If it produces no failures, the tests are not pinning the property the shared model depends on.
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -814,10 +886,20 @@ addDays builds from date parts and setDate rather than adding 86,400,000
 ms, which lands on the wrong day across a DST transition. Proven by
 swapping in the naive version and watching the DST test fail.
 
-The window is inclusive at both ends, so this-week's exclusive noon
-Saturday boundary converts to end - 1ms. Expansion only grows the window,
-and an untouched end keeps the base window's exact instant — which is what
-preserves next's one-hour grace until the user navigates past it."
+The window is half-open, so this-week and the week filter carry their own
+bounds through verbatim rather than being converted. Not inclusive with a
+subtracted epsilon: end - 1 is exact here because Date is integer
+milliseconds, and is not on iOS where Date wraps a Double — the same rule
+meaning two different things per platform is the drift the shared model
+exists to prevent.
+
+endDay is derived by lastDayCovered, which steps back a day only when the
+bound falls exactly on midnight, so today does not claim tomorrow while
+this-week, ending at noon Saturday, still claims that Saturday.
+
+Expansion only grows the window, and an untouched end keeps the base
+window's exact instant — which is what preserves next's one-hour grace
+until the user navigates past it."
 ```
 
 ---
@@ -886,7 +968,7 @@ In `frontend/src/lib/utils/filterHelpers.ts`, replace the imports and the whole 
 ```typescript
 import type { Event, SeasonWeek } from '@/lib/types';
 import { isInChautauquaWeek } from './dateHelpers';
-import type { ViewWindow } from './dayWindow';
+import { windowContains, type ViewWindow } from './dayWindow';
 import { searchEvents } from './searchHelpers';
 
 export interface FilterOptions {
@@ -917,15 +999,12 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
     filtered = searchEvents(filtered, options.searchTerm);
   }
 
-  // The date stage. One inclusive range check for every scope — the four
+  // The date stage. One half-open range check for every scope — the four
   // scope-specific predicates this replaced (isToday, isThisWeek, the
   // inline 'next' arithmetic, and 'all' doing nothing) all reduce to this
   // once the scope has been turned into a window.
-  const { start, end } = options.viewWindow;
-  filtered = filtered.filter((event) => {
-    const eventDate = new Date(event.startDate);
-    return eventDate >= start && eventDate <= end;
-  });
+  const window = options.viewWindow;
+  filtered = filtered.filter((event) => windowContains(window, new Date(event.startDate)));
 ```
 
 Everything from the `// Week filter (independent of date filter)` comment onward is **unchanged**.
@@ -1247,7 +1326,7 @@ Replace the `hasMoreDays` memo (`:102-105`) with:
 ```typescript
   const hasMoreDays = useMemo(() => {
     if (filters.dateFilter !== 'next' || !dateWindow || !events.length) return false;
-    return events.some(e => new Date(e.startDate) > dateWindow.end);
+    return events.some(e => new Date(e.startDate) >= dateWindow.endExclusive);
   }, [filters.dateFilter, dateWindow, events]);
 
   // "Show next day" widens the window by one calendar day from wherever it
@@ -1312,7 +1391,7 @@ git commit -m "refactor(web): derive one date window instead of four predicates
 
 filterEvents' date stage was four scope-specific branches — isToday,
 isThisWeek, inline 'next' arithmetic, and 'all' doing nothing. All four
-reduce to a single inclusive range check once the scope is turned into a
+reduce to a single half-open range check once the scope is turned into a
 ViewWindow, so isToday and isThisWeek are deleted; each had exactly one
 caller.
 
