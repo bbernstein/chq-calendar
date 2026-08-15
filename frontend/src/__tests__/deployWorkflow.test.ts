@@ -270,6 +270,31 @@ describe('deploy-production job split', () => {
   //
   // Not hypothetical: PR #231's description quoted the syntax twice, and
   // matching the full message would have skipped that very deploy.
+  // The one line whose regression is invisible. `git diff "$BEFORE" HEAD`
+  // needs both commits present; at a shallow depth it fails on any
+  // multi-commit push and the script falls back to FALLBACK_DEPLOY_ALL.
+  //
+  // That fallback never *skips* a deploy, so nothing goes red and no run
+  // looks wrong — it just quietly deploys both areas unconditionally, which
+  // is the exact behavior this whole workflow exists to stop. A silent
+  // revert to the old world, with CI green throughout.
+  //
+  // Asserted against the non-comment YAML line, not `toContain`. A bare
+  // `toContain('fetch-depth: 0')` passes on the strength of the comment two
+  // lines below the setting, which mentions the value while explaining it —
+  // so it survives the setting itself being changed to 2. That was verified
+  // by mutation, and it is the third guard on this branch to have been
+  // satisfied by prose describing the rule instead of the code applying it.
+  it('unshallows the checkout in the changes job', () => {
+    const setting = jobNamed('changes')
+      .body.split('\n')
+      .map((line) => line.trim())
+      .filter((line) => !line.startsWith('#'))
+      .find((line) => line.startsWith('fetch-depth:'));
+    expect(setting, 'changes job declares no fetch-depth').toBeDefined();
+    expect(setting).toBe('fetch-depth: 0');
+  });
+
   it('matches the skip marker against the commit subject only', () => {
     const grepLine = workflow
       .split('\n')
