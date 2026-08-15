@@ -103,8 +103,20 @@ describe('aboutContent', () => {
 
     it('titles each entry with the label the apps actually show', () => {
       for (const link of externalLinks) {
-        const web = WEB_FEATURES.find((f) => f.id === `web-chq-${link.id}`);
-        expect(web?.title, `${link.id} title`).toBe(link.title);
+        for (const [platform, features] of [['web', WEB_FEATURES], ['ios', IOS_FEATURES]] as const) {
+          const entry = features.find((f) => f.id === `${platform}-chq-${link.id}`);
+          expect(entry?.title, `${platform} ${link.id} title`).toBe(link.title);
+        }
+      }
+    });
+
+    // Titles and order are derived from shared/links.json, but the prose is
+    // hand-written per destination. A new link therefore renders with an
+    // undefined blurb unless someone writes one.
+    it('has copy for every destination, not just an entry', () => {
+      for (const link of externalLinks) {
+        const entry = WEB_FEATURES.find((f) => f.id === `web-chq-${link.id}`);
+        expect(entry?.blurb, `no blurb written for ${link.id}`).toBeTruthy();
       }
     });
 

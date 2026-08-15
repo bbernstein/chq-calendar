@@ -9,6 +9,7 @@
  */
 
 import { APP_STORE_URL } from '@/lib/constants';
+import { externalLinks } from '@/lib/quickLinks';
 
 export type Platform = 'ios' | 'web';
 
@@ -90,48 +91,57 @@ export const PLATFORMS: PlatformInfo[] = [
 ];
 
 /**
- * The off-site Chautauqua Institution destinations both clients surface —
- * the web header's "Chautauqua" menu and the iOS More menu. The list itself
- * lives in `shared/links.json`; only the guide copy lives here.
+ * Guide copy for the off-site Chautauqua Institution destinations both clients
+ * surface — the web header's "Chautauqua" menu and the iOS More menu.
  *
- * Written once and spread into both platforms' feature lists, because the
- * same five destinations behind the same five labels described two different
- * ways is precisely the drift this file exists to prevent. `aboutContent.test`
- * pins the copy identical across platforms, and pins every `external` entry in
- * `shared/links.json` to an entry here — so a sixth link fails the guide tests
- * until it is documented.
+ * Only the prose lives here. The destinations themselves, their order, and
+ * their labels are read from `shared/links.json` via `externalLinks`, so this
+ * file cannot disagree with the menus about what exists or what they are
+ * called. Keyed by the `id` in that file; `aboutContent.test.ts` fails if any
+ * `external` entry has no blurb, so a sixth link stays undocumented only until
+ * the next test run.
  *
- * Keyed by the `id` in shared/links.json.
+ * One table serves both platforms deliberately: the same five destinations
+ * behind the same five labels, described two different ways, is precisely the
+ * drift this file exists to prevent.
  */
-const CHQ_DESTINATIONS: Array<{ id: string; title: string; blurb: string }> = [
-  { id: 'programs', title: 'Programs',
-    blurb: 'Chautauqua’s digital programs for theatre and music performances — the same listings the 📖 marker on an individual event links into.' },
-  { id: 'questions', title: 'Questions',
-    blurb: 'Chautauqua’s Q-and-A portal, for putting a question to the Institution.' },
-  { id: 'captions', title: 'Captions',
-    blurb: 'Chautauqua’s live captioning. The link follows whichever session is being captioned, so between sessions it may report that none is running.' },
-  { id: 'bus-tram-tracker', title: 'Bus Tracker',
-    blurb: 'Where the buses and trams on the grounds are right now.' },
-  { id: 'chautauqua-fund', title: 'CHQ Fund',
-    blurb: 'Giving to the Chautauqua Fund, the Institution’s annual fund.' },
-];
+const CHQ_BLURBS: Record<string, string> = {
+  'programs':
+    'Chautauqua’s digital programs for theatre and music performances — the same listings the 📖 marker on an individual event links into.',
+  'questions':
+    'Chautauqua’s Q-and-A portal, for putting a question to the Institution.',
+  'captions':
+    'Chautauqua’s live captioning. The link follows whichever session is being captioned, so between sessions it may report that none is running.',
+  'bus-tram-tracker':
+    'Where the buses and trams on the grounds are right now.',
+  'chautauqua-fund':
+    'Giving to the Chautauqua Fund, the Institution’s annual fund.',
+};
 
 /**
- * Headings the destinations file under. Named constants rather than repeated
- * literals: both carry punctuation (a curly apostrophe, an ampersand) that is
- * easy to retype slightly differently, and a near-miss would silently split
- * these across two headings on the page.
+ * Headings the destinations file under, deliberately different per platform.
+ *
+ * iOS already has a "Calendar & links" group holding its other outbound links
+ * (Daily coverage, digital programs), and these belong with them. The web
+ * guide's nearest group is "Calendar export", which is about getting events
+ * out of the calendar rather than linking away from it, so the web side gets
+ * its own heading instead of a poor fit.
+ *
+ * Named constants rather than repeated literals: both carry punctuation — a
+ * curly apostrophe, an ampersand — that is easy to retype slightly
+ * differently, and a near-miss would silently split these across two headings
+ * on the page.
  */
 const WEB_CHQ_GROUP = 'Chautauqua’s own sites';
 const IOS_CHQ_GROUP = 'Calendar & links';
 
-/** Renders CHQ_DESTINATIONS as one platform's feature entries. */
+/** Renders the shared destinations as one platform's feature entries. */
 function chqDestinationFeatures(platform: Platform, group: string): Feature[] {
-  return CHQ_DESTINATIONS.map((dest) => ({
-    id: `${platform}-chq-${dest.id}`,
+  return externalLinks.map((link) => ({
+    id: `${platform}-chq-${link.id}`,
     group,
-    title: dest.title,
-    blurb: dest.blurb,
+    title: link.title,
+    blurb: CHQ_BLURBS[link.id],
   }));
 }
 
