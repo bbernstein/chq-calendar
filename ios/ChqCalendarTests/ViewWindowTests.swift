@@ -230,11 +230,90 @@ struct ViewWindowTests {
         #expect(w.endDay == "2026-07-15")
     }
 
+    @Test func expansionNeverNarrowsTheStartOfTheBaseWindow() throws {
+        // The mirror of expansionNeverNarrowsTheBaseWindow, for the start
+        // side: a windowStartDayKey that names a LATER day than the base's
+        // own start is not a widening, so it's ignored rather than applied.
+        let now = try Self.at("2026-07-15 15:00:00")
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowStartDayKey = "2026-07-20"
+        let w = try #require(window(sel, now: now))
+        #expect(w.startDay == "2026-07-15")
+    }
+
     @Test func expansionClampsToNavigableBounds() throws {
         let now = try Self.at("2026-07-15 15:00:00")
         var sel = FilterSelection(dateScope: .today)
         sel.windowEndDayKey = "2030-01-01"
         let w = try #require(window(sel, now: now))
         #expect(w.endDay == bounds().upperBound)
+    }
+
+    @Test func expansionClampsStartToNavigableBounds() throws {
+        // The mirror of expansionClampsToNavigableBounds, for the start side.
+        let now = try Self.at("2026-07-15 15:00:00")
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowStartDayKey = "2000-01-01"
+        let w = try #require(window(sel, now: now))
+        #expect(w.startDay == bounds().lowerBound)
+    }
+
+    @Test func expandingTheStartPreservesTheOriginalEndExclusive() throws {
+        // The mirror of expansionGrowsTheEndAndUsesWholeDays' check that
+        // expanding the end leaves `start` untouched: expanding the start
+        // must not perturb the end by so much as an instant.
+        let now = try Self.at("2026-07-15 15:00:00")
+        let base = try #require(window(FilterSelection(dateScope: .today), now: now))
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowStartDayKey = "2026-07-13"
+        let w = try #require(window(sel, now: now))
+        #expect(w.endDay == base.endDay)
+        #expect(w.endExclusive == base.endExclusive)
+    }
+
+    // The clamp on the expansion inputs (not on the merged startDay/endDay)
+    // only diverges from the rejected "clamp the merged result" design when
+    // `base` itself sits outside `bounds` — the off-season `.today` case,
+    // which is where the app spends most of the year. In-season, both
+    // designs agree, so a test built from an in-season `.today` cannot tell
+    // them apart (see the mutation proof recorded in
+    // .superpowers/sdd/2026-08-15-date-navigation-phase-1b-ios-window-model/task-3-report.md).
+    // With the rejected design these two produce an inverted window
+    // (`startDay > endDay`), which crashes when `range: start..<endExclusive`
+    // is constructed.
+
+    @Test func offSeasonTodayIgnoresAnOutOfBoundsEndExpansion() throws {
+        let now = try Self.at("2026-12-15 12:00:00")
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowEndDayKey = "2026-12-20"
+        let w = try #require(window(sel, now: now))
+        #expect(w.startDay <= w.endDay)
+        #expect(w.start < w.endExclusive)
+        // The expansion target is entirely past `bounds`, so once clamped to
+        // `bounds.upperBound` it is still earlier than the base window's own
+        // (also out-of-season) day, and is ignored rather than applied.
+        #expect(w.startDay == "2026-12-15")
+        #expect(w.endDay == "2026-12-15")
+    }
+
+    @Test func offSeasonTodayIgnoresAnOutOfBoundsStartExpansion() throws {
+        let now = try Self.at("2026-01-01 12:00:00")
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowStartDayKey = "2020-01-01"
+        let w = try #require(window(sel, now: now))
+        #expect(w.startDay <= w.endDay)
+        #expect(w.start < w.endExclusive)
+        // Symmetric to the end-side case above: clamped to `bounds.lowerBound`,
+        // still later than the base window's own (also out-of-season) day.
+        #expect(w.startDay == "2026-01-01")
+        #expect(w.endDay == "2026-01-01")
+    }
+
+    // MARK: - nil contract
+
+    @Test func makeReturnsNilForADayScopeWithAnUnparseableSelectedDayKey() throws {
+        let now = try Self.at("2026-07-15 15:00:00")
+        let sel = FilterSelection(dateScope: .day, selectedDayKey: "not-a-day")
+        #expect(window(sel, now: now) == nil)
     }
 }
