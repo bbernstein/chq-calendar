@@ -1,8 +1,86 @@
-# Universal Links for chqcal.org — design
+# Universal Links for chqcal.org — design, and why we deferred it
 
-**Status:** Approved design, not yet implemented.
+**Status: DEFERRED 2026-08-15.** Designed, costed, and deliberately not built.
+The design below is complete enough to execute if a trigger fires; read "Why
+we deferred" first, because the reasoning matters more than the design.
 **Issue:** Phase 2 of #223 (Phase 1 shipped as PR #224, merged `1c2fd40`).
-**Date:** 2026-08-14
+#223 stays **closed** — its user-facing goal is met.
+**Date:** designed 2026-08-14, deferred 2026-08-15.
+
+## Why we deferred
+
+**The goal this was meant to serve is already met.** #223 asked for "launch
+the app if it's installed." Since PR #224, an iOS visitor taps "Get the app"
+and lands on the App Store listing, which says **Open** for anyone who already
+has it. That is one extra tap versus a direct launch — not a missing
+capability.
+
+**What Universal Links would add is proportional to an install base that
+doesn't exist yet.** The benefit is that a chqcal.org link tapped in Messages,
+Mail, or search results opens the app instead of Safari. The app went live
+2026-08-01 and has too few ratings to display an average. Roughly nobody is
+currently in the position this feature improves.
+
+**The cost is spread across three layers and a release.** An Associated
+Domains entitlement, a Swift URL mapper, an in-app browser sheet, a CloudFront
+function change requiring `terraform apply`, a deploy-pipeline change, and
+on-device verification that is impossible in CI or the simulator — it needs a
+physical device running a TestFlight build. All of it queued behind the
+in-review 1.1.2.
+
+**And it carries a real downside we would be choosing on users' behalf.**
+Claiming `*` means someone who installs the app can no longer casually browse
+the website on their phone: every chqcal.org link pulls them into the app, and
+getting back to the web takes a long-press. The web calendar is the primary
+product and the app is two weeks old. That is not a bet worth making yet.
+
+**Deferring costs almost nothing.** None of this work gets harder by waiting;
+the setup is one-time whenever it happens. The only expensive thing to lose
+would be what the investigation turned up — which is why the findings below
+are recorded rather than the branch simply abandoned.
+
+### What would make us revisit
+
+1. **Per-event web routes exist.** Today a shared chqcal.org link points at the
+   calendar root, so routing it into the app swaps one calendar view for
+   another. When SEO Phase 2 gives events their own URLs, a shared link has a
+   *specific* destination, and Universal Links stop being plumbing and become a
+   feature. **This is the primary trigger.**
+2. **A meaningful install base.** Enough people have the app that "shared links
+   don't open it" is a complaint someone actually makes.
+3. **A deep-link-worthy campaign** — a QR code, a printed program link, or an
+   email push where landing in the app matters.
+
+### Findings worth keeping even if this is never built
+
+Three things cost real effort to discover and would be rediscovered the hard
+way otherwise:
+
+1. **A universal link tapped from a page on the same domain is deliberately
+   ignored by iOS** and opens in Safari. This invalidates the Phase 2 sketch in
+   issue #223 as written — see the next section. Anyone who tries to build an
+   on-site "open in app" button with an `https://` link will lose a day to
+   this.
+2. **The apex 301 blocks Apple's AASA fetch.**
+   `infrastructure/cloudfront-redirect-function.js` redirects `chqcal.org` →
+   `www.chqcal.org` on the default cache behavior, and Apple does not follow
+   redirects when fetching `apple-app-site-association`. Without exempting
+   `/.well-known/`, the apex domain cannot be associated at all — and bare
+   `chqcal.org` is the form people type and share.
+3. **Pass 1 of the deploy would poison the AASA file.** `aws s3 sync` would
+   upload an extensionless file as `binary/octet-stream` with
+   `max-age=31536000, immutable` — the wrong content type plus a cache header
+   that could not be walked back for a year.
+
+### Considered and also declined
+
+**The Smart App Banner meta tag** (`<meta name="apple-itunes-app">`) was
+recommended as a cheap standalone win: it is one line, needs no app release,
+and lets Safari — which *can* detect install state — show "OPEN" instead of
+our banner's "Get the app". Declined on the same footing as the rest: the
+goal is met, and the remaining gain is one tap. It is the first thing to pick
+up if this area is revisited, since it delivers most of the on-site value at a
+fraction of the cost, and it works against any already-released build.
 
 ## What Phase 2 actually delivers
 
@@ -195,6 +273,9 @@ Visit www.chqcal.org in iOS Safari
 
 ## Sequencing
 
+*Moot while deferred; recorded because it is the non-obvious part of ever
+executing this, and the reasoning would have to be re-derived otherwise.*
+
 **This reverses the "hold everything until iOS is ready" answer given during
 brainstorming, because a fact discovered afterwards makes that ordering
 costly.** On-device verification of a universal link requires the AASA to be
@@ -273,6 +354,8 @@ and CI cannot either) — this becomes part of the pre-submit checklist:
 
 ## Open items carried from PR #224
 
+These are independent of this deferral and remain live:
+
 - **`target="_blank"` on the App Store links.** Copilot asked for consistency
   with other external links; declined on the grounds that these render only on
   iOS, where the store app takes over and `_blank` orphans a tab. Still the
@@ -280,8 +363,9 @@ and CI cannot either) — this becomes part of the pre-submit checklist:
 - **1.1.3 release notes** must cover the expanded Siri surface, the captions
   link, the My Day changes, *and* now universal links — everything merged
   since 1.1 is still unreleased.
-- **Screenshot guard.** This work touches `ios/**`, and the
-  `SFSafariViewController` sheet is not in `screenshot-plan.json`, so the PR
-  opts out with a stated reason rather than regenerating.
+- **Screenshot guard.** Would have applied had this shipped: the work touches
+  `ios/**`, and the `SFSafariViewController` sheet is not in
+  `screenshot-plan.json`, so the PR would opt out with a stated reason rather
+  than regenerating. No longer relevant while deferred.
 - **The on-device Siri checklist** from #193/#197 remains outstanding and
   attaches to whichever release ships next.
