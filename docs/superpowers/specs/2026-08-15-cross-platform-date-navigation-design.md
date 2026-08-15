@@ -459,7 +459,9 @@ Move `concurrency` from job level to workflow level now that there is more
 than one job.
 
 **The brake:** a `[skip-deploy: <reason>]` marker in the squash commit
-message skips both deploy jobs. The reason is **required** — matched as
+**subject** skips both deploy jobs. The subject only — a squash message is
+the PR title plus the PR *body*, so matching the whole thing means any PR
+whose description documents the marker silently skips its own deploy. The reason is **required** — matched as
 `\[skip-deploy: *[^][:space:]][^]]*\]`, so a bare `[skip-deploy]` does not
 skip. This mirrors the existing `[skip-screenshots: <reason>]` idiom in
 `app-store-assets.yml`: opting out is a recorded decision rather than

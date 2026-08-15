@@ -37,12 +37,11 @@ on:
       - 'ios/**'
       - '**/*.md'
       - '.github/ISSUE_TEMPLATE/**'
+  # No inputs. A manual run IS the force-deploy: the `changes` job sends any
+  # non-push event straight to FALLBACK_DEPLOY_ALL. The old `force_deploy`
+  # boolean was never read by any step and is removed rather than left to
+  # imply a control that does not exist.
   workflow_dispatch:
-    inputs:
-      force_deploy:
-        description: "Force deployment even if tests fail"
-        type: boolean
-        default: false
 
 # Serialize deploys across every job in this workflow. Two concurrent runs
 # would interleave the ci-e2e-test publisher's enable/disable toggles and
@@ -192,9 +191,19 @@ jobs:
           # commit message is small enough that the pipe form would almost
           # always work, which is precisely what makes it a bad thing to
           # leave in place.
-          if grep -qE '\[skip-deploy: *[^][:space:]][^]]*\]' <<< "$COMMIT_MESSAGE"; then
+          # FIRST LINE ONLY. A squash merge's commit message is the PR title
+          # followed by the PR *body*, so matching the whole message means any
+          # PR whose description documents this marker — a runbook, a plan, or
+          # the PR that introduced it — silently skips its own deploy. That is
+          # not hypothetical: PR #231's description quoted the syntax twice,
+          # and matching the full message would have skipped it.
+          #
+          # The subject is the deliberate surface: it is the PR title, it shows
+          # in `git log --oneline`, and prose in a description cannot reach it.
+          SUBJECT=$(printf '%s' "$COMMIT_MESSAGE" | head -1)
+          if grep -qE '\[skip-deploy: *[^][:space:]][^]]*\]' <<< "$SUBJECT"; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Deploy skipped::[skip-deploy:] marker found in the commit message"
+            echo "::notice title=Deploy skipped::[skip-deploy:] marker found in the commit subject"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -1313,6 +1322,14 @@ jobs:
 
     steps:
       - name: Run post-deployment tests
+        id: smoke
+        # Advisory on purpose: this runs AFTER the deploy has already
+        # happened, so failing the job cannot undo anything, and a 30s-sleep
+        # probe against a just-invalidated CDN and a cold Lambda is exactly
+        # the shape of check that produces false alarms. What it must not do
+        # is fail *silently* — hence the outcome-driven steps below, which
+        # replaced an unconditional "Deployment Successful" notice that fired
+        # even when the smoke had failed.
         continue-on-error: true
         run: |
           # Wait for deployment to propagate
@@ -1354,6 +1371,11 @@ jobs:
       # `failure()` is unreachable inside this job — a step claiming to
       # report failures that never fires is worse than no step at all.
       - name: Notify deployment success
-        if: success()
+        if: steps.smoke.outcome == 'success'
         run: |
-          echo "::notice title=Deployment Successful::Production deployment completed successfully at $(date)"
+          echo "::notice title=Deployment Successful::Production deployment completed and post-deploy checks passed at $(date)"
+
+      - name: Report post-deploy check failure
+        if: steps.smoke.outcome == 'failure'
+        run: |
+          echo "::warning title=Post-deploy checks FAILED::The deploy completed but the production smoke checks did not pass. Inspect the 'Run post-deployment tests' step above."

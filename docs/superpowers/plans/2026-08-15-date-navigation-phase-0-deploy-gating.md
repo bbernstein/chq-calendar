@@ -4,7 +4,7 @@
 
 **Goal:** Stop `deploy-production.yml` from deploying everything on every merge to `main`, so docs- and iOS-only merges deploy nothing and web-only merges skip the six Lambda deploys.
 
-**Architecture:** Two changes to one workflow file. First, a `paths-ignore` filter on the push trigger so merges touching only iOS or Markdown never start a run. Second, a split of the single `deploy` job into a `changes` detector plus `deploy-backend`, `deploy-frontend`, and `verify` jobs, gated on which areas actually changed and on the absence of a `[skip-deploy: <reason>]` marker in the commit message.
+**Architecture:** Two changes to one workflow file. First, a `paths-ignore` filter on the push trigger so merges touching only iOS or Markdown never start a run. Second, a split of the single `deploy` job into a `changes` detector plus `deploy-backend`, `deploy-frontend`, and `verify` jobs, gated on which areas actually changed and on the absence of a `[skip-deploy: <reason>]` marker in the commit **subject**.
 
 **Tech Stack:** GitHub Actions workflow YAML, bash, vitest (for text-invariant guards on the workflow file).
 
@@ -496,7 +496,7 @@ Insert as the first job under `jobs:`, before the existing `deploy` job:
           # Herestring rather than `printf ... | grep`, same SIGPIPE reason.
           if grep -qE '\[skip-deploy: *[^][:space:]][^]]*\]' <<< "$COMMIT_MESSAGE"; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Deploy skipped::[skip-deploy:] marker found in the commit message"
+            echo "::notice title=Deploy skipped::[skip-deploy:] marker found in the commit subject"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -661,7 +661,7 @@ for msg in "fix: thing [skip-deploy: verified locally]" \
 done
 ```
 
-Two things in that loop are deliberate and were wrong in an earlier draft of this plan. The regex is `\[skip-deploy: *[^][:space:]][^]]*\]`, **not** `\[skip-deploy: *[^]]+\]` — the naive form reports SKIP for `[skip-deploy: ]`, because ` *` backtracks to zero repetitions and `[^]]+` then consumes the space itself, so a whitespace-only "reason" satisfies the required-reason contract. And the message is fed by herestring rather than `printf '%s' "$msg" | grep -qE`, matching the shipped code: under `set -o pipefail` a `grep -q` that exits early makes the writer take SIGPIPE and the pipeline report 141. A commit message is small enough that the pipe form would almost always work, which is exactly what makes it a bad thing to leave in a plan someone will copy.
+Three things in that loop are deliberate and were wrong in an earlier draft of this plan. **The marker is matched against the commit SUBJECT, never the whole message.** A squash merge's commit message is the PR title followed by the PR *body*, so matching the whole thing means any PR whose description documents the marker — a runbook, a plan, or the PR introducing it — silently skips its own deploy. PR #231's description quoted the syntax twice; matching the full message would have skipped that very deploy. The subject is the deliberate surface: it is the PR title, it shows in `git log --oneline`, and prose in a description cannot reach it. The regex is `\[skip-deploy: *[^][:space:]][^]]*\]`, **not** `\[skip-deploy: *[^]]+\]` — the naive form reports SKIP for `[skip-deploy: ]`, because ` *` backtracks to zero repetitions and `[^]]+` then consumes the space itself, so a whitespace-only "reason" satisfies the required-reason contract. And the message is fed by herestring rather than `printf '%s' "$msg" | grep -qE`, matching the shipped code: under `set -o pipefail` a `grep -q` that exits early makes the writer take SIGPIPE and the pipeline report 141. A commit message is small enough that the pipe form would almost always work, which is exactly what makes it a bad thing to leave in a plan someone will copy.
 
 Expected output, exactly:
 
@@ -709,7 +709,7 @@ shared/ routes to the FRONTEND filter, not the backend one:
 frontend/src/lib/quickLinks.ts imports @shared/links.json through the Vite
 alias, so a links.json edit must rebuild the bundle it is compiled into.
 
-[skip-deploy: <reason>] in the commit message is the manual brake. The
+[skip-deploy: <reason>] in the commit SUBJECT is the manual brake. The
 reason is required — a bare [skip-deploy] deliberately does not match — so
 opting out is a recorded decision, matching the [skip-screenshots: <reason>]
 contract in app-store-assets.yml. Verified against all four message shapes.

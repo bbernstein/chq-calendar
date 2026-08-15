@@ -261,4 +261,50 @@ describe('deploy-production job split', () => {
   it('does not use the naive marker regex that a blank reason satisfies', () => {
     expect(workflow).not.toContain('skip-deploy: *[^]]+');
   });
+
+  // The marker is matched against the commit SUBJECT, never the whole
+  // message. A squash merge's commit message is the PR title followed by the
+  // PR *body*, so matching the whole thing means any PR whose description
+  // documents the marker — a runbook, a plan, or the PR that introduced it —
+  // silently skips its own deploy.
+  //
+  // Not hypothetical: PR #231's description quoted the syntax twice, and
+  // matching the full message would have skipped that very deploy.
+  it('matches the skip marker against the commit subject only', () => {
+    const grepLine = workflow
+      .split('\n')
+      .find((line) => line.includes('grep -qE') && line.includes('skip-deploy'));
+    expect(grepLine, 'skip-deploy grep line not found').toBeDefined();
+    // The herestring must feed the extracted subject, not the raw message.
+    expect(grepLine).toContain('<<< "$SUBJECT"');
+    expect(grepLine).not.toContain('"$COMMIT_MESSAGE"');
+    expect(workflow, 'SUBJECT must be the first line of the message').toContain(
+      "SUBJECT=$(printf '%s' \"$COMMIT_MESSAGE\" | head -1)"
+    );
+  });
+});
+
+describe('deploy-production verify job', () => {
+  // The smoke step is `continue-on-error: true`, so the job always succeeds.
+  // An unconditional "Deployment Successful" notice therefore fired even when
+  // the smoke had failed — the same shape of defect as the unreachable
+  // failure notice removed earlier on this branch: a message asserting
+  // something the surrounding control flow cannot support.
+  it('reports the post-deploy check outcome instead of assuming success', () => {
+    expect(workflow).toContain("if: steps.smoke.outcome == 'success'");
+    expect(workflow).toContain("if: steps.smoke.outcome == 'failure'");
+    expect(workflow, 'the smoke step must be addressable by id').toContain('id: smoke');
+  });
+
+  // Deleted rather than left as a control that does nothing. A manual run IS
+  // the force-deploy — the changes job sends any non-push event to
+  // FALLBACK_DEPLOY_ALL — and no step ever read this input.
+  it('declares no dead workflow_dispatch inputs', () => {
+    const dispatchBlock = workflow.slice(
+      workflow.indexOf('  workflow_dispatch:'),
+      workflow.indexOf('\nconcurrency:')
+    );
+    expect(dispatchBlock).not.toContain('force_deploy:');
+    expect(dispatchBlock).not.toContain('inputs:');
+  });
 });
