@@ -37,6 +37,21 @@ describe('useFilterState window bounds', () => {
     expect(result.current.windowStartDay).toBeNull();
   });
 
+  it('keeps the window when the same date filter is dispatched again', () => {
+    // useScrollState dispatches setDateFilter('all') unconditionally from
+    // several handlers (mouse-down/drag/tap on the week strip), so a
+    // same-value dispatch is a real occurrence, not a hypothetical one.
+    // The reducer case fires on every dispatch (unlike the effect it
+    // replaced, which only fired on an actual change), so it must guard
+    // on the value being unchanged or it will silently discard the
+    // window the user just expanded.
+    const { result } = renderHook(() => useFilterState());
+    act(() => result.current.setDateFilter('all'));
+    act(() => result.current.expandWindowEnd('2026-07-17'));
+    act(() => result.current.setDateFilter('all'));
+    expect(result.current.windowEndDay).toBe('2026-07-17');
+  });
+
   it('clears both bounds on resetWindow', () => {
     const { result } = renderHook(() => useFilterState());
     act(() => result.current.expandWindowEnd('2026-07-17'));

@@ -64,6 +64,14 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       // effect this replaces ran a second render pass to undo state the
       // first pass had already applied, and left a frame in which the
       // window belonged to the previous scope.
+      //
+      // Guard on an actual change: unlike the effect (which only fired when
+      // dateFilter changed), a reducer case fires on every dispatch,
+      // including same-value ones — and those happen. useScrollState calls
+      // setDateFilter('all') unconditionally from several handlers, so a
+      // week mouse-down/drag/tap while already on 'all' re-dispatches the
+      // same value and would otherwise silently discard the window.
+      if (state.dateFilter === action.payload) return state;
       return { ...state, dateFilter: action.payload, windowStartDay: null, windowEndDay: null };
     case 'SET_SELECTED_WEEKS': {
       const weeks = typeof action.payload === 'function' ? action.payload(state.selectedWeeks) : action.payload;
