@@ -107,5 +107,31 @@ describe('aboutContent', () => {
         expect(web?.title, `${link.id} title`).toBe(link.title);
       }
     });
+
+    // The group name is a string literal carrying a curly apostrophe. A plain
+    // one anywhere would split these across two headings on the page without
+    // failing anything else.
+    it.each([
+      ['web', WEB_FEATURES] as const,
+      ['ios', IOS_FEATURES] as const,
+    ])('files every %s destination under the same heading as its menu entry', (platform, features) => {
+      const menuGroup = features.find((f) => f.id === `${platform}-chq-menu`)?.group;
+      expect(menuGroup).toBeTruthy();
+      for (const link of externalLinks) {
+        const entry = features.find((f) => f.id === `${platform}-chq-${link.id}`);
+        expect(entry?.group, `${platform} ${link.id} group`).toBe(menuGroup);
+      }
+    });
+
+    it('lists the destinations in the order the menus show them', () => {
+      const expected = externalLinks.map((l) => l.id);
+      for (const [platform, features] of [['web', WEB_FEATURES], ['ios', IOS_FEATURES]] as const) {
+        const listed = features
+          .map((f) => f.id)
+          .filter((id) => id.startsWith(`${platform}-chq-`) && id !== `${platform}-chq-menu`)
+          .map((id) => id.replace(`${platform}-chq-`, ''));
+        expect(listed, `${platform} order`).toEqual(expected);
+      }
+    });
   });
 });

@@ -116,6 +116,15 @@ const CHQ_DESTINATIONS: Array<{ id: string; title: string; blurb: string }> = [
     blurb: 'Giving to the Chautauqua Fund, the Institution’s annual fund.' },
 ];
 
+/**
+ * Headings the destinations file under. Named constants rather than repeated
+ * literals: both carry punctuation (a curly apostrophe, an ampersand) that is
+ * easy to retype slightly differently, and a near-miss would silently split
+ * these across two headings on the page.
+ */
+const WEB_CHQ_GROUP = 'Chautauqua’s own sites';
+const IOS_CHQ_GROUP = 'Calendar & links';
+
 /** Renders CHQ_DESTINATIONS as one platform's feature entries. */
 function chqDestinationFeatures(platform: Platform, group: string): Feature[] {
   return CHQ_DESTINATIONS.map((dest) => ({
@@ -255,9 +264,9 @@ export const IOS_FEATURES: Feature[] = [
     blurb: 'Event details link to Daily articles about that event where they exist.' },
   { id: 'ios-programs', group: 'Calendar & links', title: 'Digital programs', notObvious: true,
     blurb: 'Where a digital program has been published, the event links straight to it.' },
-  { id: 'ios-chq-menu', group: 'Calendar & links', title: 'Chautauqua’s own sites, in the More menu', notObvious: true,
+  { id: 'ios-chq-menu', group: IOS_CHQ_GROUP, title: 'Chautauqua’s own sites, in the More menu', notObvious: true,
     blurb: 'The More menu opens the Institution’s own services. They are Chautauqua’s, not part of this app, and each one opens in your browser.' },
-  ...chqDestinationFeatures('ios', 'Calendar & links'),
+  ...chqDestinationFeatures('ios', IOS_CHQ_GROUP),
 
   // Anywhere
   { id: 'ios-offline', group: 'Anywhere', title: 'Works offline',
@@ -371,9 +380,9 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'Touch devices skip the menu — the calendar button downloads a standard .ics file straight away, which any calendar app can open.' },
 
   // Chautauqua's own sites
-  { id: 'web-chq-menu', group: 'Chautauqua’s own sites', title: 'One menu in the header', notObvious: true,
+  { id: 'web-chq-menu', group: WEB_CHQ_GROUP, title: 'One menu in the header', notObvious: true,
     blurb: 'The “Chautauqua” button in the header collects the Institution’s own services. They are Chautauqua’s, not part of this calendar, so each one opens in a new tab.' },
-  ...chqDestinationFeatures('web', 'Chautauqua’s own sites'),
+  ...chqDestinationFeatures('web', WEB_CHQ_GROUP),
 
   // Seasons
   { id: 'web-year', group: 'Seasons', title: 'Past and upcoming seasons',
