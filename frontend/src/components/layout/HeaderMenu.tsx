@@ -51,6 +51,7 @@ interface HeaderMenuProps {
 export function HeaderMenu({ label, ariaLabel, items, triggerClassName }: HeaderMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuId = useId();
 
@@ -68,11 +69,14 @@ export function HeaderMenu({ label, ariaLabel, items, triggerClassName }: Header
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  // Close on Escape
+  // Close on Escape, handing focus back to the trigger so a keyboard user is
+  // not dropped at the top of the document.
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
+      if (e.key !== 'Escape') return;
+      setIsOpen(false);
+      triggerRef.current?.focus();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -82,15 +86,21 @@ export function HeaderMenu({ label, ariaLabel, items, triggerClassName }: Header
   // click handler, which can cancel the navigation it just started — so the
   // close waits for the next task.
   const closeAfterNavigating = () => {
+    // Only the latest handle is retained, so an uncleared predecessor would
+    // outlive unmount and fire against a dead component.
+    if (closeTimer.current) clearTimeout(closeTimer.current);
     closeTimer.current = setTimeout(() => setIsOpen(false), 0);
   };
 
   return (
     <div className="relative" ref={containerRef}>
       <button
+        ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
-        aria-controls={menuId}
+        // Only while the panel exists: the id is absent from the document
+        // when collapsed, which fails axe-core's aria-valid-attr-value.
+        aria-controls={isOpen ? menuId : undefined}
         className={`bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1 ${triggerClassName ?? 'px-3 py-1 text-sm'}`}
       >
         {label}
@@ -107,6 +117,10 @@ export function HeaderMenu({ label, ariaLabel, items, triggerClassName }: Header
       {isOpen && (
         <div
           id={menuId}
+          // `role="group"`: a bare <div> is role `generic`, which does not
+          // support an accessible name, so an aria-label on it is dropped.
+          // `group` names the panel without adding a landmark.
+          role="group"
           aria-label={ariaLabel}
           className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-50 border border-gray-200 dark:border-gray-600"
         >
@@ -134,7 +148,7 @@ export function HeaderMenu({ label, ariaLabel, items, triggerClassName }: Header
                 {item.title}
               </a>
               {item.setApart && (
-                <hr role="separator" className="my-1 border-gray-200 dark:border-gray-600" />
+                <hr className="my-1 border-gray-200 dark:border-gray-600" />
               )}
             </div>
             );

@@ -32,6 +32,19 @@ describe('HeaderMenu', () => {
     expect(screen.getByRole('link', { name: /Captions/ })).toBeInTheDocument();
   });
 
+  // The panel is unmounted while collapsed, so a permanent aria-controls
+  // would reference an id that is not in the document — axe-core's
+  // aria-valid-attr-value flags exactly that.
+  it('drops aria-controls while there is no panel to point at', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    const trigger = screen.getByRole('button', { name: /Chautauqua/ });
+
+    expect(trigger).not.toHaveAttribute('aria-controls');
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-controls');
+  });
+
   it('points aria-controls at the container it reveals', () => {
     render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
     const trigger = screen.getByRole('button', { name: /Chautauqua/ });
@@ -73,6 +86,16 @@ describe('HeaderMenu', () => {
     expect(link).not.toHaveAttribute('rel');
   });
 
+  // A bare <div> has no role that supports an accessible name, so an
+  // aria-label on one is silently dropped. The panel needs a naming-capable
+  // role for the label to reach assistive tech at all.
+  it('gives the revealed panel a name assistive tech can actually read', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    expect(screen.getByRole('group', { name: 'Chautauqua links' })).toBeInTheDocument();
+  });
+
   it('closes on Escape', () => {
     render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
     fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
@@ -80,6 +103,18 @@ describe('HeaderMenu', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(screen.queryByRole('link', { name: /Programs/ })).toBeNull();
+  });
+
+  // Without this a keyboard user who dismisses the menu is dropped back to the
+  // top of the document.
+  it('returns focus to the trigger when dismissed with Escape', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+    const trigger = screen.getByRole('button', { name: /Chautauqua/ });
+    fireEvent.click(trigger);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('closes when a click lands outside it', () => {
@@ -120,7 +155,25 @@ describe('HeaderMenu', () => {
 
     unmount();
 
+    expect(vi.getTimerCount()).toBe(0);
     expect(() => act(() => { vi.runAllTimers(); })).not.toThrow();
+  });
+
+  // Only the most recent timer handle is stored, so without clearing the
+  // previous one each extra click leaks a timer that outlives unmount.
+  it('keeps at most one pending close timer across repeated clicks', () => {
+    vi.useFakeTimers();
+    const { unmount } = render(
+      <HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Chautauqua/ }));
+
+    fireEvent.click(screen.getByRole('link', { name: /Programs/ }));
+    fireEvent.click(screen.getByRole('link', { name: /Captions/ }));
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('sets a `setApart` item off from the rest with a separator', () => {
