@@ -38,9 +38,9 @@ struct UserStateStoreTests {
         #expect(filter.isDefault)
     }
 
-    @Test func filterSelectionWithExtraDaysOnlyIsStillDefault() {
+    @Test func filterSelectionWithWindowExpansionOnlyIsStillDefault() {
         var filter = FilterSelection()
-        filter.extraDays = 3
+        filter.windowEndDayKey = "2026-07-13"
         #expect(filter.isDefault)
     }
 
@@ -77,18 +77,20 @@ struct UserStateStoreTests {
         #expect(loaded.dateScope == .thisWeek)
     }
 
-    @Test func filtersRoundTripDoesNotPersistSearchTextOrExtraDays() throws {
+    @Test func filtersRoundTripDoesNotPersistSearchTextOrWindowExpansion() throws {
         let store = UserStateStore(defaults: makeDefaults(), now: { Date() })
         var filter = FilterSelection()
         filter.searchText = "opera"
-        filter.extraDays = 5
+        filter.windowStartDayKey = "2026-07-08"
+        filter.windowEndDayKey = "2026-07-15"
         filter.selectedWeeks = [2]
 
         store.saveFilters(filter)
         let loaded = try #require(store.loadFilters())
 
         #expect(loaded.searchText == "")
-        #expect(loaded.extraDays == 0)
+        #expect(loaded.windowStartDayKey == nil)
+        #expect(loaded.windowEndDayKey == nil)
         #expect(loaded.selectedWeeks == [2])
     }
 
@@ -374,8 +376,9 @@ struct UserStateStoreTests {
     @Test func dayScopeIsPersistedAsNextAndTheDayKeyIsNeverWritten() {
         // A date pinned three days ago and silently restored on launch would
         // be worse than not restoring at all — same reasoning as
-        // searchText/extraDays. `.day` names an absolute date, so it cannot
-        // survive a relaunch the way a relative scope can.
+        // searchText/windowStartDayKey/windowEndDayKey. `.day` names an
+        // absolute date, so it cannot survive a relaunch the way a relative
+        // scope can.
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         let store = UserStateStore(defaults: defaults, now: { Date() })
 

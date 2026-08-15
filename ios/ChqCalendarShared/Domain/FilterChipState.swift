@@ -10,13 +10,12 @@ import Foundation
 nonisolated enum FilterChipState {
     /// - Parameter isCurrentYear: must be the same value the caller passes
     ///   to `EventFilter.apply` (and to `DateFilterLabel.text`). When it is
-    ///   `false` the stored `dateScope` is **meaningless** — the pipeline
-    ///   forces it to `.all` (`let scope: DateScope = (isCurrentYear ||
-    ///   sel.dateScope == .day) ? sel.dateScope : .all`), because a past or
-    ///   future season has no "now" — **except `.day`**, which names an
-    ///   absolute date and is exempt from that downgrade. Selection is
-    ///   therefore derived from that reality rather than from what happens
-    ///   to be persisted.
+    ///   `false` the stored `dateScope` is **meaningless** — see
+    ///   `EffectiveScope.resolve` for the exact rule the pipeline forces it
+    ///   to `.all` under, because a past or future season has no "now" —
+    ///   **except `.day`**, which names an absolute date and is exempt from
+    ///   that downgrade. Selection is therefore derived from that reality
+    ///   rather than from what happens to be persisted.
     ///
     ///   Deliberately **not defaulted**, for the same reason
     ///   `DateFilterLabel.text` isn't: a default lets a future call site

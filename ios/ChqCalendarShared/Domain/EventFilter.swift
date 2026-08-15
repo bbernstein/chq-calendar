@@ -14,10 +14,11 @@ nonisolated enum EventFilter {
     /// window relative to "now", so it is just as meaningful off the current
     /// year.
     ///
-    /// `SeasonCalendar.weeks(forYear:)` is computed exactly once here and
-    /// reused for both the `.thisWeek` scope and the weeks filter — it
-    /// rebuilds all 9 `SeasonWeek` structs on every call, so recomputing it
-    /// per event (or per stage) would be wasteful.
+    /// `SeasonCalendar.weeks(forYear:)` is computed once here and reused by
+    /// the weeks filter below — it rebuilds all 9 `SeasonWeek` structs on
+    /// every call, so recomputing it per event would be wasteful. The date
+    /// stage no longer needs its own copy: `.thisWeek`/`.season` compute
+    /// theirs inside `ViewWindow.base`.
     static func apply(
         _ sel: FilterSelection,
         to events: [Event],
@@ -34,55 +35,23 @@ nonisolated enum EventFilter {
         }
 
         let weeks = SeasonCalendar.weeks(forYear: year)
-        // Which scope actually applies — the non-current-year downgrade and
-        // the `.day` exemption both live in `EffectiveScope` now, so this
-        // type, `DateFilterLabel` and `FilterChipState` cannot drift apart.
-        let scope = EffectiveScope.resolve(sel, isCurrentYear: isCurrentYear)
 
-        switch scope {
-        case .all:
-            break
-
-        case .season:
-            if let first = weeks.first, let last = weeks.last {
-                result = result.filter { first.start <= $0.start && $0.start < last.end }
-            }
-
-        case .today:
-            let nowKey = ChqTime.dayKey(for: now)
-            result = result.filter { ChqTime.dayKey(for: $0.start) == nowKey }
-
-        case .day:
-            // `EffectiveScope` only returns `.day` when the key is non-nil,
-            // so this binding cannot fail; it exists because the stored type
-            // is still optional.
-            if let dayKey = sel.selectedDayKey {
-                result = result.filter { ChqTime.dayKey(for: $0.start) == dayKey }
-            }
-
-        case .next:
-            let from = now.addingTimeInterval(-3600)
-            // The adaptive window is sized against the *full* event set
-            // passed to `apply` — not the search-narrowed `result` — so an
-            // active search term doesn't shrink or grow the window itself;
-            // it only narrows what the window is applied to below.
-            let adaptiveEnd = adaptiveEndDate(events: events, from: from, minCount: 50)
-            let end: Date
-            if sel.extraDays > 0, let advanced = ChqTime.calendar.date(byAdding: .day, value: sel.extraDays, to: adaptiveEnd) {
-                end = ChqTime.endOfDay(advanced)
-            } else {
-                end = adaptiveEnd
-            }
-            result = result.filter { $0.start >= from && $0.start <= end }
-
-        case .thisWeek:
-            if let currentWeek = weeks.first(where: { $0.contains(now) }) {
-                result = result.filter { currentWeek.contains($0.start) }
-            } else {
-                let weekLater = now.addingTimeInterval(7 * 24 * 3600)
-                result = result.filter { $0.start >= now && $0.start < weekLater }
-            }
-        }
+        // The date stage. One half-open range check for every scope — the six
+        // branches this replaced all reduce to this once the scope has been
+        // turned into a window. A `nil` window means the scope resolves to no
+        // window at all — reachable via a `.day` scope whose key doesn't
+        // parse. That is the same outcome the old string comparison produced
+        // for the same input: it compared events against a string no
+        // `dayKey` ever emits and matched nothing, so `return []` here is
+        // observably identical. `.thisWeek` out of season does NOT hit this:
+        // `ViewWindow.base` gives it a seven-day fallback and never returns
+        // `nil` for it.
+        let bounds = ViewWindow.navigableBounds(year: year, events: events, starredDays: [])
+        guard let window = ViewWindow.make(
+            selection: sel, events: events, now: now,
+            year: year, isCurrentYear: isCurrentYear, bounds: bounds)
+        else { return [] }
+        result = result.filter { window.contains($0.start) }
 
         if !sel.selectedWeeks.isEmpty {
             let selected = weeks.filter { sel.selectedWeeks.contains($0.number) }

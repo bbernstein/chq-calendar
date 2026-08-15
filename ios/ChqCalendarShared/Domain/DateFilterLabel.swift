@@ -24,12 +24,11 @@ nonisolated enum DateFilterLabel {
     /// - Parameter isCurrentYear: must be the same value the caller passes
     ///   to `EventFilter.apply`. The label has to know it because
     ///   `EventFilter` **ignores** a time-relative `dateScope` when it is
-    ///   `false` (`let scope: DateScope = (isCurrentYear || sel.dateScope ==
-    ///   .day) ? sel.dateScope : .all`) — a past or future season has no
-    ///   "now" — **except `.day`**, which names an absolute date and is
-    ///   exempt from that downgrade. Without this parameter a user whose
-    ///   persisted scope is `.next`, viewing 2025, read "Now" on a list that
-    ///   was not date-filtered at all.
+    ///   `false` — see `EffectiveScope.resolve` for the exact rule — a past
+    ///   or future season has no "now" — **except `.day`**, which names an
+    ///   absolute date and is exempt from that downgrade. Without this
+    ///   parameter a user whose persisted scope is `.next`, viewing 2025,
+    ///   read "Now" on a list that was not date-filtered at all.
     ///
     ///   Deliberately **not defaulted**: a default is exactly what would let
     ///   a future call site forget to pass it and silently reintroduce that
@@ -59,7 +58,14 @@ nonisolated enum DateFilterLabel {
         }
 
         guard !weeks.isEmpty else {
-            return scope == .all ? DateScope.all.label : scope.label
+            // `scope == .day` reaching here means the early return above
+            // declined the selection — `EffectiveScope.resolve` only
+            // downgrades `.day` to `.all` when `selectedDayKey` is `nil`, so
+            // a non-nil-but-unparseable key still resolves to `.day` and
+            // falls through. `EventFilter.apply` filters no days for that
+            // key either, so "All Year" is the true statement, matching
+            // every other non-week-selected scope that isn't itself `.all`.
+            return scope == .day ? DateScope.all.label : scope.label
         }
 
         if weeks.count == seasonWeekCount, weeks == Array(1...seasonWeekCount) {

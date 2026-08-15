@@ -317,3 +317,52 @@ struct ViewWindowTests {
         #expect(window(sel, now: now) == nil)
     }
 }
+
+struct EventFilterWindowTests {
+
+    private static func at(_ s: String) throws -> Date {
+        try #require(ChqTime.parse(s))
+    }
+
+    @Test func expandingTheWindowEndAddsThatDaysEvents() throws {
+        let now = try Self.at("2026-07-15 15:00:00")
+        let today = makeEvent(id: "today", start: try Self.at("2026-07-15 18:00:00"))
+        let tomorrow = makeEvent(id: "tomorrow", start: try Self.at("2026-07-16 18:00:00"))
+
+        var sel = FilterSelection(dateScope: .today)
+        let before = EventFilter.apply(
+            sel, to: [today, tomorrow], favorites: [], now: now, year: 2026, isCurrentYear: true)
+        #expect(before.map(\.id) == ["today"])
+
+        sel.windowEndDayKey = "2026-07-16"
+        let after = EventFilter.apply(
+            sel, to: [today, tomorrow], favorites: [], now: now, year: 2026, isCurrentYear: true)
+        #expect(after.map(\.id) == ["today", "tomorrow"])
+    }
+
+    @Test func expandingTheWindowStartAddsEarlierDays() throws {
+        let now = try Self.at("2026-07-15 15:00:00")
+        let yesterday = makeEvent(id: "yesterday", start: try Self.at("2026-07-14 18:00:00"))
+        let today = makeEvent(id: "today", start: try Self.at("2026-07-15 18:00:00"))
+
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowStartDayKey = "2026-07-14"
+        let result = EventFilter.apply(
+            sel, to: [yesterday, today], favorites: [], now: now, year: 2026, isCurrentYear: true)
+        #expect(result.map(\.id) == ["yesterday", "today"])
+    }
+
+    @Test func windowExpansionStillRespectsTheWeeksStage() throws {
+        // The weeks stage is separate and ANDed. Phase 1 does not change that.
+        let weeks = SeasonCalendar.weeks(forYear: 2026)
+        let now = weeks[0].start.addingTimeInterval(3600)
+        let inWeek1 = makeEvent(id: "w1", start: now.addingTimeInterval(600))
+        let inWeek2 = makeEvent(id: "w2", start: weeks[1].start.addingTimeInterval(3600))
+
+        var sel = FilterSelection(dateScope: .today, selectedWeeks: [1])
+        sel.windowEndDayKey = ChqTime.dayKey(for: weeks[1].start.addingTimeInterval(3600))
+        let result = EventFilter.apply(
+            sel, to: [inWeek1, inWeek2], favorites: [], now: now, year: 2026, isCurrentYear: true)
+        #expect(result.map(\.id) == ["w1"])
+    }
+}
