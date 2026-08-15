@@ -3,6 +3,7 @@ import {
   SHARED_HIGHLIGHTS, IOS_SCENARIOS, IOS_FEATURES,
   WEB_SCENARIOS, WEB_FEATURES, PLATFORMS, groupFeatures,
 } from './aboutContent';
+import { externalLinks } from '@/lib/quickLinks';
 
 const allFeatures = [...SHARED_HIGHLIGHTS, ...IOS_FEATURES, ...WEB_FEATURES];
 const allScenarios = [...IOS_SCENARIOS, ...WEB_SCENARIOS];
@@ -67,5 +68,44 @@ describe('aboutContent', () => {
     ]) {
       expect(ids, `missing ${id}`).toContain(id);
     }
+  });
+
+  // Both clients surface the same off-site Chautauqua destinations from
+  // shared/links.json — the web header's "Chautauqua" menu and the iOS More
+  // menu. Tying the guide back to that file is what stops a sixth link from
+  // shipping undocumented: adding one fails here until someone writes a line
+  // for it, on both platforms.
+  describe('Chautauqua destinations', () => {
+    it.each(externalLinks)('documents $title on the web guide', (link) => {
+      const ids = WEB_FEATURES.map((f) => f.id);
+      expect(ids, `no web guide entry for ${link.id}`).toContain(`web-chq-${link.id}`);
+    });
+
+    it.each(externalLinks)('documents $title on the iOS guide', (link) => {
+      const ids = IOS_FEATURES.map((f) => f.id);
+      expect(ids, `no iOS guide entry for ${link.id}`).toContain(`ios-chq-${link.id}`);
+    });
+
+    it('introduces the menu itself on both guides, not just its destinations', () => {
+      // A list of five destinations is useless to someone who never finds the
+      // control that holds them.
+      expect(WEB_FEATURES.map((f) => f.id)).toContain('web-chq-menu');
+      expect(IOS_FEATURES.map((f) => f.id)).toContain('ios-chq-menu');
+    });
+
+    it('gives each destination the same copy on both platforms', () => {
+      for (const link of externalLinks) {
+        const web = WEB_FEATURES.find((f) => f.id === `web-chq-${link.id}`);
+        const ios = IOS_FEATURES.find((f) => f.id === `ios-chq-${link.id}`);
+        expect(web?.blurb, `${link.id} blurb drifted between platforms`).toBe(ios?.blurb);
+      }
+    });
+
+    it('titles each entry with the label the apps actually show', () => {
+      for (const link of externalLinks) {
+        const web = WEB_FEATURES.find((f) => f.id === `web-chq-${link.id}`);
+        expect(web?.title, `${link.id} title`).toBe(link.title);
+      }
+    });
   });
 });

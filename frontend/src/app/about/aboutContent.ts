@@ -89,6 +89,43 @@ export const PLATFORMS: PlatformInfo[] = [
   },
 ];
 
+/**
+ * The off-site Chautauqua Institution destinations both clients surface —
+ * the web header's "Chautauqua" menu and the iOS More menu. The list itself
+ * lives in `shared/links.json`; only the guide copy lives here.
+ *
+ * Written once and spread into both platforms' feature lists, because the
+ * same five destinations behind the same five labels described two different
+ * ways is precisely the drift this file exists to prevent. `aboutContent.test`
+ * pins the copy identical across platforms, and pins every `external` entry in
+ * `shared/links.json` to an entry here — so a sixth link fails the guide tests
+ * until it is documented.
+ *
+ * Keyed by the `id` in shared/links.json.
+ */
+const CHQ_DESTINATIONS: Array<{ id: string; title: string; blurb: string }> = [
+  { id: 'programs', title: 'Programs',
+    blurb: 'Chautauqua’s digital programs for theatre and music performances — the same listings the 📖 marker on an individual event links into.' },
+  { id: 'questions', title: 'Questions',
+    blurb: 'Chautauqua’s Q-and-A portal, for putting a question to the Institution.' },
+  { id: 'captions', title: 'Captions',
+    blurb: 'Chautauqua’s live captioning. The link follows whichever session is being captioned, so between sessions it may report that none is running.' },
+  { id: 'bus-tram-tracker', title: 'Bus Tracker',
+    blurb: 'Where the buses and trams on the grounds are right now.' },
+  { id: 'chautauqua-fund', title: 'CHQ Fund',
+    blurb: 'Giving to the Chautauqua Fund, the Institution’s annual fund.' },
+];
+
+/** Renders CHQ_DESTINATIONS as one platform's feature entries. */
+function chqDestinationFeatures(platform: Platform, group: string): Feature[] {
+  return CHQ_DESTINATIONS.map((dest) => ({
+    id: `${platform}-chq-${dest.id}`,
+    group,
+    title: dest.title,
+    blurb: dest.blurb,
+  }));
+}
+
 export const SHARED_HIGHLIGHTS: Feature[] = [
   { id: 'shared-season', group: 'Everywhere', title: 'The whole season in one place',
     blurb: 'Over 1,500 events — lectures, concerts, worship, recreation — in a single list you can scroll.' },
@@ -218,6 +255,9 @@ export const IOS_FEATURES: Feature[] = [
     blurb: 'Event details link to Daily articles about that event where they exist.' },
   { id: 'ios-programs', group: 'Calendar & links', title: 'Digital programs', notObvious: true,
     blurb: 'Where a digital program has been published, the event links straight to it.' },
+  { id: 'ios-chq-menu', group: 'Calendar & links', title: 'Chautauqua’s own sites, in the More menu', notObvious: true,
+    blurb: 'The More menu opens the Institution’s own services. They are Chautauqua’s, not part of this app, and each one opens in your browser.' },
+  ...chqDestinationFeatures('ios', 'Calendar & links'),
 
   // Anywhere
   { id: 'ios-offline', group: 'Anywhere', title: 'Works offline',
@@ -329,6 +369,11 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'The same, for Outlook.' },
   { id: 'web-ics', group: 'Calendar export', title: 'One tap on a phone or tablet', notObvious: true,
     blurb: 'Touch devices skip the menu — the calendar button downloads a standard .ics file straight away, which any calendar app can open.' },
+
+  // Chautauqua's own sites
+  { id: 'web-chq-menu', group: 'Chautauqua’s own sites', title: 'One menu in the header', notObvious: true,
+    blurb: 'The “Chautauqua” button in the header collects the Institution’s own services. They are Chautauqua’s, not part of this calendar, so each one opens in a new tab.' },
+  ...chqDestinationFeatures('web', 'Chautauqua’s own sites'),
 
   // Seasons
   { id: 'web-year', group: 'Seasons', title: 'Past and upcoming seasons',
