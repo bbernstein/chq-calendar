@@ -19,9 +19,10 @@ export interface HeaderMenuItem {
    */
   newTab?: boolean;
   /**
-   * Pulled to the top of the menu and followed by a separator. Used for
-   * "Get the app", which is neither one of this app's routes nor a
-   * Chautauqua resource and so belongs in neither group.
+   * Styled as distinct and followed by a separator. Does NOT reorder — items
+   * render in the order given, so a caller wanting this item first must place
+   * it first. Used for "Get the app", which is neither one of this app's
+   * routes nor a Chautauqua resource and so belongs in neither group.
    */
   setApart?: boolean;
 }
@@ -96,6 +97,7 @@ export function HeaderMenu({ label, ariaLabel, items, triggerClassName }: Header
     <div className="relative" ref={containerRef}>
       <button
         ref={triggerRef}
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         // Only while the panel exists: the id is absent from the document

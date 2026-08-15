@@ -14,6 +14,14 @@ afterEach(() => {
 });
 
 describe('HeaderMenu', () => {
+  // Without an explicit type the trigger defaults to `submit`, so toggling
+  // the menu would submit any form this component is ever placed inside.
+  it('declares the trigger as a plain button, not a submit', () => {
+    render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
+
+    expect(screen.getByRole('button', { name: /Chautauqua/ })).toHaveAttribute('type', 'button');
+  });
+
   it('starts collapsed, with the trigger reporting its state', () => {
     render(<HeaderMenu label="Chautauqua" ariaLabel="Chautauqua links" items={items} />);
 
