@@ -1019,24 +1019,35 @@ struct AppModelTests {
     /// window ("Show next day"), so it must not survive a move to another
     /// scope and silently re-widen the window when the user comes back to
     /// Now.
+    /// Both window-expansion fields belong to the scope being left, not
+    /// just `windowEndDayKey` — `windowStartDayKey` has no writer today
+    /// (there is no `expandWindowStart()` yet), so it's set directly here
+    /// to pin that `clearScopeLocalDateState()` clears it too rather than
+    /// only the field the UI happens to exercise.
     @Test func selectScopeResetsWindowExpansion() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         #expect(model.filter.dateScope == .next)
         model.expandWindowEnd()
         model.expandWindowEnd()
         #expect(model.filter.windowEndDayKey == "2026-08-05")
+        model.filter.windowStartDayKey = "2026-08-01"
 
         model.selectScope(.thisWeek)
 
         #expect(model.filter.windowEndDayKey == nil)
+        #expect(model.filter.windowStartDayKey == nil)
     }
 
     /// The failure #156 actually describes: Now → This Week → Now leaves the
     /// window wider than a fresh `.next` selection, with nothing on screen
-    /// explaining why.
+    /// explaining why. The intermediate assertion pins that the first
+    /// `expandWindowEnd()` actually did something before the scope change
+    /// throws it away — without it, a no-op `expandWindowEnd()` would let
+    /// this test go green while pinning nothing.
     @Test func returningToNowAfterAScopeChangeStartsFromAFreshWindow() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         model.expandWindowEnd()
+        #expect(model.filter.windowEndDayKey == "2026-08-04")
         model.selectScope(.thisWeek)
 
         model.selectScope(.next)
@@ -1046,11 +1057,19 @@ struct AppModelTests {
 
     /// #197 item 3: `selectedDayKey` is only meaningful under `.day`. Leaving
     /// it set after a scope change is inert today only because nothing else
-    /// reads it — this makes the invariant hold by construction.
+    /// reads it — this makes the invariant hold by construction. Also pins
+    /// that `browseDay` itself clears both window-expansion fields (per its
+    /// doc comment), not just `selectedDayKey` via the later `selectScope`.
     @Test func selectScopeClearsTheBrowsedDay() throws {
         let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.filter.windowStartDayKey = "2026-08-01"
+        model.filter.windowEndDayKey = "2026-08-05"
+
         model.browseDay("2026-08-09")
+
         #expect(model.filter.selectedDayKey == "2026-08-09")
+        #expect(model.filter.windowStartDayKey == nil)
+        #expect(model.filter.windowEndDayKey == nil)
 
         model.selectScope(.today)
 

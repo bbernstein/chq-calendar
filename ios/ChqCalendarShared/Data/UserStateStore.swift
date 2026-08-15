@@ -16,11 +16,15 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
     /// empty-day "Browse …" action (#192).
     ///
     /// Unlike every other case here it names an **absolute** date, not a
-    /// window relative to "now". That is why `EffectiveScope.resolve` — the
-    /// one place `EventFilter.apply`, `DateFilterLabel.text`, and
-    /// `FilterChipState` all go for this — exempts it from the
-    /// non-current-year downgrade to `.all`: a named day is just as
-    /// meaningful in an archived season as in the live one.
+    /// window relative to "now". That is why `EffectiveScope.resolve`
+    /// exempts it from the non-current-year downgrade to `.all`: a named
+    /// day is just as meaningful in an archived season as in the live one.
+    /// `DateFilterLabel.text` and `FilterChipState` call
+    /// `EffectiveScope.resolve` directly; `EventFilter.apply` gets the same
+    /// rule only indirectly, through `ViewWindow.base` — so grepping
+    /// `EventFilter.swift` for `EffectiveScope` finds nothing. That isn't
+    /// this rule being skipped there; `ViewWindow` is applying it on
+    /// `EventFilter`'s behalf.
     case day
 
     var label: String {

@@ -98,6 +98,15 @@ nonisolated struct ViewWindow: Equatable, Sendable {
     /// and `base` can legitimately sit outside them (off-season `.today`,
     /// most of the year). Clamping the merged result instead of the inputs
     /// would invert the window (`startDay > endDay`) whenever that happens.
+    ///
+    /// - Parameter bounds: does double duty. Besides clamping the expansion
+    ///   inputs above, `base`'s `.all` case also returns it verbatim as
+    ///   `startDay`/`endDay` — so a caller that passes a season-only range
+    ///   (`DayWindow.bounds`, skipping the per-event `navigableBounds` scan)
+    ///   gets a season-only day-key pair back for `.all`, not one widened to
+    ///   cover every event. `EventFilter` is one such caller on its common
+    ///   path, and can be precisely because it reads `contains(_:)` only and
+    ///   never touches `startDay`/`endDay`.
     static func make(
         selection: FilterSelection,
         events: [Event],
@@ -154,7 +163,6 @@ nonisolated struct ViewWindow: Equatable, Sendable {
         bounds: ClosedRange<String>
     ) -> ViewWindow? {
         let scope = EffectiveScope.resolve(selection, isCurrentYear: isCurrentYear)
-        let weeks = SeasonCalendar.weeks(forYear: year)
 
         switch scope {
         case .all:
@@ -168,6 +176,11 @@ nonisolated struct ViewWindow: Equatable, Sendable {
 
         case .season:
             // `first.start <= x && x < last.end`, carried through verbatim.
+            // `weeks` is built here rather than once for the whole switch —
+            // it's only `.season` and `.thisWeek` that read it, and the
+            // other four scopes shouldn't pay for a 9-struct build they
+            // never use.
+            let weeks = SeasonCalendar.weeks(forYear: year)
             guard let first = weeks.first, let last = weeks.last else { return nil }
             return windowed(first.start..<last.end)
 
@@ -195,6 +208,7 @@ nonisolated struct ViewWindow: Equatable, Sendable {
             return windowed(from..<end)
 
         case .thisWeek:
+            let weeks = SeasonCalendar.weeks(forYear: year)
             if let current = weeks.first(where: { $0.contains(now) }) {
                 // Literally `SeasonWeek.contains`.
                 return windowed(current.start..<current.end)

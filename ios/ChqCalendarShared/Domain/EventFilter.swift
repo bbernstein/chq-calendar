@@ -14,11 +14,17 @@ nonisolated enum EventFilter {
     /// window relative to "now", so it is just as meaningful off the current
     /// year.
     ///
-    /// `SeasonCalendar.weeks(forYear:)` is computed once here and reused by
-    /// the weeks filter below — it rebuilds all 9 `SeasonWeek` structs on
-    /// every call, so recomputing it per event would be wasteful. The date
-    /// stage no longer needs its own copy: `.thisWeek`/`.season` compute
-    /// theirs inside `ViewWindow.base`.
+    /// `SeasonCalendar.weeks(forYear:)` is computed once here, for the weeks
+    /// filter below — it rebuilds all 9 `SeasonWeek` structs, so
+    /// recomputing it per event would be wasteful. `ViewWindow.base` builds
+    /// its own separate copy, but only for the two scopes that actually
+    /// read it (`.season`, `.thisWeek`), not on every call — and it isn't
+    /// shared with the copy here, since threading a `[SeasonWeek]` across
+    /// that boundary would trade one cheap 9-struct build for coupling the
+    /// two call sites together. `bounds` below is `DayWindow.bounds`'s
+    /// cheaper season-only range on the common path, not
+    /// `navigableBounds`'s O(n) per-event scan — see the comment at its
+    /// call site for why that scan is skippable here.
     static func apply(
         _ sel: FilterSelection,
         to events: [Event],
@@ -39,14 +45,34 @@ nonisolated enum EventFilter {
         // The date stage. One half-open range check for every scope — the six
         // branches this replaced all reduce to this once the scope has been
         // turned into a window. A `nil` window means the scope resolves to no
-        // window at all — reachable via a `.day` scope whose key doesn't
-        // parse. That is the same outcome the old string comparison produced
-        // for the same input: it compared events against a string no
-        // `dayKey` ever emits and matched nothing, so `return []` here is
-        // observably identical. `.thisWeek` out of season does NOT hit this:
+        // window at all — reachable via a `.day` scope whose key doesn't parse
+        // at all. For a key that *does* parse but isn't canonical (e.g.
+        // `"2026-8-9"`), the old string comparison matched nothing — it
+        // compared events against a string no `dayKey` ever emits — while
+        // `ChqTime.parse`'s variable-width digits now produce a real window,
+        // so the two are NOT observably identical for that input. That input
+        // is unreachable in practice: `browseDay` normalizes every key
+        // through `ChqTime.dayKey(for: parsed)` before storing it, and
+        // `selectedDayKey` is never persisted, so no non-canonical key can
+        // reach here. `.thisWeek` out of season does NOT hit any of this:
         // `ViewWindow.base` gives it a seven-day fallback and never returns
         // `nil` for it.
-        let bounds = ViewWindow.navigableBounds(year: year, events: events, starredDays: [])
+        //
+        // `navigableBounds` is an O(n) scan over every event (via
+        // `ChqTime.dayKey(for:)`) to build the season-and-starred-and-event
+        // widened bounds. `EventFilter` reads only `window.contains(_:)`
+        // below, never `startDay`/`endDay`, so those bounds matter only to
+        // clamp `ViewWindow.make`'s expansion inputs — and those inputs are
+        // `nil` on almost every call, since expansion only happens once the
+        // user has actually navigated. When neither is set, the cheaper
+        // season-only `DayWindow.bounds` is enough: it can't disagree with
+        // `navigableBounds` about anything this function reads, only about
+        // the `.all` scope's (here-unused) day-key projection — see
+        // `ViewWindow.make`'s doc for that.
+        let hasExpansion = sel.windowStartDayKey != nil || sel.windowEndDayKey != nil
+        let bounds = hasExpansion
+            ? ViewWindow.navigableBounds(year: year, events: events, starredDays: [])
+            : DayWindow.bounds(year: year, starredDays: [])
         guard let window = ViewWindow.make(
             selection: sel, events: events, now: now,
             year: year, isCurrentYear: isCurrentYear, bounds: bounds)
