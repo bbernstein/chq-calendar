@@ -103,7 +103,29 @@ export function EventList({
   // so the interim frame and the stored frame are identical by construction.
   // And it always runs before any click can occur, since effects flush before
   // the browser hands the user back the main thread.
-  useEffect(() => {
+  //
+  // This MUST be a layout effect, not a passive one, and it must stay
+  // declared before the `revealDay` layout effect below. On a mount where
+  // `revealDay` already targets a day past the initial fill — reachable in
+  // practice: the rail is rendered even over `EmptyState`, so a chip tap that
+  // both widens the window into some matches AND is the reason `EventList`
+  // mounts for the first time lands `revealDay` non-null on this component's
+  // very first commit — both this effect and the one below want to call
+  // `setAnchor` on that same commit. If this one were a passive `useEffect`,
+  // Preact's hooks module would flush it eagerly (with its STALE,
+  // mount-time closure: `anchorKey: null`) at the START of the *next*
+  // render — the one the `revealDay` effect's own `setAnchor` call schedules
+  // — because a re-render for a component whose passive effects never got
+  // their normal deferred flush runs them synchronously first. That eager,
+  // stale-closure call would overwrite the correct anchor the `revealDay`
+  // effect had just set, silently discarding the reveal. Verified directly
+  // against this codebase's preact/hooks: reverting only this effect to
+  // `useEffect` (leaving `revealDay`'s as `useLayoutEffect`) reproduces
+  // exactly that clobber. As two layout effects in the same `_commit` pass,
+  // they instead run in declaration order against fresh, correct closures,
+  // and this one running first is what lets the `revealDay` effect's later
+  // call legitimately win.
+  useLayoutEffect(() => {
     if (groupedEvents.length === 0) return;
     const anchorIsPresent = anchorKey !== null && groupedEvents.some(g => g.key === anchorKey);
     if (anchorIsPresent) return;
@@ -124,7 +146,21 @@ export function EventList({
   // rather than "immediately after the latch effect" above — a plain
   // function-scope `const endIdx` referenced any earlier is a TDZ
   // ReferenceError, not a stale read.
-  useEffect(() => {
+  //
+  // This MUST be a layout effect, not a passive one. The page's pending-scroll
+  // effect (page.tsx) reads this component's DOM in the very same commit that
+  // sets `revealDay` — it exists specifically to hand a mounted section to a
+  // parent effect one flush later. A passive `useEffect` here loses that race:
+  // React/Preact run all of a commit's layout effects (children before
+  // parents) synchronously before yielding, and a state update made inside a
+  // layout effect is applied and re-rendered before the browser paints and
+  // before ANY passive effect from the original commit runs — so the parent's
+  // passive effect sees the grown render window and the new DOM node. A
+  // passive effect here would instead run interleaved with (or after) the
+  // parent's own passive effect, so the parent would find the day "in view"
+  // but not yet mounted, call `scrollIntoView` on nothing, and give up with no
+  // second attempt. Do not "simplify" this back to `useEffect`.
+  useLayoutEffect(() => {
     if (!revealDay) return;
     const idx = groupedEvents.findIndex(g => g.key === revealDay);
     // Not in the groups at all: the day has no matching events, so there is

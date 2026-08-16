@@ -7,6 +7,7 @@ import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import { navigableBounds, viewWindow, addDays, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
 import { renderResetKey } from '@/lib/utils/renderWindow';
+import { daySectionElement } from '@/lib/utils/daySections';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useDayRailHeight } from '@/hooks/useDayRailHeight';
@@ -192,8 +193,14 @@ function HomeContent() {
     [navBounds, groupedEvents]
   );
 
-  const renderedDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
-  const { anchorDay, scrollToDay } = useDayAnchor(renderedDayKeys);
+  // Every day the *view* window produced, not the render window's mounted
+  // subset — `useDayAnchor` walks this list and skips any key with no DOM
+  // section yet, so naming it "rendered" here would claim something this
+  // value cannot promise. (The mixup this exact name invited is why the
+  // pending-scroll effect below now checks the DOM directly instead of
+  // trusting `groupedEvents` membership as a proxy for "mounted".)
+  const windowDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
+  const { anchorDay, scrollToDay } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
 
   const todayKey = isCurrentYear ? dayKeyOf(new Date()) : null;
@@ -220,25 +227,34 @@ function HomeContent() {
 
   useEffect(() => {
     if (!pendingScroll) return;
-    if (groupedEvents.some(g => g.key === pendingScroll)) {
+    // Checking the DOM node directly, not `groupedEvents` membership: the
+    // render window is what EventList's `revealDay` layout effect grows, and
+    // "the day is in the view window" does not mean "the day has a mounted
+    // section" — those are the two windows this whole feature exists to keep
+    // separate. `revealDay`'s effect is a layout effect specifically so that
+    // by the time THIS passive effect runs, any growth it triggered has
+    // already committed — see the comment on that effect for why the
+    // ordering guarantee holds.
+    if (daySectionElement(pendingScroll)) {
       setPendingScroll(null);
       scrollToDay(pendingScroll);
       return;
     }
-    // Not in the day groups. Two very different reasons, and only one is
+    // No section for it yet. Two very different reasons, and only one is
     // worth waiting for.
     //
     // If the view window already covers the target, the day simply has no
-    // matching events — an empty day under the current filters. That is not a
-    // failure; it is what "the rail moves by calendar day" means. Give up, or
-    // the pending target would survive forever and hijack a later commit.
+    // matching events — an empty day under the current filters, which never
+    // gets a section mounted at all. That is not a failure; it is what "the
+    // rail moves by calendar day" means. Give up, or the pending target would
+    // survive forever and hijack a later commit.
     //
     // If the window does not cover it yet, the expansion dispatched above has
     // not landed in this commit. Keep waiting — the next one will have it.
     const covered = dateWindow
       && pendingScroll >= dateWindow.startDay && pendingScroll <= dateWindow.endDay;
     if (covered) setPendingScroll(null);
-  }, [pendingScroll, groupedEvents, dateWindow, scrollToDay]);
+  }, [pendingScroll, dateWindow, scrollToDay]);
 
   const stepDay = useCallback((delta: -1 | 1) => {
     if (!anchorDay) return;

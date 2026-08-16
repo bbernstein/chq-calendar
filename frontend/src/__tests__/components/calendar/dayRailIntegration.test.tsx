@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
+import { useCallback, useEffect, useState } from 'react';
+import { render, fireEvent } from '@testing-library/preact';
 import { railTarget } from '@/app/dayRailNavigation';
+import { EventList } from '@/components/calendar/EventList';
+import { useDayAnchor } from '@/hooks/useDayAnchor';
+import { daySectionElement, DAY_SECTION_ATTR } from '@/lib/utils/daySections';
+import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
+import type { DayGroup } from '@/lib/utils/eventHelpers';
+import type { Event } from '@/lib/types';
 
 describe('railTarget', () => {
   const bounds = { startDay: '2026-06-27', endDay: '2026-08-30' };
@@ -34,5 +42,104 @@ describe('railTarget', () => {
     // nothing at all and there is no window to compare against.
     expect(railTarget({ target: '2026-07-06', window: null, bounds }))
       .toEqual({ expandStart: '2026-07-06', expandEnd: '2026-07-06', scrollTo: '2026-07-06' });
+  });
+});
+
+function group(key: string, count: number): DayGroup {
+  const events = Array.from({ length: count }, (_, i) => ({
+    id: `${key}-${i}`,
+    title: `Event ${key}-${i}`,
+    startDate: new Date(`${key}T12:00:00`).toISOString(),
+    endDate: new Date(`${key}T13:00:00`).toISOString(),
+  } as Event));
+  return { key, baseLabel: `Day ${key}`, weekNumbers: [], events };
+}
+
+// 5 events/day, not 1: at 1/day, 20 days never reaches the 50-event render
+// batch, so every day would already be mounted and the test would prove
+// nothing about revealing a day past the render window. See the identical
+// note in EventList.test.tsx.
+function makeGroups(keys: string[]): DayGroup[] {
+  return keys.map(k => group(k, 5));
+}
+
+const noop = () => {};
+const eventListBaseProps = {
+  expandedDescriptions: new Set<string>(),
+  onToggleDescription: noop,
+  onToggleTag: noop,
+  isTagSelected: () => false,
+  favoriteIds: new Set<string>(),
+  onToggleFavorite: noop,
+};
+
+/**
+ * Reproduces the parent/child effect topology `goToDay -> revealDay ->
+ * scrollToDay` depends on in `page.tsx`: a real `EventList` (whose
+ * `revealDay` effect is a layout effect) under a real `useDayAnchor` (whose
+ * `scrollToDay` reads the DOM), driven by the same DOM-based pending-scroll
+ * effect `page.tsx` uses. Rendering the actual `page.tsx`/`HomeContent`
+ * would require mocking event data, season weeks, favourites, article/
+ * program links and every route it also imports — none of which this race
+ * depends on. This harness keeps only the two components whose effect
+ * ordering the bug lives in, wired together exactly as `page.tsx` wires them.
+ */
+function Harness({ groupedEvents }: { groupedEvents: DayGroup[] }) {
+  const dayKeysList = groupedEvents.map(g => g.key);
+  const bounds = { startDay: dayKeysList[0], endDay: dayKeysList[dayKeysList.length - 1] };
+  const { scrollToDay } = useDayAnchor(dayKeysList);
+  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+
+  const goToDay = useCallback((target: string) => {
+    const plan = railTarget({ target, window: bounds, bounds });
+    if (!plan) return;
+    setPendingScroll(plan.scrollTo);
+  }, [bounds.startDay, bounds.endDay]);
+
+  useEffect(() => {
+    if (!pendingScroll) return;
+    if (daySectionElement(pendingScroll)) {
+      setPendingScroll(null);
+      scrollToDay(pendingScroll);
+      return;
+    }
+    const covered = pendingScroll >= bounds.startDay && pendingScroll <= bounds.endDay;
+    if (covered) setPendingScroll(null);
+  }, [pendingScroll, scrollToDay, bounds.startDay, bounds.endDay]);
+
+  return (
+    <div>
+      <button type="button" onClick={() => goToDay('2026-07-20')}>Go</button>
+      <EventList {...eventListBaseProps} groupedEvents={groupedEvents} resetKey="k" revealDay={pendingScroll} />
+    </div>
+  );
+}
+
+describe('goToDay -> revealDay -> scrollToDay chain', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('scrolls to a day beyond the current render window', () => {
+    installIntersectionObserverMock();
+    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const calls: HTMLElement[] = [];
+    const original = Element.prototype.scrollIntoView;
+    // A global spy, not an own-property stub on the day-20 section: that
+    // section does not exist until `revealDay` mounts it, so there is no
+    // element to attach a stub to before the click.
+    Element.prototype.scrollIntoView = function (this: HTMLElement) { calls.push(this); };
+
+    try {
+      const { getByRole, container } = render(<Harness groupedEvents={makeGroups(keys)} />);
+      // Precondition: day 20 genuinely starts outside the render window —
+      // otherwise this test would pass whether or not `revealDay` works.
+      expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).toBeNull();
+
+      fireEvent.click(getByRole('button', { name: 'Go' }));
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].getAttribute(DAY_SECTION_ATTR)).toBe('2026-07-20');
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 });

@@ -30,7 +30,7 @@ function stickyOffset(): number {
  * visibility, and reports only *changes* in it. Phase 2 already paid for
  * that distinction once.
  */
-export function useDayAnchor(renderedDayKeys: string[]): {
+export function useDayAnchor(windowDayKeys: string[]): {
   anchorDay: string | null;
   scrollToDay: (key: string) => void;
 } {
@@ -38,20 +38,24 @@ export function useDayAnchor(renderedDayKeys: string[]): {
 
   // Serialized so the effect below re-runs when the *contents* change, not on
   // every render that hands down a new array identity.
-  const keysId = renderedDayKeys.join(',');
+  const keysId = windowDayKeys.join(',');
 
   useEffect(() => {
-    if (renderedDayKeys.length === 0) { setAnchorDay(null); return; }
+    if (windowDayKeys.length === 0) { setAnchorDay(null); return; }
 
     let frame = 0;
     const measure = () => {
       frame = 0;
       const limit = stickyOffset() + 1;
       // Walk forward and keep the last one that has passed the chrome. The
-      // first rendered day is the fallback: before any scroll, nothing has
-      // passed, and the reader is plainly looking at the top of the list.
-      let next = renderedDayKeys[0];
-      for (const key of renderedDayKeys) {
+      // first day in the window is the fallback: before any scroll, nothing
+      // has passed, and the reader is plainly looking at the top of the list.
+      // `windowDayKeys` is the view window's full day list, not the render
+      // window's mounted subset — a day this loop reaches may have no
+      // section yet, which is exactly what `daySectionElement` returning
+      // null below is for.
+      let next = windowDayKeys[0];
+      for (const key of windowDayKeys) {
         const el = daySectionElement(key);
         if (!el) continue;
         if (el.getBoundingClientRect().top <= limit) next = key;
@@ -82,7 +86,7 @@ export function useDayAnchor(renderedDayKeys: string[]): {
     // react-hooks/exhaustive-deps` comment here is a hard ESLint 9 error
     // ("Definition for rule ... was not found"), not a silenced warning.
     // The dependency array is intentionally just [keysId] — a serialized
-    // form of renderedDayKeys — so the effect re-runs when the *contents*
+    // form of windowDayKeys — so the effect re-runs when the *contents*
     // change rather than on every render that hands down a new array
     // identity.
   }, [keysId]);
