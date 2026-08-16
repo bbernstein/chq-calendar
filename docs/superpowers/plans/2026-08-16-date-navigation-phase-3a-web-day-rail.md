@@ -835,9 +835,11 @@ In `frontend/src/app/page.tsx`:
 - Remove `import { isNavV2Enabled } from '@/lib/featureFlags';`
 - Remove `const navV2 = isNavV2Enabled();` (line 139)
 - Remove the `hasMoreDays` memo (lines 186–189) and the `showNextDay` callback
-  (lines 194–197). Remove `addDays` from the `dayWindow` import if nothing else
-  in the file uses it — Task 10 adds it back, so leave the import line alone if
-  removing it is the only change to it.
+  (lines 194–197). **Remove `addDays` from the `dayWindow` import** — deleting
+  `showNextDay` was its only remaining use, and leaving it produces a lint
+  warning on every build until Task 10 re-adds the usage. Task 10 re-adds the
+  import in the same edit that re-adds the call; a one-line change there beats
+  a standing warning for seven tasks.
 - In the `navEventDays` memo, drop the `if (!navV2) return [];` guard and remove
   `navV2` from the dependency array.
 - Replace the whole `loading ? … : navV2 ? (…) : (…)` ternary (lines 270–288)
