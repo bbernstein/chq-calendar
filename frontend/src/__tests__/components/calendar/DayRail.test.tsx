@@ -91,6 +91,17 @@ describe('DayRail', () => {
     expect(chevronNamed('Go to Sunday, July 5, 1 event')).toBeTruthy();
   });
 
+  // Mirrors the previous-chevron proof above for the *next* chevron. With
+  // this 3-chip fixture, anchor 07-04 is the only position where
+  // chips[anchorIdx + 1] (07-05) diverges from a hardcoded last chip
+  // (07-06) — so this is the one anchor position that can catch a
+  // regression that pins the next chevron to the final chip instead of
+  // deriving it from the anchor.
+  it('names the next chevron after the adjacent day, not the last chip', () => {
+    renderRail({ anchorDay: '2026-07-04' });
+    expect(chevronNamed('Go to Sunday, July 5, 1 event')).toBeTruthy();
+  });
+
   it('disables the chevrons at the ends of the navigable range', () => {
     renderRail({ anchorDay: '2026-07-04' });
     expect(screen.getByRole('button', { name: 'Go to the previous day' })
