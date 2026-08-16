@@ -194,15 +194,27 @@ describe('start-direction expansion', () => {
     expect(w.startDay).toBe('2026-06-27');
   });
 
-  it('does not invert the window when the base sits entirely before the bounds', () => {
-    // Off-season 'today' in December: the base window is outside `bounds`
-    // in the *other* direction. Clamping the merged result instead of the
-    // expansion input would produce startDay > endDay here.
+  it('does not invert the window when the base sits entirely after the bounds', () => {
+    // Off-season 'today' in December: the base window is outside `bounds` in
+    // the *other* direction, so an expansion day can be both earlier than
+    // the base and later than anything navigation may reach. It clamps to
+    // the nearest reachable day — the navigable END, because that is the
+    // edge it overshot. Clamping the merged result instead of the expansion
+    // input would produce startDay > endDay here.
     const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
     const w = viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!;
-    expect(w.startDay).toBe('2026-06-27');
+    expect(w.startDay).toBe('2026-08-29');
     expect(w.endDay).toBe('2026-12-01');
     expect(w.startDay <= w.endDay).toBe(true);
+  });
+
+  it('clamps to the near edge, never across the range', () => {
+    // A clamp moves a value to the boundary it overshot. Snapping an
+    // overshoot of the *end* down to the *start* would silently open the
+    // whole season, which is a different operation wearing a clamp's name.
+    const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
+    expect(viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!.startDay)
+      .not.toBe('2026-06-27');
   });
 
   it('widens both ends at once', () => {
@@ -372,6 +384,28 @@ export function formatDayLabel(key: DayKey): string {
   });
 }
 ```
+
+Also make both clamps in `viewWindow` two-sided, which is what the spec's
+`clamp(expandedStart, to: navigableBounds)` says and what phase 1a implemented
+only half of. Each side is inert in the common case — expansion only ever
+grows the window — but the halves being different sizes is how an out-of-range
+value ends up snapping across the range instead of to the edge it overshot:
+
+```ts
+/** `key` moved to the nearest end of `bounds` if it falls outside them. */
+function clampToBounds(key: DayKey, bounds: NavigableBounds): DayKey {
+  if (key < bounds.startDay) return bounds.startDay;
+  if (key > bounds.endDay) return bounds.endDay;
+  return key;
+}
+```
+
+```ts
+  const expandedStartDay = o.expandedStartDay ? clampToBounds(o.expandedStartDay, o.bounds) : null;
+  const expandedEndDay = o.expandedEndDay ? clampToBounds(o.expandedEndDay, o.bounds) : null;
+```
+
+Leave the merge below it exactly as it is. The clamp stays on the inputs.
 
 In `frontend/src/lib/utils/filterHelpers.ts:38-39`, rename the local that
 shadows the DOM global:
