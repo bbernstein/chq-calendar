@@ -340,8 +340,13 @@ describe('upward prepend scroll correction', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
 
+    // The reference day MUST still be present after the rerender. Dropping it
+    // would let the `top === null` guard produce this same assertion on its
+    // own, and the test would then pass with the `resetKey` check deleted —
+    // testing nothing. Only `resetKey` changes here, so a pass genuinely
+    // depends on the cancellation guard.
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-08-01'])}
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02', '2026-08-01'])}
         resetKey="DIFFERENT" earlierDay={null} onShowEarlier={() => {}} />
     );
 
@@ -469,17 +474,36 @@ git push -u origin feat/date-nav-phase-3a-web-day-rail
 ### Task 2: Keep correcting until the prepended region stops changing height
 
 Task 1 fixes attribution. It does not fix *timing*: a height change that lands
-after the layout effect still moves the reader. There is a concrete mechanism
-for that in this codebase — `EventCard.tsx:274` sets `display: none` on an
-image's `onError`, and the app hotlinks ~1,300 chq.org images. A 404 that
-resolves ~300ms after the prepend removes an `80px` box from a card *above* the
-reader, which matches the recorded ~55–59px residual closely enough to be the
-first suspect.
+after the layout effect still moves the reader.
 
-**This task is conditional.** Do Task 12's browser pass for "Show earlier" first
-if you are executing out of order; if the drift is already zero after Task 1,
-skip this task and record the measurement that showed it. Shipping a settle
-loop that corrects nothing is worse than not shipping it.
+**This task is no longer conditional — it is justified by measurement.** A
+Playwright probe against the dev server with Task 1's code in place
+(`.superpowers/sdd/<this plan>/probes/`, and the numbers reproduced below)
+establishes all of the following:
+
+- **Task 1's correction is exactly right at the instant it runs.** Instrumenting
+  `window.scrollBy` shows the reference day's `top` going 547 → 1600 on the
+  prepend and back to **exactly 547** after the correction. Zero error.
+- **One frame later, content above the reader grows**, and the reader moves with
+  it. Sampling every `requestAnimationFrame`: the prepended day goes 1029 →
+  1133px (+104) and the day below it 2956 → 3003px (+47) between frame 0 and
+  frame 1, then is **stable for at least a second**. Net drift is **+103.5px**
+  from an unscrolled start and **−48px** from a scrolled one.
+- **The recorded suspect is wrong.** Zero images were hidden by `onError`, a
+  `MutationObserver` recorded no DOM additions after the prepend's own cards,
+  and `document.fonts.status` is `loaded` with only `Arial, Helvetica,
+  sans-serif` in use. So it is neither the image-404 theory this plan first
+  carried, nor a web-font swap. It is a pure re-layout one frame after the
+  commit, cause not yet identified — and deliberately not chased further,
+  because the fix does not depend on knowing it.
+
+That last point is what makes a settle window the right shape of fix rather
+than a targeted one: it re-asserts the reference day's position whenever the
+list's height changes, without needing to know what changed it.
+
+Because the change lands **one frame** after the commit rather than hundreds of
+milliseconds later, a `ResizeObserver` on the list root sees it immediately —
+the observer fires on the same layout pass that produced the growth.
 
 **Files:**
 - Modify: `frontend/src/components/calendar/EventListWindowed.tsx`
@@ -511,8 +535,10 @@ Append to the `upward prepend scroll correction` describe block from Task 1:
     );
     expect(scrollBy).toHaveBeenCalledWith(0, 100);
 
-    // A broken image above the reader collapses 60px, late. The reference
-    // day moves UP by 60, so the correction is negative.
+    // Content above the reader changes height one frame late — measured at
+    // ~104px of growth in the browser. Modelled here as a 60px shrink so the
+    // expected correction is signed and unambiguous: the reference day moves
+    // UP by 60, so the re-assert scrolls by -60.
     stubLayout(70);
     resize.trigger();
 
@@ -625,13 +651,15 @@ Then add, immediately after the `useLayoutEffect` from Task 1:
     if (!root) return;
 
     // The correction above is right about *where* the reference day should
-    // be, and it lands before paint. What it cannot cover is height that
-    // arrives afterwards — most concretely `EventCard`'s image `onError`,
-    // which sets `display: none` on a hotlinked chq.org image that 404s and
-    // collapses an 80px box out of a card that may be above the reader,
-    // hundreds of milliseconds later. Re-asserting the reference day's
-    // position on every resize of the list absorbs that, and anything else
-    // shaped like it, without needing to know what changed.
+    // be — measured, it lands the reference day back on its exact original
+    // `top` — and it runs before paint. What it cannot cover is height that
+    // arrives afterwards. Measurably, some does: sampling every frame after
+    // a prepend, the day above the reader grows ~104px between frame 0 and
+    // frame 1 and then holds steady, with no DOM mutation, no font load and
+    // no failed image to explain it. Re-asserting the reference day's
+    // position on every resize of the list absorbs that without needing to
+    // know what caused it — which is the point, because a targeted fix for
+    // a cause we have not identified would be a guess.
     const reassert = () => {
       const current = settleRef.current;
       if (!current) return;
