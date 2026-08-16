@@ -5,7 +5,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { navigableBounds, viewWindow, addDays, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
+import { navigableBounds, viewWindow, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
 import { renderResetKey } from '@/lib/utils/renderWindow';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useFavorites } from '@/hooks/useFavorites';
