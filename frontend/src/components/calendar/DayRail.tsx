@@ -40,6 +40,16 @@ export function DayRail({
   const canStepBack = anchorIdx > 0;
   const canStepForward = anchorIdx >= 0 && anchorIdx < chips.length - 1;
 
+  // Labelled by target, not direction — "Go to Saturday, July 4, 12 events",
+  // not "Go to the previous day". The rail already has everything needed to
+  // name the real target (the adjacent chip's own `label`), so the
+  // direction-based exemption a relative control might otherwise get isn't
+  // needed here. The plain directional fallback fires only when the chevron
+  // is disabled: there is no adjacent chip to name in that direction, and
+  // "disabled" already tells the reader they can't go further.
+  const prevLabel = canStepBack ? chips[anchorIdx - 1].label : 'Go to the previous day';
+  const nextLabel = canStepForward ? chips[anchorIdx + 1].label : 'Go to the next day';
+
   // Keep the highlighted chip in view as the reader scrolls the list. The
   // rail scrolls itself horizontally; it never scrolls the page.
   useEffect(() => {
@@ -80,7 +90,7 @@ export function DayRail({
     >
       <button
         type="button"
-        aria-label="Go to the previous day"
+        aria-label={prevLabel}
         disabled={!canStepBack}
         onClick={() => onStepDay(-1)}
         className="shrink-0 px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
@@ -112,7 +122,7 @@ export function DayRail({
               }`}
             >
               {chip.month && (
-                <span className="block text-[10px] font-semibold uppercase opacity-70">{chip.month}</span>
+                <span className="block text-[10px] font-semibold uppercase opacity-70" aria-hidden="true">{chip.month}</span>
               )}
               <span className="block text-[10px] uppercase opacity-70" aria-hidden="true">{chip.weekday}</span>
               <span className="block text-sm font-semibold" aria-hidden="true">{chip.dayOfMonth}</span>
@@ -123,7 +133,7 @@ export function DayRail({
 
       <button
         type="button"
-        aria-label="Go to the next day"
+        aria-label={nextLabel}
         disabled={!canStepForward}
         onClick={() => onStepDay(1)}
         className="shrink-0 px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
