@@ -870,7 +870,7 @@ Delete these four lines from `frontend/.env.example`:
 VITE_NAV_V2=false
 ```
 
-- [ ] **Step 6: Update the web guide's now-false claim**
+- [ ] **Step 6: Update the web guide's now-false claims — there are two**
 
 In `frontend/src/app/about/aboutContent.ts`, replace the `web-show-next-day`
 entry (around line 355) with the behaviour that actually shipped:
@@ -879,6 +879,20 @@ entry (around line 355) with the behaviour that actually shipped:
   { id: 'web-show-more', group: 'Dates & weeks', title: 'The list keeps going', notObvious: true,
     blurb: 'Scroll past the end of what you asked for and the next day loads on its own. Going backwards stays deliberate — a “Show earlier” button at the top names the day it is about to add.' },
 ```
+
+**And the second copy**, which is easy to miss because it is prose rather than
+an entry: the `web-whats-on` scenario in `WEB_SCENARIOS` (around line 302) also
+describes the removed button — *"Want more? 'Show next day' … extends the window
+a day at a time."* `WEB_SCENARIOS` is rendered live on `/about/web`
+(`app/about/web/page.tsx:18`), so this is user-facing copy, not a comment.
+Rewrite it for the shipped behaviour, in scenario voice rather than by
+duplicating the blurb above.
+
+**Sweep by reader-visible phrase, not by identifier.** A grep for
+`web-show-next-day` finds the entry and misses the prose. Search for at least
+"Show next day", "next day", "extends the window", "a day at a time". Leave the
+`ios-` entries alone — they describe the iOS app, which this phase does not
+touch — and leave the scope-button copy alone, which Task 12 owns.
 
 - [ ] **Step 7: Run the full suite**
 
