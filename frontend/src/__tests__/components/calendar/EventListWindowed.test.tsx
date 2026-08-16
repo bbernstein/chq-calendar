@@ -212,10 +212,11 @@ describe('EventListWindowed', () => {
 });
 
 describe('EventListWindowed — showing earlier days', () => {
-  let io: ReturnType<typeof installIntersectionObserverMock>;
-
   beforeEach(() => {
-    io = installIntersectionObserverMock();
+    // No binding: none of these tests drive intersection. The mock is still
+    // installed because the component constructs an observer whenever a
+    // sentinel renders, and jsdom provides no constructor to construct.
+    installIntersectionObserverMock();
     setPageScrollable(true);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0, writable: true });
