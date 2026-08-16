@@ -1625,7 +1625,12 @@ thing.
 - Test: `frontend/src/__tests__/hooks/useDayAnchor.test.ts`
 
 **Interfaces:**
-- Consumes: `daySectionElement`, `daySectionTop` from `@/lib/utils/daySections`.
+- Consumes: `daySectionElement` from `@/lib/utils/daySections`. **Not
+  `daySectionTop`** — it re-resolves the element internally, so calling it in
+  the scrollspy walk would double the DOM queries per key on every frame,
+  across the whole rendered day list. The walk already holds the element, so
+  it reads the rect directly. `daySectionTop` stays in use by the
+  prepend-correction path in `EventList.tsx`.
 - Produces:
   ```ts
   export function useDayAnchor(renderedDayKeys: string[]): {
