@@ -160,11 +160,14 @@ export function EventList({
   // later call legitimately win — see that effect's own comment for the
   // stale-closure clobber that results otherwise.
   //
-  // It must stay BEFORE the prepend-correction layout effect below, because
-  // it nulls `settleRef` unconditionally. Layout effects run in declaration
-  // order within a commit, so moving this past the correction would erase a
-  // hold the correction had armed *in that same commit* — silently, since
-  // nothing reads `settleRef` again until a resize arrives much later.
+  // It must stay BEFORE the prepend-correction layout effect below. Whenever
+  // `revealDay` is set, this effect nulls `settleRef` — ahead of both of its
+  // own early returns, so "the target isn't in the groups" and "the target
+  // needs no growth" do not spare the hold; only a falsy `revealDay` does.
+  // Layout effects run in declaration order within a commit, so moving this
+  // past the correction would erase a hold the correction had armed *in that
+  // same commit* — silently, since nothing reads `settleRef` again until a
+  // resize arrives much later.
   //
   // `endIdx` must also exist before this reads it, so it sits after that memo
   // rather than "immediately after the latch effect" above — a plain
@@ -285,9 +288,9 @@ export function EventList({
   }, [onShowEarlier, resetKey, groupedEvents]);
 
   // Declared AFTER the `revealDay` effect above, and that order is
-  // load-bearing: that effect nulls `settleRef` unconditionally, so if it ran
-  // after this one it would erase the hold armed at the end of this effect on
-  // the same commit.
+  // load-bearing: whenever `revealDay` is set, that effect nulls `settleRef`
+  // before any of its own early returns, so if it ran after this one it would
+  // erase the hold armed at the end of this effect on the same commit.
   useLayoutEffect(() => {
     const pending = pendingPrependRef.current;
     // A settle window belongs to the one prepend that armed it. Any commit

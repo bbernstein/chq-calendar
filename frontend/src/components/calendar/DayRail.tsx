@@ -19,6 +19,23 @@ export interface DayRailProps {
    */
   prevDay: string | null;
   nextDay: string | null;
+  /**
+   * Whether the current scope resolves to a view window at all.
+   *
+   * False only for `'this-week'` outside the season — a value this branch
+   * deliberately keeps working when restored from localStorage. `railTarget`
+   * refuses every tap in that state, because expansion cannot rescue it:
+   * `viewWindow` returns null out of `baseWindow` before it ever reads the
+   * expansion inputs. The chips would otherwise render enabled and fully
+   * labelled ("Go to Saturday, July 4, 12 events") over a list that can never
+   * move — the announce-a-destination-and-do-nothing class this branch spent
+   * three findings removing. The chevrons and `⟳ Now` are already honest
+   * there (`anchorDay` is null, so both chevrons disable; off-season
+   * `todayKey` is null, so the button is absent), so the chips are the only
+   * dishonest part — but a rail of nothing but dead chips is not worth
+   * showing, and the reader is looking at `EmptyState` regardless.
+   */
+  scopeHasWindow: boolean;
   /** Today's key when the current year is selected; null on an archived one. */
   todayKey: string | null;
   onSelectDay: (key: string) => void;
@@ -67,7 +84,8 @@ export interface DayRailProps {
  * below cannot stall on it.
  */
 export function DayRail({
-  chips, anchorDay, prevDay, nextDay, todayKey, onSelectDay, onStepDay, onGoToToday, rootRef,
+  chips, anchorDay, prevDay, nextDay, scopeHasWindow, todayKey,
+  onSelectDay, onStepDay, onGoToToday, rootRef,
 }: DayRailProps) {
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -141,7 +159,10 @@ export function DayRail({
     buttons[next].focus();
   };
 
-  if (chips.length === 0) return null;
+  // Nothing to show, or nothing any of it could do — see `scopeHasWindow`.
+  // After the hooks above, never before: an early return that skipped a hook
+  // would change the hook order between renders.
+  if (chips.length === 0 || !scopeHasWindow) return null;
 
   return (
     <div

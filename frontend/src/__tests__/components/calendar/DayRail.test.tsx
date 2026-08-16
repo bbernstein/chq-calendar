@@ -14,7 +14,7 @@ const chips = dayChips(
 function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   const props = {
     chips, anchorDay: '2026-07-05', prevDay: '2026-07-04', nextDay: null as string | null,
-    todayKey: '2026-07-05',
+    scopeHasWindow: true, todayKey: '2026-07-05',
     onSelectDay: vi.fn(), onStepDay: vi.fn(), onGoToToday: vi.fn(),
     ...overrides,
   };
@@ -183,9 +183,25 @@ describe('DayRail', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toContain('July 5');
   });
 
+  // Off-season `'this-week'` restored from localStorage resolves to no view
+  // window at all, and `railTarget` refuses every tap in that state. The chips
+  // would otherwise render enabled and fully labelled — "Go to Saturday,
+  // July 4, 12 events" — over a list that can never move, because the counts
+  // come from the non-date-filtered events and so are real regardless of the
+  // window. That is the announce-a-destination-and-do-nothing class this
+  // branch removed from three other controls.
+  it('renders nothing when the scope resolves to no window at all', () => {
+    const { container } = render(
+      <DayRail chips={chips} anchorDay={null} prevDay={null} nextDay={null}
+        scopeHasWindow={false} todayKey={null}
+        onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
   it('renders nothing when there are no days to show', () => {
     const { container } = render(
-      <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} todayKey={null}
+      <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} scopeHasWindow todayKey={null}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
@@ -205,7 +221,7 @@ describe('DayRail', () => {
     Element.prototype.scrollIntoView = scrollIntoView;
     try {
       const { rerender } = render(
-        <DayRail chips={chips} anchorDay="2026-07-04" prevDay={null} nextDay="2026-07-05" todayKey="2026-07-05"
+        <DayRail chips={chips} anchorDay="2026-07-04" prevDay={null} nextDay="2026-07-05" scopeHasWindow todayKey="2026-07-05"
           onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
       );
       // Stubbed only after mount: the effect that centres the *initial*
@@ -220,7 +236,7 @@ describe('DayRail', () => {
       });
 
       rerender(
-        <DayRail chips={chips} anchorDay="2026-07-06" prevDay="2026-07-05" nextDay={null} todayKey="2026-07-05"
+        <DayRail chips={chips} anchorDay="2026-07-06" prevDay="2026-07-05" nextDay={null} scopeHasWindow todayKey="2026-07-05"
           onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
       );
 
@@ -241,7 +257,7 @@ describe('DayRail', () => {
   it('gives rootRef the same element that is data-day-rail and sticky — no wrapper', () => {
     const ref: { current: HTMLElement | null } = { current: null };
     render(
-      <DayRail chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null} todayKey="2026-07-05"
+      <DayRail chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null} scopeHasWindow todayKey="2026-07-05"
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
         rootRef={(el) => { ref.current = el; }} />
     );

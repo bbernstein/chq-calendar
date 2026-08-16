@@ -379,6 +379,11 @@ function HomeContent() {
           anchorDay={anchorDay}
           prevDay={prevDay}
           nextDay={nextDay}
+          // Off-season 'this-week' restored from localStorage resolves to no
+          // window at all, and `railTarget` refuses every tap in that state.
+          // The rail hides rather than offering ~64 fully-labelled chips that
+          // cannot move the list.
+          scopeHasWindow={dateWindow !== null}
           todayKey={todayKey}
           onSelectDay={goToDay}
           onStepDay={stepDay}

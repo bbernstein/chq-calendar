@@ -193,12 +193,27 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // `scroll` event: our own `scrollBy` above fires that, so listening to
     // it would cancel the hold with the very correction that's supposed to
     // maintain it.
+    //
+    // `mousedown` is in this set because `keysId` bounds the hold by list
+    // identity but not by time, and a scrollbar-thumb drag changes no day key
+    // and fires none of wheel/touchstart/keydown. Reachable with no filter
+    // change at all: tap a chip, drag the scrollbar down five days, expand an
+    // event description — that resizes the document while leaving
+    // `groupedEvents` untouched — and the page yanks back to the tapped day.
+    //
+    // It cannot cancel the hold the same interaction is about to arm: DOM
+    // event order is mousedown → mouseup → click, every rail control arms via
+    // `onClick`, and the arming itself happens later still, in the
+    // pending-scroll effect one commit after that click. And unlike `scroll`,
+    // a programmatic `window.scrollBy` synthesises no pointer event, so our
+    // own correction cannot trip this.
     const stop = () => { settleRef.current = null; };
 
     const observer = new ResizeObserver(reassert);
     observer.observe(document.documentElement);
     window.addEventListener('wheel', stop, { passive: true });
     window.addEventListener('touchstart', stop, { passive: true });
+    window.addEventListener('mousedown', stop, { passive: true });
     window.addEventListener('keydown', stop);
     return () => {
       // The day list this hold was computed against is gone.
@@ -206,6 +221,7 @@ export function useDayAnchor(windowDayKeys: string[]): {
       observer.disconnect();
       window.removeEventListener('wheel', stop);
       window.removeEventListener('touchstart', stop);
+      window.removeEventListener('mousedown', stop);
       window.removeEventListener('keydown', stop);
     };
     // NOTE for humans, not a real eslint-disable — see the identical note on

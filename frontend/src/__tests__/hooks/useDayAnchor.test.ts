@@ -202,6 +202,31 @@ describe('useDayAnchor', () => {
       expect(scrollBy).not.toHaveBeenCalled();
     });
 
+    // `keysId` bounds the hold by list identity, not by time. A
+    // scrollbar-thumb drag changes no day key and fires no
+    // wheel/touchstart/keydown, so without `mousedown` in the stop set the
+    // hold survives it: tap a chip, drag the scrollbar down five days, expand
+    // an event description — a resize that leaves `groupedEvents` untouched —
+    // and the page yanks back to the tapped day.
+    it('stops re-asserting once the reader presses the mouse, as a scrollbar drag does', () => {
+      document.documentElement.style.setProperty('--day-rail-h', '50px');
+      mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
+      const scrollBy = vi.fn();
+      vi.stubGlobal('scrollBy', scrollBy);
+      const resize = installResizeObserverMock();
+      const { result } = renderHook(() => useDayAnchor(['2026-07-04', '2026-07-09']));
+      act(() => { result.current.scrollToDay('2026-07-09'); });
+      scrollBy.mockClear();
+
+      act(() => { window.dispatchEvent(new Event('mousedown')); });
+
+      const el = document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-09"]`)!;
+      el.getBoundingClientRect = () => ({ top: 1200 }) as DOMRect;
+      resize.trigger();
+
+      expect(scrollBy).not.toHaveBeenCalled();
+    });
+
     it('stops re-asserting once the reader scrolls deliberately', () => {
       document.documentElement.style.setProperty('--day-rail-h', '50px');
       mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
