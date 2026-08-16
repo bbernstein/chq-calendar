@@ -77,8 +77,24 @@ export function addDays(key: DayKey, n: number): DayKey {
   return dayKeyOf(date);
 }
 
-/** Every day from `from` through `through`, inclusive. Empty if inverted. */
+/** A `yyyy-mm-dd` key with a real calendar date behind it. */
+function isDayKey(key: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+  const [y, m, d] = partsOf(key);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+}
+
+/**
+ * Every day from `from` through `through`, inclusive. Empty if inverted.
+ *
+ * Both endpoints are validated first. Without that, a `'NaN-NaN-NaN'` key —
+ * what `groupEventsByDay` produces for an unparseable `startDate` — makes the
+ * loop non-terminating, because `'N'` sorts above every digit and the cursor
+ * can never reach it.
+ */
 export function dayKeys(from: DayKey, through: DayKey): DayKey[] {
+  if (!isDayKey(from) || !isDayKey(through)) return [];
   const out: DayKey[] = [];
   let cursor = from;
   while (cursor <= through) {
@@ -255,8 +271,15 @@ export function viewWindow(o: WindowOptions): ViewWindow | null {
   const base = baseWindow(o);
   if (!base) return null;
 
+  // A too-small expandedStartDay clamps up to the earliest reachable day, as
+  // expected. But when the *base* window sits entirely past `bounds` (e.g.
+  // an off-season 'today' in December against a summer-season `bounds`), an
+  // expandedStartDay can be simultaneously "earlier than base" and "past
+  // bounds.endDay" — earlier than today, yet still outside where navigation
+  // is allowed to reach. That value is out of range on the far side too, so
+  // it clamps to the same place: the earliest reachable day.
   let expandedStartDay = o.expandedStartDay;
-  if (expandedStartDay && expandedStartDay < o.bounds.startDay) {
+  if (expandedStartDay && (expandedStartDay < o.bounds.startDay || expandedStartDay > o.bounds.endDay)) {
     expandedStartDay = o.bounds.startDay;
   }
   let expandedEndDay = o.expandedEndDay;
@@ -276,4 +299,46 @@ export function viewWindow(o: WindowOptions): ViewWindow | null {
     start: startDay === base.startDay ? base.start : startOfDay(startDay),
     endExclusive: endDay === base.endDay ? base.endExclusive : dayAfter(endDay),
   };
+}
+
+/**
+ * Every day that has at least one event, sorted, each listed once.
+ *
+ * This is the set navigation steps through: expanding the window to a day
+ * with no events would move the edge and add nothing to the list, which
+ * reads as a broken control. Unparseable dates are dropped, matching every
+ * other call site in the app.
+ */
+export function eventDayKeys(events: Event[]): DayKey[] {
+  const keys = new Set<DayKey>();
+  for (const event of events) {
+    const parsed = new Date(event.startDate);
+    if (Number.isNaN(parsed.getTime())) continue;
+    keys.add(dayKeyOf(parsed));
+  }
+  return [...keys].sort();
+}
+
+/** The nearest event day beyond each edge of `w`, or `null` if there is none. */
+export function navigationTargets(
+  eventDays: DayKey[],
+  w: ViewWindow | null
+): { earlierDay: DayKey | null; laterDay: DayKey | null } {
+  if (!w) return { earlierDay: null, laterDay: null };
+  let earlierDay: DayKey | null = null;
+  let laterDay: DayKey | null = null;
+  for (const key of eventDays) {
+    if (key < w.startDay) earlierDay = key;          // eventDays is sorted, so
+    else if (key > w.endDay && laterDay === null) laterDay = key;  // last wins / first wins
+  }
+  return { earlierDay, laterDay };
+}
+
+/** `"Saturday, Aug 15"` — how a navigation control names its target. */
+export function formatDayLabel(key: DayKey): string {
+  return startOfDay(key).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
 }
