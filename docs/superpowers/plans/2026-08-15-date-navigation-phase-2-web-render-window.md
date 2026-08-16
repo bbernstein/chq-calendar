@@ -1699,10 +1699,11 @@ Append to
 
 ```tsx
 describe('EventListWindowed — showing earlier days', () => {
-  let io: ReturnType<typeof installIntersectionObserverMock>;
-
   beforeEach(() => {
-    io = installIntersectionObserverMock();
+    // No binding: none of these tests drive intersection. The mock is still
+    // installed because the component constructs an observer whenever a
+    // sentinel renders, and jsdom provides no constructor to construct.
+    installIntersectionObserverMock();
     setPageScrollable(true);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0, writable: true });
@@ -2120,16 +2121,51 @@ Then extend the `<EventList …>` call (`page.tsx:215-219`) with:
 Leave `onShowNextDay`, `hasMoreDays` and `dateFilter` exactly as they are —
 the legacy container still needs all three.
 
-- [ ] **Step 6: Verify the flag-off path is untouched**
+- [ ] **Step 6: Verify the memoization invariant the list depends on**
+
+Two reviews raised the same load-bearing assumption from different angles, and
+this is the task that can finally check it. `EventListWindowed` recreates its
+`IntersectionObserver` whenever its effect dependencies change, and its
+scroll-correction record is discharged by the first `groupedEvents` change
+after a click. Both are sound only if `groupedEvents` changes identity when,
+and only when, its *content* changes for the current filters.
+
+Confirm by reading `page.tsx`, and write what you found in your report:
+
+- `groupedEvents` is a `useMemo` over `[filteredEvents, seasonWeeks]`.
+- `filteredEvents` is a `useMemo` over `[events, filterOpts]`.
+- `filterOpts` is now a `useMemo` over `[nonDateFilterOpts, dateWindow]`, and
+  `nonDateFilterOpts` over primitives and memoized sets.
+- `expandEnd` and `showEarlier` are `useCallback`s, and `canExpandEnd` is a
+  boolean.
+
+If any link in that chain rebuilds on every render, say so — it is a real
+defect in the wiring, not a nitpick, and it makes the list grow one step per
+render instead of one step per scroll.
+
+Also drop the now-unused `io` binding from the `showing earlier days` describe
+block in `EventListWindowed.test.tsx` — Task 5 left it behind, and the plan's
+copy of that block has been corrected:
+
+```tsx
+describe('EventListWindowed — showing earlier days', () => {
+  beforeEach(() => {
+    // No binding: none of these tests drive intersection. The mock is still
+    // installed because the component constructs an observer whenever a
+    // sentinel renders, and jsdom provides no constructor to construct.
+    installIntersectionObserverMock();
+```
+
+- [ ] **Step 7: Verify the flag-off path is untouched**
 
 Run: `npm test && npm run type-check && npm run lint`
 Expected: PASS. Every characterization test from Task 3 still passes unedited,
 which is the evidence that a flag-off build renders what `main` renders.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/lib/featureFlags.ts src/lib/__tests__/featureFlags.test.ts src/app/page.tsx .env.example
+git add src/lib/featureFlags.ts src/lib/__tests__/featureFlags.test.ts src/app/page.tsx .env.example src/__tests__/components/calendar/EventListWindowed.test.tsx
 git commit -m "feat(web): wire the render window to the page behind VITE_NAV_V2"
 ```
 
