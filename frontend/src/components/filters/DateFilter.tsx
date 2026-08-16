@@ -70,9 +70,19 @@ export function DateFilter({
   // to All Year. Both halves of the mutual exclusion iOS already enforces in
   // `setWeekSelection` — the other half (selecting weeks forces the scope to
   // 'all') lives in useScrollState.
+  //
+  // The weeks are cleared whenever the scope we are moving TO is 'all',
+  // not only when the scope changes. With weeks selected, `dateFilter` is
+  // already 'all' underneath (useScrollState forces it there), so "All Year"
+  // paints inactive and is the only control that means "undo that week" —
+  // but `dateFilter !== filter` is false on that press, and the reducer's
+  // same-value guard swallows the `setDateFilter` too. Without the second
+  // clause the button is inert: permanently `aria-pressed="false"`, telling a
+  // screen-reader user a toggle exists that can never toggle.
   const selectScope = (filter: DateFilterValue) => {
-    setDateFilter(dateFilter === filter ? 'all' : filter);
-    if (dateFilter !== filter) setSelectedWeeks([]);
+    const next = dateFilter === filter ? 'all' : filter;
+    setDateFilter(next);
+    if (dateFilter !== filter || next === 'all') setSelectedWeeks([]);
   };
 
   // 'all' means "no date narrowing at all", so a week selection contradicts

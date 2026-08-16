@@ -68,6 +68,17 @@ describe('DateFilter scope buttons', () => {
     expect(setDateFilter).toHaveBeenCalledWith('all');
   });
 
+  // The one press where the scope does not change but the state must:
+  // selecting a week already forces `dateFilter` to 'all', so "All Year" is
+  // painted inactive with `dateFilter === 'all'`. Clearing the weeks is the
+  // whole of what that press means — and it is the only control that offers
+  // to undo the most common date interaction there is.
+  it('clears the weeks when All Year is pressed while already on the all scope', () => {
+    const { setSelectedWeeks } = renderFilter({ dateFilter: 'all', selectedWeeks: [4] });
+    fireEvent.click(screen.getByRole('button', { name: 'All Year' }));
+    expect(setSelectedWeeks).toHaveBeenCalledWith([]);
+  });
+
   it('marks All Year active when no scope and no weeks are set', () => {
     renderFilter({ dateFilter: 'all', selectedWeeks: [] });
     expect(screen.getByRole('button', { name: 'All Year' }).getAttribute('aria-pressed')).toBe('true');
