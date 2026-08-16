@@ -115,3 +115,25 @@ describe('EventList (legacy path, flag off)', () => {
     expect(screen.getByText('Week 2')).toBeInTheDocument();
   });
 });
+
+describe('EventList flag dispatch', () => {
+  let io: ReturnType<typeof installIntersectionObserverMock>;
+  beforeEach(() => { io = installIntersectionObserverMock(); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('renders the legacy container when navV2 is absent or false', () => {
+    const groups = [group('2026-07-05', 'Sunday, July 5, 2026', 80)];
+    render(<EventList {...baseProps} groupedEvents={groups} dateFilter="all" />);
+    // Legacy slices by event count, so day one is cut at 50.
+    expect(screen.getByText('Event 2026-07-05-49')).toBeInTheDocument();
+    expect(screen.queryByText('Event 2026-07-05-50')).not.toBeInTheDocument();
+    expect(io.liveCount).toBeGreaterThan(0);
+  });
+
+  it('renders the windowed container when navV2 is true', () => {
+    const groups = [group('2026-07-05', 'Sunday, July 5, 2026', 80)];
+    render(<EventList {...baseProps} groupedEvents={groups} dateFilter="all" navV2 resetKey="k1" />);
+    // The windowed container never splits a day.
+    expect(screen.getByText('Event 2026-07-05-79')).toBeInTheDocument();
+  });
+});

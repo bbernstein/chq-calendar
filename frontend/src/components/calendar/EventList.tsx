@@ -1,6 +1,7 @@
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import type { EventListViewProps } from './EventListView';
 import { EventListLegacy } from './EventListLegacy';
+import { EventListWindowed } from './EventListWindowed';
 
 export interface EventListProps extends Omit<EventListViewProps, 'groups'> {
   groupedEvents: DayGroup[];
@@ -21,15 +22,35 @@ export interface EventListProps extends Omit<EventListViewProps, 'groups'> {
   onExpandEnd?: () => void;
 }
 
-// The windowed container arrives in the next task; until then the flag
-// selects nothing and the legacy path is unconditional. The unused names are
-// destructured so they do not reach `rest` and get spread onto a component
-// whose props do not declare them. `@typescript-eslint/no-unused-vars` counts
-// a destructured parameter as an argument, so this reports six warnings until
-// Task 4 gives all six a use — accepted rather than suppressed, because a
-// suppression would outlive the reason for it. Frontend lint does not fail on
-// warnings; Task 4 must end with `npx eslint src/components/calendar/EventList.tsx`
-// clean.
-export function EventList({ navV2, resetKey, earlierDay, onShowEarlier, canExpandEnd, onExpandEnd, ...rest }: EventListProps) {
-  return <EventListLegacy {...rest} />;
+// Dispatches on `navV2`: the windowed container (day-granular render window,
+// auto-expanding forward) when the flag is on, the untouched legacy
+// container (event-count slicing, manual "Show next day") when it is off or
+// absent. `dateFilter` is destructured out explicitly rather than left in
+// `...view` — it is a legacy concept the windowed container's prop type does
+// not declare, and a JSX spread carries excess properties through without a
+// type error.
+export function EventList({
+  navV2, resetKey, earlierDay, onShowEarlier, canExpandEnd, onExpandEnd,
+  dateFilter, onShowNextDay, hasMoreDays, ...view
+}: EventListProps) {
+  if (navV2) {
+    return (
+      <EventListWindowed
+        {...view}
+        resetKey={resetKey ?? ''}
+        earlierDay={earlierDay}
+        onShowEarlier={onShowEarlier}
+        canExpandEnd={canExpandEnd}
+        onExpandEnd={onExpandEnd}
+      />
+    );
+  }
+  return (
+    <EventListLegacy
+      {...view}
+      dateFilter={dateFilter}
+      onShowNextDay={onShowNextDay}
+      hasMoreDays={hasMoreDays}
+    />
+  );
 }
