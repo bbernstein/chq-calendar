@@ -406,15 +406,27 @@ describe('start-direction expansion', () => {
     expect(w.startDay).toBe('2026-06-27');
   });
 
-  it('does not invert the window when the base sits entirely before the bounds', () => {
-    // Off-season 'today' in December: the base window is outside `bounds`
-    // in the *other* direction. Clamping the merged result instead of the
-    // expansion input would produce startDay > endDay here.
+  it('does not invert the window when the base sits entirely after the bounds', () => {
+    // Off-season 'today' in December: the base window is outside `bounds` in
+    // the *other* direction, so an expansion day can be both earlier than
+    // the base and later than anything navigation may reach. It clamps to
+    // the nearest reachable day — the navigable END, because that is the
+    // edge it overshot. Clamping the merged result instead of the expansion
+    // input would produce startDay > endDay here.
     const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
     const w = viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!;
-    expect(w.startDay).toBe('2026-06-27');
+    expect(w.startDay).toBe('2026-08-29');
     expect(w.endDay).toBe('2026-12-01');
     expect(w.startDay <= w.endDay).toBe(true);
+  });
+
+  it('clamps to the near edge, never across the range', () => {
+    // A clamp moves a value to the boundary it overshot. Snapping an
+    // overshoot of the *end* down to the *start* would silently open the
+    // whole season, which is a different operation wearing a clamp's name.
+    const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
+    expect(viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!.startDay)
+      .not.toBe('2026-06-27');
   });
 
   it('widens both ends at once', () => {

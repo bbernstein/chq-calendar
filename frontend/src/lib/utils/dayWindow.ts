@@ -249,6 +249,13 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
   }
 }
 
+/** `key` moved to the nearest end of `bounds` if it falls outside them. */
+function clampToBounds(key: DayKey, bounds: NavigableBounds): DayKey {
+  if (key < bounds.startDay) return bounds.startDay;
+  if (key > bounds.endDay) return bounds.endDay;
+  return key;
+}
+
 /**
  * The base window, widened by however far the user has navigated.
  *
@@ -259,33 +266,23 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
  * `'this-week'`'s noon boundaries until the user actually navigates past
  * them.
  *
- * `bounds` is clamped onto the *expansion inputs*, not onto the merged
- * result. The base window itself is never touched by the clamp: a scope's
- * own window (e.g. off-season `'today'`, which sits entirely outside
- * `bounds` for ~10 months a year) is never rewritten on only one edge, which
- * is what would invert `startDay`/`endDay` if the clamp ran after the merge.
- * `bounds` exists to bound how far navigation can *reach* — it has nothing
- * to say about a scope that hasn't been navigated at all.
+ * Each expansion input is clamped to the nearest edge of `bounds` it falls
+ * outside — never snapped across to the far edge, which would silently open
+ * the whole navigable range instead of stopping at the edge it overshot.
+ * That clamp runs on the *expansion inputs*, not on the merged result. The
+ * base window itself is never touched by it: a scope's own window (e.g.
+ * off-season `'today'`, which sits entirely outside `bounds` for ~10 months a
+ * year) is never rewritten on only one edge, which is what would invert
+ * `startDay`/`endDay` if the clamp ran after the merge. `bounds` exists to
+ * bound how far navigation can *reach* — it has nothing to say about a scope
+ * that hasn't been navigated at all.
  */
 export function viewWindow(o: WindowOptions): ViewWindow | null {
   const base = baseWindow(o);
   if (!base) return null;
 
-  // A too-small expandedStartDay clamps up to the earliest reachable day, as
-  // expected. But when the *base* window sits entirely past `bounds` (e.g.
-  // an off-season 'today' in December against a summer-season `bounds`), an
-  // expandedStartDay can be simultaneously "earlier than base" and "past
-  // bounds.endDay" — earlier than today, yet still outside where navigation
-  // is allowed to reach. That value is out of range on the far side too, so
-  // it clamps to the same place: the earliest reachable day.
-  let expandedStartDay = o.expandedStartDay;
-  if (expandedStartDay && (expandedStartDay < o.bounds.startDay || expandedStartDay > o.bounds.endDay)) {
-    expandedStartDay = o.bounds.startDay;
-  }
-  let expandedEndDay = o.expandedEndDay;
-  if (expandedEndDay && expandedEndDay > o.bounds.endDay) {
-    expandedEndDay = o.bounds.endDay;
-  }
+  const expandedStartDay = o.expandedStartDay ? clampToBounds(o.expandedStartDay, o.bounds) : null;
+  const expandedEndDay = o.expandedEndDay ? clampToBounds(o.expandedEndDay, o.bounds) : null;
 
   let startDay = base.startDay;
   let endDay = base.endDay;
