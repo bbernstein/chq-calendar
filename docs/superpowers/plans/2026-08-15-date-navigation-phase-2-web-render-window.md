@@ -2234,15 +2234,20 @@ Expected: both green; frontend line coverage at or above the 74.3 floor in
 floor.
 
 - [x] **Step 2: Browser pass with the flag ON** — performed; 11 of 12 checks
-  passed, check 6 found a real bug (see task-7-report.md): the render-window
-  `anchor` in `EventListWindowed` starts `null` and is only ever set by the
-  bottom-sentinel's growth callback. If the reader clicks "Show earlier"
-  before any bottom-scroll growth has fired, `renderEndIndex` recomputes
-  `fillFrom(groups, 0, 50)` from scratch against the newly-prepended array and
-  can silently drop previously-rendered later days from the DOM (confirmed
-  reproducible, confirmed it does NOT occur once a growth step has fired
-  first, confirmed it compounds across repeated clicks). Must be fixed before
-  `VITE_NAV_V2` is flipped on.
+  passed on the first pass, check 6 found a real bug (see task-7-report.md):
+  the render-window `anchor` in `EventListWindowed` started `null` and was
+  only ever set by the bottom-sentinel's growth callback. If the reader
+  clicked "Show earlier" before any bottom-scroll growth had fired,
+  `renderEndIndex` recomputed `fillFrom(groups, 0, 50)` from scratch against
+  the newly-prepended array and could silently drop previously-rendered
+  later days from the DOM (confirmed reproducible, confirmed it did NOT
+  occur once a growth step had fired first, confirmed it compounded across
+  repeated clicks). **Fixed in a Task 7 fix round**: a `useEffect` now
+  latches the initial fill's `endIdx` into `anchor` as soon as there are
+  groups to fill from, so the anchor is never `null` by the time a click can
+  reach it. Backed by a new jsdom regression test (confirmed to fail before
+  the fix, pass after) and a re-verified browser pass — see the fix-round
+  appendix in task-7-report.md for the numbers. Check 6 now passes.
 
 ```bash
 cd frontend && VITE_NAV_V2=true npm run dev

@@ -3,9 +3,15 @@
 **Status:** Phases 0, 1a, and 1b are merged and live on `main`. Phase 2 (web
 bidirectional render window + edge expansion) is implemented and merged
 behind `VITE_NAV_V2`, which is unset (off) in CI and in the deploy workflow —
-production behaviour is unchanged. Flipping the flag on is phase 3's first
-act, alongside the sticky-stacking rail this phase deliberately deferred.
-Supersedes the design sections of issues
+production behaviour is unchanged. The flag-on browser pass (12 numbered
+checks) is clean: an earlier pass caught the render-window anchor staying
+`null` until the first downward growth step, which let a "Show earlier"
+click before any scrolling silently unmount already-rendered later days —
+fixed by latching the initial fill into the anchor as soon as there are
+groups to fill from, with a jsdom regression test and a re-verified browser
+pass backing the fix (see the plan's Task 7 fix round for both). Flipping
+the flag on is phase 3's first act, alongside the sticky-stacking rail this
+phase deliberately deferred. Supersedes the design sections of issues
 [#225](https://github.com/bbernstein/chq-calendar/issues/225) (web) and
 [#226](https://github.com/bbernstein/chq-calendar/issues/226) (iOS), which
 remain the authoritative record of the *problem* and of the code archaeology

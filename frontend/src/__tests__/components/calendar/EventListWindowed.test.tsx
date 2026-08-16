@@ -177,6 +177,24 @@ describe('EventListWindowed', () => {
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
   });
 
+  it('keeps the rendered tail when earlier days are prepended before any growth', () => {
+    // The sibling test below triggers a growth step first, which sets the
+    // anchor as a side effect — so it cannot catch an anchor that is still
+    // null when the prepend lands. That is the ordinary case: pressing
+    // "Show earlier" is a perfectly normal first action, and with a null
+    // anchor the initial fill re-runs over the prepended array and unmounts
+    // days that were already on screen.
+    const groups = [group('2026-07-05', 30), group('2026-07-06', 30), group('2026-07-07', 30)];
+    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+
+    rerender(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-03', 30), ...groups]} />);
+
+    expect(screen.getByText('Day 2026-07-03')).toBeInTheDocument();
+    expect(screen.getByText('Day 2026-07-05')).toBeInTheDocument();
+    expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+  });
+
   it('keeps the rendered tail when earlier days are prepended', () => {
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
     const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);

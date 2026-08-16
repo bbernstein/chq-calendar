@@ -71,6 +71,26 @@ export function EventListWindowed({
   // it. Nothing has to clear it.
   const anchorKey = anchor.resetKey === resetKey ? anchor.key : null;
 
+  // Latch the initial fill as soon as there are groups to fill from.
+  //
+  // Without this the anchor stays null until the first *downward* growth
+  // step, and a reader who presses "Show earlier" before ever scrolling down
+  // — an entirely ordinary first action — gets the initial fill re-run
+  // against the newly prepended array, which unmounts days that were already
+  // on screen and makes the scroll correction measure a document that grew at
+  // the top and shrank at the bottom.
+  //
+  // This effect cannot reintroduce the stale frame that killed the earlier
+  // reset effect: it only ever writes the value the render already derived,
+  // so the interim frame and the stored frame are identical by construction.
+  // And it always runs before any click can occur, since effects flush before
+  // the browser hands the user back the main thread.
+  useEffect(() => {
+    if (anchorKey !== null || groupedEvents.length === 0) return;
+    const idx = renderEndIndex(groupedEvents, null);
+    setAnchor({ key: groupedEvents[idx].key, resetKey });
+  }, [anchorKey, groupedEvents, resetKey]);
+
   const endIdx = useMemo(
     () => renderEndIndex(groupedEvents, anchorKey),
     [groupedEvents, anchorKey]
