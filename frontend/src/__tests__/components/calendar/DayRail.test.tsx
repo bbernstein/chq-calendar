@@ -8,9 +8,13 @@ const chips = dayChips(
   new Map([['2026-07-04', 12], ['2026-07-05', 1]]),
 );
 
+// The default fixture puts the anchor on July 5 with July 4 reachable behind
+// it and nothing reachable ahead — July 6 has no events, which is exactly the
+// day a calendar step used to dead-end on.
 function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   const props = {
-    chips, anchorDay: '2026-07-05', todayKey: '2026-07-05',
+    chips, anchorDay: '2026-07-05', prevDay: '2026-07-04', nextDay: null as string | null,
+    todayKey: '2026-07-05',
     onSelectDay: vi.fn(), onStepDay: vi.fn(), onGoToToday: vi.fn(),
     ...overrides,
   };
@@ -48,7 +52,43 @@ describe('DayRail', () => {
   it('labels each chip by its target and event count', () => {
     renderRail();
     expect(chipButton('2026-07-04').getAttribute('aria-label')).toBe('Go to Saturday, July 4, 12 events');
-    expect(chipButton('2026-07-06').getAttribute('aria-label')).toBe('Go to Monday, July 6, no events');
+    expect(chipButton('2026-07-06').getAttribute('aria-label')).toBe('Monday, July 6, no events');
+  });
+
+  // A day with nothing on it is not a destination: tapping it used to widen
+  // the window, mount nothing, and leave the reader exactly where they were,
+  // while the chip announced "Go to Monday, July 6". It keeps its place on
+  // the strip and its focusability — the rail is a calendar, and the arrow
+  // walk must not stall — but it is announced and painted as unavailable.
+  it('presents a day with no events as unavailable rather than as a destination', () => {
+    const { onSelectDay } = renderRail();
+    const empty = chipButton('2026-07-06');
+    expect(empty.getAttribute('aria-disabled')).toBe('true');
+    expect(empty.getAttribute('aria-label')).not.toMatch(/^Go to/);
+    fireEvent.click(empty);
+    expect(onSelectDay).not.toHaveBeenCalled();
+  });
+
+  it('leaves a day that has events tappable', () => {
+    const { onSelectDay } = renderRail();
+    const live = chipButton('2026-07-04');
+    expect(live.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(live);
+    expect(onSelectDay).toHaveBeenCalledWith('2026-07-04');
+  });
+
+  // ~64 chips in a season. Every one being a tab stop between the filter
+  // block and the list is what the arrow-key handler exists to replace.
+  it('is a single tab stop, with the arrow keys moving within it', () => {
+    renderRail();
+    expect(chipButton('2026-07-05').getAttribute('tabindex')).toBe('0');
+    expect(chipButton('2026-07-04').getAttribute('tabindex')).toBe('-1');
+    expect(chipButton('2026-07-06').getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('keeps a tab stop on the strip when nothing is anchored yet', () => {
+    renderRail({ anchorDay: null, prevDay: null, nextDay: null });
+    expect(chipButton('2026-07-04').getAttribute('tabindex')).toBe('0');
   });
 
   it('marks the anchor day as current', () => {
@@ -59,56 +99,54 @@ describe('DayRail', () => {
 
   it('reports the tapped day', () => {
     const { onSelectDay } = renderRail();
-    fireEvent.click(chipButton('2026-07-06'));
-    expect(onSelectDay).toHaveBeenCalledWith('2026-07-06');
+    fireEvent.click(chipButton('2026-07-04'));
+    expect(onSelectDay).toHaveBeenCalledWith('2026-07-04');
   });
 
   // Chevrons are labelled by their target, not by direction — same rule as
-  // the day chips (see DayRail's accessibility doc comment). At the default
-  // anchor (July 5, the middle chip) the previous chevron's target is July 4
-  // and the next chevron's target is July 6, so the chevrons are found here
-  // by the adjacent chip's own label, filtered to exclude the day chip
-  // itself via `chevronNamed`.
-  it('steps one calendar day from the chevrons', () => {
-    const { onStepDay } = renderRail();
+  // the day chips (see DayRail's accessibility doc comment). The chevrons are
+  // found here by their target chip's own label, filtered to exclude the day
+  // chip itself via `chevronNamed`.
+  it('steps to the reachable day on each side from the chevrons', () => {
+    const { onStepDay } = renderRail({ prevDay: '2026-07-04', nextDay: '2026-07-06' });
     fireEvent.click(chevronNamed('Go to Saturday, July 4, 12 events')!);
     expect(onStepDay).toHaveBeenCalledWith(-1);
-    fireEvent.click(chevronNamed('Go to Monday, July 6, no events')!);
+    fireEvent.click(chevronNamed('Monday, July 6, no events')!);
     expect(onStepDay).toHaveBeenCalledWith(1);
   });
 
-  // Proves the chevron label is derived from the *current* anchor position,
-  // not a fixed chip: moving the anchor from July 5 to July 6 must move the
-  // previous chevron's target from July 4 to July 5. An implementation that
-  // always named the chevron after a fixed chip (e.g. always chips[0]) would
-  // fail the second half — no un-labelled-as-a-chip button would carry
-  // July 5's label once the anchor is on July 6.
-  it('names the chevrons after the adjacent day, not a fixed direction', () => {
-    renderRail({ anchorDay: '2026-07-05' });
+  // Proves the chevron label is derived from the target it was handed, not
+  // from a fixed chip: an implementation that always named the chevron after
+  // a fixed chip (e.g. always chips[0]) would fail the second half.
+  it('names the chevrons after their target, not a fixed direction', () => {
+    renderRail({ anchorDay: '2026-07-05', prevDay: '2026-07-04' });
     expect(chevronNamed('Go to Saturday, July 4, 12 events')).toBeTruthy();
 
-    renderRail({ anchorDay: '2026-07-06' });
+    renderRail({ anchorDay: '2026-07-06', prevDay: '2026-07-05' });
     expect(chevronNamed('Go to Sunday, July 5, 1 event')).toBeTruthy();
   });
 
-  // Mirrors the previous-chevron proof above for the *next* chevron. With
-  // this 3-chip fixture, anchor 07-04 is the only position where
-  // chips[anchorIdx + 1] (07-05) diverges from a hardcoded last chip
-  // (07-06) — so this is the one anchor position that can catch a
-  // regression that pins the next chevron to the final chip instead of
-  // deriving it from the anchor.
-  it('names the next chevron after the adjacent day, not the last chip', () => {
-    renderRail({ anchorDay: '2026-07-04' });
+  // Mirrors the previous-chevron proof above for the *next* chevron: with
+  // the anchor on 07-04, the next target (07-05) diverges from a hardcoded
+  // last chip (07-06), so this is the position that catches a regression
+  // pinning the next chevron to the final chip.
+  it('names the next chevron after its target, not the last chip', () => {
+    renderRail({ anchorDay: '2026-07-04', prevDay: null, nextDay: '2026-07-05' });
     expect(chevronNamed('Go to Sunday, July 5, 1 event')).toBeTruthy();
   });
 
-  it('disables the chevrons at the ends of the navigable range', () => {
-    renderRail({ anchorDay: '2026-07-04' });
+  // The chevrons are enabled by REACHABILITY, not by position within the
+  // chips. The anchor here sits in the middle of the strip with a chip on
+  // either side, so an index-based implementation enables both — but nothing
+  // beyond it has events, so both steps would dead-end: no section mounts,
+  // the pending scroll gives up, and `anchorDay` never moves, leaving the
+  // reader pressing an enabled control that can never do anything.
+  it('disables a chevron with no reachable day, even mid-strip', () => {
+    renderRail({ anchorDay: '2026-07-05', prevDay: null, nextDay: null });
     expect(screen.getByRole('button', { name: 'Go to the previous day' })
       .hasAttribute('disabled')).toBe(true);
-    renderRail({ anchorDay: '2026-07-06' });
-    const forward = screen.getAllByRole('button', { name: 'Go to the next day' }).pop()!;
-    expect(forward.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Go to the next day' })
+      .hasAttribute('disabled')).toBe(true);
   });
 
   it('offers ⟳ Now while the anchor is not today', () => {
@@ -147,7 +185,7 @@ describe('DayRail', () => {
 
   it('renders nothing when there are no days to show', () => {
     const { container } = render(
-      <DayRail chips={[]} anchorDay={null} todayKey={null}
+      <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} todayKey={null}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
@@ -167,7 +205,7 @@ describe('DayRail', () => {
     Element.prototype.scrollIntoView = scrollIntoView;
     try {
       const { rerender } = render(
-        <DayRail chips={chips} anchorDay="2026-07-04" todayKey="2026-07-05"
+        <DayRail chips={chips} anchorDay="2026-07-04" prevDay={null} nextDay="2026-07-05" todayKey="2026-07-05"
           onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
       );
       // Stubbed only after mount: the effect that centres the *initial*
@@ -182,7 +220,7 @@ describe('DayRail', () => {
       });
 
       rerender(
-        <DayRail chips={chips} anchorDay="2026-07-06" todayKey="2026-07-05"
+        <DayRail chips={chips} anchorDay="2026-07-06" prevDay="2026-07-05" nextDay={null} todayKey="2026-07-05"
           onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
       );
 
@@ -203,7 +241,7 @@ describe('DayRail', () => {
   it('gives rootRef the same element that is data-day-rail and sticky — no wrapper', () => {
     const ref: { current: HTMLElement | null } = { current: null };
     render(
-      <DayRail chips={chips} anchorDay="2026-07-05" todayKey="2026-07-05"
+      <DayRail chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null} todayKey="2026-07-05"
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
         rootRef={(el) => { ref.current = el; }} />
     );

@@ -376,19 +376,6 @@ export function formatDayRange(from: DayKey, through: DayKey): string {
   return `${fmt(from)} – ${fmt(through)}`;
 }
 
-/**
- * The shape `eventCountsByDay` needs from a day group.
- *
- * Declared structurally rather than importing `DayGroup`: `eventHelpers.ts`
- * already imports `dayKeyOf` from this module, so importing back the other
- * way would make a cycle. `DayGroup` satisfies this without either module
- * having to know the other exists.
- */
-export interface DayCountable {
-  key: DayKey;
-  events: unknown[];
-}
-
 /** One day on the rail. */
 export interface DayChip {
   key: DayKey;
@@ -400,14 +387,40 @@ export interface DayChip {
   month: string | null;
   /** Matching events on that day under the current non-date filters. */
   count: number;
-  /** The full accessible name — labelled by target, never by direction. */
+  /**
+   * The full accessible name — labelled by target, never by direction.
+   *
+   * Only a day with matches is named as a destination ("Go to …"). A day
+   * with none is named as a fact ("Monday, July 6, no events"): there is
+   * nothing to go to, the chip is presented as unavailable, and a control
+   * that says "Go to" while going nowhere is the defect this wording exists
+   * to avoid.
+   */
   label: string;
 }
 
-/** How many events each day group holds, by day key. */
-export function eventCountsByDay(groups: DayCountable[]): Map<DayKey, number> {
+/**
+ * How many of `events` fall on each day, by day key.
+ *
+ * Takes the events themselves rather than the day groups the list renders,
+ * because the rail is a navigation surface and not a filter readout: it must
+ * be fed the set that navigation can reach (everything matching the
+ * *non-date* filters), not the date-windowed subset currently on screen.
+ * Counting the rendered groups instead would mark every day outside the
+ * current scope "no events" — which is the same wall in a new control, since
+ * a chip is judged empty on the strength of that count.
+ *
+ * Unparseable dates are dropped, matching `eventDayKeys` and every other
+ * call site in the app.
+ */
+export function eventCountsByDay(events: Event[]): Map<DayKey, number> {
   const counts = new Map<DayKey, number>();
-  for (const group of groups) counts.set(group.key, group.events.length);
+  for (const event of events) {
+    const parsed = new Date(event.startDate);
+    if (Number.isNaN(parsed.getTime())) continue;
+    const key = dayKeyOf(parsed);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
   return counts;
 }
 
@@ -430,7 +443,7 @@ export function dayChips(days: DayKey[], countsByDay: Map<DayKey, number>): DayC
       dayOfMonth: String(date.getDate()),
       month: showMonth ? month : null,
       count,
-      label: `Go to ${spoken}, ${events}`,
+      label: count === 0 ? `${spoken}, ${events}` : `Go to ${spoken}, ${events}`,
     };
   });
 }

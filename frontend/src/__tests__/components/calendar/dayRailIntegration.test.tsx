@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { useCallback, useEffect, useState } from 'react';
 import { render, fireEvent } from '@testing-library/preact';
-import { railTarget } from '@/app/dayRailNavigation';
+import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
 import { EventList } from '@/components/calendar/EventList';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { daySectionElement, DAY_SECTION_ATTR } from '@/lib/utils/daySections';
@@ -38,11 +38,92 @@ describe('railTarget', () => {
       .toBeNull();
   });
 
-  it('handles a null window by expanding both edges to the target', () => {
-    // Reachable for 'this-week' outside the season, where the scope matches
-    // nothing at all and there is no window to compare against.
-    expect(railTarget({ target: '2026-07-06', window: null, bounds }))
-      .toEqual({ expandStart: '2026-07-06', expandEnd: '2026-07-06', scrollTo: '2026-07-06' });
+  // Reachable for 'this-week' outside the season (a value this branch keeps
+  // working from persisted localStorage), where the scope matches nothing at
+  // all. The plan this used to return was inert by composition: `viewWindow`
+  // returns null from `baseWindow` before it ever reads the expansion inputs,
+  // so both expansions widened nothing, no section could mount, and the
+  // pending scroll was left waiting on a day that could never appear.
+  it('refuses a tap in a scope that matches nothing rather than planning an inert expansion', () => {
+    expect(railTarget({ target: '2026-07-06', window: null, bounds })).toBeNull();
+  });
+});
+
+describe('shouldAbandonScroll', () => {
+  const w = { startDay: '2026-07-04', endDay: '2026-07-09' };
+
+  // The bug this replaces: the guard read `dateWindow && covered`, which is
+  // `null` — falsy — when there is no window, so nothing cleared and the
+  // pending target survived every later commit. A scope change would then
+  // re-run the effect and scroll the reader to a day they tapped under a
+  // different scope.
+  it('abandons a target when the scope matches nothing at all', () => {
+    expect(shouldAbandonScroll('2026-07-06', null)).toBe(true);
+  });
+
+  it('abandons a target the window already covers — the day simply has no events', () => {
+    expect(shouldAbandonScroll('2026-07-06', w)).toBe(true);
+  });
+
+  it('keeps waiting while the expansion has not landed yet', () => {
+    expect(shouldAbandonScroll('2026-07-20', w)).toBe(false);
+    expect(shouldAbandonScroll('2026-07-01', w)).toBe(false);
+  });
+});
+
+describe('stepTargets', () => {
+  // Every day with an event under the current non-date filters. 07-05 and
+  // 07-08 have none — with ★ Favourites on, or any search or venue filter
+  // that leaves gaps, that is the ordinary case rather than the exception.
+  const eventDays = ['2026-07-04', '2026-07-06', '2026-07-07', '2026-07-10'];
+
+  it('skips days with nothing on them rather than stepping one calendar day', () => {
+    // A raw addDays(±1) from 07-06 targets 07-05 and 07-07. 07-05 mounts no
+    // section, so the pending scroll gives up and the anchor — derived from
+    // scroll position — never moves: pressing again recomputes the identical
+    // dead target, with the chevron still enabled.
+    expect(stepTargets('2026-07-06', eventDays))
+      .toEqual({ prevDay: '2026-07-04', nextDay: '2026-07-07' });
+  });
+
+  it('steps from a day that is not itself an event day', () => {
+    expect(stepTargets('2026-07-08', eventDays))
+      .toEqual({ prevDay: '2026-07-07', nextDay: '2026-07-10' });
+  });
+
+  it('reports no target beyond either end', () => {
+    expect(stepTargets('2026-07-04', eventDays).prevDay).toBeNull();
+    expect(stepTargets('2026-07-10', eventDays).nextDay).toBeNull();
+  });
+
+  it('reports nothing reachable with no anchor or no event days', () => {
+    expect(stepTargets(null, eventDays)).toEqual({ prevDay: null, nextDay: null });
+    expect(stepTargets('2026-07-06', [])).toEqual({ prevDay: null, nextDay: null });
+  });
+});
+
+describe('reachableTodayKey', () => {
+  const bounds = { startDay: '2026-06-27', endDay: '2026-08-30' };
+
+  it('keeps today while it is inside the navigable bounds', () => {
+    expect(reachableTodayKey('2026-07-06', bounds)).toBe('2026-07-06');
+  });
+
+  // For roughly ten months of the year today is outside the season, so
+  // `railTarget` refuses it — a non-null key there renders a visible,
+  // enabled `⟳ Now` that does nothing when pressed, with no feedback.
+  it('drops an off-season today, so ⟳ Now is absent rather than inert', () => {
+    expect(reachableTodayKey('2026-02-14', bounds)).toBeNull();
+    expect(reachableTodayKey('2026-11-30', bounds)).toBeNull();
+  });
+
+  it('stays null on an archived year', () => {
+    expect(reachableTodayKey(null, bounds)).toBeNull();
+  });
+
+  it('keeps a today sitting exactly on either bound', () => {
+    expect(reachableTodayKey('2026-06-27', bounds)).toBe('2026-06-27');
+    expect(reachableTodayKey('2026-08-30', bounds)).toBe('2026-08-30');
   });
 });
 
@@ -116,8 +197,10 @@ function Harness({ groupedEvents: initialGroups, earlierKey }: { groupedEvents: 
       scrollToDay(pendingScroll);
       return;
     }
-    const covered = pendingScroll >= bounds.startDay && pendingScroll <= bounds.endDay;
-    if (covered) setPendingScroll(null);
+    // The same give-up decision `page.tsx` makes, imported rather than
+    // restated — a re-implementation here would prove nothing about the
+    // page.
+    if (shouldAbandonScroll(pendingScroll, bounds)) setPendingScroll(null);
   }, [pendingScroll, scrollToDay, bounds.startDay, bounds.endDay]);
 
   return (

@@ -611,8 +611,11 @@ describe('dayChips', () => {
     expect(dayChips(['2026-07-04'], counts)[0].label).toBe('Go to Saturday, July 4, 12 events');
   });
 
-  it('says so when the target day has no matches', () => {
-    expect(dayChips(['2026-07-06'], counts)[0].label).toBe('Go to Monday, July 6, no events');
+  // Named as a fact, not as a destination: an empty chip is presented as
+  // unavailable, and "Go to" on a control that goes nowhere is precisely the
+  // announcement/behaviour mismatch that wording is there to avoid.
+  it('names a day with no matches without offering to go there', () => {
+    expect(dayChips(['2026-07-06'], counts)[0].label).toBe('Monday, July 6, no events');
   });
 
   it('uses the singular for exactly one event', () => {
@@ -622,12 +625,27 @@ describe('dayChips', () => {
 });
 
 describe('eventCountsByDay', () => {
-  it('counts each day group’s events under its key', () => {
+  it('counts the events falling on each day', () => {
     const counts = eventCountsByDay([
-      { key: '2026-07-04', events: [{}, {}] },
-      { key: '2026-07-05', events: [{}] },
+      makeEvent('a', new Date(2026, 6, 4, 9, 0)),
+      makeEvent('b', new Date(2026, 6, 4, 20, 0)),
+      makeEvent('c', new Date(2026, 6, 5, 10, 0)),
     ]);
     expect(counts.get('2026-07-04')).toBe(2);
     expect(counts.get('2026-07-05')).toBe(1);
+  });
+
+  it('omits a day with nothing on it rather than recording a zero', () => {
+    const counts = eventCountsByDay([makeEvent('a', new Date(2026, 6, 4, 9, 0))]);
+    expect(counts.has('2026-07-05')).toBe(false);
+  });
+
+  it('drops events whose startDate does not parse', () => {
+    const counts = eventCountsByDay([
+      makeEvent('a', new Date(2026, 6, 4, 9, 0)),
+      { id: 'bad', title: 'bad', startDate: 'not a date' } as Event,
+    ]);
+    expect(counts.size).toBe(1);
+    expect(counts.get('2026-07-04')).toBe(1);
   });
 });

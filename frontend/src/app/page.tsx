@@ -5,14 +5,14 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { navigableBounds, viewWindow, addDays, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
+import { navigableBounds, viewWindow, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
 import { renderResetKey } from '@/lib/utils/renderWindow';
 import { daySectionElement } from '@/lib/utils/daySections';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useDayRailHeight } from '@/hooks/useDayRailHeight';
 import { DayRail } from '@/components/calendar/DayRail';
-import { railTarget } from '@/app/dayRailNavigation';
+import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
@@ -140,18 +140,29 @@ function HomeContent() {
   );
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
 
-  // Every day that has an event under the *non-date* filters — the set
-  // navigation steps through. Derived by re-running the same filter with the
-  // date stage wide open, so search, category, venue, week and favourites
-  // all constrain where stepping can go, and a step always lands on a day
-  // that will actually render something.
-  const navEventDays = useMemo(() => {
+  // Everything the *non-date* filters admit, anywhere in the navigable
+  // bounds — the same filter re-run with the date stage wide open. This is
+  // what navigation is allowed to reach: search, category, venue, week and
+  // favourites all constrain where stepping can go, but the current scope
+  // does not, because escaping the scope's own edge is the point.
+  const navMatchingEvents = useMemo(() => {
     const unbounded = viewWindow({
       dateFilter: 'all', seasonWeeks, currentWeekNumber, now: new Date(),
       bounds: navBounds, expandedStartDay: null, expandedEndDay: null,
     });
-    return eventDayKeys(filterEvents(events, { ...nonDateFilterOpts, viewWindow: unbounded }));
+    return filterEvents(events, { ...nonDateFilterOpts, viewWindow: unbounded });
   }, [events, nonDateFilterOpts, seasonWeeks, currentWeekNumber, navBounds]);
+
+  // Every day that has one — the set navigation steps through, so a step
+  // always lands on a day that will actually render something.
+  const navEventDays = useMemo(() => eventDayKeys(navMatchingEvents), [navMatchingEvents]);
+
+  // How many, per day. Fed to the rail rather than counts taken from the
+  // rendered day groups: the rail spans the navigable bounds, so counting
+  // only what the current scope rendered would mark every day outside the
+  // scope "no events" and make the rail a readout of the filter it exists to
+  // navigate past.
+  const navDayCounts = useMemo(() => eventCountsByDay(navMatchingEvents), [navMatchingEvents]);
 
   const { earlierDay, laterDay } = useMemo(
     () => navigationTargets(navEventDays, dateWindow),
@@ -189,8 +200,8 @@ function HomeContent() {
   // it is a navigation surface, not a filter readout, so in Today scope it
   // still shows the week around you.
   const railChips = useMemo(
-    () => dayChips(dayKeys(navBounds.startDay, navBounds.endDay), eventCountsByDay(groupedEvents)),
-    [navBounds, groupedEvents]
+    () => dayChips(dayKeys(navBounds.startDay, navBounds.endDay), navDayCounts),
+    [navBounds, navDayCounts]
   );
 
   // Every day the *view* window produced, not the render window's mounted
@@ -203,7 +214,12 @@ function HomeContent() {
   const { anchorDay, scrollToDay } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
 
-  const todayKey = isCurrentYear ? dayKeyOf(new Date()) : null;
+  // Only when today is somewhere navigation can actually reach. Off-season
+  // — most of the year — today sits outside `navBounds`, `railTarget`
+  // refuses it, and an unclamped key would render a visible, enabled `⟳ Now`
+  // that does nothing at all. Null removes the button instead, which is the
+  // treatment the rail already gives an archived year.
+  const todayKey = reachableTodayKey(isCurrentYear ? dayKeyOf(new Date()) : null, navBounds);
 
   // Expanding, then scrolling, is deliberately three steps, and each waits on
   // the one before: the reducer widens the *view* window (it never knows about
@@ -240,26 +256,30 @@ function HomeContent() {
       scrollToDay(pendingScroll);
       return;
     }
-    // No section for it yet. Two very different reasons, and only one is
-    // worth waiting for.
-    //
-    // If the view window already covers the target, the day simply has no
-    // matching events — an empty day under the current filters, which never
-    // gets a section mounted at all. That is not a failure; it is what "the
-    // rail moves by calendar day" means. Give up, or the pending target would
-    // survive forever and hijack a later commit.
-    //
-    // If the window does not cover it yet, the expansion dispatched above has
-    // not landed in this commit. Keep waiting — the next one will have it.
-    const covered = dateWindow
-      && pendingScroll >= dateWindow.startDay && pendingScroll <= dateWindow.endDay;
-    if (covered) setPendingScroll(null);
+    // No section for it yet, and only one of the reasons is worth waiting
+    // for — `shouldAbandonScroll` owns that call. Note that a `null`
+    // `dateWindow` must abandon rather than wait: writing this as
+    // `dateWindow && covered` made the whole expression `null` in that case,
+    // so nothing cleared, and the pending target survived to hijack a later
+    // commit — exactly what this branch exists to prevent.
+    if (shouldAbandonScroll(pendingScroll, dateWindow)) setPendingScroll(null);
   }, [pendingScroll, dateWindow, scrollToDay]);
 
+  // The chevrons move to the nearest day that has something on it, not to
+  // the adjacent calendar day. A calendar step onto an empty day mounts no
+  // section, so the pending scroll gives up and `anchorDay` — derived from
+  // scroll position — never moves; pressing again recomputes the same dead
+  // target, with the chevron still enabled. Reachability is also what
+  // enables/disables them, so the control and its label agree.
+  const { prevDay, nextDay } = useMemo(
+    () => stepTargets(anchorDay, navEventDays),
+    [anchorDay, navEventDays]
+  );
+
   const stepDay = useCallback((delta: -1 | 1) => {
-    if (!anchorDay) return;
-    goToDay(addDays(anchorDay, delta));
-  }, [anchorDay, goToDay]);
+    const target = delta === -1 ? prevDay : nextDay;
+    if (target) goToDay(target);
+  }, [prevDay, nextDay, goToDay]);
 
   // ⟳ Now is navigation, never a filter change: it widens the window to
   // contain today if it has to, and touches no scope, week, category or
@@ -344,6 +364,8 @@ function HomeContent() {
         <DayRail
           chips={railChips}
           anchorDay={anchorDay}
+          prevDay={prevDay}
+          nextDay={nextDay}
           todayKey={todayKey}
           onSelectDay={goToDay}
           onStepDay={stepDay}

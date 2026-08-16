@@ -4,6 +4,21 @@ import type { DayChip } from '@/lib/utils/dayWindow';
 export interface DayRailProps {
   chips: DayChip[];
   anchorDay: string | null;
+  /**
+   * The nearest reachable day on either side of the anchor — a day that has
+   * events under the current non-date filters — or `null` when there is
+   * none in that direction.
+   *
+   * Passed in rather than derived from `chips` here. `chips` spans every
+   * calendar day in the navigable bounds, so an index step within it names a
+   * day that may have nothing to show; the reachable set is the caller's
+   * `navEventDays`, which the caller already owns and already uses for
+   * "Show earlier"/"Show later". Passing the two keys keeps one source of
+   * truth for where a step goes, and keeps the labelling — this component's
+   * actual job — here.
+   */
+  prevDay: string | null;
+  nextDay: string | null;
   /** Today's key when the current year is selected; null on an archived one. */
   todayKey: string | null;
   onSelectDay: (key: string) => void;
@@ -40,26 +55,45 @@ export interface DayRailProps {
  * an `aria-label`, which assistive technology drops. Both are recorded
  * lessons from PR #228/#219. Every control is labelled by its **target**
  * ("Go to Sunday, August 16, 4 events"), never by direction, and a day with
- * no matches says so.
+ * no matches is named as a fact rather than as a destination.
+ *
+ * A day with no matches is also `aria-disabled` and does not fire
+ * `onSelectDay`. There is nothing on that day to take the reader to, and the
+ * previous behaviour — announcing "Go to Monday, July 6" and then doing
+ * nothing at all — is the dead-end this initiative exists to remove, not an
+ * example of it: the chevrons skip straight past such days, and every
+ * neighbouring day that *does* have something is one tap away. `aria-disabled`
+ * rather than `disabled` so the chip stays focusable and the arrow-key walk
+ * below cannot stall on it.
  */
 export function DayRail({
-  chips, anchorDay, todayKey, onSelectDay, onStepDay, onGoToToday, rootRef,
+  chips, anchorDay, prevDay, nextDay, todayKey, onSelectDay, onStepDay, onGoToToday, rootRef,
 }: DayRailProps) {
   const stripRef = useRef<HTMLDivElement>(null);
 
-  const anchorIdx = anchorDay ? chips.findIndex(c => c.key === anchorDay) : -1;
-  const canStepBack = anchorIdx > 0;
-  const canStepForward = anchorIdx >= 0 && anchorIdx < chips.length - 1;
+  // Reachability, not adjacency: `chips` spans every calendar day in the
+  // navigable bounds, so `anchorIdx ± 1` is enabled on days a step cannot
+  // actually land on.
+  const canStepBack = prevDay !== null;
+  const canStepForward = nextDay !== null;
 
   // Labelled by target, not direction — "Go to Saturday, July 4, 12 events",
   // not "Go to the previous day". The rail already has everything needed to
-  // name the real target (the adjacent chip's own `label`), so the
-  // direction-based exemption a relative control might otherwise get isn't
-  // needed here. The plain directional fallback fires only when the chevron
-  // is disabled: there is no adjacent chip to name in that direction, and
-  // "disabled" already tells the reader they can't go further.
-  const prevLabel = canStepBack ? chips[anchorIdx - 1].label : 'Go to the previous day';
-  const nextLabel = canStepForward ? chips[anchorIdx + 1].label : 'Go to the next day';
+  // name the real target (that day's own chip label), so the direction-based
+  // exemption a relative control might otherwise get isn't needed here. The
+  // plain directional fallback fires only when the chevron is disabled: there
+  // is no reachable day to name in that direction, and "disabled" already
+  // tells the reader they can't go further.
+  const labelOf = (key: string | null) => chips.find(c => c.key === key)?.label;
+  const prevLabel = labelOf(prevDay) ?? 'Go to the previous day';
+  const nextLabel = labelOf(nextDay) ?? 'Go to the next day';
+
+  // The strip is one tab stop, not one per day — see the chip's `tabIndex`
+  // below. The stop is the anchor chip, falling back to the first chip
+  // whenever the anchor is not on the strip (nothing measured yet, or an
+  // anchor from a window the rail no longer spans); without that fallback a
+  // null anchor would leave the whole strip unreachable from the keyboard.
+  const tabStopKey = chips.some(c => c.key === anchorDay) ? anchorDay : chips[0]?.key;
 
   // Keep the highlighted chip in view as the reader scrolls the list. The
   // rail scrolls itself horizontally; it never scrolls the page.
@@ -131,6 +165,12 @@ export function DayRail({
       <div ref={stripRef} className="flex-1 flex items-center gap-1 overflow-x-auto scrollbar-hide">
         {chips.map((chip) => {
           const isAnchor = chip.key === anchorDay;
+          // A day with nothing on it is not a destination. It keeps its
+          // place on the strip — the rail is a calendar and a gap is
+          // information — and it keeps its focusability, but it is announced
+          // and painted as unavailable rather than offering a trip that
+          // cannot happen.
+          const isEmpty = chip.count === 0;
           return (
             <button
               key={chip.key}
@@ -138,17 +178,22 @@ export function DayRail({
               data-chip={chip.key}
               aria-label={chip.label}
               aria-current={isAnchor ? 'date' : undefined}
-              onClick={() => onSelectDay(chip.key)}
+              aria-disabled={isEmpty || undefined}
+              // One tab stop for the whole strip: a season is ~64 chips, and
+              // every one of them being a tab stop between the filters and
+              // the list is what the ArrowLeft/ArrowRight/Home handler above
+              // exists to replace.
+              tabIndex={chip.key === tabStopKey ? 0 : -1}
+              onClick={() => { if (!isEmpty) onSelectDay(chip.key); }}
               className={`shrink-0 min-w-11 px-2 py-1 rounded-md text-center leading-tight transition-colors ${
                 isAnchor
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700'
               } ${
-                // An empty day is still navigable — it is a calendar day, and
-                // the rail steps by calendar days. The dashed border says
-                // "nothing here" without removing the target, mirroring
-                // iOS's MyDayChipContent.isEmpty.
-                chip.count === 0 ? 'border border-dashed border-gray-300 dark:border-gray-600' : 'border border-transparent'
+                // The dashed border says "nothing here", mirroring iOS's
+                // MyDayChipContent.isEmpty; the dimming says "and so there is
+                // nothing to press".
+                isEmpty ? 'border border-dashed border-gray-300 dark:border-gray-600 opacity-50 cursor-default' : 'border border-transparent'
               }`}
             >
               {chip.month && (
