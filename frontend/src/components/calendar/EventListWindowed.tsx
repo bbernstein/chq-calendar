@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import { extendRenderEndIndex, renderEndIndex } from '@/lib/utils/renderWindow';
 import { formatDayLabel } from '@/lib/utils/dayWindow';
+import { daySectionTop } from '@/lib/utils/daySections';
 import { EventListView, type EventListViewProps } from './EventListView';
 
 export interface EventListWindowedProps extends Omit<EventListViewProps, 'groups'> {
@@ -159,17 +160,30 @@ export function EventListWindowed({
   // height of what was inserted. Measure before the change, correct after —
   // in a layout effect, so the correction lands before the browser paints
   // and the reader never sees the jump.
-  const pendingPrependRef = useRef<{ scrollHeight: number; scrollY: number; resetKey: string } | null>(null);
+  //
+  // The measurement is one day section's viewport-relative `top`, NOT the
+  // document's total height. Total height silently assumes two things that
+  // are not true: that every height change between the two measurements
+  // happened above the reader, and that all of it had already landed when
+  // the layout effect ran. A single node's `top` needs neither assumption —
+  // it moves by exactly what was inserted above it — and it stays correct
+  // once a sticky rail sits above the day headers, which is precisely the
+  // kind of height change "everything above the reader" mis-classifies.
+  //
+  // The reference is `groupedEvents[0]`, the first day the view window
+  // produced. Growth is one-way and the render window always starts at
+  // index 0, so that day is mounted before the prepend and still mounted
+  // after it, with every prepended day above it.
+  const pendingPrependRef = useRef<{ key: string; top: number; resetKey: string } | null>(null);
 
   const handleShowEarlier = useCallback(() => {
     if (!onShowEarlier) return;
-    pendingPrependRef.current = {
-      scrollHeight: document.documentElement.scrollHeight,
-      scrollY: window.scrollY,
-      resetKey,
-    };
+    const key = groupedEvents[0]?.key;
+    const top = key ? daySectionTop(key) : null;
+    // No measurable reference means no correction rather than a wrong one.
+    pendingPrependRef.current = key && top !== null ? { key, top, resetKey } : null;
     onShowEarlier();
-  }, [onShowEarlier, resetKey]);
+  }, [onShowEarlier, resetKey, groupedEvents]);
 
   useLayoutEffect(() => {
     const pending = pendingPrependRef.current;
@@ -182,8 +196,12 @@ export function EventListWindowed({
     // effects run before passive effects in the same commit, so by the time
     // it fired the correction would already be on screen.
     if (pending.resetKey !== resetKey) return;
-    const delta = document.documentElement.scrollHeight - pending.scrollHeight;
-    if (delta !== 0) window.scrollTo(0, pending.scrollY + delta);
+    const top = daySectionTop(pending.key);
+    // The reference day left the list — a background refresh, not a
+    // prepend. Correcting against a node that is gone is guesswork.
+    if (top === null) return;
+    const delta = top - pending.top;
+    if (delta !== 0) window.scrollBy(0, delta);
   }, [groupedEvents, resetKey]);
 
   useEffect(() => {

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/preact';
+import { render, screen, act, fireEvent } from '@testing-library/preact';
 import { EventListWindowed } from '@/components/calendar/EventListWindowed';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
+import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import type { Event } from '@/lib/types';
 
@@ -458,19 +459,39 @@ describe('EventListWindowed', () => {
 });
 
 describe('EventListWindowed — showing earlier days', () => {
+  let scrollBy: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     // No binding: none of these tests drive intersection. The mock is still
     // installed because the component constructs an observer whenever a
     // sentinel renders, and jsdom provides no constructor to construct.
     installIntersectionObserverMock();
-    window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
-    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0, writable: true });
+    scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
   });
-  afterEach(() => { vi.unstubAllGlobals(); });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // @ts-expect-error — restoring the prototype method jsdom shipped.
+    delete HTMLElement.prototype.getBoundingClientRect;
+  });
 
-  /** Layout is simulated: jsdom measures nothing, so the test sets the heights. */
-  function setScrollHeight(px: number) {
-    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: px });
+  /**
+   * Layout is simulated: jsdom measures nothing, so the test controls each
+   * mounted day section's `top` directly, keyed by its day-key attribute
+   * rather than by DOM node identity — whether Preact reuses the same node
+   * across a rerender is an implementation detail these tests don't need to
+   * know about.
+   */
+  function stubDayTops() {
+    const tops: Record<string, number> = {};
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: HTMLElement) {
+        const key = this.getAttribute(DAY_SECTION_ATTR);
+        return { top: key !== null ? (tops[key] ?? 0) : 0 } as DOMRect;
+      },
+    });
+    return (key: string, top: number) => { tops[key] = top; };
   }
 
   it('offers the earlier control only when there is an earlier day', () => {
@@ -506,77 +527,173 @@ describe('EventListWindowed — showing earlier days', () => {
   });
 
   it('restores scroll position across the prepend', () => {
+    const setDayTop = stubDayTops();
     const groups = [group('2026-07-05', 10)];
-    setScrollHeight(2000);
-    (window as unknown as { scrollY: number }).scrollY = 900;
-
     const { rerender } = render(
       <EventListWindowed {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
+    setDayTop('2026-07-05', 400);
     screen.getByRole('button', { name: /Show earlier/ }).click();
 
-    // The page grows by 600px above the reader's position.
-    setScrollHeight(2600);
+    // The page prepends a day: the reference section is now 600px further down.
+    setDayTop('2026-07-05', 1000);
     rerender(
       <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-03', 8), ...groups]}
         earlierDay="2026-07-02" onShowEarlier={noop} />
     );
 
-    expect(window.scrollTo).toHaveBeenCalledWith(0, 1500);
+    expect(scrollBy).toHaveBeenCalledWith(0, 600);
   });
 
   it('does not touch scroll position on an ordinary re-render', () => {
     const groups = [group('2026-07-05', 10)];
-    setScrollHeight(2000);
     const { rerender } = render(
       <EventListWindowed {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
 
-    setScrollHeight(2600);
     rerender(
       <EventListWindowed {...baseProps} groupedEvents={[...groups, group('2026-07-06', 5)]}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
 
-    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(scrollBy).not.toHaveBeenCalled();
   });
 
   it('corrects scroll only once per click', () => {
+    const setDayTop = stubDayTops();
     const groups = [group('2026-07-05', 10)];
-    setScrollHeight(2000);
-    (window as unknown as { scrollY: number }).scrollY = 900;
     const { rerender } = render(
       <EventListWindowed {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
+    setDayTop('2026-07-05', 400);
     screen.getByRole('button', { name: /Show earlier/ }).click();
 
-    setScrollHeight(2600);
+    setDayTop('2026-07-05', 1000);
     const prepended = [group('2026-07-03', 8), ...groups];
     rerender(<EventListWindowed {...baseProps} groupedEvents={prepended} earlierDay="2026-07-02" onShowEarlier={noop} />);
-    setScrollHeight(3000);
+
+    // A second, unrelated re-render must not re-trigger the correction — the
+    // pending ref was already consumed by the layout effect above.
+    setDayTop('2026-07-05', 1400);
     rerender(<EventListWindowed {...baseProps} groupedEvents={[...prepended, group('2026-07-06', 5)]} earlierDay="2026-07-02" onShowEarlier={noop} />);
 
-    expect(window.scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollBy).toHaveBeenCalledTimes(1);
   });
 
   it('forgets a pending correction when the filters change under it', () => {
+    const setDayTop = stubDayTops();
     const groups = [group('2026-07-05', 10)];
-    setScrollHeight(2000);
     const { rerender } = render(
       <EventListWindowed {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
+    setDayTop('2026-07-05', 400);
     screen.getByRole('button', { name: /Show earlier/ }).click();
 
-    setScrollHeight(2600);
     rerender(
       <EventListWindowed {...baseProps} resetKey="k2" groupedEvents={[group('2026-08-01', 4)]}
         earlierDay={null} />
     );
 
-    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+});
+
+describe('upward prepend scroll correction', () => {
+  function makeGroups(keys: string[]): DayGroup[] {
+    return keys.map(k => group(k, 1));
+  }
+
+  /**
+   * Drives the one thing jsdom can express about this: that the correction
+   * is computed from a day section's own rect, not from document height.
+   * Layout is faked by handing each mounted section a fixed height and
+   * deriving `top` from the number of sections above it — so a prepend
+   * genuinely moves the reference section down, exactly as a browser would.
+   */
+  function stubLayout(sectionHeight: number) {
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: HTMLElement) {
+        const sections = Array.from(document.querySelectorAll(`[${DAY_SECTION_ATTR}]`));
+        const idx = sections.indexOf(this);
+        const top = idx < 0 ? 0 : idx * sectionHeight - window.scrollY;
+        return { top, bottom: top + sectionHeight, height: sectionHeight } as DOMRect;
+      },
+    });
+  }
+
+  afterEach(() => {
+    // @ts-expect-error — restoring the prototype method jsdom shipped.
+    delete HTMLElement.prototype.getBoundingClientRect;
+  });
+
+  it('scrolls by how far the reference day moved, not by the document delta', async () => {
+    stubLayout(100);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    Object.defineProperty(window, 'scrollY', { value: 250, writable: true, configurable: true });
+
+    const initial = makeGroups(['2026-07-02', '2026-07-03']);
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={initial} resetKey="k"
+        earlierDay="2026-07-01" onShowEarlier={() => {}} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
+
+    // The page prepends one day: the reference section (2026-07-02) is now
+    // 100px further down than it was.
+    rerender(
+      <EventListWindowed {...baseProps}
+        groupedEvents={makeGroups(['2026-07-01', '2026-07-02', '2026-07-03'])}
+        resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
+    );
+
+    expect(scrollBy).toHaveBeenCalledWith(0, 100);
+  });
+
+  it('does not correct when a filter change landed between the click and the prepend', async () => {
+    stubLayout(100);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+        resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
+
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-08-01'])}
+        resetKey="DIFFERENT" earlierDay={null} onShowEarlier={() => {}} />
+    );
+
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('does not correct when the reference day has left the list entirely', async () => {
+    stubLayout(100);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+        resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
+
+    // Same resetKey, but a background refresh dropped the reference day. A
+    // correction computed against a missing node would scroll by whatever
+    // the fallback rect happens to be — do nothing instead.
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-05'])}
+        resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
+    );
+
+    expect(scrollBy).not.toHaveBeenCalled();
   });
 });

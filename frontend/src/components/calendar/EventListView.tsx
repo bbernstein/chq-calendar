@@ -3,6 +3,7 @@ import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
 import type { ProgramLink } from '@/hooks/useProgramLinks';
 import { downloadICS } from '@/lib/utils/icsHelpers';
+import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
 import { EventCard } from './EventCard';
 import { WeekBadge } from './WeekBadge';
 
@@ -32,7 +33,12 @@ export function EventListView({
   return (
     <>
       {groups.map((dayGroup) => (
-        <div key={dayGroup.key}>
+        // The day-key attribute is the anchor every scroll consumer resolves
+        // against — the prepend correction, the rail's scrollspy, and its
+        // scroll-to. It is on the section wrapper rather than the sticky
+        // header, because a sticky header's rect stops reporting the
+        // section's real position the moment it sticks.
+        <div key={dayGroup.key} {...{ [DAY_SECTION_ATTR]: dayGroup.key }}>
           <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4">
             <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
               {dayGroup.baseLabel}
