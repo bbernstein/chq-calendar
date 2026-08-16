@@ -33,31 +33,46 @@ function isPageScrollable(): boolean {
  * mounted, owned here and reset only when the non-window filters change.
  * Growth is one-way: nothing is ever unmounted, because eviction breaks
  * scroll position to solve a problem 1,470 events do not have.
+ *
+ * **The caller must hand down a referentially stable `groupedEvents`.** Every
+ * growth step is driven by an `IntersectionObserver` that is torn down and
+ * recreated when the effect's dependencies change, so that a sentinel still
+ * in view fires again immediately and growth continues at the pace the
+ * browser reports intersection. A parent that rebuilds the array on every
+ * render — same content, new identity — turns that into one growth step per
+ * render instead. `page.tsx` memoizes it; anything else that mounts this
+ * component must too.
  */
 export function EventListWindowed({
   groupedEvents, resetKey, canExpandEnd, onExpandEnd, earlierDay, onShowEarlier, ...view
 }: EventListWindowedProps) {
   // Anchored on a day key, never an index: expanding the window backward
   // prepends groups and shifts every index underneath us.
-  const [renderLastKey, setRenderLastKey] = useState<string | null>(null);
+  //
+  // The anchor carries the `resetKey` it was set under, and re-anchoring is
+  // *derived* rather than synchronised by an effect. An effect runs after the
+  // commit, so the render that first sees a filter change would still be
+  // matching the previous question's anchor against the new day groups — and
+  // whenever that day survives the new filter (a search that narrows event
+  // counts but not which days have any events), it resolves to a far later
+  // index and paints one frame with many more days mounted than the fresh
+  // fill wants. Deriving costs a string comparison and cannot be out of step.
+  //
+  // A window that merely grew keeps its anchor: that is the same question,
+  // and re-anchoring on it would throw the reader back to the top of the list
+  // on every auto-expand.
+  const [anchor, setAnchor] = useState<{ key: string | null; resetKey: string }>(
+    { key: null, resetKey }
+  );
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Re-anchor on the initial fill whenever the question changes. Keyed on
-  // `resetKey` alone: a window that merely grew is the same question, and
-  // resetting on it would throw the reader back to the top of the list on
-  // every auto-expand.
-  // `groupedEvents` is read but deliberately not a dependency — that is the
-  // whole point of the reset key, and this repo's ESLint has no
-  // react-hooks plugin, so do not add a suppression comment for a rule that
-  // is not configured.
-  useEffect(() => {
-    const idx = renderEndIndex(groupedEvents, null);
-    setRenderLastKey(idx >= 0 ? groupedEvents[idx].key : null);
-  }, [resetKey]);
+  // A stale anchor is simply never consulted; the next growth step overwrites
+  // it. Nothing has to clear it.
+  const anchorKey = anchor.resetKey === resetKey ? anchor.key : null;
 
   const endIdx = useMemo(
-    () => renderEndIndex(groupedEvents, renderLastKey),
-    [groupedEvents, renderLastKey]
+    () => renderEndIndex(groupedEvents, anchorKey),
+    [groupedEvents, anchorKey]
   );
   const visibleGroups = useMemo(
     () => groupedEvents.slice(0, endIdx + 1),
@@ -75,8 +90,10 @@ export function EventListWindowed({
       if (!entries[0].isIntersecting) return;
       if (hasMoreLoadedDays) {
         // Cheap half: mount more of what the view window already produced.
+        // Deliberately NOT gated on the page being scrollable — this step
+        // changes no filter and costs one render.
         const nextIdx = extendRenderEndIndex(groupedEvents, endIdx);
-        setRenderLastKey(groupedEvents[nextIdx].key);
+        setAnchor({ key: groupedEvents[nextIdx].key, resetKey });
         return;
       }
       // Expensive half: ask the page for another day. Only from a page that
@@ -86,7 +103,7 @@ export function EventListWindowed({
     }, { rootMargin: '200px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [showSentinel, hasMoreLoadedDays, endIdx, groupedEvents, canExpandEnd, onExpandEnd]);
+  }, [showSentinel, hasMoreLoadedDays, endIdx, groupedEvents, canExpandEnd, onExpandEnd, resetKey]);
 
   return (
     <div className="space-y-4 sm:space-y-6">

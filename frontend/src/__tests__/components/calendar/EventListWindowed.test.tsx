@@ -114,6 +114,44 @@ describe('EventListWindowed', () => {
     expect(onExpandEnd).not.toHaveBeenCalled();
   });
 
+  it('still mounts more loaded days on a page that cannot scroll', () => {
+    // The scrollable-page guard belongs to the expensive step only. Without
+    // this case, an implementation that wrapped BOTH steps in the guard would
+    // pass every other test in this file, because they all force a scrollable
+    // page — and the list would refuse to grow into days it had already
+    // loaded whenever the viewport was taller than the content.
+    setPageScrollable(false);
+    const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
+    render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
+
+    io.trigger();
+
+    expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+  });
+
+  it('re-anchors on a filter change even when the day groups are rebuilt', () => {
+    // The existing reset test reuses the same array reference, so it cannot
+    // tell a derived anchor from an effect-synchronised one. Neither can this
+    // one, in the end: `rerender` runs inside `act`, which flushes effects
+    // before returning, so the extra frame an effect would paint is invisible
+    // here. What this DOES pin is that re-anchoring survives the realistic
+    // shape of a filter change — a brand-new array whose surviving day keys
+    // overlap the old anchor — which is the state that makes the effect
+    // version misbehave in a browser.
+    //
+    // The frame itself is verified in the browser pass, not here.
+    const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
+    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    io.trigger();
+    expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+
+    const rebuilt = [group('2026-07-05', 60), group('2026-07-06', 20)];
+    rerender(<EventListWindowed {...baseProps} resetKey="k2" groupedEvents={rebuilt} />);
+
+    expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
+  });
+
   it('ignores a non-intersecting report', () => {
     const onExpandEnd = vi.fn();
     render(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 3)]} canExpandEnd onExpandEnd={onExpandEnd} />);
