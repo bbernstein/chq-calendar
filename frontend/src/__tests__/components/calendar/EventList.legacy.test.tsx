@@ -100,4 +100,18 @@ describe('EventList (legacy path, flag off)', () => {
     expect(container.querySelectorAll('.event-card')).toHaveLength(0);
     expect(screen.queryByText('Loading more events...')).not.toBeInTheDocument();
   });
+
+  it('renders the week badge and its separator for a day inside the season', () => {
+    // Every `group()` above hardcodes `weekNumbers: []`, so without this case
+    // the entire WeekBadge branch — the one piece of the day header with a
+    // conditional in it — would be unpinned, on a task whose whole deliverable
+    // is that the header did not change.
+    // No `weeklyThemes`: WeekBadge then renders a plain labelled span, which
+    // is the branch the day header actually reaches for most of the season.
+    const inSeason = { ...group('2026-07-05', 'Sunday, July 5, 2026', 2), weekNumbers: [2] };
+    render(<EventList {...baseProps} groupedEvents={[inSeason]} dateFilter="all" />);
+    expect(screen.getByText('Sunday, July 5, 2026')).toBeInTheDocument();
+    expect(screen.getByText('-')).toBeInTheDocument();
+    expect(screen.getByText('Week 2')).toBeInTheDocument();
+  });
 });

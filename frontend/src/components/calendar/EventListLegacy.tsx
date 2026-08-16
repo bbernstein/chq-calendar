@@ -22,10 +22,13 @@ export function EventListLegacy({ groupedEvents, dateFilter, onShowNextDay, hasM
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // Flatten events for counting, but render by day group
   const totalEvents = useMemo(() => groupedEvents.reduce((sum, g) => sum + g.events.length, 0), [groupedEvents]);
 
+  // Reset visible count when grouped events change (new filter applied)
   useEffect(() => { setVisibleCount(BATCH_SIZE); }, [groupedEvents]);
 
+  // IntersectionObserver to load more when sentinel is visible
   useEffect(() => {
     if (visibleCount >= totalEvents) return;
     const sentinel = sentinelRef.current;
@@ -39,6 +42,7 @@ export function EventListLegacy({ groupedEvents, dateFilter, onShowNextDay, hasM
     return () => observer.disconnect();
   }, [visibleCount, totalEvents]);
 
+  // Slice day groups to only show visibleCount events total
   let remaining = visibleCount;
   const visibleGroups: DayGroup[] = [];
   for (const group of groupedEvents) {
@@ -52,6 +56,7 @@ export function EventListLegacy({ groupedEvents, dateFilter, onShowNextDay, hasM
     }
   }
 
+  // Compute next day label for the "Show next day" button
   const nextDayLabel = useMemo(() => {
     if (dateFilter !== 'next' || groupedEvents.length === 0) return '';
     const lastGroup = groupedEvents[groupedEvents.length - 1];
