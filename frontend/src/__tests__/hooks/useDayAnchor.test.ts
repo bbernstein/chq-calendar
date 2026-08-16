@@ -64,6 +64,22 @@ describe('useDayAnchor', () => {
     expect(result.current.anchorDay).toBe('2026-07-04');
   });
 
+  it('collapses two scroll events between frames into a single measurement', () => {
+    mountWithTops({ '2026-07-04': -20 });
+    // requestAnimationFrame is real in jsdom and does not run synchronously,
+    // so two scroll dispatches issued back-to-back land inside the same
+    // pending frame. A rafSpy call count of 1 across both dispatches is the
+    // throttle firing once; a count of 2 is the throttle being absent.
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame');
+    renderHook(() => useDayAnchor(['2026-07-04']));
+    const callsBeforeScroll = rafSpy.mock.calls.length;
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+      window.dispatchEvent(new Event('scroll'));
+    });
+    expect(rafSpy.mock.calls.length - callsBeforeScroll).toBe(1);
+  });
+
   it('scrollToDay scrolls the section into view', () => {
     mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
     const scrollIntoView = vi.fn();
