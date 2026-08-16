@@ -2135,14 +2135,37 @@ describe('DayRail', () => {
     expect(onSelectDay).toHaveBeenCalledWith('2026-07-06');
   });
 
+  // A chevron labelled by target shares its accessible name with the day
+  // chip it points at, so a bare `getByRole` would be ambiguous. Chevrons
+  // carry no `data-chip`, which is what tells them apart.
+  function chevronNamed(name: string): HTMLElement | undefined {
+    return screen.queryAllByRole('button', { name })
+      .find((btn) => !btn.hasAttribute('data-chip'));
+  }
+
   it('steps one calendar day from the chevrons', () => {
     const { onStepDay } = renderRail();
-    fireEvent.click(screen.getByRole('button', { name: 'Go to the previous day' }));
+    fireEvent.click(chevronNamed('Go to Saturday, July 4, 12 events')!);
     expect(onStepDay).toHaveBeenCalledWith(-1);
-    fireEvent.click(screen.getByRole('button', { name: 'Go to the next day' }));
+    fireEvent.click(chevronNamed('Go to Monday, July 6, no events')!);
     expect(onStepDay).toHaveBeenCalledWith(1);
   });
 
+  // Proves the label is derived from the *current* anchor rather than a fixed
+  // chip: moving the anchor from July 5 to July 6 must move the back
+  // chevron's target from July 4 to July 5. An implementation that always
+  // named the chevron after `chips[0]` passes the first half and fails the
+  // second.
+  it('names the chevrons after the adjacent day, not a fixed direction', () => {
+    renderRail({ anchorDay: '2026-07-05' });
+    expect(chevronNamed('Go to Saturday, July 4, 12 events')).toBeTruthy();
+
+    renderRail({ anchorDay: '2026-07-06' });
+    expect(chevronNamed('Go to Sunday, July 5, 1 event')).toBeTruthy();
+  });
+
+  // At a boundary there is no adjacent chip to name, so the directional
+  // fallback is what a disabled chevron carries.
   it('disables the chevrons at the ends of the navigable range', () => {
     renderRail({ anchorDay: '2026-07-04' });
     expect(screen.getByRole('button', { name: 'Go to the previous day' })
@@ -2248,6 +2271,16 @@ export function DayRail({
   const canStepBack = anchorIdx > 0;
   const canStepForward = anchorIdx >= 0 && anchorIdx < chips.length - 1;
 
+  // Labelled by target, not direction — "Go to Saturday, July 4, 12 events",
+  // not "Go to the previous day". A relative control might seem to earn an
+  // exemption from that rule, but the rail already holds the adjacent chip
+  // and every chip carries a fully-formed label, so no exemption is needed.
+  // The directional fallback fires only when the chevron is disabled: there
+  // is no adjacent chip to name, and "disabled" already tells the reader
+  // they cannot go further.
+  const prevLabel = canStepBack ? chips[anchorIdx - 1].label : 'Go to the previous day';
+  const nextLabel = canStepForward ? chips[anchorIdx + 1].label : 'Go to the next day';
+
   // Keep the highlighted chip in view as the reader scrolls the list. The
   // rail scrolls itself horizontally; it never scrolls the page.
   useEffect(() => {
@@ -2288,7 +2321,7 @@ export function DayRail({
     >
       <button
         type="button"
-        aria-label="Go to the previous day"
+        aria-label={prevLabel}
         disabled={!canStepBack}
         onClick={() => onStepDay(-1)}
         className="shrink-0 px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
@@ -2320,7 +2353,7 @@ export function DayRail({
               }`}
             >
               {chip.month && (
-                <span className="block text-[10px] font-semibold uppercase opacity-70">{chip.month}</span>
+                <span aria-hidden="true" className="block text-[10px] font-semibold uppercase opacity-70">{chip.month}</span>
               )}
               <span className="block text-[10px] uppercase opacity-70" aria-hidden="true">{chip.weekday}</span>
               <span className="block text-sm font-semibold" aria-hidden="true">{chip.dayOfMonth}</span>
@@ -2331,7 +2364,7 @@ export function DayRail({
 
       <button
         type="button"
-        aria-label="Go to the next day"
+        aria-label={nextLabel}
         disabled={!canStepForward}
         onClick={() => onStepDay(1)}
         className="shrink-0 px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
