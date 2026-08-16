@@ -300,7 +300,7 @@ export const WEB_SCENARIOS: Scenario[] = [
     body: [
       'The calendar opens on what’s coming up next, not on a wall of the whole season. The window sizes itself — it keeps widening until it has enough events to be worth reading.',
       'Want more? Keep scrolling — the next day loads in on its own as you reach the end. Heading back the other way stays deliberate: a “Show earlier” button waits at the top, naming the day it’s about to add.',
-      'Or jump to Today, This week, or any week of the season.',
+      'Or jump straight to Now, Today, All Season, or All Year — or pick a week from the strip.',
     ],
     screenshot: { base: 'web-01-season', alt: 'The calendar showing upcoming events grouped by day', ...WEB_SHOT },
   },
@@ -348,8 +348,12 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'Everything you’ve applied shows as a chip — clear them one at a time or all at once.' },
 
   // Dates & weeks
-  { id: 'web-date-quick', group: 'Dates & weeks', title: 'Today, this week, or what’s next',
-    blurb: 'Three buttons cover the questions people actually ask.' },
+  { id: 'web-date-quick', group: 'Dates & weeks', title: 'Now, Today, All Season, or All Year',
+    blurb: 'Four scopes cover the questions people actually ask — and the same four the iPhone app uses, so your laptop and your phone speak the same vocabulary.' },
+  { id: 'web-day-rail', group: 'Dates & weeks', title: 'A day rail under the week strip', notObvious: true,
+    blurb: 'A strip of days that highlights whichever day you have scrolled to. Tap one to jump there, or use the chevrons to move a single day at a time — including days with nothing on them.' },
+  { id: 'web-go-to-today', group: 'Dates & weeks', title: '⟳ Now takes you back to today', notObvious: true,
+    blurb: 'Wherever you have wandered in the season, one tap returns you to today without changing a single filter.' },
   { id: 'web-adaptive', group: 'Dates & weeks', title: 'The “next” window grows to fit', notObvious: true,
     blurb: 'Instead of a fixed number of days, it widens until it has a useful number of events to show.' },
   { id: 'web-show-more', group: 'Dates & weeks', title: 'The list keeps going', notObvious: true,
