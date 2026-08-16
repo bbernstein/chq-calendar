@@ -33,8 +33,12 @@ nonisolated struct ViewWindow: Equatable, Sendable {
     /// `start <= date < endExclusive`.
     func contains(_ date: Date) -> Bool { range.contains(date) }
 
-    private static let minInstant = Date(timeIntervalSince1970: -62_135_596_800) // year 1
-    private static let maxInstant = Date(timeIntervalSince1970: 32_503_680_000)  // year 3000
+    /// `.all`'s instant bounds. `Date.distantPast`/`distantFuture` rather
+    /// than an arbitrary "year 1"/"year 3000" pair — genuinely the full
+    /// `Date` domain, matching the web's `.all`, which bounds no instant at
+    /// all.
+    private static let minInstant = Date.distantPast
+    private static let maxInstant = Date.distantFuture
 
     /// The exclusive upper bound of `dayKey` — the next day's midnight.
     ///
@@ -129,23 +133,31 @@ nonisolated struct ViewWindow: Equatable, Sendable {
             expandedEndDayKey = bounds.upperBound
         }
 
+        // Each side is applied atomically: `startDay`/`endDay` only ever
+        // change together with the `Date` they describe. If an expansion key
+        // survives the clamp above but fails `ChqTime.parse` below (it
+        // shouldn't — `browseDay` only ever writes a canonical `dayKey` — but
+        // these fields are plain `String?`, unvalidated by the type system),
+        // the expansion is dropped entirely rather than applied to one of
+        // `startDay`/`range` and not the other. Anything else would let
+        // `startDay`/`endDay` name a day the actual filtered range
+        // disagrees with — exactly what this type's doc promises can't
+        // happen.
         var startDay = base.startDay
-        var endDay = base.endDay
-        if let expanded = expandedStartDayKey, expanded < startDay { startDay = expanded }
-        if let expanded = expandedEndDayKey, expanded > endDay { endDay = expanded }
-
-        let start: Date
-        if startDay == base.startDay {
-            start = base.start
-        } else if let parsed = ChqTime.parse("\(startDay) 00:00:00") {
+        var start = base.start
+        if let expanded = expandedStartDayKey, expanded < startDay,
+           let parsed = ChqTime.parse("\(expanded) 00:00:00") {
+            startDay = expanded
             start = ChqTime.calendar.startOfDay(for: parsed)
-        } else {
-            start = base.start
         }
 
-        let endExclusive = endDay == base.endDay
-            ? base.endExclusive
-            : (dayAfter(endDay) ?? base.endExclusive)
+        var endDay = base.endDay
+        var endExclusive = base.endExclusive
+        if let expanded = expandedEndDayKey, expanded > endDay,
+           let after = dayAfter(expanded) {
+            endDay = expanded
+            endExclusive = after
+        }
 
         // No `guard start < endExclusive` here: unlike the clamp-after-merge
         // form this replaced, expansion only ever widens outward from a
@@ -166,13 +178,7 @@ nonisolated struct ViewWindow: Equatable, Sendable {
 
         switch scope {
         case .all:
-            // No instant bound. Deliberately not derived from `events`: a
-            // window computed from the very list being filtered would be
-            // circular and would behave differently for a caller passing a
-            // subset.
-            return ViewWindow(
-                startDay: bounds.lowerBound, endDay: bounds.upperBound,
-                range: minInstant..<maxInstant)
+            return allWindow(bounds: bounds)
 
         case .season:
             // `first.start <= x && x < last.end`, carried through verbatim.
@@ -188,9 +194,7 @@ nonisolated struct ViewWindow: Equatable, Sendable {
             return day(ChqTime.dayKey(for: now))
 
         case .day:
-            // `EffectiveScope` returns `.day` only with a non-nil key.
-            guard let key = selection.selectedDayKey else { return nil }
-            return day(key)
+            return dayWindow(forDayScope: selection.selectedDayKey, bounds: bounds)
 
         case .next:
             let from = now.addingTimeInterval(-3600)
@@ -213,9 +217,57 @@ nonisolated struct ViewWindow: Equatable, Sendable {
                 // Literally `SeasonWeek.contains`.
                 return windowed(current.start..<current.end)
             }
-            // Out of season: the pipeline's existing seven-day fallback.
+            // Out of season: the pipeline's existing seven-day rolling
+            // window from `now`. Deliberately `86_400`-second arithmetic —
+            // the one place in this file that ignores the "never `86_400`,
+            // always `Calendar`" rule — because this is verbatim parity with
+            // the pre-refactor pipeline, and unlike every other boundary
+            // here it is a `now`-relative INSTANT, not a day-key computation:
+            // there is no day key on either side for `ChqTime.day(_:offsetBy:)`
+            // to compute DST-safely. Do not "fix" this to `Calendar` day
+            // arithmetic — that would change what gets shown across a DST
+            // boundary, which is exactly the drift this exception avoids.
+            //
+            // This is also the one place iOS and the web's shared model
+            // genuinely disagree: the web's `this-week` returns `null` out
+            // of season (the list shows nothing), while iOS returns this
+            // rolling week. Both preserve their own platform's pre-refactor
+            // behavior, so neither changes here — reconciling the two is
+            // Phase 3's job.
             return windowed(now..<now.addingTimeInterval(7 * 24 * 3600))
         }
+    }
+
+    /// The `.all` scope's window: no instant bound, `bounds` reported
+    /// verbatim as the day projection. Deliberately not derived from
+    /// `events`: a window computed from the very list being filtered would
+    /// be circular and would behave differently for a caller passing a
+    /// subset. Shared by the real `.all` case above and `.day`'s
+    /// fail-open fallback, which is what `.all` degrades to for a `.day`
+    /// naming no date.
+    private static func allWindow(bounds: ClosedRange<String>) -> ViewWindow {
+        ViewWindow(
+            startDay: bounds.lowerBound, endDay: bounds.upperBound,
+            range: minInstant..<maxInstant)
+    }
+
+    /// `.day`'s window: the named day, or — if `key` is `nil` — the
+    /// unbounded `.all` window rather than `nil`.
+    ///
+    /// `EffectiveScope` guarantees `.day` is only resolved with a non-nil
+    /// key, so the nil branch is unreachable through `ViewWindow.make`
+    /// today (and would still be unreachable calling `base` directly, since
+    /// `base` re-derives the same scope from the same guarantee). It exists
+    /// so that if that guarantee were ever weakened, the failure mode is
+    /// OPEN — show everything, what `EffectiveScope` itself would have
+    /// produced for a keyless `.day` — rather than CLOSED, which is what a
+    /// bare `nil` here would give `EventFilter` (zero events), flipping the
+    /// pre-refactor behavior (a keyless day scope showed everything) to its
+    /// opposite. Internal, not private, so a test can pin it directly
+    /// without first needing to defeat `EffectiveScope`'s guarantee.
+    static func dayWindow(forDayScope key: String?, bounds: ClosedRange<String>) -> ViewWindow? {
+        guard let key else { return allWindow(bounds: bounds) }
+        return day(key)
     }
 
     /// Wraps a half-open instant range with its day projection.

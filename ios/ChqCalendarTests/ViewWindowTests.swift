@@ -309,6 +309,64 @@ struct ViewWindowTests {
         #expect(w.endDay == "2026-01-01")
     }
 
+    // MARK: - robustness
+
+    @Test func allUsesTheFullDateDomainNotAYear1To3000Range() throws {
+        // `.all`'s bounds are `Date.distantPast`/`distantFuture` — genuinely
+        // unbounded, matching the web's `.all`, not an arbitrary wide range.
+        let now = try Self.at("2026-07-15 15:00:00")
+        let w = try #require(window(FilterSelection(dateScope: .all), now: now))
+        #expect(w.start == Date.distantPast)
+        #expect(w.endExclusive == Date.distantFuture)
+    }
+
+    @Test func anUnparseableStartExpansionIsIgnoredEntirelyRatherThanDesyncingFromRange() throws {
+        // If an expansion key survives the bounds clamp but fails
+        // `ChqTime.parse`, `startDay` must not name a day that `range`
+        // disagrees with. "2026-07-00" sorts before the base window's own
+        // "2026-07-15" (so it would widen if it parsed) and sorts after
+        // the season's lower bound (so it survives the clamp), but day 00
+        // does not exist and `ChqTime.parse` rejects it.
+        let now = try Self.at("2026-07-15 15:00:00")
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowStartDayKey = "2026-07-00"
+        let w = try #require(window(sel, now: now))
+        #expect(w.startDay == "2026-07-15")
+        #expect(w.start == ChqTime.calendar.startOfDay(for: now))
+    }
+
+    @Test func anUnparseableEndExpansionIsIgnoredEntirelyRatherThanDesyncingFromRange() throws {
+        // Mirror of the start-side case: "2026-07-32" sorts after the base
+        // window's own "2026-07-15" (so it would widen if it parsed) and
+        // sorts before the season's upper bound (so it survives the clamp),
+        // but July has no 32nd day.
+        let now = try Self.at("2026-07-15 15:00:00")
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowEndDayKey = "2026-07-32"
+        let w = try #require(window(sel, now: now))
+        #expect(w.endDay == "2026-07-15")
+        #expect(w.endExclusive == (try Self.at("2026-07-16 00:00:00")))
+    }
+
+    @Test func dayWindowFailsOpenToAllWhenTheKeyIsNil() throws {
+        // `.day` with no key is unreachable through `ViewWindow.make` — a
+        // nil key resolves to `.all` before `base` ever sees `.day` — so
+        // this exercises `dayWindow(forDayScope:bounds:)` directly, pinning
+        // that the fallback is `.all` (show everything), not `nil` (show
+        // nothing), if that guarantee were ever weakened.
+        let w = try #require(ViewWindow.dayWindow(forDayScope: nil, bounds: bounds()))
+        #expect(w.start == Date.distantPast)
+        #expect(w.endExclusive == Date.distantFuture)
+        #expect(w.startDay == bounds().lowerBound)
+        #expect(w.endDay == bounds().upperBound)
+    }
+
+    @Test func dayWindowStillSpansTheNamedDayWhenAKeyIsPresent() throws {
+        let w = try #require(ViewWindow.dayWindow(forDayScope: "2026-07-15", bounds: bounds()))
+        #expect(w.startDay == "2026-07-15")
+        #expect(w.endDay == "2026-07-15")
+    }
+
     // MARK: - nil contract
 
     @Test func makeReturnsNilForADayScopeWithAnUnparseableSelectedDayKey() throws {
@@ -364,5 +422,50 @@ struct EventFilterWindowTests {
         let result = EventFilter.apply(
             sel, to: [inWeek1, inWeek2], favorites: [], now: now, year: 2026, isCurrentYear: true)
         #expect(result.map(\.id) == ["w1"])
+    }
+
+    /// `EventFilter.apply` picks a cheap season-only `DayWindow.bounds` when
+    /// no expansion key is set, and the pricier event-widened
+    /// `ViewWindow.navigableBounds` when one is — safe today only because
+    /// `EventFilter` reads `window.contains(_:)` and never `startDay`/
+    /// `endDay`, the one field `bounds` actually changes for `.all`. Pins
+    /// that contract directly, rather than trusting the comment at
+    /// `EventFilter.apply`'s call site: the same selection and events must
+    /// filter identically no matter which bounds source computed the
+    /// window, so the day someone wires `startDay`/`endDay` into
+    /// `EventFilter`'s filtering, this goes red instead of silently
+    /// drifting.
+    @Test func eventFilterOutputIsIdenticalRegardlessOfWhichBoundsSourceComputedTheWindow() throws {
+        let now = try Self.at("2026-07-15 15:00:00")
+        let inSeason = makeEvent(id: "in", start: try Self.at("2026-07-15 18:00:00"))
+        let outOfSeason = makeEvent(id: "out", start: try Self.at("2026-05-01 09:00:00"))
+        let events = [inSeason, outOfSeason]
+        let sel = FilterSelection(dateScope: .all)
+
+        let seasonOnlyBounds = DayWindow.bounds(year: 2026, starredDays: [])
+        let eventWidenedBounds = ViewWindow.navigableBounds(year: 2026, events: events, starredDays: [])
+        // If these happened to be equal, the test below couldn't tell the
+        // two bounds sources apart.
+        #expect(seasonOnlyBounds != eventWidenedBounds)
+
+        let seasonOnlyWindow = try #require(ViewWindow.make(
+            selection: sel, events: events, now: now, year: 2026, isCurrentYear: true,
+            bounds: seasonOnlyBounds))
+        let eventWidenedWindow = try #require(ViewWindow.make(
+            selection: sel, events: events, now: now, year: 2026, isCurrentYear: true,
+            bounds: eventWidenedBounds))
+
+        // The day projection genuinely differs between the two bounds
+        // sources...
+        #expect(seasonOnlyWindow.startDay != eventWidenedWindow.startDay)
+        // ...but `.all`'s instant range does not, so `contains(_:)` — the
+        // only thing `EventFilter` reads — agrees regardless of which
+        // bounds source computed the window.
+        #expect(seasonOnlyWindow.range == eventWidenedWindow.range)
+
+        let viaApply = EventFilter.apply(
+            sel, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+        let viaEventWidenedWindow = events.filter { eventWidenedWindow.contains($0.start) }
+        #expect(viaApply.map(\.id) == viaEventWidenedWindow.map(\.id))
     }
 }
