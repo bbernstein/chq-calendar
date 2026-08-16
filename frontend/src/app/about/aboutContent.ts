@@ -299,7 +299,7 @@ export const WEB_SCENARIOS: Scenario[] = [
     title: 'See what’s on right now',
     body: [
       'The calendar opens on what’s coming up next, not on a wall of the whole season. The window sizes itself — it keeps widening until it has enough events to be worth reading.',
-      'Want more? “Show next day” — the button names the date it will add — extends the window a day at a time.',
+      'Want more? Keep scrolling — the next day loads in on its own as you reach the end. Heading back the other way stays deliberate: a “Show earlier” button waits at the top, naming the day it’s about to add.',
       'Or jump to Today, This week, or any week of the season.',
     ],
     screenshot: { base: 'web-01-season', alt: 'The calendar showing upcoming events grouped by day', ...WEB_SHOT },
