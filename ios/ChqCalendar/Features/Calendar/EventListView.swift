@@ -177,7 +177,16 @@ struct EventListView: View {
                 }
             }
 
-            if model.isCurrentYear && model.filter.dateScope == .next {
+            // `EffectiveScope.resolve(_:isCurrentYear:) == .next` is exactly
+            // `model.isCurrentYear && model.filter.dateScope == .next`: for
+            // any scope other than `.day`, `resolve` returns the stored
+            // scope unchanged when `isCurrentYear` and `.all` otherwise, so
+            // it equals `.next` iff both halves of the old condition held.
+            // `.day` is never `.next`, so its branch never enters into the
+            // comparison. Same button in the same states — this is the
+            // fourth site that duplicated the downgrade rule, collapsed
+            // like the other three (#192, #197).
+            if EffectiveScope.resolve(model.filter, isCurrentYear: model.isCurrentYear) == .next {
                 Button("Show next day") {
                     model.expandWindowEnd()
                 }
