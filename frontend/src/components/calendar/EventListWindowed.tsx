@@ -16,6 +16,11 @@ export interface EventListWindowedProps extends Omit<EventListViewProps, 'groups
   onShowEarlier?: () => void;
 }
 
+/** Whether the reader is scrolled away from the top right now. */
+function readerHasScrolled(): boolean {
+  return window.scrollY > 0;
+}
+
 /**
  * The list under `VITE_NAV_V2`: a day-granular render window over the day
  * groups the view window produced, growing forward on its own.
@@ -107,18 +112,35 @@ export function EventListWindowed({
   const hasMoreLoadedDays = endIdx >= 0 && endIdx + 1 < groupedEvents.length;
   const showSentinel = groupedEvents.length > 0 && (hasMoreLoadedDays || !!canExpandEnd);
 
-  // Whether the reader has scrolled — tracked as state, not read as a plain
-  // function call, because `IntersectionObserver` only reports CHANGES in
-  // intersection. A list barely taller than the viewport has its sentinel
-  // inside the 200px `rootMargin` from the very first render, already
-  // intersecting before the reader has done anything: the one callback that
-  // fires gets refused below, and because the sentinel never leaves and
-  // re-enters the intersection root, no second callback ever arrives —
-  // scrolling further within that short list would do nothing, forever, if
-  // this were just a function the callback consulted. Making it state that
-  // the growth-observing effect below depends on means the observer is torn
-  // down and recreated the moment it flips, which re-reports the
-  // still-intersecting sentinel exactly as a fresh `observe()` call would.
+  // Whether the reader has EVER scrolled this session — tracked as state so
+  // the growth-observing effect below can depend on it, because
+  // `IntersectionObserver` only reports CHANGES in intersection. A list
+  // barely taller than the viewport has its sentinel inside the 200px
+  // `rootMargin` from the very first render, already intersecting before the
+  // reader has done anything: the one callback that fires gets refused, and
+  // because the sentinel never leaves and re-enters the intersection root,
+  // no second callback ever arrives — scrolling further within that short
+  // list would do nothing, forever, if nothing forced the observer to be
+  // re-created. Flipping this state does exactly that: it tears down and
+  // recreates the observer, which re-reports the still-intersecting
+  // sentinel exactly as a fresh `observe()` call would.
+  //
+  // Its ONLY job is re-arming the observer, and that job genuinely wants a
+  // one-way latch — the component is never remounted or re-keyed on
+  // `resetKey`, so a reader who scrolled once under an earlier scope has
+  // already proven the observer can be re-created; the mechanism doesn't
+  // need to relearn that after a filter change.
+  //
+  // The expansion DECISION below must never read this latch, though: doing
+  // so would mean any scroll under any past scope permanently disables the
+  // "don't auto-expand a short list" guard for every filter applied
+  // afterwards — a filter can produce a short list of its own days after
+  // the reader has already scrolled once under a completely different
+  // scope, and that list deserves the same "reader hasn't looked at this
+  // yet" protection the very first list got. `readerHasScrolled()` below
+  // reads live scroll position for that reason: it has no memory, so a
+  // filter change that resets scroll to the top is trusted immediately,
+  // regardless of what happened under the previous scope.
   const [hasScrolled, setHasScrolled] = useState(false);
 
   useEffect(() => {
@@ -180,8 +202,11 @@ export function EventListWindowed({
       }
       // Expensive half: ask the page for another day. Only once the reader
       // has actually scrolled — otherwise a short list would widen its own
-      // window on mount, before the reader scrolled past anything.
-      if (canExpandEnd && onExpandEnd && hasScrolled) onExpandEnd();
+      // window on mount, before the reader scrolled past anything. Reads
+      // live scroll position (`readerHasScrolled()`), not the `hasScrolled`
+      // latch above — see that state's comment for why the two must not be
+      // conflated.
+      if (canExpandEnd && onExpandEnd && readerHasScrolled()) onExpandEnd();
     }, { rootMargin: '200px' });
     observer.observe(sentinel);
     return () => observer.disconnect();

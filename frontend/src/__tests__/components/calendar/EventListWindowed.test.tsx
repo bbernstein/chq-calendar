@@ -212,6 +212,45 @@ describe('EventListWindowed', () => {
     expect(onExpandEnd).toHaveBeenCalledTimes(1);
   });
 
+  it('does not auto-expand a freshly-filtered short list just because the reader scrolled under a previous scope', () => {
+    // `hasScrolled` is a session-lifetime latch: `EventListWindowed` is
+    // never remounted and never keyed by `resetKey`, so once it flips true
+    // under ANY scope it stays true for the rest of the session. If the
+    // expansion decision read `hasScrolled` instead of live scroll position,
+    // this sequence would silently widen a just-applied filter's window
+    // before the reader had looked at any of it: browse a scope, scroll at
+    // all (latching `hasScrolled`), then apply a narrow filter short enough
+    // that its sentinel is already intersecting at mount. The reader is back
+    // at the top of a brand new list — nothing about THIS list has been
+    // scrolled — but the stale latch from the PREVIOUS scope would still
+    // read true. The expansion decision must read live scroll position, not
+    // the latch, so it correctly refuses here even though `hasScrolled` is
+    // (correctly, for its own job) still true.
+    const onExpandEnd = vi.fn();
+    const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />
+    );
+
+    // The reader scrolls under this first scope — latches hasScrolled.
+    setReaderScrolled(true);
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+
+    // A filter change: new resetKey, short result set, reader back at the
+    // top (a filter change resets scroll — this is the state the reader is
+    // actually in, regardless of what the latch remembers).
+    setReaderScrolled(false);
+    const shortFilteredGroups = [group('2026-07-10', 3)];
+    rerender(
+      <EventListWindowed {...baseProps} resetKey="k2" groupedEvents={shortFilteredGroups}
+        canExpandEnd onExpandEnd={onExpandEnd} />
+    );
+
+    io.trigger();
+
+    expect(onExpandEnd).not.toHaveBeenCalled();
+  });
+
   it('tears down and recreates the observer across two consecutive growth cycles, alternating cheap and expensive', () => {
     // Every other test in this file fires io.trigger() exactly once, so the
     // tear-down/recreate-so-a-still-intersecting-sentinel-refires mechanism
