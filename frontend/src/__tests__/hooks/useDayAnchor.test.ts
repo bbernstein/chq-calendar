@@ -1,7 +1,8 @@
-import { describe, expect, it, afterEach, vi } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/preact';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
+import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 
 /**
  * jsdom has no layout, so "which section is under the sticky chrome" has to
@@ -19,7 +20,14 @@ function mountWithTops(tops: Record<string, number>) {
   }
 }
 
-afterEach(() => { document.body.innerHTML = ''; vi.unstubAllGlobals(); });
+// The settle effect constructs a ResizeObserver on every mount now,
+// regardless of whether a test ever calls scrollToDay — jsdom has none.
+beforeEach(() => { installResizeObserverMock(); });
+afterEach(() => {
+  document.body.innerHTML = '';
+  document.documentElement.style.removeProperty('--day-rail-h');
+  vi.unstubAllGlobals();
+});
 
 describe('useDayAnchor', () => {
   it('anchors on the last day whose top has passed the sticky offset', () => {
@@ -80,18 +88,77 @@ describe('useDayAnchor', () => {
     expect(rafSpy.mock.calls.length - callsBeforeScroll).toBe(1);
   });
 
-  it('scrollToDay scrolls the section into view', () => {
+  it('scrollToDay scrolls to the sticky offset, not to the raw viewport top', () => {
+    // Not `scrollIntoView`: `scroll-margin-top` for day sections does not
+    // exist yet (a later task), so a native `block: 'start'` would land the
+    // target at the very top of the viewport, underneath the rail. Computing
+    // the delta against `stickyOffset()` directly is what lands it correctly
+    // now.
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
     mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
-    const scrollIntoView = vi.fn();
-    document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-09"]`)!.scrollIntoView = scrollIntoView;
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
     const { result } = renderHook(() => useDayAnchor(['2026-07-04', '2026-07-09']));
     act(() => { result.current.scrollToDay('2026-07-09'); });
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' });
+    // top(3000) - stickyOffset(50) = 2950.
+    expect(scrollBy).toHaveBeenCalledWith(0, 2950);
   });
 
   it('scrollToDay is a no-op for a day that is not mounted', () => {
     mountWithTops({ '2026-07-04': 0 });
     const { result } = renderHook(() => useDayAnchor(['2026-07-04']));
     expect(() => act(() => { result.current.scrollToDay('2026-08-30'); })).not.toThrow();
+  });
+
+  // Browser-verified defect (see task-10 report): a smooth `scrollToDay`
+  // finishes exactly as far short as content mounted just before it keeps
+  // growing during the ~2s animation — a chip 6 days past the render window
+  // landed ~1058px short of the target on a real page. jsdom has no layout,
+  // so the resulting landing position cannot be asserted here; these two
+  // tests instead pin the MECHANISM: the hold re-asserts on a page resize,
+  // and a deliberate scroll gesture ends it. Both would fail against a
+  // `scrollToDay` that only ever scrolls once and never holds.
+  describe('holding the target at the sticky offset after scrollToDay', () => {
+    it('re-asserts the held position when the page resizes afterward', () => {
+      document.documentElement.style.setProperty('--day-rail-h', '50px');
+      mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
+      const scrollBy = vi.fn();
+      vi.stubGlobal('scrollBy', scrollBy);
+      const resize = installResizeObserverMock();
+      const { result } = renderHook(() => useDayAnchor(['2026-07-04', '2026-07-09']));
+      act(() => { result.current.scrollToDay('2026-07-09'); });
+      scrollBy.mockClear();
+
+      // Content above the target grew after the jump: its top moved from
+      // the held 50 (the sticky offset) down to 1200.
+      const el = document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-09"]`)!;
+      el.getBoundingClientRect = () => ({ top: 1200 }) as DOMRect;
+      resize.trigger();
+
+      // delta = 1200 - 50 = 1150.
+      expect(scrollBy).toHaveBeenCalledWith(0, 1150);
+    });
+
+    it('stops re-asserting once the reader scrolls deliberately', () => {
+      document.documentElement.style.setProperty('--day-rail-h', '50px');
+      mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
+      const scrollBy = vi.fn();
+      vi.stubGlobal('scrollBy', scrollBy);
+      const resize = installResizeObserverMock();
+      const { result } = renderHook(() => useDayAnchor(['2026-07-04', '2026-07-09']));
+      act(() => { result.current.scrollToDay('2026-07-09'); });
+      scrollBy.mockClear();
+
+      // A deliberate gesture, not the `scroll` event our own correction
+      // fires — using `scroll` here would cancel the hold with the very
+      // correction meant to maintain it.
+      act(() => { window.dispatchEvent(new Event('wheel')); });
+
+      const el = document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-09"]`)!;
+      el.getBoundingClientRect = () => ({ top: 1200 }) as DOMRect;
+      resize.trigger();
+
+      expect(scrollBy).not.toHaveBeenCalled();
+    });
   });
 });

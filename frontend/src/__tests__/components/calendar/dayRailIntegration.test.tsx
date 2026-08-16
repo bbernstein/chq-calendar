@@ -6,6 +6,7 @@ import { EventList } from '@/components/calendar/EventList';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { daySectionElement, DAY_SECTION_ATTR } from '@/lib/utils/daySections';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
+import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import type { Event } from '@/lib/types';
 
@@ -116,30 +117,34 @@ function Harness({ groupedEvents }: { groupedEvents: DayGroup[] }) {
 }
 
 describe('goToDay -> revealDay -> scrollToDay chain', () => {
-  afterEach(() => { vi.unstubAllGlobals(); });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.documentElement.style.removeProperty('--day-rail-h');
+  });
 
   it('scrolls to a day beyond the current render window', () => {
     installIntersectionObserverMock();
+    // useDayAnchor's settle effect constructs a ResizeObserver on every
+    // mount now, whether or not this test ever triggers a resize.
+    installResizeObserverMock();
+    // jsdom reports 0 for every element's top, so a real (nonzero) sticky
+    // offset is what makes the scrollBy assertion below distinguishable
+    // from "delta happened to be 0" rather than "scrollToDay never ran".
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
     const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
-    const calls: HTMLElement[] = [];
-    const original = Element.prototype.scrollIntoView;
-    // A global spy, not an own-property stub on the day-20 section: that
-    // section does not exist until `revealDay` mounts it, so there is no
-    // element to attach a stub to before the click.
-    Element.prototype.scrollIntoView = function (this: HTMLElement) { calls.push(this); };
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
 
-    try {
-      const { getByRole, container } = render(<Harness groupedEvents={makeGroups(keys)} />);
-      // Precondition: day 20 genuinely starts outside the render window —
-      // otherwise this test would pass whether or not `revealDay` works.
-      expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).toBeNull();
+    const { getByRole, container } = render(<Harness groupedEvents={makeGroups(keys)} />);
+    // Precondition: day 20 genuinely starts outside the render window —
+    // otherwise this test would pass whether or not `revealDay` works.
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).toBeNull();
 
-      fireEvent.click(getByRole('button', { name: 'Go' }));
+    fireEvent.click(getByRole('button', { name: 'Go' }));
 
-      expect(calls).toHaveLength(1);
-      expect(calls[0].getAttribute(DAY_SECTION_ATTR)).toBe('2026-07-20');
-    } finally {
-      Element.prototype.scrollIntoView = original;
-    }
+    // Day 20's section now exists (revealDay mounted it) and scrollToDay ran
+    // against it: top(0, jsdom's default) - stickyOffset(50) = -50.
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).not.toBeNull();
+    expect(scrollBy).toHaveBeenCalledWith(0, -50);
   });
 });

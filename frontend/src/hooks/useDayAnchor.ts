@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { daySectionElement } from '@/lib/utils/daySections';
 
 /**
@@ -91,12 +91,89 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // identity.
   }, [keysId]);
 
+  // What `scrollToDay` last targeted, held at the sticky offset until the
+  // day stops moving or the reader takes over. See the effect below for why
+  // this exists and why it is instant, not smooth.
+  const settleRef = useRef<{ key: string; top: number } | null>(null);
+
   const scrollToDay = useCallback((key: string) => {
-    // `scroll-margin-top` on the section is what keeps the target from
-    // landing underneath the sticky rail — see `globals.css`. Doing the
-    // offset arithmetic here instead would duplicate a number CSS already
-    // owns and get it wrong at any text zoom.
-    daySectionElement(key)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const el = daySectionElement(key);
+    if (!el) return;
+    // Computed here, not left to `scrollIntoView`'s `block: 'start'`:
+    // `scroll-margin-top` on the section (the mechanism that would keep a
+    // native `block: 'start'` scroll from landing the target underneath the
+    // sticky rail) does not exist yet — that CSS is a later task. Computing
+    // the delta against `stickyOffset()` directly lands the target correctly
+    // now, and keeps agreeing with that CSS once it exists, since both
+    // target the same `--day-rail-h`.
+    //
+    // Instant, not smooth: a ~2s smooth animation leaves a ~2s window in
+    // which mounted content can keep changing height for reasons this
+    // codebase already documents as real but unexplained (see the identical
+    // "~104px of growth with no DOM mutation" note on the upward-prepend
+    // correction below in EventList) — a smooth scroll does not re-target
+    // mid-flight, so it finishes exactly as far short as the content grew
+    // above the target. Browser-measured: a chip 6 days past the render
+    // window landed the target ~1058px short after ~2s of smooth animation,
+    // during which the document grew ~1020px. Instant collapses the
+    // vulnerable window from that whole animation down to about one frame,
+    // and it is what the proven settle pattern below already assumes:
+    // reasserting a `scrollBy` correction *while a native smooth animation
+    // is still running* would fight that animation rather than replace it.
+    const delta = el.getBoundingClientRect().top - stickyOffset();
+    if (delta !== 0) window.scrollBy(0, delta);
+    settleRef.current = { key, top: stickyOffset() };
+  }, []);
+
+  // Holds the day `scrollToDay` last targeted at the sticky offset until it
+  // stops moving or the reader takes over.
+  //
+  // This is the exact settle pattern `EventList` uses for its upward-prepend
+  // correction, reused here for the identical failure class: a scroll
+  // decision invalidated by content changing height *after* it was made.
+  // Lives here, not in `page.tsx`'s pending-scroll effect, because holding a
+  // position requires knowing the target day's element and the sticky
+  // offset — both already private to this hook (`daySectionElement`,
+  // `stickyOffset()`) — and because "scroll to a day, then hold it there" is
+  // one operation, not two split across a hook and its caller.
+  //
+  // Set up once for the hook's lifetime, not scoped to `windowDayKeys`:
+  // `scrollToDay` is called imperatively, at any time, not in response to a
+  // prop this hook receives — there is no natural dependency to key a
+  // per-call effect on the way `EventList` keys its own settle effect on
+  // `groupedEvents`. A `ResizeObserver` on `document.documentElement` is the
+  // broadest reasonable proxy for "the page's content changed height": this
+  // hook has no reference to the list's own scroll container the way
+  // `EventList` does, and a false-positive callback is harmless — `delta`
+  // resolves to 0 and nothing happens.
+  useEffect(() => {
+    const reassert = () => {
+      const settle = settleRef.current;
+      if (!settle) return;
+      const el = daySectionElement(settle.key);
+      // The target left the DOM (background refresh, filter change) —
+      // nothing left to hold.
+      if (!el) { settleRef.current = null; return; }
+      const delta = el.getBoundingClientRect().top - settle.top;
+      if (delta !== 0) window.scrollBy(0, delta);
+    };
+    // Any deliberate scroll gesture ends the hold. Deliberately NOT the
+    // `scroll` event: our own `scrollBy` above fires that, so listening to
+    // it would cancel the hold with the very correction that's supposed to
+    // maintain it.
+    const stop = () => { settleRef.current = null; };
+
+    const observer = new ResizeObserver(reassert);
+    observer.observe(document.documentElement);
+    window.addEventListener('wheel', stop, { passive: true });
+    window.addEventListener('touchstart', stop, { passive: true });
+    window.addEventListener('keydown', stop);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('wheel', stop);
+      window.removeEventListener('touchstart', stop);
+      window.removeEventListener('keydown', stop);
+    };
   }, []);
 
   return { anchorDay, scrollToDay };
