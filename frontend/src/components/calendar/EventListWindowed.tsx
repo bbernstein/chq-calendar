@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import { extendRenderEndIndex, renderEndIndex } from '@/lib/utils/renderWindow';
+import { formatDayLabel } from '@/lib/utils/dayWindow';
 import { EventListView, type EventListViewProps } from './EventListView';
 
 export interface EventListWindowedProps extends Omit<EventListViewProps, 'groups'> {
@@ -82,6 +83,37 @@ export function EventListWindowed({
   const hasMoreLoadedDays = endIdx >= 0 && endIdx + 1 < groupedEvents.length;
   const showSentinel = groupedEvents.length > 0 && (hasMoreLoadedDays || !!canExpandEnd);
 
+  // Growing the list upward pushes everything already on screen down by the
+  // height of what was inserted. Measure before the change, correct after —
+  // in a layout effect, so the correction lands before the browser paints
+  // and the reader never sees the jump.
+  const pendingPrependRef = useRef<{ scrollHeight: number; scrollY: number; resetKey: string } | null>(null);
+
+  const handleShowEarlier = useCallback(() => {
+    if (!onShowEarlier) return;
+    pendingPrependRef.current = {
+      scrollHeight: document.documentElement.scrollHeight,
+      scrollY: window.scrollY,
+      resetKey,
+    };
+    onShowEarlier();
+  }, [onShowEarlier, resetKey]);
+
+  useLayoutEffect(() => {
+    const pending = pendingPrependRef.current;
+    if (!pending) return;
+    pendingPrependRef.current = null;
+    // A filter change that landed between the click and the prepend means
+    // this is a different list, and correcting against the old one would
+    // scroll the reader into the middle of a result set they never asked
+    // for. The reset effect cannot do this cancelling for us: layout
+    // effects run before passive effects in the same commit, so by the time
+    // it fired the correction would already be on screen.
+    if (pending.resetKey !== resetKey) return;
+    const delta = document.documentElement.scrollHeight - pending.scrollHeight;
+    if (delta !== 0) window.scrollTo(0, pending.scrollY + delta);
+  }, [groupedEvents, resetKey]);
+
   useEffect(() => {
     if (!showSentinel) return;
     const sentinel = sentinelRef.current;
@@ -107,6 +139,18 @@ export function EventListWindowed({
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {earlierDay && onShowEarlier && (
+        <div className="text-center py-2">
+          <button
+            type="button"
+            onClick={handleShowEarlier}
+            aria-label={`Show earlier events, ${formatDayLabel(earlierDay)}`}
+            className="px-4 py-2 text-sm bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-gray-600 transition-colors"
+          >
+            Show earlier ({formatDayLabel(earlierDay)})
+          </button>
+        </div>
+      )}
       <EventListView groups={visibleGroups} {...view} />
       {showSentinel && (
         <div

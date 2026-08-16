@@ -210,3 +210,124 @@ describe('EventListWindowed', () => {
     expect(onExpandEnd).not.toHaveBeenCalled();
   });
 });
+
+describe('EventListWindowed — showing earlier days', () => {
+  let io: ReturnType<typeof installIntersectionObserverMock>;
+
+  beforeEach(() => {
+    io = installIntersectionObserverMock();
+    setPageScrollable(true);
+    window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0, writable: true });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  /** Layout is simulated: jsdom measures nothing, so the test sets the heights. */
+  function setScrollHeight(px: number) {
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: px });
+  }
+
+  it('offers the earlier control only when there is an earlier day', () => {
+    const groups = [group('2026-07-05', 10)];
+    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    expect(screen.queryByRole('button', { name: /Show earlier/ })).not.toBeInTheDocument();
+
+    rerender(<EventListWindowed {...baseProps} groupedEvents={groups} earlierDay="2026-07-03" onShowEarlier={noop} />);
+    expect(screen.getByRole('button', { name: /Show earlier/ })).toBeInTheDocument();
+  });
+
+  it('names the day it will show, never just "earlier"', () => {
+    render(
+      <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 10)]}
+        earlierDay="2026-07-03" onShowEarlier={noop} />
+    );
+    const button = screen.getByRole('button', { name: /Show earlier/ });
+    expect(button).toHaveTextContent('Show earlier (Friday, Jul 3)');
+    expect(button).toHaveAttribute('aria-label', 'Show earlier events, Friday, Jul 3');
+  });
+
+  it('calls onShowEarlier when clicked', () => {
+    const onShowEarlier = vi.fn();
+    render(
+      <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 10)]}
+        earlierDay="2026-07-03" onShowEarlier={onShowEarlier} />
+    );
+    screen.getByRole('button', { name: /Show earlier/ }).click();
+    expect(onShowEarlier).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores scroll position across the prepend', () => {
+    const groups = [group('2026-07-05', 10)];
+    setScrollHeight(2000);
+    (window as unknown as { scrollY: number }).scrollY = 900;
+
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups}
+        earlierDay="2026-07-03" onShowEarlier={noop} />
+    );
+    screen.getByRole('button', { name: /Show earlier/ }).click();
+
+    // The page grows by 600px above the reader's position.
+    setScrollHeight(2600);
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-03', 8), ...groups]}
+        earlierDay="2026-07-02" onShowEarlier={noop} />
+    );
+
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 1500);
+  });
+
+  it('does not touch scroll position on an ordinary re-render', () => {
+    const groups = [group('2026-07-05', 10)];
+    setScrollHeight(2000);
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups}
+        earlierDay="2026-07-03" onShowEarlier={noop} />
+    );
+
+    setScrollHeight(2600);
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={[...groups, group('2026-07-06', 5)]}
+        earlierDay="2026-07-03" onShowEarlier={noop} />
+    );
+
+    expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('corrects scroll only once per click', () => {
+    const groups = [group('2026-07-05', 10)];
+    setScrollHeight(2000);
+    (window as unknown as { scrollY: number }).scrollY = 900;
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups}
+        earlierDay="2026-07-03" onShowEarlier={noop} />
+    );
+    screen.getByRole('button', { name: /Show earlier/ }).click();
+
+    setScrollHeight(2600);
+    const prepended = [group('2026-07-03', 8), ...groups];
+    rerender(<EventListWindowed {...baseProps} groupedEvents={prepended} earlierDay="2026-07-02" onShowEarlier={noop} />);
+    setScrollHeight(3000);
+    rerender(<EventListWindowed {...baseProps} groupedEvents={[...prepended, group('2026-07-06', 5)]} earlierDay="2026-07-02" onShowEarlier={noop} />);
+
+    expect(window.scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgets a pending correction when the filters change under it', () => {
+    const groups = [group('2026-07-05', 10)];
+    setScrollHeight(2000);
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups}
+        earlierDay="2026-07-03" onShowEarlier={noop} />
+    );
+    screen.getByRole('button', { name: /Show earlier/ }).click();
+
+    setScrollHeight(2600);
+    rerender(
+      <EventListWindowed {...baseProps} resetKey="k2" groupedEvents={[group('2026-08-01', 4)]}
+        earlierDay={null} />
+    );
+
+    expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+});
