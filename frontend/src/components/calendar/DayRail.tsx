@@ -42,15 +42,10 @@ export function DayRail({
 
   // Keep the highlighted chip in view as the reader scrolls the list. The
   // rail scrolls itself horizontally; it never scrolls the page.
-  //
-  // `?.` on the call itself, not just the lookup: jsdom (this repo's test
-  // environment) has no layout and does not define `scrollIntoView` on
-  // `HTMLElement` at all, so an unguarded call throws under test even when
-  // `el` is found. Real browsers always have the method.
   useEffect(() => {
     if (!anchorDay) return;
     const el = stripRef.current?.querySelector<HTMLElement>(`[data-chip="${anchorDay}"]`);
-    el?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+    el?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [anchorDay]);
 
   // Left/Right move focus along the rail, Home jumps to today. Focus only —

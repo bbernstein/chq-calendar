@@ -36,6 +36,17 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   });
 }
 
+// JSDOM does not implement Element.prototype.scrollIntoView — it has no
+// layout, so there is nothing for it to scroll to. Without a stub, any
+// component that calls it unconditionally (e.g. DayRail, useDayAnchor)
+// throws under test. A no-op on the prototype is enough: it makes the call
+// safe everywhere, and a test that actually cares whether scrolling
+// happened stubs `scrollIntoView` on its own element (an own-property
+// assignment shadows this prototype one), as useDayAnchor.test.ts does.
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 // Clean up between tests so DOM and storage don't bleed across cases.
 afterEach(() => {
   cleanup();
