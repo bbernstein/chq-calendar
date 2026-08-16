@@ -2660,8 +2660,12 @@ Write the failing test first. Append to
 ```tsx
 describe('revealDay', () => {
   it('mounts through to a day past the render window', () => {
-    // 20 single-event days: the initial 50-event fill stops well short of the
-    // end, so 2026-07-20 is in groupedEvents but not in the DOM.
+    // The fixture must genuinely leave the target unmounted, or the test
+    // passes with `revealDay` unimplemented. The initial fill walks forward
+    // until it has 50 events, so 20 days × 1 event mounts ALL of them and
+    // proves nothing. Use a builder with 5 events/day: the fill stops around
+    // day 10 and 2026-07-20 is in `groupedEvents` with no DOM node. The first
+    // assertion below pins that precondition rather than assuming it.
     const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
     const { container, rerender } = render(
       <EventList {...baseProps} groupedEvents={makeGroups(keys)} resetKey="k" />
@@ -2716,7 +2720,9 @@ Then add the prop to `frontend/src/components/calendar/EventList.tsx`. In
   revealDay?: string | null;
 ```
 
-and immediately after the existing latch effect:
+and **after `endIdx` is declared** — not immediately after the latch effect,
+which sits textually above `endIdx` and would put this in its temporal dead
+zone (`ReferenceError` at runtime):
 
 ```tsx
   useEffect(() => {
