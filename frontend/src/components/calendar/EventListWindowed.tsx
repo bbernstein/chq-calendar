@@ -5,23 +5,20 @@ import { formatDayLabel } from '@/lib/utils/dayWindow';
 import { EventListView, type EventListViewProps } from './EventListView';
 
 export interface EventListWindowedProps extends Omit<EventListViewProps, 'groups'> {
-  // NOTE: `earlierDay` and `onShowEarlier` below are declared now and wired
-  // in Task 5. Destructure them in this task even though they are unused, so
-  // they never reach the `...view` spread and land on `EventListView`.
   groupedEvents: DayGroup[];
   /** Identity of the non-window filters — see `renderResetKey`. */
   resetKey: string;
   /** True when the page has a later event day to widen the view window to. */
   canExpandEnd?: boolean;
   onExpandEnd?: () => void;
-  /** The previous event day, or null at the navigable start. (Task 5) */
+  /** The previous event day, or null at the navigable start. */
   earlierDay?: string | null;
   onShowEarlier?: () => void;
 }
 
-/** Whether the document is long enough to scroll at all. */
-function isPageScrollable(): boolean {
-  return document.documentElement.scrollHeight > window.innerHeight;
+/** Whether the reader has actually scrolled past something yet. */
+function readerHasScrolled(): boolean {
+  return window.scrollY > 0;
 }
 
 /**
@@ -63,7 +60,7 @@ export function EventListWindowed({
   // and re-anchoring on it would throw the reader back to the top of the list
   // on every auto-expand.
   const [anchor, setAnchor] = useState<{ key: string | null; resetKey: string }>(
-    { key: null, resetKey }
+    () => ({ key: null, resetKey })
   );
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -71,14 +68,24 @@ export function EventListWindowed({
   // it. Nothing has to clear it.
   const anchorKey = anchor.resetKey === resetKey ? anchor.key : null;
 
-  // Latch the initial fill as soon as there are groups to fill from.
+  // Latch the initial fill as soon as there are groups to fill from — and
+  // re-latch whenever the current anchor day has dropped out of
+  // `groupedEvents` without a filter change (a background events refresh
+  // that removes the anchor day entirely; rare, but possible with no
+  // `resetKey` change to signal it).
   //
   // Without this the anchor stays null until the first *downward* growth
   // step, and a reader who presses "Show earlier" before ever scrolling down
   // — an entirely ordinary first action — gets the initial fill re-run
   // against the newly prepended array, which unmounts days that were already
   // on screen and makes the scroll correction measure a document that grew at
-  // the top and shrank at the bottom.
+  // the top and shrank at the bottom. Gating on "the anchor is missing"
+  // rather than "the anchor is null" also covers the refresh case:
+  // `renderEndIndex` already falls back to the same initial fill when the
+  // anchor key isn't found, but with a non-null, non-missing `anchorKey`
+  // that fallback would otherwise never get written back into state, so the
+  // very next render re-derives the same collapsed fallback instead of
+  // keeping whatever the reader had already scrolled into.
   //
   // This effect cannot reintroduce the stale frame that killed the earlier
   // reset effect: it only ever writes the value the render already derived,
@@ -86,7 +93,9 @@ export function EventListWindowed({
   // And it always runs before any click can occur, since effects flush before
   // the browser hands the user back the main thread.
   useEffect(() => {
-    if (anchorKey !== null || groupedEvents.length === 0) return;
+    if (groupedEvents.length === 0) return;
+    const anchorIsPresent = anchorKey !== null && groupedEvents.some(g => g.key === anchorKey);
+    if (anchorIsPresent) return;
     const idx = renderEndIndex(groupedEvents, null);
     setAnchor({ key: groupedEvents[idx].key, resetKey });
   }, [anchorKey, groupedEvents, resetKey]);
@@ -148,10 +157,10 @@ export function EventListWindowed({
         setAnchor({ key: groupedEvents[nextIdx].key, resetKey });
         return;
       }
-      // Expensive half: ask the page for another day. Only from a page that
-      // can actually scroll — otherwise a short list would widen its own
+      // Expensive half: ask the page for another day. Only once the reader
+      // has actually scrolled — otherwise a short list would widen its own
       // window on mount, before the reader scrolled past anything.
-      if (canExpandEnd && onExpandEnd && isPageScrollable()) onExpandEnd();
+      if (canExpandEnd && onExpandEnd && readerHasScrolled()) onExpandEnd();
     }, { rootMargin: '200px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -173,13 +182,27 @@ export function EventListWindowed({
       )}
       <EventListView groups={visibleGroups} {...view} />
       {showSentinel && (
-        <div
-          ref={sentinelRef}
-          data-testid="event-list-sentinel"
-          className="text-center py-4 text-sm text-gray-500 dark:text-gray-400"
-        >
-          Loading more events...
-        </div>
+        // The sentinel stays mounted whenever there is anything left to
+        // grow into — it's what detects the scroll when it comes. But its
+        // label must not outrun what it can actually do: `hasMoreLoadedDays`
+        // means the cheap branch will fire immediately, so "Loading more
+        // events..." is true. When only `canExpandEnd` holds, the expensive
+        // branch is gated on the reader having scrolled — nothing is
+        // loading yet, so saying so would lie. Rendering an empty,
+        // `aria-hidden` marker with no vertical padding keeps the
+        // intersection target without a permanent "loading" message that
+        // never resolves and without leaving a visible gap.
+        hasMoreLoadedDays ? (
+          <div
+            ref={sentinelRef}
+            data-testid="event-list-sentinel"
+            className="text-center py-4 text-sm text-gray-500 dark:text-gray-400"
+          >
+            Loading more events...
+          </div>
+        ) : (
+          <div ref={sentinelRef} data-testid="event-list-sentinel" aria-hidden="true" />
+        )
       )}
     </div>
   );

@@ -115,7 +115,7 @@ export function dayKeys(from: DayKey, through: DayKey): DayKey[] {
  *
  * Half-open is also what the existing code already used, so most scopes need
  * no conversion: the week filter is `>= week.start && < week.end`, and
- * `localDateKey` equality is exactly `[startOfDay(d), startOfDay(d+1))`.
+ * `dayKeyOf` equality is exactly `[startOfDay(d), startOfDay(d+1))`.
  * Those bounds are carried through verbatim below.
  *
  * `startDay`/`endDay` are the navigation-facing projection: what a day rail
@@ -324,9 +324,12 @@ export function navigationTargets(
   if (!w) return { earlierDay: null, laterDay: null };
   let earlierDay: DayKey | null = null;
   let laterDay: DayKey | null = null;
+  // eventDays is sorted, so the last key below startDay wins (walk keeps
+  // overwriting earlierDay) and the first key above endDay wins (guarded by
+  // the null check so later keys don't overwrite it).
   for (const key of eventDays) {
-    if (key < w.startDay) earlierDay = key;          // eventDays is sorted, so
-    else if (key > w.endDay && laterDay === null) laterDay = key;  // last wins / first wins
+    if (key < w.startDay) earlierDay = key;
+    else if (key > w.endDay && laterDay === null) laterDay = key;
   }
   return { earlierDay, laterDay };
 }

@@ -1,17 +1,51 @@
 # Cross-platform date navigation — design
 
 **Status:** Phases 0, 1a, and 1b are merged and live on `main`. Phase 2 (web
-bidirectional render window + edge expansion) is implemented and merged
-behind `VITE_NAV_V2`, which is unset (off) in CI and in the deploy workflow —
-production behaviour is unchanged. The flag-on browser pass (12 numbered
-checks) is clean: an earlier pass caught the render-window anchor staying
-`null` until the first downward growth step, which let a "Show earlier"
-click before any scrolling silently unmount already-rendered later days —
-fixed by latching the initial fill into the anchor as soon as there are
-groups to fill from, with a jsdom regression test and a re-verified browser
-pass backing the fix (see the plan's Task 7 fix round for both). Flipping
-the flag on is phase 3's first act, alongside the sticky-stacking rail this
-phase deliberately deferred. Supersedes the design sections of issues
+bidirectional render window + edge expansion) is implemented on
+`feat/date-nav-phase-2-web-render-window`, shipping behind `VITE_NAV_V2`,
+which is unset (off) in CI and in the deploy workflow — production behaviour
+is unchanged. There is no PR yet.
+
+The flag-on browser pass passes all 12 checks, with one recorded residual: a
+~55–59px scroll drift per "Show earlier" click, deferred to phase 3 (root
+cause and durable fix below). An earlier pass caught the render-window
+anchor staying `null` until the first downward growth step, which let a
+"Show earlier" click before any scrolling silently unmount already-rendered
+later days — fixed by latching the initial fill into the anchor as soon as
+there are groups to fill from (and re-latching whenever the anchor day
+drops out of `groupedEvents` without a filter change), with jsdom regression
+tests and a re-verified browser pass backing the fix (see the plan's Task 7
+fix rounds for both).
+
+**Root cause of the ~55–59px residual, corrected** (the theory recorded in
+the first Task 7 fix round — a re-render of the "Show earlier" button's own
+label — is wrong and should not be carried into phase 3: a label changing
+from "(Saturday, Aug 15)" to "(Friday, Aug 14)" changes no box height, so
+the button's own re-render cannot be it). The scroll correction in
+`EventListWindowed.tsx` compares `document.documentElement.scrollHeight`
+before and after the prepend and scrolls by the difference. That comparison
+implicitly assumes two things that are not guaranteed: that every height
+change between the two measurements happened *above* the reader, and that
+all of it had *already landed* by the time the layout effect runs and takes
+its "after" measurement. Neither holds in general — the instrumented
+evidence is `scrollTo(0, 1053)` computed against a `scrollHeight` of 7618,
+while the document measured ~7677 about 300ms later, i.e. ~59px of height
+change the correction never saw.
+
+**Durable fix for phase 3 (recorded, not implemented in phase 2):** stop
+measuring total document height and instead track a stable reference node
+directly — capture `getBoundingClientRect().top` of a specific on-screen
+element before the click, and in the layout effect call
+`window.scrollBy(0, newTop - oldTop)` on that same node. This is correct
+regardless of what else changes height (above, below, or asynchronously
+after the measurement), and it stays correct when phase 3 adds a sticky day
+rail above the day headers — a change that makes the total-height approach
+worse, not better, since the rail is exactly the kind of height change that
+isn't simply "everything above the reader."
+
+Flipping the flag on is phase 3's first act, alongside the sticky-stacking
+rail this phase deliberately deferred and the scroll-correction rewrite
+above. Supersedes the design sections of issues
 [#225](https://github.com/bbernstein/chq-calendar/issues/225) (web) and
 [#226](https://github.com/bbernstein/chq-calendar/issues/226) (iOS), which
 remain the authoritative record of the *problem* and of the code archaeology

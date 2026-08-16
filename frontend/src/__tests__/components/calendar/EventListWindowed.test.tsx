@@ -26,13 +26,20 @@ const baseProps = {
   resetKey: 'k1',
 };
 
-/** jsdom reports zero layout; the component only auto-expands a scrollable page. */
-function setPageScrollable(scrollable: boolean) {
-  Object.defineProperty(document.documentElement, 'scrollHeight', {
+/**
+ * Whether the reader has scrolled — jsdom starts every test at `scrollY 0`,
+ * so this is the thing the expensive-expansion guard actually checks, not a
+ * geometry proxy for it. `document.documentElement.scrollHeight` and
+ * `window.innerHeight` both read 0 in jsdom regardless, which is exactly why
+ * a guard built on them can pass for a reason that has nothing to do with
+ * scrolling.
+ */
+function setReaderScrolled(scrolled: boolean) {
+  Object.defineProperty(window, 'scrollY', {
     configurable: true,
-    value: scrollable ? 5000 : 100,
+    writable: true,
+    value: scrolled ? 500 : 0,
   });
-  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 });
 }
 
 describe('EventListWindowed', () => {
@@ -40,7 +47,7 @@ describe('EventListWindowed', () => {
 
   beforeEach(() => {
     io = installIntersectionObserverMock();
-    setPageScrollable(true);
+    setReaderScrolled(true);
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -101,11 +108,38 @@ describe('EventListWindowed', () => {
     expect(container.querySelector('[data-testid="event-list-sentinel"]')).toBeNull();
   });
 
-  it('does not auto-expand a page that cannot scroll', () => {
-    // Content shorter than the viewport means the reader never scrolled past
-    // anything. Auto-expanding here would silently turn a three-event
-    // "Today" into "Today and tomorrow" before the reader touched a thing.
-    setPageScrollable(false);
+  it('labels the sentinel "Loading more events..." only while a cheap step can actually mount something', () => {
+    const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
+    render(<EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />);
+    // day2 is loaded but not yet rendered — the cheap branch has something
+    // to do the moment the sentinel intersects, so the label is honest.
+    expect(screen.getByText('Loading more events...')).toBeInTheDocument();
+  });
+
+  it('renders an empty, aria-hidden sentinel with no text and no padding while the expensive step is blocked', () => {
+    // canExpandEnd is true but nothing loaded remains AND the reader has not
+    // scrolled — the sentinel must stay mounted (it's what detects the
+    // scroll when it comes), but "Loading more events..." would be a lie:
+    // nothing is loading, and won't until the reader scrolls. A permanent,
+    // unresolving "loading" message reads as broken, not as blocked.
+    setReaderScrolled(false);
+    const groups = [group('2026-07-05', 3)];
+    const { container } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />
+    );
+    expect(screen.queryByText('Loading more events...')).not.toBeInTheDocument();
+    const sentinel = container.querySelector('[data-testid="event-list-sentinel"]');
+    expect(sentinel).not.toBeNull();
+    expect(sentinel).toHaveAttribute('aria-hidden', 'true');
+    expect(sentinel?.textContent).toBe('');
+    expect(sentinel?.className).not.toMatch(/py-4/);
+  });
+
+  it('does not auto-expand before the reader has scrolled', () => {
+    // A reader who has not scrolled yet has not looked past anything.
+    // Auto-expanding here would silently turn a three-event "Today" into
+    // "Today and tomorrow" before the reader touched a thing.
+    setReaderScrolled(false);
     const onExpandEnd = vi.fn();
     render(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 3)]} canExpandEnd onExpandEnd={onExpandEnd} />);
 
@@ -114,13 +148,13 @@ describe('EventListWindowed', () => {
     expect(onExpandEnd).not.toHaveBeenCalled();
   });
 
-  it('still mounts more loaded days on a page that cannot scroll', () => {
-    // The scrollable-page guard belongs to the expensive step only. Without
+  it('still mounts more loaded days before the reader has scrolled', () => {
+    // The scrolled-reader guard belongs to the expensive step only. Without
     // this case, an implementation that wrapped BOTH steps in the guard would
-    // pass every other test in this file, because they all force a scrollable
-    // page — and the list would refuse to grow into days it had already
-    // loaded whenever the viewport was taller than the content.
-    setPageScrollable(false);
+    // pass every other test in this file, because they all start with a
+    // scrolled reader — and the list would refuse to grow into days it had
+    // already loaded whenever the reader hadn't scrolled yet.
+    setReaderScrolled(false);
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
     render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
@@ -128,6 +162,93 @@ describe('EventListWindowed', () => {
     io.trigger();
 
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+  });
+
+  it('tears down and recreates the observer across two consecutive growth cycles, alternating cheap and expensive', () => {
+    // Every other test in this file fires io.trigger() exactly once, so the
+    // tear-down/recreate-so-a-still-intersecting-sentinel-refires mechanism
+    // — the engine of the whole feature — is never exercised twice. This
+    // walks it through cheap growth, then the expensive step, then cheap
+    // growth again once the page responds by widening groupedEvents, and
+    // checks the observer is actually recreated at each dependency change
+    // rather than reused stale.
+    const onExpandEnd = vi.fn();
+    const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />
+    );
+    // Initial fill: day1 alone (60) already clears the batch, so only day1
+    // is mounted and day2 is still "loaded but not rendered" — the cheap
+    // branch has somewhere to go.
+    expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
+    expect(io.totalCreated).toBe(1);
+
+    // Cycle 1: cheap. Mounts day2, which is everything currently loaded, so
+    // the sentinel's meaning flips to "ask for more" and its dependencies
+    // change — the observer must be torn down and recreated for the next
+    // trigger to reach the still-intersecting sentinel at all.
+    io.trigger();
+    expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+    expect(onExpandEnd).not.toHaveBeenCalled();
+    expect(io.totalCreated).toBe(2);
+    expect(io.liveCount).toBe(1);
+
+    // Cycle 2: expensive. Nothing loaded remains, so this asks the page to
+    // widen the view window instead of mounting anything.
+    io.trigger();
+    expect(onExpandEnd).toHaveBeenCalledTimes(1);
+
+    // The page responds to onExpandEnd by widening groupedEvents (what
+    // page.tsx does for real) — a new day is now loaded but not rendered.
+    const widened = [...groups, group('2026-07-07', 20)];
+    rerender(<EventListWindowed {...baseProps} groupedEvents={widened} canExpandEnd onExpandEnd={onExpandEnd} />);
+    expect(screen.queryByText('Day 2026-07-07')).not.toBeInTheDocument();
+
+    // Cycle 3: cheap again. The alternation is cheap → expensive → cheap,
+    // not stuck on one branch or on a disconnected observer.
+    io.trigger();
+    expect(screen.getByText('Day 2026-07-07')).toBeInTheDocument();
+    expect(onExpandEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not jump back to a stale deep anchor when a vanished day reappears', () => {
+    // A background events refresh can drop the anchor day without any
+    // filter change (same resetKey) — renderEndIndex's own fallback
+    // handles that fine for the render it happens on. What it can't fix by
+    // itself is what happens if that same day key reappears in a LATER
+    // refresh: if the anchor is only latched to null (never to "the key is
+    // missing"), the stale anchor stays exactly the vanished day's key
+    // forever, and the moment that key is valid again, `renderEndIndex`
+    // finds it directly and jumps the render window straight back to the
+    // deep position — with no scroll, no growth trigger, nothing the
+    // reader did. Latching on "missing", not just "null", fixes the anchor
+    // to the fallback day as soon as the original vanishes, so a later
+    // reappearance of the old key doesn't resurrect it.
+    const groups = [
+      group('2026-07-05', 60), group('2026-07-06', 5),
+      group('2026-07-07', 5), group('2026-07-08', 40),
+    ];
+    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    io.trigger(); // cheap growth: anchors on day 07-08, mounting everything
+    expect(screen.getByText('Day 2026-07-08')).toBeInTheDocument();
+
+    // Background refresh: the current anchor day (07-08) vanishes. Same
+    // resetKey — this is not a filter change.
+    const withoutAnchorDay = [group('2026-07-05', 60), group('2026-07-06', 5), group('2026-07-07', 5)];
+    rerender(<EventListWindowed {...baseProps} groupedEvents={withoutAnchorDay} />);
+    expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
+
+    // Background refresh: the day reappears under the same key, e.g. a
+    // transient sync blip resolves. Still the same resetKey, still no
+    // growth trigger, still nothing the reader did.
+    const anchorDayReturns = [
+      group('2026-07-05', 60), group('2026-07-06', 5),
+      group('2026-07-07', 5), group('2026-07-08', 40),
+    ];
+    rerender(<EventListWindowed {...baseProps} groupedEvents={anchorDayReturns} />);
+
+    expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
+    expect(screen.queryByText('Day 2026-07-08')).not.toBeInTheDocument();
   });
 
   it('re-anchors on a filter change even when the day groups are rebuilt', () => {
@@ -235,7 +356,6 @@ describe('EventListWindowed — showing earlier days', () => {
     // installed because the component constructs an observer whenever a
     // sentinel renders, and jsdom provides no constructor to construct.
     installIntersectionObserverMock();
-    setPageScrollable(true);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0, writable: true });
   });

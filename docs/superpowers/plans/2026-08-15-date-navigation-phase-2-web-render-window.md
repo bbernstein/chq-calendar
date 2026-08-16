@@ -2249,6 +2249,23 @@ floor.
   the fix, pass after) and a re-verified browser pass — see the fix-round
   appendix in task-7-report.md for the numbers. Check 6 now passes.
 
+  **Whole-branch review fix wave (task-7-report.md, "Fix wave" section)**:
+  4 Important + 5 Minor findings, all addressed. Notably: check 5's original
+  pass was for the wrong reason (`isPageScrollable()` was true on page
+  chrome alone; the real block was `canExpandEnd=false`, since "Movies" has
+  no later-day events) — replaced with `readerHasScrolled()`
+  (`window.scrollY > 0`) and re-verified against a category that genuinely
+  has later-day events, confirming the real mechanism this time (with one
+  honestly-reported edge case: a list barely taller than the viewport can't
+  retrigger growth by scrolling within it, since the sentinel's
+  intersection state never changes again once it's already intersecting at
+  mount). Also fixed: a blocked sentinel no longer shows a permanent
+  "Loading more events…"; `eventHelpers.ts`'s day-key format is no longer a
+  second implementation of `dayWindow.ts`'s; the spec's status line no
+  longer claims "merged" (no PR yet) or a clean browser pass (one residual
+  is recorded); the residual's root cause is corrected and the durable fix
+  recorded for phase 3.
+
 ```bash
 cd frontend && VITE_NAV_V2=true npm run dev
 ```
