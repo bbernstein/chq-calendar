@@ -375,3 +375,62 @@ export function formatDayRange(from: DayKey, through: DayKey): string {
   if (from === through) return fmt(from);
   return `${fmt(from)} – ${fmt(through)}`;
 }
+
+/**
+ * The shape `eventCountsByDay` needs from a day group.
+ *
+ * Declared structurally rather than importing `DayGroup`: `eventHelpers.ts`
+ * already imports `dayKeyOf` from this module, so importing back the other
+ * way would make a cycle. `DayGroup` satisfies this without either module
+ * having to know the other exists.
+ */
+export interface DayCountable {
+  key: DayKey;
+  events: unknown[];
+}
+
+/** One day on the rail. */
+export interface DayChip {
+  key: DayKey;
+  /** `'Sat'` */
+  weekday: string;
+  /** `'4'` — no leading zero; this is display text, not a key. */
+  dayOfMonth: string;
+  /** `'Jul'` on the first chip and whenever the month changes; else `null`. */
+  month: string | null;
+  /** Matching events on that day under the current non-date filters. */
+  count: number;
+  /** The full accessible name — labelled by target, never by direction. */
+  label: string;
+}
+
+/** How many events each day group holds, by day key. */
+export function eventCountsByDay(groups: DayCountable[]): Map<DayKey, number> {
+  const counts = new Map<DayKey, number>();
+  for (const group of groups) counts.set(group.key, group.events.length);
+  return counts;
+}
+
+export function dayChips(days: DayKey[], countsByDay: Map<DayKey, number>): DayChip[] {
+  let lastMonth: string | null = null;
+  return days.map((key) => {
+    const date = startOfDay(key);
+    const month = date.toLocaleDateString('en-US', { month: 'short' });
+    // The month rides the first chip and every change after it — without the
+    // first-chip rule a rail scrolled to mid-July would show no month at all,
+    // which is exactly the disorientation the rail exists to fix.
+    const showMonth = month !== lastMonth;
+    lastMonth = month;
+    const count = countsByDay.get(key) ?? 0;
+    const spoken = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const events = count === 0 ? 'no events' : count === 1 ? '1 event' : `${count} events`;
+    return {
+      key,
+      weekday: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      dayOfMonth: String(date.getDate()),
+      month: showMonth ? month : null,
+      count,
+      label: `Go to ${spoken}, ${events}`,
+    };
+  });
+}

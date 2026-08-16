@@ -14,6 +14,8 @@ import {
   navigationTargets,
   formatDayLabel,
   formatDayRange,
+  dayChips,
+  eventCountsByDay,
 } from '@/lib/utils/dayWindow';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import type { Event } from '@/lib/types';
@@ -569,5 +571,63 @@ describe('formatDayRange', () => {
 
   it('returns an empty string for an inverted range rather than a nonsense one', () => {
     expect(formatDayRange('2026-07-09', '2026-07-04')).toBe('');
+  });
+});
+
+describe('dayChips', () => {
+  const counts = new Map([['2026-07-04', 12], ['2026-08-01', 3]]);
+
+  it('shows the month on the first chip', () => {
+    expect(dayChips(['2026-07-04'], counts)[0].month).toBe('Jul');
+  });
+
+  it('omits the month while it has not changed', () => {
+    const chips = dayChips(['2026-07-04', '2026-07-05'], counts);
+    expect(chips[1].month).toBeNull();
+  });
+
+  it('shows the month again when it changes', () => {
+    const chips = dayChips(['2026-07-31', '2026-08-01'], counts);
+    expect(chips[1].month).toBe('Aug');
+  });
+
+  it('carries the weekday abbreviation and day of month', () => {
+    const [chip] = dayChips(['2026-07-04'], counts);
+    expect(chip.weekday).toBe('Sat');
+    expect(chip.dayOfMonth).toBe('4');
+  });
+
+  it('carries the count of matching events', () => {
+    expect(dayChips(['2026-07-04'], counts)[0].count).toBe(12);
+  });
+
+  it('reports zero for a day with no matching events', () => {
+    expect(dayChips(['2026-07-06'], counts)[0].count).toBe(0);
+  });
+
+  // Controls are labelled by target, never by direction — "next" tells a
+  // screen-reader user nothing about where they are going.
+  it('labels a chip by its target and its count', () => {
+    expect(dayChips(['2026-07-04'], counts)[0].label).toBe('Go to Saturday, July 4, 12 events');
+  });
+
+  it('says so when the target day has no matches', () => {
+    expect(dayChips(['2026-07-06'], counts)[0].label).toBe('Go to Monday, July 6, no events');
+  });
+
+  it('uses the singular for exactly one event', () => {
+    expect(dayChips(['2026-08-01'], new Map([['2026-08-01', 1]]))[0].label)
+      .toBe('Go to Saturday, August 1, 1 event');
+  });
+});
+
+describe('eventCountsByDay', () => {
+  it('counts each day group’s events under its key', () => {
+    const counts = eventCountsByDay([
+      { key: '2026-07-04', events: [{}, {}] },
+      { key: '2026-07-05', events: [{}] },
+    ]);
+    expect(counts.get('2026-07-04')).toBe(2);
+    expect(counts.get('2026-07-05')).toBe(1);
   });
 });
