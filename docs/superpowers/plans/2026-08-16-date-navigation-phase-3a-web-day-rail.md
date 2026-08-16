@@ -67,8 +67,14 @@ Every task's requirements implicitly include this section.
 - **Verification before every commit**, from `frontend/`:
   `npm run build` (runs `validate` = type-check + lint, then tests, then bundle).
   Frontend `lint` does not fail on warnings, but do not add new ones.
-- **jsdom has no layout.** `getBoundingClientRect()` returns all-zero rects and
-  `scrollIntoView` is a no-op. Every test that depends on geometry must stub it
+- **jsdom has no layout.** `getBoundingClientRect()` returns all-zero rects, and
+  `scrollIntoView` is **not implemented at all** — calling it throws rather than
+  no-oping. `frontend/src/__tests__/setup.ts` carries a guarded
+  `HTMLElement.prototype.scrollIntoView` no-op for that reason, in the same
+  form as its existing `matchMedia` polyfill. Never work around this in
+  production code: an `?.()` on the call is untestable in a real browser and
+  would silently disable the behaviour if the method were ever genuinely
+  missing. Every test that depends on geometry must stub it
   explicitly. A test that would pass whether or not the code works is worse than
   no test — three such tests shipped in phase 2. Where a behaviour is only
   observable in a real browser, the plan says so and routes it to Task 12
