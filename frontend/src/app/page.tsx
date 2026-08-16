@@ -194,7 +194,6 @@ function HomeContent() {
     filters.selectedTags, filters.toggleTag,
     filters.showFavoritesOnly, filters.toggleFavoritesOnly,
   ]);
-  const isThisWeekActive = filters.dateFilter === 'this-week' || (currentWeekNumber !== null && filters.selectedWeeks.length === 1 && filters.selectedWeeks[0] === currentWeekNumber);
   const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => isSelected || (filters.dateFilter === 'this-week' && currentWeekNumber === weekNumber);
 
   return (
@@ -214,8 +213,8 @@ function HomeContent() {
             <DateFilter
               dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
               selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
-              currentWeekNumber={currentWeekNumber} seasonWeeks={seasonWeeks}
-              isThisWeekButtonActive={isThisWeekActive} weekDrag={weekDrag}
+              seasonWeeks={seasonWeeks}
+              weekDrag={weekDrag}
               isWeekHighlighted={isWeekHighlighted}
               showFavoritesOnly={filters.showFavoritesOnly}
               onToggleFavoritesOnly={filters.toggleFavoritesOnly}
