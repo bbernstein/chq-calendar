@@ -193,7 +193,12 @@ export function EventListWindowed({
 
   useLayoutEffect(() => {
     const pending = pendingPrependRef.current;
-    if (!pending) return;
+    // A settle window belongs to the one prepend that armed it. Any commit
+    // that does not produce a fresh correction — no pending correction at
+    // all, a filter change instead of a prepend, or a reference day that's
+    // gone — ends it too, rather than leaving it armed to fight whatever
+    // legitimate layout change this different commit brings.
+    if (!pending) { settleRef.current = null; return; }
     pendingPrependRef.current = null;
     // A filter change that landed between the click and the prepend means
     // this is a different list, and correcting against the old one would
@@ -201,11 +206,11 @@ export function EventListWindowed({
     // for. The reset effect cannot do this cancelling for us: layout
     // effects run before passive effects in the same commit, so by the time
     // it fired the correction would already be on screen.
-    if (pending.resetKey !== resetKey) return;
+    if (pending.resetKey !== resetKey) { settleRef.current = null; return; }
     const top = daySectionTop(pending.key);
     // The reference day left the list — a background refresh, not a
     // prepend. Correcting against a node that is gone is guesswork.
-    if (top === null) return;
+    if (top === null) { settleRef.current = null; return; }
     const delta = top - pending.top;
     if (delta !== 0) window.scrollBy(0, delta);
     // Hold this position against late height changes until the reader

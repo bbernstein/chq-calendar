@@ -644,6 +644,14 @@ describe('upward prepend scroll correction', () => {
     // install their own via `installResizeObserverMock()`, which simply
     // replaces this stub before render.
     installResizeObserverMock();
+    // `stubLayout`'s `top` is relative to `window.scrollY`, and individual
+    // tests below set it (some to a nonzero constant, one partway through
+    // to simulate a real `scrollBy` call). Resetting it here, rather than
+    // relying on each test to clean up after itself, is what stops one
+    // test's `scrollY` from leaking into the next — a delta between two
+    // measurements at the same `scrollY` cancels it out, so most tests here
+    // never noticed, but a test that changes `scrollY` mid-run does.
+    Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true });
   });
 
   afterEach(() => {
@@ -724,13 +732,6 @@ describe('upward prepend scroll correction', () => {
   });
 
   it('re-corrects when the prepended region changes height after the commit', async () => {
-    // `stubLayout`'s `top` is relative to `window.scrollY`, and an earlier
-    // test in this block (deliberately) leaves it at a nonzero value with no
-    // reset — harmless there, since a delta between two measurements at the
-    // same `scrollY` cancels it out, but this test computes a delta against
-    // a `scrollY` it deliberately changes partway through, so it needs its
-    // own known starting point rather than whatever a sibling left behind.
-    Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true });
     stubLayout(100);
     const scrollBy = vi.fn();
     vi.stubGlobal('scrollBy', scrollBy);
@@ -789,6 +790,48 @@ describe('upward prepend scroll correction', () => {
     stubLayout(70);
     resize.trigger();
 
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('does not hold a stale settle window through a later filter change', () => {
+    stubLayout(100);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const resize = installResizeObserverMock();
+
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+        resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
+        resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
+    );
+    expect(scrollBy).toHaveBeenCalledWith(0, 100);
+    scrollBy.mockClear();
+
+    // A filter change lands next — not a prepend, but the reference day
+    // (2026-07-02) survives it anyway, now second rather than first. This
+    // commit's `pendingPrependRef` is already null (consumed by the
+    // correction above), so the layout effect takes the `!pending` branch —
+    // the one a settle window armed by a DIFFERENT commit must not survive.
+    // The reference day's own `top` genuinely differs from the held target
+    // now (idx 1, not idx 0): a settle window that outlived its commit would
+    // "correct" this into a wrong, unrequested scroll.
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-06-15', '2026-07-02'])}
+        resetKey="k2" earlierDay={null} onShowEarlier={() => {}} />
+    );
+
+    // A settle window scoped to the prepend that armed it leaves nothing
+    // alive after a commit that didn't renew it — the effect's own cleanup
+    // tears down the old observer either way, but only a correctly-cleared
+    // `settleRef` stops a new one from being built on the stale target.
+    expect(resize.liveCount).toBe(0);
+    // Belt and suspenders: even if something were still live, firing it
+    // must not move the reader.
+    if (resize.liveCount > 0) resize.trigger();
     expect(scrollBy).not.toHaveBeenCalled();
   });
 });
