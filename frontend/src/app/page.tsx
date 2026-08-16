@@ -169,10 +169,6 @@ function HomeContent() {
     [navEventDays, dateWindow]
   );
 
-  const showEarlier = useCallback(() => {
-    if (earlierDay) filters.expandWindowStart(earlierDay);
-  }, [earlierDay, filters.expandWindowStart]);
-
   const expandEnd = useCallback(() => {
     if (laterDay) filters.expandWindowEnd(laterDay);
   }, [laterDay, filters.expandWindowEnd]);
@@ -211,8 +207,25 @@ function HomeContent() {
   // pending-scroll effect below now checks the DOM directly instead of
   // trusting `groupedEvents` membership as a proxy for "mounted".)
   const windowDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
-  const { anchorDay, scrollToDay } = useDayAnchor(windowDayKeys);
+  const { anchorDay, scrollToDay, cancelHold } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
+
+  // Declared here rather than beside `expandEnd` above, where it would read
+  // more naturally: it needs `cancelHold`, and a `const` referenced before
+  // its declaration is a TDZ ReferenceError.
+  const showEarlier = useCallback(() => {
+    if (!earlierDay) return;
+    // Explicit reader intent supersedes a pending rail hold, in BOTH
+    // directions. `EventList`'s `revealDay` effect already drops its prepend
+    // hold when a rail navigation starts; this is the mirror that was
+    // missing. Without it the prepend's height change fires
+    // `useDayAnchor`'s ResizeObserver, whose reassert yanks the old rail
+    // target back and cancels the prepend correction — and a mouse click on
+    // "Show earlier" fires none of the wheel/touch/key gestures that would
+    // otherwise have ended the hold.
+    cancelHold();
+    filters.expandWindowStart(earlierDay);
+  }, [earlierDay, cancelHold, filters.expandWindowStart]);
 
   // Only when today is somewhere navigation can actually reach. Off-season
   // — most of the year — today sits outside `navBounds`, `railTarget`

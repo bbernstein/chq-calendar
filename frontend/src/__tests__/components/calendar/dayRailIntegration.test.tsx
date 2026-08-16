@@ -176,7 +176,7 @@ function Harness({ groupedEvents: initialGroups, earlierKey }: { groupedEvents: 
   const [groupedEvents, setGroupedEvents] = useState(initialGroups);
   const dayKeysList = groupedEvents.map(g => g.key);
   const bounds = { startDay: dayKeysList[0], endDay: dayKeysList[dayKeysList.length - 1] };
-  const { scrollToDay } = useDayAnchor(dayKeysList);
+  const { scrollToDay, cancelHold } = useDayAnchor(dayKeysList);
   const [pendingScroll, setPendingScroll] = useState<string | null>(null);
 
   const goToDay = useCallback((target: string) => {
@@ -187,8 +187,12 @@ function Harness({ groupedEvents: initialGroups, earlierKey }: { groupedEvents: 
 
   const showEarlier = useCallback(() => {
     if (!earlierKey) return;
+    // `page.tsx` cancels the rail hold here for the same reason it dispatches
+    // the expansion here: this is the click, and the click is the reader
+    // saying they want something else.
+    cancelHold();
     setGroupedEvents(prev => [group(earlierKey, 1), ...prev]);
-  }, [earlierKey]);
+  }, [earlierKey, cancelHold]);
 
   useEffect(() => {
     if (!pendingScroll) return;
@@ -299,5 +303,41 @@ describe('settle arbitration: a rail navigation supersedes a pending prepend hol
     // would mean the stale prepend hold fought it.
     expect(scrollBy).toHaveBeenCalledTimes(1);
     expect(scrollBy).toHaveBeenCalledWith(0, -50);
+  });
+
+  // The same race in the other order, which nothing arbitrated: the rail
+  // hold outlived the navigation that armed it (set up in a `useEffect(...,
+  // [])`, cleared only by wheel/touchstart/keydown or its target leaving the
+  // DOM), so a later "Show earlier" — a mouse click, which fires none of
+  // those — armed the prepend correction alongside it. The prepend's own
+  // height change is what fires the observers, so the rail's reassert then
+  // cancelled the very correction this branch worked hardest to make exact.
+  it('lets a later prepend keep its own correction, unfought by the rail hold', () => {
+    installIntersectionObserverMock();
+    const resize = installResizeObserverMock();
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+
+    const { getByRole } = render(
+      <Harness groupedEvents={makeGroups(keys)} earlierKey="2026-06-30" />
+    );
+
+    // Arm useDayAnchor's hold on 2026-07-20 via a rail navigation.
+    fireEvent.click(getByRole('button', { name: 'Go' }));
+    // Then, with no intervening wheel/touchstart/keydown, prepend.
+    fireEvent.click(getByRole('button', { name: /show earlier/i }));
+    scrollBy.mockClear();
+
+    // Content above the prepend's reference day (2026-07-01, held at its
+    // arm-time top of 0) grew; the rail's stale target (2026-07-20) would
+    // meanwhile compute 0 - 50 = -50 and drag the reader off it.
+    document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-01"]`)!
+      .getBoundingClientRect = () => ({ top: 300 }) as DOMRect;
+    resize.trigger();
+
+    expect(scrollBy).toHaveBeenCalledTimes(1);
+    expect(scrollBy).toHaveBeenCalledWith(0, 300);
   });
 });

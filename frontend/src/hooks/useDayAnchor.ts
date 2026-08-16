@@ -33,6 +33,7 @@ function stickyOffset(): number {
 export function useDayAnchor(windowDayKeys: string[]): {
   anchorDay: string | null;
   scrollToDay: (key: string) => void;
+  cancelHold: () => void;
 } {
   const [anchorDay, setAnchorDay] = useState<string | null>(null);
 
@@ -128,6 +129,21 @@ export function useDayAnchor(windowDayKeys: string[]): {
     settleRef.current = { key, top: stickyOffset() };
   }, []);
 
+  /**
+   * Drop the hold because the reader has asked for something else.
+   *
+   * The other direction of the arbitration `EventList`'s `revealDay` effect
+   * already performs: that effect clears `EventList`'s prepend hold whenever a
+   * rail navigation starts, but nothing cleared THIS hold when a prepend
+   * started, so "Show earlier" could arm its own correction while this one was
+   * still armed on a different day. The prepend changes document height, which
+   * fires the `ResizeObserver` below, whose reassert yanks the old rail target
+   * back and cancels the prepend correction. A mouse click on "Show earlier"
+   * fires none of the `wheel`/`touchstart`/`keydown` gestures that would
+   * otherwise end the hold, so it has to be ended explicitly.
+   */
+  const cancelHold = useCallback(() => { settleRef.current = null; }, []);
+
   // Holds the day `scrollToDay` last targeted at the sticky offset until it
   // stops moving or the reader takes over.
   //
@@ -140,15 +156,28 @@ export function useDayAnchor(windowDayKeys: string[]): {
   // `stickyOffset()`) — and because "scroll to a day, then hold it there" is
   // one operation, not two split across a hook and its caller.
   //
-  // Set up once for the hook's lifetime, not scoped to `windowDayKeys`:
-  // `scrollToDay` is called imperatively, at any time, not in response to a
-  // prop this hook receives — there is no natural dependency to key a
-  // per-call effect on the way `EventList` keys its own settle effect on
-  // `groupedEvents`. A `ResizeObserver` on `document.documentElement` is the
-  // broadest reasonable proxy for "the page's content changed height": this
-  // hook has no reference to the list's own scroll container the way
-  // `EventList` does, and a false-positive callback is harmless — `delta`
-  // resolves to 0 and nothing happens.
+  // A `ResizeObserver` on `document.documentElement` is the broadest
+  // reasonable proxy for "the page's content changed height": this hook has
+  // no reference to the list's own scroll container the way `EventList` does,
+  // and a false-positive callback is harmless — `delta` resolves to 0 and
+  // nothing happens.
+  //
+  // Keyed on `keysId`, and the hold is dropped in the cleanup, so it lives no
+  // longer than the day list it was armed against. `EventList`'s equivalent
+  // hold is commit-scoped — nulled on any commit that produces no fresh
+  // correction — while this one was set up in a `useEffect(..., [])` and
+  // cleared ONLY by `wheel`/`touchstart`/`keydown` or its target leaving the
+  // DOM. It therefore survived filter changes, scope changes and arbitrary
+  // elapsed time, and neither a scrollbar-thumb drag nor a mouse click fires
+  // any of those cancel gestures: a hold armed minutes ago could still
+  // arbitrate against a resize now. `keysId` is the closest equivalent bound
+  // available here — it changes on every filter change, scope change and
+  // window expansion, i.e. whenever the list this correction was computed
+  // against has become a different list. A cap on the number of reasserts
+  // was the alternative and is worse: the late growth this hold exists to
+  // absorb arrives in an unknown number of resize callbacks (that is the
+  // whole reason it is observed rather than scheduled), so any cap is a
+  // guess that would silently stop correcting mid-settle.
   useEffect(() => {
     const reassert = () => {
       const settle = settleRef.current;
@@ -172,12 +201,19 @@ export function useDayAnchor(windowDayKeys: string[]): {
     window.addEventListener('touchstart', stop, { passive: true });
     window.addEventListener('keydown', stop);
     return () => {
+      // The day list this hold was computed against is gone.
+      settleRef.current = null;
       observer.disconnect();
       window.removeEventListener('wheel', stop);
       window.removeEventListener('touchstart', stop);
       window.removeEventListener('keydown', stop);
     };
-  }, []);
+    // NOTE for humans, not a real eslint-disable — see the identical note on
+    // the measuring effect above for why a literal disable comment is an
+    // ESLint 9 error in this repo. `keysId` is the serialized form of
+    // `windowDayKeys`; the effect re-runs when the contents change rather
+    // than on every render that hands down a new array identity.
+  }, [keysId]);
 
-  return { anchorDay, scrollToDay };
+  return { anchorDay, scrollToDay, cancelHold };
 }
