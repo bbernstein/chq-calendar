@@ -843,6 +843,11 @@ describe('upward prepend scroll correction', () => {
   // fix is to skip only the observer, not the correction itself.
   it('does not throw when ResizeObserver is unavailable', () => {
     stubLayout(100);
+    // Blunt on purpose: this is the only way to reach a genuinely absent
+    // `ResizeObserver`, and it is safe here only because this test re-stubs
+    // everything it needs afterwards and depends on no global that shared
+    // setup stubs. If that ever stops being true, the assertion below is
+    // what fails first — it pins the premise rather than assuming it.
     vi.unstubAllGlobals();
     expect(typeof ResizeObserver).toBe('undefined');
     const scrollBy = vi.fn();
