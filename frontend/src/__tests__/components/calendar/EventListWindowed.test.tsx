@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { render, screen, act } from '@testing-library/preact';
 import { EventListWindowed } from '@/components/calendar/EventListWindowed';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
@@ -164,6 +164,54 @@ describe('EventListWindowed', () => {
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
   });
 
+  it('expands once the reader scrolls, even when the sentinel was already intersecting at mount', () => {
+    // The hole: IntersectionObserver only reports CHANGES in intersection.
+    // A list barely taller than the viewport has its sentinel inside the
+    // 200px rootMargin from the very first render — already intersecting
+    // before the reader has done anything. The one callback that fires gets
+    // refused (the reader hasn't scrolled), and because the sentinel never
+    // leaves and re-enters the intersection root, no second callback ever
+    // arrives — scrolling further within that short list does nothing,
+    // forever. `readerHasScrolled()` alone can't fix this: it's a function,
+    // not something the observer effect can depend on. Growth requires the
+    // observer to be torn down and recreated the moment "has the reader
+    // scrolled" flips, so a still-intersecting sentinel gets re-reported.
+    //
+    // Note on what actually discriminates here: `io.trigger()` re-invokes
+    // whatever the CURRENT live observer's callback closure is, and that
+    // callback reads `window.scrollY` fresh on every call — so a naive
+    // "set scrollY, trigger again, expect onExpandEnd" version of this test
+    // passes even against the OLD, un-fixed code, because the callback
+    // was never wrong about what it computed, only about whether it was
+    // ever invoked again by a real browser. The assertion that actually
+    // proves the fix is that a NEW observer gets created in response to the
+    // scroll — `totalCreated` incrementing with no `io.trigger()` involved
+    // — since dispatching a bare `scroll` event is exactly what a real
+    // reader scrolling does, and the old code has no scroll listener at
+    // all, so nothing would happen to it.
+    setReaderScrolled(false);
+    const onExpandEnd = vi.fn();
+    const groups = [group('2026-07-05', 3)];
+    render(<EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />);
+    const createdBeforeScroll = io.totalCreated;
+
+    io.trigger();
+    expect(onExpandEnd).not.toHaveBeenCalled();
+
+    // The reader scrolls. No manual re-trigger yet: a new observer must be
+    // created by the scroll alone, exactly as a real browser's `observe()`
+    // would re-report a still-intersecting sentinel on its own.
+    setReaderScrolled(true);
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+    expect(io.totalCreated).toBeGreaterThan(createdBeforeScroll);
+
+    // Complete the loop: the mock doesn't auto-fire on `observe()` the way
+    // a real IntersectionObserver does, so an explicit trigger stands in for
+    // that immediate re-report against the observer the scroll just created.
+    io.trigger();
+    expect(onExpandEnd).toHaveBeenCalledTimes(1);
+  });
+
   it('tears down and recreates the observer across two consecutive growth cycles, alternating cheap and expensive', () => {
     // Every other test in this file fires io.trigger() exactly once, so the
     // tear-down/recreate-so-a-still-intersecting-sentinel-refires mechanism
@@ -179,9 +227,15 @@ describe('EventListWindowed', () => {
     );
     // Initial fill: day1 alone (60) already clears the batch, so only day1
     // is mounted and day2 is still "loaded but not rendered" — the cheap
-    // branch has somewhere to go.
+    // branch has somewhere to go. The shared beforeEach starts the reader
+    // already scrolled, so mount itself contributes one extra
+    // teardown/recreate (hasScrolled flips false → true in the same effect
+    // flush) — track counts relative to that baseline rather than an
+    // absolute "1", which is the correct thing to assert either way: this
+    // test is about recreation happening at each dependency change, not
+    // about how many of those changes mounting itself causes.
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
-    expect(io.totalCreated).toBe(1);
+    const createdAtMount = io.totalCreated;
 
     // Cycle 1: cheap. Mounts day2, which is everything currently loaded, so
     // the sentinel's meaning flips to "ask for more" and its dependencies
@@ -190,7 +244,7 @@ describe('EventListWindowed', () => {
     io.trigger();
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
     expect(onExpandEnd).not.toHaveBeenCalled();
-    expect(io.totalCreated).toBe(2);
+    expect(io.totalCreated).toBe(createdAtMount + 1);
     expect(io.liveCount).toBe(1);
 
     // Cycle 2: expensive. Nothing loaded remains, so this asks the page to

@@ -16,11 +16,6 @@ export interface EventListWindowedProps extends Omit<EventListViewProps, 'groups
   onShowEarlier?: () => void;
 }
 
-/** Whether the reader has actually scrolled past something yet. */
-function readerHasScrolled(): boolean {
-  return window.scrollY > 0;
-}
-
 /**
  * The list under `VITE_NAV_V2`: a day-granular render window over the day
  * groups the view window produced, growing forward on its own.
@@ -112,6 +107,32 @@ export function EventListWindowed({
   const hasMoreLoadedDays = endIdx >= 0 && endIdx + 1 < groupedEvents.length;
   const showSentinel = groupedEvents.length > 0 && (hasMoreLoadedDays || !!canExpandEnd);
 
+  // Whether the reader has scrolled — tracked as state, not read as a plain
+  // function call, because `IntersectionObserver` only reports CHANGES in
+  // intersection. A list barely taller than the viewport has its sentinel
+  // inside the 200px `rootMargin` from the very first render, already
+  // intersecting before the reader has done anything: the one callback that
+  // fires gets refused below, and because the sentinel never leaves and
+  // re-enters the intersection root, no second callback ever arrives —
+  // scrolling further within that short list would do nothing, forever, if
+  // this were just a function the callback consulted. Making it state that
+  // the growth-observing effect below depends on means the observer is torn
+  // down and recreated the moment it flips, which re-reports the
+  // still-intersecting sentinel exactly as a fresh `observe()` call would.
+  const [hasScrolled, setHasScrolled] = useState(false);
+
+  useEffect(() => {
+    if (hasScrolled) return;
+    const onScroll = () => { if (window.scrollY > 0) setHasScrolled(true); };
+    // Passive: this listener must never delay a scroll.
+    window.addEventListener('scroll', onScroll, { passive: true });
+    // The page may already be scrolled when this mounts — a filter change on
+    // a scrolled page remounts nothing, but a remount on a restored scroll
+    // position would otherwise wait for a scroll that already happened.
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [hasScrolled]);
+
   // Growing the list upward pushes everything already on screen down by the
   // height of what was inserted. Measure before the change, correct after —
   // in a layout effect, so the correction lands before the browser paints
@@ -160,11 +181,11 @@ export function EventListWindowed({
       // Expensive half: ask the page for another day. Only once the reader
       // has actually scrolled — otherwise a short list would widen its own
       // window on mount, before the reader scrolled past anything.
-      if (canExpandEnd && onExpandEnd && readerHasScrolled()) onExpandEnd();
+      if (canExpandEnd && onExpandEnd && hasScrolled) onExpandEnd();
     }, { rootMargin: '200px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [showSentinel, hasMoreLoadedDays, endIdx, groupedEvents, canExpandEnd, onExpandEnd, resetKey]);
+  }, [showSentinel, hasMoreLoadedDays, endIdx, groupedEvents, canExpandEnd, onExpandEnd, resetKey, hasScrolled]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
