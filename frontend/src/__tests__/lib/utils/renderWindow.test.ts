@@ -140,6 +140,40 @@ describe('renderResetKey', () => {
       .not.toBe(renderResetKey({ ...base, selectedTags: ['a', 'b'] }));
   });
 
+  it('shares a key for search terms that are equivalent under searchEvents', () => {
+    // "Organ" and "organ " both reduce to the single search term "organ" —
+    // searchEvents is case-insensitive and a trailing space splits away to
+    // nothing — so they must not reset the render window against each other.
+    expect(renderResetKey({ ...base, searchTerm: 'Organ' }))
+      .toBe(renderResetKey({ ...base, searchTerm: 'organ ' }));
+  });
+
+  it('does not collide the empty search term with a whitespace-only one', () => {
+    // searchEvents special-cases '' to mean "no filter" (returns every
+    // event), but a whitespace-only term is truthy, produces zero search
+    // terms, and therefore matches nothing. They are opposites and must not
+    // share a reset key even though both normalize to the same empty term
+    // list under searchTermsOf.
+    expect(renderResetKey({ ...base, searchTerm: '' }))
+      .not.toBe(renderResetKey({ ...base, searchTerm: '   ' }));
+  });
+
+  it('does not collide a tab-separated term with a space-separated one', () => {
+    // searchEvents splits on a literal single space, not general whitespace,
+    // so "a\tb" is one search term and "a b" is two — genuinely different
+    // searches that must not share a reset key.
+    expect(renderResetKey({ ...base, searchTerm: 'a\tb' }))
+      .not.toBe(renderResetKey({ ...base, searchTerm: 'a b' }));
+  });
+
+  it('does not collide a search term that looks like a joined tag with the tag itself', () => {
+    // Before the tuple was serialized as one JSON value, a `'|'`-joined key
+    // let a search term shaped like the JSON encoding of an adjacent field
+    // collide with that field actually holding that value.
+    expect(renderResetKey({ ...base, searchTerm: 'x|["y"]', selectedTags: [] }))
+      .not.toBe(renderResetKey({ ...base, searchTerm: 'x', selectedTags: ['y'] }));
+  });
+
   it('ignores window state even when it is handed some', () => {
     // Reaching into the window fields is the single mistake that would make
     // every auto-expand reset scroll position. Assigning to a variable

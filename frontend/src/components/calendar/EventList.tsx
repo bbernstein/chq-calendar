@@ -44,13 +44,24 @@ export type EventListProps = EventListCommonProps &
 // absent. Narrowing on the whole `props` object (rather than destructuring
 // the union in the parameter list) is what lets the compiler track which arm
 // is active — a destructured parameter would widen `resetKey` back to
-// `string | undefined` and lose the guarantee. `dateFilter` is destructured
-// out explicitly rather than left in `...view` — it is a legacy concept the
-// windowed container's prop type does not declare, and a JSX spread carries
-// excess properties through without a type error.
+// `string | undefined` and lose the guarantee. Each arm destructures out
+// whatever the *other* arm's dispatch prop and common props are, rather
+// than leaving them in `...view` — a JSX spread carries excess properties
+// through without a type error, so an un-destructured prop would silently
+// ride into a container whose prop type doesn't declare it. In the windowed
+// arm that's `navV2`, `dateFilter`, `onShowNextDay` and `hasMoreDays` (none
+// declared on `EventListWindowedProps`); in the legacy arm it's just
+// `navV2` (`EventListLegacyProps` already declares the other three, and the
+// legacy container needs them).
 export function EventList(props: EventListProps) {
   if (props.navV2) {
-    const { resetKey, earlierDay, onShowEarlier, canExpandEnd, onExpandEnd, ...view } = props;
+    const {
+      navV2, dateFilter, onShowNextDay, hasMoreDays,
+      resetKey, earlierDay, onShowEarlier, canExpandEnd, onExpandEnd, ...view
+    } = props;
+    // Bound above only to keep them out of `...view` — see the comment
+    // above this function for why.
+    void navV2; void dateFilter; void onShowNextDay; void hasMoreDays;
     return (
       <EventListWindowed
         {...view}
@@ -62,7 +73,9 @@ export function EventList(props: EventListProps) {
       />
     );
   }
-  const { dateFilter, onShowNextDay, hasMoreDays, ...view } = props;
+  const { navV2, dateFilter, onShowNextDay, hasMoreDays, ...view } = props;
+  // `navV2` is bound above only to keep it out of `...view`.
+  void navV2;
   return (
     <EventListLegacy
       {...view}

@@ -1,10 +1,23 @@
 import type { Event } from '@/lib/types';
 
+/**
+ * The terms `searchEvents` actually matches on.
+ *
+ * Splits on a literal single space, not general whitespace — `"a\tb"` is one
+ * term while `"a b"` is two. Exported so callers that need to know whether
+ * two raw search strings are equivalent (e.g. a render-window reset key) use
+ * this instead of writing their own normalizer that could drift from what
+ * `searchEvents` actually does.
+ */
+export function searchTermsOf(term: string): string[] {
+  return term.toLowerCase().split(' ').filter(t => t.length > 0);
+}
+
 export function searchEvents(events: Event[], term: string): Event[] {
   if (!term) return events;
 
   // Create search terms array from the input term
-  const searchTerms = term.toLowerCase().split(' ').filter(t => t.length > 0);
+  const searchTerms = searchTermsOf(term);
 
   const scored = events.map(event => {
     // Ensure we're working with decoded strings for search

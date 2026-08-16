@@ -1,4 +1,5 @@
 import type { DayGroup } from '@/lib/utils/eventHelpers';
+import { searchTermsOf } from '@/lib/utils/searchHelpers';
 
 /**
  * How many events one growth step of the render window aims to add.
@@ -84,16 +85,33 @@ export interface RenderResetInput {
  *
  * `favoriteCount` participates only while favourites-only is on, because
  * that is the only mode in which starring changes which events are listed.
+ *
+ * Returns `JSON.stringify` of the whole tuple rather than a `'|'`-joined
+ * string. `searchTerm` is free-form user input; a plain join lets a search
+ * term collide with an adjacent JSON-encoded field (e.g. a tag list), which
+ * would silently suppress a reset. Serializing the tuple as one JSON value
+ * is unambiguous by construction.
+ *
+ * The search field is derived from `searchTermsOf` — the same term-splitting
+ * `searchEvents` itself uses — rather than the raw `searchTerm`, so this key
+ * agrees with what the search stage actually matches on: `"Organ"` and
+ * `"organ "` share a key (case-insensitive, trailing whitespace splits away
+ * to nothing), while `"a\tb"` and `"a b"` do not (a tab is not a split
+ * point, so they are genuinely different searches). The empty term (which
+ * `searchEvents` special-cases to mean "no filter, return everything") is
+ * encoded as `null` rather than `searchTermsOf('')`'s `[]`, because a
+ * whitespace-only term also normalizes to `[]` but means the opposite —
+ * `searchEvents` scores every event 0 and returns nothing for it.
  */
 export function renderResetKey(o: RenderResetInput): string {
-  return [
-    o.searchTerm,
-    JSON.stringify(o.selectedTags),
-    JSON.stringify(o.selectedLocations),
-    String(o.showFavoritesOnly),
-    o.showFavoritesOnly ? String(o.favoriteCount) : 'off',
+  return JSON.stringify([
+    o.searchTerm ? searchTermsOf(o.searchTerm) : null,
+    o.selectedTags,
+    o.selectedLocations,
+    o.showFavoritesOnly,
+    o.showFavoritesOnly ? o.favoriteCount : 'off',
     o.dateFilter,
-    JSON.stringify(o.selectedWeeks),
-    String(o.year),
-  ].join('|');
+    o.selectedWeeks,
+    o.year,
+  ]);
 }
