@@ -100,12 +100,15 @@ export function useDayAnchor(windowDayKeys: string[]): {
     const el = daySectionElement(key);
     if (!el) return;
     // Computed here, not left to `scrollIntoView`'s `block: 'start'`:
-    // `scroll-margin-top` on the section (the mechanism that would keep a
-    // native `block: 'start'` scroll from landing the target underneath the
-    // sticky rail) does not exist yet — that CSS is a later task. Computing
-    // the delta against `stickyOffset()` directly lands the target correctly
-    // now, and keeps agreeing with that CSS once it exists, since both
-    // target the same `--day-rail-h`.
+    // `scrollIntoView` is not used on this path at all, so the section's own
+    // `scroll-margin-top: var(--day-rail-h)` (set in `EventListView.tsx`) is
+    // never consulted here — that property is read only by a native
+    // `scrollIntoView`/anchor scroll or CSS scroll-snap, neither of which is
+    // live on this path. Computing the delta against `stickyOffset()`
+    // directly targets the same `--day-rail-h` value the CSS does, so the
+    // two stay in agreement; the CSS itself remains correct and load-bearing
+    // for any future native scroll to a day section (an anchor jump, a
+    // `focus()`-driven scroll).
     //
     // Instant, not smooth: a ~2s smooth animation leaves a ~2s window in
     // which mounted content can keep changing height for reasons this

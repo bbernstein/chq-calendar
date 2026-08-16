@@ -89,11 +89,12 @@ describe('useDayAnchor', () => {
   });
 
   it('scrollToDay scrolls to the sticky offset, not to the raw viewport top', () => {
-    // Not `scrollIntoView`: `scroll-margin-top` for day sections does not
-    // exist yet (a later task), so a native `block: 'start'` would land the
-    // target at the very top of the viewport, underneath the rail. Computing
-    // the delta against `stickyOffset()` directly is what lands it correctly
-    // now.
+    // Not `scrollIntoView`: this path never consults the section's own
+    // `scroll-margin-top: var(--day-rail-h)` (set in `EventListView.tsx`),
+    // since that property is only read by a native `scrollIntoView`/anchor
+    // scroll or CSS scroll-snap — neither of which runs here. Computing the
+    // delta against `stickyOffset()` directly is what lands the target
+    // correctly on this path, targeting the same `--day-rail-h` the CSS does.
     document.documentElement.style.setProperty('--day-rail-h', '50px');
     mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
     const scrollBy = vi.fn();

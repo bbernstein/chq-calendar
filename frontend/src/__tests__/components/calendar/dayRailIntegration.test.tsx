@@ -84,8 +84,15 @@ const eventListBaseProps = {
  * program links and every route it also imports — none of which this race
  * depends on. This harness keeps only the two components whose effect
  * ordering the bug lives in, wired together exactly as `page.tsx` wires them.
+ *
+ * `earlierKey`, when given, also wires up `EventList`'s own "Show earlier"
+ * control — its upward-prepend settle hold is the second, independent
+ * mechanism the arbitration test below needs alongside `useDayAnchor`'s.
+ * `groupedEvents` is local state (not a plain passthrough prop) for exactly
+ * that reason: `handleShowEarlier` needs somewhere to prepend into.
  */
-function Harness({ groupedEvents }: { groupedEvents: DayGroup[] }) {
+function Harness({ groupedEvents: initialGroups, earlierKey }: { groupedEvents: DayGroup[]; earlierKey?: string }) {
+  const [groupedEvents, setGroupedEvents] = useState(initialGroups);
   const dayKeysList = groupedEvents.map(g => g.key);
   const bounds = { startDay: dayKeysList[0], endDay: dayKeysList[dayKeysList.length - 1] };
   const { scrollToDay } = useDayAnchor(dayKeysList);
@@ -96,6 +103,11 @@ function Harness({ groupedEvents }: { groupedEvents: DayGroup[] }) {
     if (!plan) return;
     setPendingScroll(plan.scrollTo);
   }, [bounds.startDay, bounds.endDay]);
+
+  const showEarlier = useCallback(() => {
+    if (!earlierKey) return;
+    setGroupedEvents(prev => [group(earlierKey, 1), ...prev]);
+  }, [earlierKey]);
 
   useEffect(() => {
     if (!pendingScroll) return;
@@ -111,7 +123,10 @@ function Harness({ groupedEvents }: { groupedEvents: DayGroup[] }) {
   return (
     <div>
       <button type="button" onClick={() => goToDay('2026-07-20')}>Go</button>
-      <EventList {...eventListBaseProps} groupedEvents={groupedEvents} resetKey="k" revealDay={pendingScroll} />
+      <EventList {...eventListBaseProps} groupedEvents={groupedEvents} resetKey="k"
+        revealDay={pendingScroll}
+        earlierDay={earlierKey ?? null}
+        onShowEarlier={earlierKey ? showEarlier : undefined} />
     </div>
   );
 }
@@ -145,6 +160,61 @@ describe('goToDay -> revealDay -> scrollToDay chain', () => {
     // Day 20's section now exists (revealDay mounted it) and scrollToDay ran
     // against it: top(0, jsdom's default) - stickyOffset(50) = -50.
     expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).not.toBeNull();
+    expect(scrollBy).toHaveBeenCalledWith(0, -50);
+  });
+});
+
+describe('settle arbitration: a rail navigation supersedes a pending prepend hold', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.documentElement.style.removeProperty('--day-rail-h');
+  });
+
+  // Reachable with no window expansion at all: "Show earlier" arms
+  // EventList's own upward-prepend settle hold; before any wheel/touchstart/
+  // keydown, a rail chip tap (a plain click) arms `useDayAnchor`'s hold on a
+  // different day, without changing `groupedEvents`' identity. A single
+  // shared `ResizeObserver` mock fires both installed observers on one
+  // `trigger()` call — exactly as a real resize notifies every live
+  // observer — so this reproduces the concurrent-fire race directly rather
+  // than asserting about it from the side.
+  it('clears the stale prepend hold so only the rail correction survives a shared resize', () => {
+    installIntersectionObserverMock();
+    const resize = installResizeObserverMock();
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+
+    const { getByRole } = render(
+      <Harness groupedEvents={makeGroups(keys)} earlierKey="2026-06-30" />
+    );
+
+    // Arm EventList's prepend hold.
+    fireEvent.click(getByRole('button', { name: /show earlier/i }));
+    // The reference day (2026-07-01) is held at whatever it measured — 0,
+    // jsdom's unstubbed default — at arm time. Stubbed to a distinguishable
+    // nonzero value now, simulating "content above it grew" the way the
+    // settle hold exists to correct: if the hold survives to the shared
+    // resize below, its reassert would recompute this and scroll by it.
+    document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-01"]`)!
+      .getBoundingClientRect = () => ({ top: 300 }) as DOMRect;
+
+    // Before any wheel/touchstart/keydown, a rail chip tap: same
+    // `groupedEvents` identity (no window expansion needed for a target
+    // already inside it), only `revealDay` changes.
+    fireEvent.click(getByRole('button', { name: 'Go' }));
+    scrollBy.mockClear();
+
+    // One shared resize notifies both observers, exactly as the coordinator
+    // described: EventList's (armed on 2026-07-01, if not cleared) and
+    // useDayAnchor's (armed on 2026-07-20).
+    resize.trigger();
+
+    // Exactly one correction — the rail's: top(0, day 20's unstubbed
+    // default) - stickyOffset(50) = -50. A second call, or a call with 300,
+    // would mean the stale prepend hold fought it.
+    expect(scrollBy).toHaveBeenCalledTimes(1);
     expect(scrollBy).toHaveBeenCalledWith(0, -50);
   });
 });

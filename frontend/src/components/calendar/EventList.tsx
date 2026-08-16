@@ -142,6 +142,14 @@ export function EventList({
     [groupedEvents, endIdx]
   );
 
+  // What the reference day's `top` should stay at until the reader takes
+  // over, for the upward-prepend correction below. Declared here — earlier
+  // than the correction itself — so the `revealDay` effect immediately below
+  // can clear it; a plain function-scope `const` referenced any earlier than
+  // its declaration is a TDZ ReferenceError, the same reason `endIdx` sits
+  // where it does above.
+  const settleRef = useRef<{ key: string; top: number } | null>(null);
+
   // `endIdx` must exist before this reads it, so it sits after that memo
   // rather than "immediately after the latch effect" above — a plain
   // function-scope `const endIdx` referenced any earlier is a TDZ
@@ -162,6 +170,20 @@ export function EventList({
   // second attempt. Do not "simplify" this back to `useEffect`.
   useLayoutEffect(() => {
     if (!revealDay) return;
+    // A rail navigation is under way — `page.tsx` sets `revealDay` from
+    // `pendingScroll` on every `goToDay` call — which means the reader has
+    // explicitly asked to be somewhere else. That always outranks a pending
+    // upward-prepend hold (`settleRef`, armed by `handleShowEarlier` below):
+    // both settle mechanisms compute an absolute scroll correction from their
+    // own independent reference point and apply it via `window.scrollBy`, so
+    // if both stayed armed, the next resize would fire both observers in the
+    // same batch and whichever ran second would silently overwrite the
+    // other's correction, landing the reader on neither day. Cleared here,
+    // not in `useDayAnchor` (which has no visibility into this component's
+    // internal `settleRef`), because this effect already runs on every
+    // `revealDay` change — regardless of whether the target needs growing
+    // below, since the reader's intent to navigate is the same either way.
+    settleRef.current = null;
     const idx = groupedEvents.findIndex(g => g.key === revealDay);
     // Not in the groups at all: the day has no matching events, so there is
     // nothing to reveal and nothing to wait for.
@@ -236,11 +258,6 @@ export function EventList({
   // after it, with every prepended day above it.
   const pendingPrependRef = useRef<{ key: string; top: number; resetKey: string } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  // What the reference day's `top` should stay at until the reader takes
-  // over. Set by the correction below; cleared by the first deliberate
-  // scroll gesture.
-  const settleRef = useRef<{ key: string; top: number } | null>(null);
 
   const handleShowEarlier = useCallback(() => {
     if (!onShowEarlier) return;
