@@ -2262,8 +2262,8 @@ floor.
   mount). Also fixed: a blocked sentinel no longer shows a permanent
   "Loading more events…"; `eventHelpers.ts`'s day-key format is no longer a
   second implementation of `dayWindow.ts`'s; the spec's status line no
-  longer claims "merged" (no PR yet) or a clean browser pass (one residual
-  is recorded); the residual's root cause is corrected and the durable fix
+  longer claims "merged" or a clean browser pass (one residual is
+  recorded); the residual's root cause is corrected and the durable fix
   recorded for phase 3.
 
 ```bash

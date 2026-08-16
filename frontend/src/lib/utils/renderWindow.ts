@@ -88,12 +88,12 @@ export interface RenderResetInput {
 export function renderResetKey(o: RenderResetInput): string {
   return [
     o.searchTerm,
-    o.selectedTags.join(','),
-    o.selectedLocations.join(','),
+    JSON.stringify(o.selectedTags),
+    JSON.stringify(o.selectedLocations),
     String(o.showFavoritesOnly),
     o.showFavoritesOnly ? String(o.favoriteCount) : 'off',
     o.dateFilter,
-    o.selectedWeeks.join(','),
+    JSON.stringify(o.selectedWeeks),
     String(o.year),
   ].join('|');
 }

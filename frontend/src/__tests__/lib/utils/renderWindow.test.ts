@@ -133,6 +133,13 @@ describe('renderResetKey', () => {
     expect(renderResetKey({ ...on, favoriteCount: 2 })).not.toBe(renderResetKey(on));
   });
 
+  it('does not collide when a comma-joined array is ambiguous with another', () => {
+    // A plain `.join(',')` would serialize `['a,b']` and `['a', 'b']`
+    // identically, silently suppressing a reset that should have happened.
+    expect(renderResetKey({ ...base, selectedTags: ['a,b'] }))
+      .not.toBe(renderResetKey({ ...base, selectedTags: ['a', 'b'] }));
+  });
+
   it('ignores window state even when it is handed some', () => {
     // Reaching into the window fields is the single mistake that would make
     // every auto-expand reset scroll position. Assigning to a variable

@@ -473,9 +473,12 @@ describe('EventListWindowed — showing earlier days', () => {
       <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 10)]}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
-    const button = screen.getByRole('button', { name: /Show earlier/ });
+    // The visible text is the accessible name — no aria-label duplicating
+    // (and drifting from) it. WCAG 2.5.3 Label in Name: a speech-input user
+    // reading the screen must be able to say what they see.
+    const button = screen.getByRole('button', { name: 'Show earlier (Friday, Jul 3)' });
     expect(button).toHaveTextContent('Show earlier (Friday, Jul 3)');
-    expect(button).toHaveAttribute('aria-label', 'Show earlier events, Friday, Jul 3');
+    expect(button).not.toHaveAttribute('aria-label');
   });
 
   it('calls onShowEarlier when clicked', () => {

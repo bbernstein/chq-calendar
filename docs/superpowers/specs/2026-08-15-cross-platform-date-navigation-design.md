@@ -4,7 +4,7 @@
 bidirectional render window + edge expansion) is implemented on
 `feat/date-nav-phase-2-web-render-window`, shipping behind `VITE_NAV_V2`,
 which is unset (off) in CI and in the deploy workflow — production behaviour
-is unchanged. There is no PR yet.
+is unchanged.
 
 The flag-on browser pass passes all 12 checks, with one recorded residual: a
 ~55–59px scroll drift per "Show earlier" click, deferred to phase 3 (root

@@ -219,7 +219,6 @@ export function EventListWindowed({
           <button
             type="button"
             onClick={handleShowEarlier}
-            aria-label={`Show earlier events, ${formatDayLabel(earlierDay)}`}
             className="px-4 py-2 text-sm bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-gray-600 transition-colors"
           >
             Show earlier ({formatDayLabel(earlierDay)})
