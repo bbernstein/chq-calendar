@@ -183,6 +183,19 @@ describe('DayRail', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toContain('July 5');
   });
 
+  // `todayKey` (`reachableTodayKey` against `navBounds`) and `chips`
+  // (`railChips` against the same bounds) are computed independently in
+  // `page.tsx`. Today that keeps them in agreement, but nothing enforces it
+  // structurally — should a future change ever let them drift, a `todayKey`
+  // absent from the rendered chips must not silently swallow the keypress.
+  it('falls back to the first chip on Home when todayKey is not among the rendered chips', () => {
+    renderRail({ todayKey: '2026-07-09' });
+    const last = chipButton('2026-07-06');
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Home' });
+    expect(document.activeElement?.getAttribute('aria-label')).toContain('July 4');
+  });
+
   // Off-season `'this-week'` restored from localStorage resolves to no view
   // window at all, and `railTarget` refuses every tap in that state. The chips
   // would otherwise render enabled and fully labelled — "Go to Saturday,

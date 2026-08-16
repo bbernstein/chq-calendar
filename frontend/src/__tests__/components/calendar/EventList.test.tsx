@@ -834,6 +834,34 @@ describe('upward prepend scroll correction', () => {
     if (resize.liveCount > 0) resize.trigger();
     expect(scrollBy).not.toHaveBeenCalled();
   });
+
+  // `ResizeObserver` is absent in some older browsers and in jsdom without a
+  // stub — which is jsdom's actual, unmocked state here, reached by undoing
+  // the `beforeEach` install. Before the guard, a successful prepend
+  // correction threw the moment it tried to build a `ResizeObserver`, which
+  // would have broken "Show earlier" entirely in such an environment; the
+  // fix is to skip only the observer, not the correction itself.
+  it('does not throw when ResizeObserver is unavailable', () => {
+    stubLayout(100);
+    vi.unstubAllGlobals();
+    expect(typeof ResizeObserver).toBe('undefined');
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+
+    const { rerender } = render(
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+        resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
+
+    expect(() => rerender(
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
+        resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
+    )).not.toThrow();
+    // The correction itself is unaffected — only the later re-assert (which
+    // needs a live observer) is lost.
+    expect(scrollBy).toHaveBeenCalledWith(0, 100);
+  });
 });
 
 describe('revealDay', () => {

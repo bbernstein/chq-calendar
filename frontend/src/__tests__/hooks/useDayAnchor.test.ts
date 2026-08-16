@@ -248,5 +248,27 @@ describe('useDayAnchor', () => {
 
       expect(scrollBy).not.toHaveBeenCalled();
     });
+
+    // `ResizeObserver` is absent in some older browsers and in jsdom without
+    // a stub — which is jsdom's actual, unmocked state here, reached by
+    // undoing the `beforeEach` install. Before the guard, mounting this hook
+    // in such an environment threw and took date navigation down with it;
+    // the fix is to skip only the observer, not the hold or the cancel
+    // listeners.
+    it('does not throw when ResizeObserver is unavailable', () => {
+      document.documentElement.style.setProperty('--day-rail-h', '50px');
+      mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
+      vi.unstubAllGlobals();
+      expect(typeof ResizeObserver).toBe('undefined');
+      const scrollBy = vi.fn();
+      vi.stubGlobal('scrollBy', scrollBy);
+
+      expect(() => {
+        const { result } = renderHook(() => useDayAnchor(['2026-07-04', '2026-07-09']));
+        act(() => { result.current.scrollToDay('2026-07-09'); });
+      }).not.toThrow();
+      // The scroll itself is unaffected — only the later re-assert is lost.
+      expect(scrollBy).toHaveBeenCalledWith(0, 2950);
+    });
   });
 });

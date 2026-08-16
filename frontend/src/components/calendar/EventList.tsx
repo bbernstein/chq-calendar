@@ -351,13 +351,18 @@ export function EventList({
     // it. These three are inputs the reader produces and we never do.
     const stop = () => { settleRef.current = null; };
 
-    const observer = new ResizeObserver(reassert);
-    observer.observe(root);
+    // `ResizeObserver` is absent in some older browsers and in jsdom without
+    // a stub. Skipping it here is still correct — only the late-growth
+    // reassert is lost, which is strictly better than throwing on mount (see
+    // the identical guard in `useDayRailHeight`). The cancel listeners below
+    // stay attached either way: they don't depend on the observer existing.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reassert);
+    observer?.observe(root);
     window.addEventListener('wheel', stop, { passive: true });
     window.addEventListener('touchstart', stop, { passive: true });
     window.addEventListener('keydown', stop);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener('wheel', stop);
       window.removeEventListener('touchstart', stop);
       window.removeEventListener('keydown', stop);

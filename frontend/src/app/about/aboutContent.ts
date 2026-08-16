@@ -351,7 +351,7 @@ export const WEB_FEATURES: Feature[] = [
   { id: 'web-date-quick', group: 'Dates & weeks', title: 'Now, Today, All Season, or All Year',
     blurb: 'Four scopes cover the questions people actually ask — and the same four the iPhone app uses, so your laptop and your phone speak the same vocabulary.' },
   { id: 'web-day-rail', group: 'Dates & weeks', title: 'A day rail under the week strip', notObvious: true,
-    blurb: 'A strip of days that highlights whichever day you have scrolled to. Tap one to jump there, or use the chevrons to move a single day at a time — including days with nothing on them.' },
+    blurb: 'A strip of days that highlights whichever day you have scrolled to. Tap a day with something on it to jump there — the chevrons step the same way, always landing on the next day that has something. Empty days are shown but can’t be tapped.' },
   { id: 'web-go-to-today', group: 'Dates & weeks', title: '⟳ Now takes you back to today', notObvious: true,
     blurb: 'Wherever you have wandered in the season, one tap returns you to today without changing a single filter.' },
   { id: 'web-adaptive', group: 'Dates & weeks', title: 'The “next” window grows to fit', notObvious: true,

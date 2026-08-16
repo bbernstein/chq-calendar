@@ -152,7 +152,17 @@ export function DayRail({
     let next = -1;
     if (e.key === 'ArrowRight') next = Math.min(current + 1, buttons.length - 1);
     else if (e.key === 'ArrowLeft') next = Math.max(current - 1, 0);
-    else if (e.key === 'Home') next = todayKey ? buttons.findIndex(b => b.dataset.chip === todayKey) : 0;
+    else if (e.key === 'Home') {
+      // `todayKey` and `chips` are computed independently in `page.tsx`
+      // (`reachableTodayKey` against `navBounds`, `railChips` against the
+      // same bounds) — today, that keeps them in agreement, but nothing
+      // enforces it structurally. If a future change ever let them drift,
+      // `findIndex` returning -1 here would otherwise swallow the keypress
+      // with no feedback at all; falling back to the first chip means Home
+      // always does something.
+      const idx = todayKey ? buttons.findIndex(b => b.dataset.chip === todayKey) : 0;
+      next = idx < 0 ? 0 : idx;
+    }
     else return;
     if (next < 0) return;
     e.preventDefault();

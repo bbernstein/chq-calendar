@@ -201,6 +201,17 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // event description — that resizes the document while leaving
     // `groupedEvents` untouched — and the page yanks back to the tapped day.
     //
+    // This is deliberately coarse. `mousedown` cancels the hold no matter
+    // what it lands on — including UI that causes no scroll at all, like
+    // opening a dropdown or ticking a checkbox — so some holds get dropped
+    // for no real reason. That is an accepted cost, not an oversight:
+    // dropping a hold early only loses a late correction the reader may
+    // never have noticed was pending, while keeping one too long risks
+    // yanking the page out from under them mid-interaction. The first is
+    // recoverable; the second is not. A cancel gesture set narrow enough to
+    // avoid the false positives would risk missing a genuine takeover, which
+    // is the worse failure of the two.
+    //
     // It cannot cancel the hold the same interaction is about to arm: DOM
     // event order is mousedown → mouseup → click, every rail control arms via
     // `onClick`, and the arming itself happens later still, in the
@@ -209,8 +220,13 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // own correction cannot trip this.
     const stop = () => { settleRef.current = null; };
 
-    const observer = new ResizeObserver(reassert);
-    observer.observe(document.documentElement);
+    // `ResizeObserver` is absent in some older browsers and in jsdom without
+    // a stub. Skipping it here is still correct — only the late-growth
+    // reassert is lost, which is strictly better than throwing on mount (see
+    // the identical guard in `useDayRailHeight`). The cancel listeners below
+    // stay attached either way: they don't depend on the observer existing.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reassert);
+    observer?.observe(document.documentElement);
     window.addEventListener('wheel', stop, { passive: true });
     window.addEventListener('touchstart', stop, { passive: true });
     window.addEventListener('mousedown', stop, { passive: true });
@@ -218,7 +234,7 @@ export function useDayAnchor(windowDayKeys: string[]): {
     return () => {
       // The day list this hold was computed against is gone.
       settleRef.current = null;
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener('wheel', stop);
       window.removeEventListener('touchstart', stop);
       window.removeEventListener('mousedown', stop);
