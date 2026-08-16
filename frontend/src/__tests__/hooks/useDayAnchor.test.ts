@@ -36,9 +36,17 @@ describe('useDayAnchor', () => {
     expect(result.current.anchorDay).toBe('2026-07-04');
   });
 
-  it('is null when no day is rendered', () => {
+  it('clears the anchor when the rendered days empty out', () => {
+    mountWithTops({ '2026-07-04': -20 });
+    const { result, rerender } = renderHook(
+      ({ keys }) => useDayAnchor(keys),
+      { initialProps: { keys: ['2026-07-04'] } }
+    );
+    // Establish that the hook actually set state, so the null assertion
+    // below is a transition, not just the useState initial value.
+    expect(result.current.anchorDay).toBe('2026-07-04');
     mountWithTops({});
-    const { result } = renderHook(() => useDayAnchor([]));
+    rerender({ keys: [] });
     expect(result.current.anchorDay).toBeNull();
   });
 
