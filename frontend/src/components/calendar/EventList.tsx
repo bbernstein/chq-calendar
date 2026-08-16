@@ -105,7 +105,10 @@ export function EventList({
   // the browser hands the user back the main thread.
   //
   // This MUST be a layout effect, not a passive one, and it must stay
-  // declared before the `revealDay` layout effect below. On a mount where
+  // declared before the `revealDay` layout effect below — which in turn must
+  // stay declared before the prepend-correction layout effect after it, for a
+  // separate reason recorded there. The three form one ordered chain, not two
+  // independent pairs. On a mount where
   // `revealDay` already targets a day past the initial fill — reachable in
   // practice: the rail is rendered even over `EmptyState`, so a chip tap that
   // both widens the window into some matches AND is the reason `EventList`
@@ -150,7 +153,20 @@ export function EventList({
   // where it does above.
   const settleRef = useRef<{ key: string; top: number } | null>(null);
 
-  // `endIdx` must exist before this reads it, so it sits after that memo
+  // WHERE THIS EFFECT IS DECLARED IS LOAD-BEARING, in both directions.
+  //
+  // It must stay AFTER the latch effect above: both can call `setAnchor` on
+  // the same commit, and the latch running first is what lets this one's
+  // later call legitimately win — see that effect's own comment for the
+  // stale-closure clobber that results otherwise.
+  //
+  // It must stay BEFORE the prepend-correction layout effect below, because
+  // it nulls `settleRef` unconditionally. Layout effects run in declaration
+  // order within a commit, so moving this past the correction would erase a
+  // hold the correction had armed *in that same commit* — silently, since
+  // nothing reads `settleRef` again until a resize arrives much later.
+  //
+  // `endIdx` must also exist before this reads it, so it sits after that memo
   // rather than "immediately after the latch effect" above — a plain
   // function-scope `const endIdx` referenced any earlier is a TDZ
   // ReferenceError, not a stale read.
@@ -268,6 +284,10 @@ export function EventList({
     onShowEarlier();
   }, [onShowEarlier, resetKey, groupedEvents]);
 
+  // Declared AFTER the `revealDay` effect above, and that order is
+  // load-bearing: that effect nulls `settleRef` unconditionally, so if it ran
+  // after this one it would erase the hold armed at the end of this effect on
+  // the same commit.
   useLayoutEffect(() => {
     const pending = pendingPrependRef.current;
     // A settle window belongs to the one prepend that armed it. Any commit

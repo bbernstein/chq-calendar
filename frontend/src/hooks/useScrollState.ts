@@ -1,4 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+// The one union both halves of this hook's date handling must agree on. The
+// parameter used to be typed `'all' | 'today' | 'next' | 'this-week'` while
+// the body branched on `'season'`; it only compiled because the adjacent
+// `dateFilter` parameter was an untyped `string`, so the mismatch could not
+// surface at either the call site or the comparison.
+import type { DateFilter } from '@/hooks/useFilterState';
 
 interface HScrollState {
   canScrollLeft: boolean;
@@ -64,8 +70,8 @@ export function useVerticalScroll() {
 
 export function useWeekDragSelection(
   currentWeekNumber: number | null,
-  dateFilter: string,
-  setDateFilter: (filter: 'all' | 'today' | 'next' | 'this-week') => void,
+  dateFilter: DateFilter,
+  setDateFilter: (filter: DateFilter) => void,
   selectedWeeks: number[],
   setSelectedWeeks: React.Dispatch<React.SetStateAction<number[]>>,
 ) {

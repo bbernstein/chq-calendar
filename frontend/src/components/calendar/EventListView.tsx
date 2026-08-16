@@ -41,10 +41,16 @@ export function EventListView({
         <div
           key={dayGroup.key}
           {...{ [DAY_SECTION_ATTR]: dayGroup.key }}
-          // Without this, `scrollIntoView({ block: 'start' })` puts the day
-          // header exactly at the viewport top — underneath the sticky rail.
-          // Expressed as the measured custom property rather than a pixel
-          // literal so it stays right at any browser text zoom.
+          // Nothing in the app calls `scrollIntoView` on a day section:
+          // `useDayAnchor.scrollToDay` computes its own delta against
+          // `stickyOffset()` for the reasons documented there. This property
+          // is read only by a native scroll — an anchor jump, a
+          // `focus()`-driven scroll, CSS scroll-snap — and is kept because it
+          // is load-bearing for any such future path, which would otherwise
+          // put the day header exactly at the viewport top, underneath the
+          // sticky rail. Expressed as the measured custom property rather
+          // than a pixel literal so it stays right at any browser text zoom,
+          // targeting the same `--day-rail-h` that `stickyOffset()` reads.
           style={{ scrollMarginTop: 'var(--day-rail-h)' }}
         >
           <div
