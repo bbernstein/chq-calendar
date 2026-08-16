@@ -519,6 +519,11 @@ Append to the `upward prepend scroll correction` describe block from Task 1:
 
 ```tsx
   it('re-corrects when the prepended region changes height after the commit', async () => {
+    // `stubLayout`'s `top` is relative to `window.scrollY`, and a sibling
+    // test in this block leaves it nonzero — harmless there, because a delta
+    // between two measurements at the same `scrollY` cancels it out, but this
+    // test changes `scrollY` partway through and so needs a known start.
+    Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true });
     stubLayout(100);
     const scrollBy = vi.fn();
     vi.stubGlobal('scrollBy', scrollBy);
@@ -535,11 +540,20 @@ Append to the `upward prepend scroll correction` describe block from Task 1:
     );
     expect(scrollBy).toHaveBeenCalledWith(0, 100);
 
+    // `scrollBy` is a bare spy, so it never moves `window.scrollY` — and
+    // `stubLayout`'s `top` subtracts `scrollY`. Without simulating the real
+    // scroll, every later measurement re-reports the PRE-correction position
+    // no matter what changed, which makes the re-assert delta structurally
+    // non-negative and a negative expectation unreachable by any conforming
+    // implementation. Advance it by hand so the next measurement reflects a
+    // page that has actually been corrected once.
+    Object.defineProperty(window, 'scrollY', { value: 100, writable: true, configurable: true });
+
     // Content above the reader changes height one frame late — measured at
     // ~104px of growth in the browser. Modelled here as a 60px shrink so the
     // expected correction is signed and unambiguous: the reference day moves
     // UP by 60, so the re-assert scrolls by -60.
-    stubLayout(70);
+    stubLayout(40);
     resize.trigger();
 
     expect(scrollBy).toHaveBeenLastCalledWith(0, -60);
@@ -689,10 +703,24 @@ Then add, immediately after the `useLayoutEffect` from Task 1:
   }, [groupedEvents, resetKey]);
 ```
 
-and set `settleRef` inside the Task 1 layout effect, replacing its final two
-lines:
+and rewrite the Task 1 layout effect so it both arms `settleRef` on success
+**and clears it on every early return**:
 
 ```tsx
+  useLayoutEffect(() => {
+    // A settle window belongs to exactly one prepend. Any commit that does
+    // not produce a fresh correction ends it — otherwise the window outlives
+    // the layout change it was armed for and starts fighting an unrelated
+    // one. The reachable case: a reader clicks "Show earlier", then toggles
+    // a filter without scrolling, and the new `groupedEvents` still contains
+    // the reference day; a surviving `settleRef` would hold that day at its
+    // pre-filter-change position against a legitimate new layout.
+    const pending = pendingPrependRef.current;
+    if (!pending) { settleRef.current = null; return; }
+    pendingPrependRef.current = null;
+    if (pending.resetKey !== resetKey) { settleRef.current = null; return; }
+    const top = daySectionTop(pending.key);
+    if (top === null) { settleRef.current = null; return; }
     const delta = top - pending.top;
     if (delta !== 0) window.scrollBy(0, delta);
     // Hold this position against late height changes until the reader
@@ -700,10 +728,21 @@ lines:
     // reference day was before the prepend, and putting it back there is
     // the whole point of the correction.
     settleRef.current = { key: pending.key, top: pending.top };
+  }, [groupedEvents, resetKey]);
 ```
 
 `settleRef` must be declared *above* that layout effect for this to compile —
 move its declaration up next to `pendingPrependRef`.
+
+Add a regression test for the staleness case: arm the settle window with a
+successful prepend, rerender with a **changed `resetKey`** whose `groupedEvents`
+still contains the reference day, `resize.trigger()`, and assert no further
+`scrollBy`. That commit hits the `!pending` branch, because the prior commit
+already consumed `pendingPrependRef`.
+
+Give the describe block a `beforeEach` that resets `window.scrollY` to 0. The
+settle tests deliberately move it mid-test, and an unreset global leaking into
+the next test is the exact footgun this block already documents.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
