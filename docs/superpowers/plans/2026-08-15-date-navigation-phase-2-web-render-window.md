@@ -1417,6 +1417,24 @@ describe('EventListWindowed', () => {
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
   });
 
+  it('keeps the rendered tail when earlier days are prepended before any growth', () => {
+    // The sibling test below triggers a growth step first, which sets the
+    // anchor as a side effect — so it cannot catch an anchor that is still
+    // null when the prepend lands. That is the ordinary case: pressing
+    // "Show earlier" is a perfectly normal first action, and with a null
+    // anchor the initial fill re-runs over the prepended array and unmounts
+    // days that were already on screen.
+    const groups = [group('2026-07-05', 30), group('2026-07-06', 30), group('2026-07-07', 30)];
+    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+
+    rerender(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-03', 30), ...groups]} />);
+
+    expect(screen.getByText('Day 2026-07-03')).toBeInTheDocument();
+    expect(screen.getByText('Day 2026-07-05')).toBeInTheDocument();
+    expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
+  });
+
   it('keeps the rendered tail when earlier days are prepended', () => {
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
     const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
@@ -1533,6 +1551,26 @@ export function EventListWindowed({
   // A stale anchor is simply never consulted; the next growth step overwrites
   // it. Nothing has to clear it.
   const anchorKey = anchor.resetKey === resetKey ? anchor.key : null;
+
+  // Latch the initial fill as soon as there are groups to fill from.
+  //
+  // Without this the anchor stays null until the first *downward* growth
+  // step, and a reader who presses "Show earlier" before ever scrolling down
+  // — an entirely ordinary first action — gets the initial fill re-run
+  // against the newly prepended array, which unmounts days that were already
+  // on screen and makes the scroll correction measure a document that grew at
+  // the top and shrank at the bottom.
+  //
+  // This effect cannot reintroduce the stale frame that killed the earlier
+  // reset effect: it only ever writes the value the render already derived,
+  // so the interim frame and the stored frame are identical by construction.
+  // And it always runs before any click can occur, since effects flush before
+  // the browser hands the user back the main thread.
+  useEffect(() => {
+    if (anchorKey !== null || groupedEvents.length === 0) return;
+    const idx = renderEndIndex(groupedEvents, null);
+    setAnchor({ key: groupedEvents[idx].key, resetKey });
+  }, [anchorKey, groupedEvents, resetKey]);
 
   const endIdx = useMemo(
     () => renderEndIndex(groupedEvents, anchorKey),
