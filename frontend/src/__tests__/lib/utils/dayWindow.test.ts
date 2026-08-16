@@ -10,6 +10,9 @@ import {
   baseWindow,
   viewWindow,
   windowContains,
+  eventDayKeys,
+  navigationTargets,
+  formatDayLabel,
 } from '@/lib/utils/dayWindow';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import type { Event } from '@/lib/types';
@@ -348,5 +351,163 @@ describe('viewWindow expansion', () => {
     })!;
     expect(w.startDay <= w.endDay).toBe(true);
     expect(w.start.getTime()).toBeLessThan(w.endExclusive.getTime());
+  });
+});
+
+describe('dayKeys termination', () => {
+  it('returns an empty list when either endpoint is not a real day key', () => {
+    // 'NaN-NaN-NaN' is what groupEventsByDay produces for an unparseable
+    // startDate, and 'N' > '2' lexicographically — so the naive
+    // `while (cursor <= through)` loop never terminates. This is not
+    // hypothetical: navigableBounds used to be able to hand out such a key.
+    expect(dayKeys('2026-07-05', 'NaN-NaN-NaN')).toEqual([]);
+    expect(dayKeys('NaN-NaN-NaN', '2026-07-05')).toEqual([]);
+    expect(dayKeys('', '2026-07-05')).toEqual([]);
+  });
+
+  it('still enumerates a normal range inclusively', () => {
+    expect(dayKeys('2026-07-05', '2026-07-07')).toEqual([
+      '2026-07-05', '2026-07-06', '2026-07-07',
+    ]);
+    expect(dayKeys('2026-07-05', '2026-07-05')).toEqual(['2026-07-05']);
+    expect(dayKeys('2026-07-07', '2026-07-05')).toEqual([]);
+  });
+});
+
+describe('start-direction expansion', () => {
+  // Phase 1a had no coverage in this direction at all: every expansion test
+  // widened the end. Phase 2's "Show earlier" is the first caller that
+  // widens the start, so these are the tests that make it safe.
+  // The real 2026 season: week 1 starts Saturday June 27 at noon, week 9
+  // ends Saturday August 29 at noon.
+  const bounds = { startDay: '2026-06-27', endDay: '2026-08-29' };
+  const base = {
+    seasonWeeks,
+    currentWeekNumber: 2,
+    now: new Date(2026, 6, 5, 12, 0),
+    bounds,
+  } as const;
+
+  it('widens the start to the expansion day and takes that day from midnight', () => {
+    const w = viewWindow({ ...base, dateFilter: 'today', expandedStartDay: '2026-07-03' })!;
+    expect(w.startDay).toBe('2026-07-03');
+    expect(w.endDay).toBe('2026-07-05');
+    expect(w.start).toEqual(new Date(2026, 6, 3, 0, 0, 0, 0));
+  });
+
+  it('ignores an expansion day that would narrow the window', () => {
+    const w = viewWindow({ ...base, dateFilter: 'today', expandedStartDay: '2026-07-09' })!;
+    expect(w.startDay).toBe('2026-07-05');
+    expect(w.start).toEqual(new Date(2026, 6, 5, 0, 0, 0, 0));
+  });
+
+  it('clamps an expansion day that reaches past the navigable start', () => {
+    const w = viewWindow({ ...base, dateFilter: 'today', expandedStartDay: '2026-01-01' })!;
+    expect(w.startDay).toBe('2026-06-27');
+  });
+
+  it('does not invert the window when the base sits entirely after the bounds', () => {
+    // Off-season 'today' in December: the base window is outside `bounds` in
+    // the *other* direction, so an expansion day can be both earlier than
+    // the base and later than anything navigation may reach. It clamps to
+    // the nearest reachable day — the navigable END, because that is the
+    // edge it overshot. Clamping the merged result instead of the expansion
+    // input would produce startDay > endDay here.
+    const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
+    const w = viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!;
+    expect(w.startDay).toBe('2026-08-29');
+    expect(w.endDay).toBe('2026-12-01');
+    expect(w.startDay <= w.endDay).toBe(true);
+  });
+
+  it('clamps to the near edge, never across the range', () => {
+    // A clamp moves a value to the boundary it overshot. Snapping an
+    // overshoot of the *end* down to the *start* would silently open the
+    // whole season, which is a different operation wearing a clamp's name.
+    const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
+    expect(viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!.startDay)
+      .not.toBe('2026-06-27');
+  });
+
+  it('widens both ends at once', () => {
+    const w = viewWindow({
+      ...base,
+      dateFilter: 'today',
+      expandedStartDay: '2026-07-03',
+      expandedEndDay: '2026-07-08',
+    })!;
+    expect(w.startDay).toBe('2026-07-03');
+    expect(w.endDay).toBe('2026-07-08');
+    expect(w.start).toEqual(new Date(2026, 6, 3, 0, 0, 0, 0));
+    expect(w.endExclusive).toEqual(new Date(2026, 6, 9, 0, 0, 0, 0));
+  });
+});
+
+describe('eventDayKeys', () => {
+  it('returns each event day once, in chronological order', () => {
+    const events = [
+      makeEvent('c', new Date(2026, 6, 7, 9, 0)),
+      makeEvent('a', new Date(2026, 6, 5, 20, 0)),
+      makeEvent('b', new Date(2026, 6, 5, 8, 0)),
+    ];
+    expect(eventDayKeys(events)).toEqual(['2026-07-05', '2026-07-07']);
+  });
+
+  it('drops events whose startDate does not parse', () => {
+    const events = [
+      makeEvent('a', new Date(2026, 6, 5, 8, 0)),
+      { id: 'bad', title: 'bad', startDate: 'not a date' } as Event,
+    ];
+    expect(eventDayKeys(events)).toEqual(['2026-07-05']);
+  });
+
+  it('returns an empty list for no events', () => {
+    expect(eventDayKeys([])).toEqual([]);
+  });
+});
+
+describe('navigationTargets', () => {
+  const days = ['2026-07-03', '2026-07-05', '2026-07-06', '2026-07-09'];
+  const w = (startDay: string, endDay: string) => ({
+    startDay, endDay, start: startOfDay(startDay), endExclusive: dayAfter(endDay),
+  });
+
+  it('names the nearest event day outside each edge', () => {
+    expect(navigationTargets(days, w('2026-07-05', '2026-07-06')))
+      .toEqual({ earlierDay: '2026-07-03', laterDay: '2026-07-09' });
+  });
+
+  it('skips days with no events rather than stepping one calendar day', () => {
+    // 2026-07-04 and 2026-07-07/08 have no events. A calendar-day step would
+    // expand the window and add nothing to the list — a control that looks
+    // broken. The target is always a day that will actually render.
+    expect(navigationTargets(days, w('2026-07-05', '2026-07-06')).earlierDay).toBe('2026-07-03');
+    expect(navigationTargets(days, w('2026-07-05', '2026-07-06')).laterDay).toBe('2026-07-09');
+  });
+
+  it('returns null on an edge with nothing beyond it', () => {
+    expect(navigationTargets(days, w('2026-07-03', '2026-07-09')))
+      .toEqual({ earlierDay: null, laterDay: null });
+  });
+
+  it('returns nulls for a null window', () => {
+    expect(navigationTargets(days, null)).toEqual({ earlierDay: null, laterDay: null });
+  });
+
+  it('returns nulls when there are no event days at all', () => {
+    expect(navigationTargets([], w('2026-07-05', '2026-07-06')))
+      .toEqual({ earlierDay: null, laterDay: null });
+  });
+
+  it('finds a target even when the whole window sits outside the event range', () => {
+    expect(navigationTargets(days, w('2026-12-01', '2026-12-01')))
+      .toEqual({ earlierDay: '2026-07-09', laterDay: null });
+  });
+});
+
+describe('formatDayLabel', () => {
+  it('names the weekday, abbreviated month and day', () => {
+    expect(formatDayLabel('2026-07-05')).toBe('Sunday, Jul 5');
+    expect(formatDayLabel('2026-08-15')).toBe('Saturday, Aug 15');
   });
 });

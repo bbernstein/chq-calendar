@@ -5,7 +5,9 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { navigableBounds, viewWindow, addDays } from '@/lib/utils/dayWindow';
+import { navigableBounds, viewWindow, addDays, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
+import { renderResetKey } from '@/lib/utils/renderWindow';
+import { isNavV2Enabled } from '@/lib/featureFlags';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
@@ -111,21 +113,75 @@ function HomeContent() {
     ]
   );
 
-  const filterOpts: FilterOptions = useMemo(() => ({
+  // Everything except the date stage. Split out so the navigation targets
+  // below can re-run the identical filter with the date stage wide open,
+  // without recomputing on every window expansion.
+  const nonDateFilterOpts = useMemo(() => ({
     searchTerm: debouncedSearch,
     selectedWeeks: filters.selectedWeeks,
     selectedTagsLowerSet: filters.selectedTagsLowerSet,
     selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
     seasonWeeks,
-    viewWindow: dateWindow,
     showFavoritesOnly: filters.showFavoritesOnly,
     favoriteIds: favorites.favoriteIds,
   }), [
     debouncedSearch, filters.selectedWeeks, filters.selectedTagsLowerSet,
-    filters.selectedLocationsLowerSet, seasonWeeks, dateWindow,
+    filters.selectedLocationsLowerSet, seasonWeeks,
     filters.showFavoritesOnly, favorites.favoriteIds,
   ]);
+
+  const filterOpts: FilterOptions = useMemo(
+    () => ({ ...nonDateFilterOpts, viewWindow: dateWindow }),
+    [nonDateFilterOpts, dateWindow]
+  );
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
+
+  const navV2 = isNavV2Enabled();
+
+  // Every day that has an event under the *non-date* filters — the set
+  // navigation steps through. Derived by re-running the same filter with the
+  // date stage wide open, so search, category, venue, week and favourites
+  // all constrain where stepping can go, and a step always lands on a day
+  // that will actually render something.
+  const navEventDays = useMemo(() => {
+    if (!navV2) return [];
+    const unbounded = viewWindow({
+      dateFilter: 'all', seasonWeeks, currentWeekNumber, now: new Date(),
+      bounds: navBounds, expandedStartDay: null, expandedEndDay: null,
+    });
+    return eventDayKeys(filterEvents(events, { ...nonDateFilterOpts, viewWindow: unbounded }));
+  }, [navV2, events, nonDateFilterOpts, seasonWeeks, currentWeekNumber, navBounds]);
+
+  const { earlierDay, laterDay } = useMemo(
+    () => navigationTargets(navEventDays, dateWindow),
+    [navEventDays, dateWindow]
+  );
+
+  const showEarlier = useCallback(() => {
+    if (earlierDay) filters.expandWindowStart(earlierDay);
+  }, [earlierDay, filters.expandWindowStart]);
+
+  const expandEnd = useCallback(() => {
+    if (laterDay) filters.expandWindowEnd(laterDay);
+  }, [laterDay, filters.expandWindowEnd]);
+
+  // What the render window resets on. The window fields are deliberately
+  // not part of it.
+  const listResetKey = useMemo(() => renderResetKey({
+    searchTerm: debouncedSearch,
+    selectedTags: filters.selectedTags,
+    selectedLocations: filters.selectedLocations,
+    showFavoritesOnly: filters.showFavoritesOnly,
+    favoriteCount: favorites.favoriteCount,
+    dateFilter: filters.dateFilter,
+    selectedWeeks: filters.selectedWeeks,
+    year: selectedYear,
+  }), [
+    debouncedSearch, filters.selectedTags, filters.selectedLocations,
+    filters.showFavoritesOnly, favorites.favoriteCount, filters.dateFilter,
+    filters.selectedWeeks, selectedYear,
+  ]);
+
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
   const hasMoreDays = useMemo(() => {
     if (filters.dateFilter !== 'next' || !dateWindow || !events.length) return false;
@@ -211,7 +267,19 @@ function HomeContent() {
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
-            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (
+            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : navV2 ? (
+              <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
+                onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
+                favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
+                dateFilter={filters.dateFilter}
+                weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks}
+                navV2
+                resetKey={listResetKey}
+                earlierDay={earlierDay}
+                onShowEarlier={showEarlier}
+                canExpandEnd={!!laterDay}
+                onExpandEnd={expandEnd} />
+            ) : (
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}

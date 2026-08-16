@@ -35,8 +35,8 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
   // scope-specific predicates this replaced (isToday, isThisWeek, the
   // inline 'next' arithmetic, and 'all' doing nothing) all reduce to this
   // once the scope has been turned into a window.
-  const window = options.viewWindow;
-  filtered = filtered.filter((event) => windowContains(window, new Date(event.startDate)));
+  const dateWindow = options.viewWindow;
+  filtered = filtered.filter((event) => windowContains(dateWindow, new Date(event.startDate)));
 
   // Week filter (independent of date filter)
   if (options.selectedWeeks.length > 0) {

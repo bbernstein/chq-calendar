@@ -1,6 +1,7 @@
 /// <reference types="vitest/globals" />
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
+import { dayKeyOf } from '@/lib/utils/dayWindow';
 import type { Event } from '@/lib/types';
 
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
@@ -56,6 +57,20 @@ describe('groupEventsByDay — week-number metadata on day headers', () => {
     ], seasonWeeks);
 
     expect(groups[0].events.map(e => e.id)).toEqual(['early', 'mid', 'late']);
+  });
+
+  it('keys each day group with the same day-key format dayWindow uses', () => {
+    // groupEventsByDay's key and dayWindow's dayKeyOf used to be two
+    // independent implementations of the same format (byte-identical, but
+    // free to drift). renderEndIndex matches the render-window anchor
+    // against DayGroup.key while navigationTargets compares against
+    // dayKeyOf output — if the two ever disagreed, the render window and
+    // the navigation targets would silently stop agreeing on which day is
+    // which, with no test failing. This pins them to the same function.
+    const event = evt('1', '2026-07-06T14:00:00');
+    const groups = groupEventsByDay([event], seasonWeeks);
+
+    expect(groups[0].key).toBe(dayKeyOf(new Date(event.startDate)));
   });
 
   it('returns day groups sorted by date', () => {

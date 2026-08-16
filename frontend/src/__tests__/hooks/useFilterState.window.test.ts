@@ -52,6 +52,29 @@ describe('useFilterState window bounds', () => {
     expect(result.current.windowEndDay).toBe('2026-07-17');
   });
 
+  it('clears both bounds when selected weeks change', () => {
+    // Weeks feed navEventDays and the earlier/later targets exactly as
+    // dateFilter does, so a week change must clear the window the same way
+    // SET_DATE_FILTER does.
+    const { result } = renderHook(() => useFilterState());
+    act(() => result.current.expandWindowEnd('2026-07-17'));
+    act(() => result.current.setSelectedWeeks([2]));
+    expect(result.current.windowEndDay).toBeNull();
+    expect(result.current.windowStartDay).toBeNull();
+  });
+
+  it('keeps the window when the same selected weeks are dispatched again', () => {
+    // useScrollState dispatches week selections from several handlers, so a
+    // same-value dispatch is a real occurrence, not a hypothetical one — the
+    // reducer must compare by content, not by reference, since the payload
+    // may also arrive as an updater function.
+    const { result } = renderHook(() => useFilterState());
+    act(() => result.current.setSelectedWeeks([2]));
+    act(() => result.current.expandWindowEnd('2026-07-17'));
+    act(() => result.current.setSelectedWeeks([2]));
+    expect(result.current.windowEndDay).toBe('2026-07-17');
+  });
+
   it('clears both bounds on resetWindow', () => {
     const { result } = renderHook(() => useFilterState());
     act(() => result.current.expandWindowEnd('2026-07-17'));

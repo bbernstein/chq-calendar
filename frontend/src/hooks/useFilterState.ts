@@ -74,8 +74,17 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       if (state.dateFilter === action.payload) return state;
       return { ...state, dateFilter: action.payload, windowStartDay: null, windowEndDay: null };
     case 'SET_SELECTED_WEEKS': {
+      // Weeks feed `nonDateFilterOpts`, which drives `navEventDays` and the
+      // earlier/later day targets — a week change moves the navigable range
+      // exactly as `dateFilter` does, so the manual expansion has to clear
+      // the same way. Guard on an actual change: a reducer case fires on
+      // every dispatch, including same-value ones, and useScrollState
+      // dispatches week selections from several handlers.
       const weeks = typeof action.payload === 'function' ? action.payload(state.selectedWeeks) : action.payload;
-      return { ...state, selectedWeeks: weeks };
+      const unchanged = weeks.length === state.selectedWeeks.length
+        && weeks.every((w, i) => w === state.selectedWeeks[i]);
+      if (unchanged) return state;
+      return { ...state, selectedWeeks: weeks, windowStartDay: null, windowEndDay: null };
     }
     case 'TOGGLE_TAG': {
       const tag = action.payload;

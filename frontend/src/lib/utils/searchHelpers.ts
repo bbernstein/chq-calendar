@@ -1,10 +1,30 @@
 import type { Event } from '@/lib/types';
 
+/**
+ * The term list `searchEvents` scores from.
+ *
+ * Splits on a literal single space, not general whitespace, so `"a\tb"` is
+ * one term while `"a b"` is two. **This is the tokenization, not the whole
+ * matching story**: `searchEvents` scores each term both as a verbatim
+ * phrase and by splitting it again on `/\s+/` into words, so a tab does act
+ * as a separator inside the lower-weight word pass. Do not read this
+ * function as a summary of what matches.
+ *
+ * What it is good for is *identity*: every later stage is a pure function of
+ * this array, so two raw strings with the same terms produce the same
+ * results. Exported so callers needing that equivalence (a render-window
+ * reset key) share this definition rather than writing a second normalizer
+ * that could drift from it.
+ */
+export function searchTermsOf(term: string): string[] {
+  return term.toLowerCase().split(' ').filter(t => t.length > 0);
+}
+
 export function searchEvents(events: Event[], term: string): Event[] {
   if (!term) return events;
 
   // Create search terms array from the input term
-  const searchTerms = term.toLowerCase().split(' ').filter(t => t.length > 0);
+  const searchTerms = searchTermsOf(term);
 
   const scored = events.map(event => {
     // Ensure we're working with decoded strings for search

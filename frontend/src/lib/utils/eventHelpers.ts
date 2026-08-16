@@ -1,4 +1,5 @@
 import type { Event, SeasonWeek } from '@/lib/types';
+import { dayKeyOf } from '@/lib/utils/dayWindow';
 
 // Lookup table for common HTML entities found in event data
 const HTML_ENTITY_MAP: Record<string, string> = {
@@ -91,13 +92,6 @@ export interface DayGroup {
   events: Event[];
 }
 
-function localDateKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): number[] {
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
   const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
@@ -115,7 +109,7 @@ export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Da
 
   for (const event of events) {
     const eventDate = new Date(event.startDate);
-    const key = localDateKey(eventDate);
+    const key = dayKeyOf(eventDate);
     let group = grouped.get(key);
     if (!group) {
       const baseLabel = eventDate.toLocaleDateString('en-US', {

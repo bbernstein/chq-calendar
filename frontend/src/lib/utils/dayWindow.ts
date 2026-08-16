@@ -77,8 +77,24 @@ export function addDays(key: DayKey, n: number): DayKey {
   return dayKeyOf(date);
 }
 
-/** Every day from `from` through `through`, inclusive. Empty if inverted. */
+/** A `yyyy-mm-dd` key with a real calendar date behind it. */
+function isDayKey(key: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+  const [y, m, d] = partsOf(key);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+}
+
+/**
+ * Every day from `from` through `through`, inclusive. Empty if inverted.
+ *
+ * Both endpoints are validated first. Without that, a `'NaN-NaN-NaN'` key —
+ * what `groupEventsByDay` produces for an unparseable `startDate` — makes the
+ * loop non-terminating, because `'N'` sorts above every digit and the cursor
+ * can never reach it.
+ */
 export function dayKeys(from: DayKey, through: DayKey): DayKey[] {
+  if (!isDayKey(from) || !isDayKey(through)) return [];
   const out: DayKey[] = [];
   let cursor = from;
   while (cursor <= through) {
@@ -99,7 +115,7 @@ export function dayKeys(from: DayKey, through: DayKey): DayKey[] {
  *
  * Half-open is also what the existing code already used, so most scopes need
  * no conversion: the week filter is `>= week.start && < week.end`, and
- * `localDateKey` equality is exactly `[startOfDay(d), startOfDay(d+1))`.
+ * `dayKeyOf` equality is exactly `[startOfDay(d), startOfDay(d+1))`.
  * Those bounds are carried through verbatim below.
  *
  * `startDay`/`endDay` are the navigation-facing projection: what a day rail
@@ -233,6 +249,13 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
   }
 }
 
+/** `key` moved to the nearest end of `bounds` if it falls outside them. */
+function clampToBounds(key: DayKey, bounds: NavigableBounds): DayKey {
+  if (key < bounds.startDay) return bounds.startDay;
+  if (key > bounds.endDay) return bounds.endDay;
+  return key;
+}
+
 /**
  * The base window, widened by however far the user has navigated.
  *
@@ -243,26 +266,23 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
  * `'this-week'`'s noon boundaries until the user actually navigates past
  * them.
  *
- * `bounds` is clamped onto the *expansion inputs*, not onto the merged
- * result. The base window itself is never touched by the clamp: a scope's
- * own window (e.g. off-season `'today'`, which sits entirely outside
- * `bounds` for ~10 months a year) is never rewritten on only one edge, which
- * is what would invert `startDay`/`endDay` if the clamp ran after the merge.
- * `bounds` exists to bound how far navigation can *reach* — it has nothing
- * to say about a scope that hasn't been navigated at all.
+ * Each expansion input is clamped to the nearest edge of `bounds` it falls
+ * outside — never snapped across to the far edge, which would silently open
+ * the whole navigable range instead of stopping at the edge it overshot.
+ * That clamp runs on the *expansion inputs*, not on the merged result. The
+ * base window itself is never touched by it: a scope's own window (e.g.
+ * off-season `'today'`, which sits entirely outside `bounds` for ~10 months a
+ * year) is never rewritten on only one edge, which is what would invert
+ * `startDay`/`endDay` if the clamp ran after the merge. `bounds` exists to
+ * bound how far navigation can *reach* — it has nothing to say about a scope
+ * that hasn't been navigated at all.
  */
 export function viewWindow(o: WindowOptions): ViewWindow | null {
   const base = baseWindow(o);
   if (!base) return null;
 
-  let expandedStartDay = o.expandedStartDay;
-  if (expandedStartDay && expandedStartDay < o.bounds.startDay) {
-    expandedStartDay = o.bounds.startDay;
-  }
-  let expandedEndDay = o.expandedEndDay;
-  if (expandedEndDay && expandedEndDay > o.bounds.endDay) {
-    expandedEndDay = o.bounds.endDay;
-  }
+  const expandedStartDay = o.expandedStartDay ? clampToBounds(o.expandedStartDay, o.bounds) : null;
+  const expandedEndDay = o.expandedEndDay ? clampToBounds(o.expandedEndDay, o.bounds) : null;
 
   let startDay = base.startDay;
   let endDay = base.endDay;
@@ -276,4 +296,49 @@ export function viewWindow(o: WindowOptions): ViewWindow | null {
     start: startDay === base.startDay ? base.start : startOfDay(startDay),
     endExclusive: endDay === base.endDay ? base.endExclusive : dayAfter(endDay),
   };
+}
+
+/**
+ * Every day that has at least one event, sorted, each listed once.
+ *
+ * This is the set navigation steps through: expanding the window to a day
+ * with no events would move the edge and add nothing to the list, which
+ * reads as a broken control. Unparseable dates are dropped, matching every
+ * other call site in the app.
+ */
+export function eventDayKeys(events: Event[]): DayKey[] {
+  const keys = new Set<DayKey>();
+  for (const event of events) {
+    const parsed = new Date(event.startDate);
+    if (Number.isNaN(parsed.getTime())) continue;
+    keys.add(dayKeyOf(parsed));
+  }
+  return [...keys].sort();
+}
+
+/** The nearest event day beyond each edge of `w`, or `null` if there is none. */
+export function navigationTargets(
+  eventDays: DayKey[],
+  w: ViewWindow | null
+): { earlierDay: DayKey | null; laterDay: DayKey | null } {
+  if (!w) return { earlierDay: null, laterDay: null };
+  let earlierDay: DayKey | null = null;
+  let laterDay: DayKey | null = null;
+  // eventDays is sorted, so the last key below startDay wins (walk keeps
+  // overwriting earlierDay) and the first key above endDay wins (guarded by
+  // the null check so later keys don't overwrite it).
+  for (const key of eventDays) {
+    if (key < w.startDay) earlierDay = key;
+    else if (key > w.endDay && laterDay === null) laterDay = key;
+  }
+  return { earlierDay, laterDay };
+}
+
+/** `"Saturday, Aug 15"` — how a navigation control names its target. */
+export function formatDayLabel(key: DayKey): string {
+  return startOfDay(key).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
 }

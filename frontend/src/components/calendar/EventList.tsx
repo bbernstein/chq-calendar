@@ -1,131 +1,87 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import type { Event } from '@/lib/types';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
-import type { WeekTheme } from '@/hooks/useWeeklyThemes';
-import type { ArticleLink } from '@/hooks/useArticleLinks';
-import type { ProgramLink } from '@/hooks/useProgramLinks';
-import { downloadICS } from '@/lib/utils/icsHelpers';
-import { EventCard } from './EventCard';
-import { WeekBadge } from './WeekBadge';
+import type { EventListViewProps } from './EventListView';
+import { EventListLegacy } from './EventListLegacy';
+import { EventListWindowed } from './EventListWindowed';
 
-interface EventListProps {
+interface EventListCommonProps extends Omit<EventListViewProps, 'groups'> {
   groupedEvents: DayGroup[];
-  expandedDescriptions: Set<string>;
-  onToggleDescription: (eventId: string) => void;
-  onToggleTag: (tag: string) => void;
-  isTagSelected: (tag: string) => boolean;
-  favoriteIds: Set<string>;
-  onToggleFavorite: (eventId: string) => void;
   dateFilter: string;
+  /** Legacy path only. */
   onShowNextDay?: () => void;
   hasMoreDays?: boolean;
-  weeklyThemes?: Record<number, WeekTheme>;
-  articleLinks?: Record<string, ArticleLink[]>;
-  programLinks?: Record<string, ProgramLink[]>;
 }
 
-const BATCH_SIZE = 50;
+interface EventListWindowedDispatchProps {
+  /**
+   * Phase 2's render window, gated on `VITE_NAV_V2`, is on for this render.
+   * `resetKey` is required in this arm — see EventListWindowed — so there is
+   * no default to silently fall back to if a caller forgets it.
+   */
+  navV2: true;
+  resetKey: string;
+  earlierDay?: string | null;
+  onShowEarlier?: () => void;
+  canExpandEnd?: boolean;
+  onExpandEnd?: () => void;
+}
 
-export function EventList({ groupedEvents, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected, favoriteIds, onToggleFavorite, dateFilter, onShowNextDay, hasMoreDays, weeklyThemes, articleLinks, programLinks }: EventListProps) {
-  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+interface EventListLegacyDispatchProps {
+  /** Off, or absent — the legacy container is the only thing that renders. */
+  navV2?: false;
+}
 
-  // Flatten events for counting, but render by day group
-  const totalEvents = useMemo(() => groupedEvents.reduce((sum, g) => sum + g.events.length, 0), [groupedEvents]);
+// A discriminated union on `navV2`: the windowed-only props (`resetKey` above
+// all) exist only in the arm where `navV2` is `true`. This makes "navV2 on
+// without a resetKey" a compile error instead of a silent `resetKey ?? ''`
+// that would freeze the render window and never reset it across filter
+// changes.
+export type EventListProps = EventListCommonProps &
+  (EventListWindowedDispatchProps | EventListLegacyDispatchProps);
 
-  // Reset visible count when grouped events change (new filter applied)
-  useEffect(() => { setVisibleCount(BATCH_SIZE); }, [groupedEvents]);
-
-  // IntersectionObserver to load more when sentinel is visible
-  useEffect(() => {
-    if (visibleCount >= totalEvents) return;
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
-        setVisibleCount(prev => Math.min(prev + BATCH_SIZE, totalEvents));
-      }
-    }, { rootMargin: '200px' });
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [visibleCount, totalEvents]);
-
-  // Slice day groups to only show visibleCount events total
-  let remaining = visibleCount;
-  const visibleGroups: DayGroup[] = [];
-  for (const group of groupedEvents) {
-    if (remaining <= 0) break;
-    if (group.events.length <= remaining) {
-      visibleGroups.push(group);
-      remaining -= group.events.length;
-    } else {
-      visibleGroups.push({ ...group, events: group.events.slice(0, remaining) });
-      remaining = 0;
-    }
+// Dispatches on `navV2`: the windowed container (day-granular render window,
+// auto-expanding forward) when the flag is on, the untouched legacy
+// container (event-count slicing, manual "Show next day") when it is off or
+// absent. Narrowing on the whole `props` object (rather than destructuring
+// the union in the parameter list) is what lets the compiler track which arm
+// is active — a destructured parameter would widen `resetKey` back to
+// `string | undefined` and lose the guarantee. Each arm destructures out
+// whatever the *other* arm's dispatch prop and common props are, rather
+// than leaving them in `...view` — a JSX spread carries excess properties
+// through without a type error, so an un-destructured prop would silently
+// ride into a container whose prop type doesn't declare it. In the windowed
+// arm that's `navV2`, `dateFilter`, `onShowNextDay` and `hasMoreDays` (none
+// declared on `EventListWindowedProps`); in the legacy arm it's just
+// `navV2` (`EventListLegacyProps` already declares the other three, and the
+// legacy container needs them).
+export function EventList(props: EventListProps) {
+  if (props.navV2) {
+    const {
+      navV2, dateFilter, onShowNextDay, hasMoreDays,
+      resetKey, earlierDay, onShowEarlier, canExpandEnd, onExpandEnd, ...view
+    } = props;
+    // Bound above only to keep them out of `...view` — see the comment
+    // above this function for why.
+    void navV2; void dateFilter; void onShowNextDay; void hasMoreDays;
+    return (
+      <EventListWindowed
+        {...view}
+        resetKey={resetKey}
+        earlierDay={earlierDay}
+        onShowEarlier={onShowEarlier}
+        canExpandEnd={canExpandEnd}
+        onExpandEnd={onExpandEnd}
+      />
+    );
   }
-
-  // Compute next day label for the "Show next day" button
-  const nextDayLabel = useMemo(() => {
-    if (dateFilter !== 'next' || groupedEvents.length === 0) return '';
-    const lastGroup = groupedEvents[groupedEvents.length - 1];
-    const lastEvent = lastGroup?.events[lastGroup.events.length - 1];
-    if (!lastEvent) return '';
-    const lastDate = new Date(lastEvent.startDate);
-    lastDate.setDate(lastDate.getDate() + 1);
-    return ` (${lastDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })})`;
-  }, [dateFilter, groupedEvents]);
-
+  const { navV2, dateFilter, onShowNextDay, hasMoreDays, ...view } = props;
+  // `navV2` is bound above only to keep it out of `...view`.
+  void navV2;
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {visibleGroups.map((dayGroup) => (
-        <div key={dayGroup.key}>
-          <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
-              {dayGroup.baseLabel}
-              {dayGroup.weekNumbers.length > 0 && (
-                <>
-                  <span> - </span>
-                  <WeekBadge weekNumbers={dayGroup.weekNumbers} themes={weeklyThemes ?? {}} />
-                </>
-              )}
-            </h3>
-          </div>
-          <div className="space-y-1">
-            {dayGroup.events.map((event, index) => (
-              <EventCard
-                key={event.id}
-                event={event}
-                index={index}
-                isExpanded={expandedDescriptions.has(event.id)}
-                onToggleDescription={onToggleDescription}
-                onToggleTag={onToggleTag}
-                isTagSelected={isTagSelected}
-                isFavorite={favoriteIds.has(event.id)}
-                onToggleFavorite={onToggleFavorite}
-                onDownloadICS={downloadICS}
-                articleLinks={articleLinks?.[event.id]}
-                programLinks={programLinks?.[event.id]}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-      {visibleCount < totalEvents && (
-        <div ref={sentinelRef} className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
-          Loading more events...
-        </div>
-      )}
-      {dateFilter === 'next' && visibleCount >= totalEvents && totalEvents > 0 && hasMoreDays && onShowNextDay && (
-          <div className="text-center py-4">
-            <button
-              type="button"
-              onClick={onShowNextDay}
-              className="px-4 py-2 text-sm bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-100 dark:hover:bg-gray-600 transition-colors"
-            >
-              Show next day{nextDayLabel}
-            </button>
-          </div>
-      )}
-    </div>
+    <EventListLegacy
+      {...view}
+      dateFilter={dateFilter}
+      onShowNextDay={onShowNextDay}
+      hasMoreDays={hasMoreDays}
+    />
   );
 }
