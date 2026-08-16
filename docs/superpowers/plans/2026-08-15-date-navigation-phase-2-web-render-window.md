@@ -1872,7 +1872,12 @@ Inside the component, after the render-window state:
   }, [groupedEvents, resetKey]);
 ```
 
-The reset effect from Task 4 stays exactly as it is — no line is added to it.
+Nothing else in the component changes. In particular, do not try to clear the
+pending record from anywhere else: Task 4's anchor is derived during render,
+not synchronised by an effect, so there is no reset effect to hang a cancel
+on — and even if there were, layout effects run before passive effects in the
+same commit, so it would fire too late. The stamped `resetKey` is the whole
+cancellation mechanism.
 
 And the control, rendered above the day sections inside the existing wrapper:
 
