@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+:root {
+  /*
+   * The measured height of the sticky day rail, republished on every resize
+   * by `useDayRailHeight`. Declared here so the day headers and every scroll
+   * target have a sane value on the first paint, before the rail has
+   * mounted and measured — and so a page that renders no rail at all (an
+   * archived year with no navigable days) still resolves the property.
+   */
+  --day-rail-h: 0px;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

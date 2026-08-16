@@ -38,8 +38,23 @@ export function EventListView({
         // scroll-to. It is on the section wrapper rather than the sticky
         // header, because a sticky header's rect stops reporting the
         // section's real position the moment it sticks.
-        <div key={dayGroup.key} {...{ [DAY_SECTION_ATTR]: dayGroup.key }}>
-          <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4">
+        <div
+          key={dayGroup.key}
+          {...{ [DAY_SECTION_ATTR]: dayGroup.key }}
+          // Without this, `scrollIntoView({ block: 'start' })` puts the day
+          // header exactly at the viewport top — underneath the sticky rail.
+          // Expressed as the measured custom property rather than a pixel
+          // literal so it stays right at any browser text zoom.
+          style={{ scrollMarginTop: 'var(--day-rail-h)' }}
+        >
+          <div
+            className="sticky bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4"
+            // `top-0` is dropped from the class list in favour of this: two
+            // sticky layers both pinned at 0 overlap, and the header is the
+            // one that has to give way. `z-10` keeps it below the rail's
+            // `z-20`.
+            style={{ top: 'var(--day-rail-h)' }}
+          >
             <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
               {dayGroup.baseLabel}
               {dayGroup.weekNumbers.length > 0 && (
