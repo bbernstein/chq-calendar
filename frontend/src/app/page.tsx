@@ -267,18 +267,24 @@ function HomeContent() {
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
-            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (
+            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : navV2 ? (
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter} onShowNextDay={showNextDay}
-                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks}
-                navV2={navV2}
+                dateFilter={filters.dateFilter}
+                weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks}
+                navV2
                 resetKey={listResetKey}
                 earlierDay={earlierDay}
                 onShowEarlier={showEarlier}
                 canExpandEnd={!!laterDay}
                 onExpandEnd={expandEnd} />
+            ) : (
+              <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
+                onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
+                favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
+                dateFilter={filters.dateFilter} onShowNextDay={showNextDay}
+                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks} />
             )}
           </div>
         </div>

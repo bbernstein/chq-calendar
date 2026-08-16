@@ -110,18 +110,31 @@ describe('EventListWindowed', () => {
 
   it('labels the sentinel "Loading more events..." only while a cheap step can actually mount something', () => {
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />);
+    const { container } = render(
+      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />
+    );
     // day2 is loaded but not yet rendered — the cheap branch has something
     // to do the moment the sentinel intersects, so the label is honest.
     expect(screen.getByText('Loading more events...')).toBeInTheDocument();
+    // The labelled sentinel is not the 1px empty one — it has real content
+    // and padding to show it, so it never needs the intersection-target
+    // insurance the empty branch below does.
+    const sentinel = container.querySelector('[data-testid="event-list-sentinel"]');
+    expect(sentinel?.className).not.toMatch(/\bh-px\b/);
   });
 
-  it('renders an empty, aria-hidden sentinel with no text and no padding while the expensive step is blocked', () => {
+  it('renders a 1px, aria-hidden sentinel with no text while the expensive step is blocked', () => {
     // canExpandEnd is true but nothing loaded remains AND the reader has not
     // scrolled — the sentinel must stay mounted (it's what detects the
     // scroll when it comes), but "Loading more events..." would be a lie:
     // nothing is loading, and won't until the reader scrolls. A permanent,
     // unresolving "loading" message reads as broken, not as blocked.
+    //
+    // It still needs a real, non-zero-area intersection target: a browser
+    // pass confirmed a zero-height sentinel fires in Chrome, but Safari and
+    // Firefox were never checked, so `h-px` removes the doubt for a single
+    // pixel of vertical space rather than relying on the spec's zero-area
+    // guarantee holding in every engine.
     setReaderScrolled(false);
     const groups = [group('2026-07-05', 3)];
     const { container } = render(
@@ -133,6 +146,7 @@ describe('EventListWindowed', () => {
     expect(sentinel).toHaveAttribute('aria-hidden', 'true');
     expect(sentinel?.textContent).toBe('');
     expect(sentinel?.className).not.toMatch(/py-4/);
+    expect(sentinel?.className).toMatch(/\bh-px\b/);
   });
 
   it('does not auto-expand before the reader has scrolled', () => {

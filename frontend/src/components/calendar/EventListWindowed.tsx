@@ -233,10 +233,14 @@ export function EventListWindowed({
         // means the cheap branch will fire immediately, so "Loading more
         // events..." is true. When only `canExpandEnd` holds, the expensive
         // branch is gated on the reader having scrolled — nothing is
-        // loading yet, so saying so would lie. Rendering an empty,
-        // `aria-hidden` marker with no vertical padding keeps the
-        // intersection target without a permanent "loading" message that
-        // never resolves and without leaving a visible gap.
+        // loading yet, so saying so would lie. Rendering an `aria-hidden`
+        // marker with no text and no vertical padding keeps this branch
+        // from claiming a "loading" state that never resolves and without
+        // leaving a visible gap. It still gets `h-px`: a zero-area element
+        // is a defined `IntersectionObserver` target per spec, but that was
+        // only verified in Chrome — a real pixel of height costs nothing
+        // visually and removes any engine-specific doubt about whether the
+        // callback fires.
         hasMoreLoadedDays ? (
           <div
             ref={sentinelRef}
@@ -246,7 +250,7 @@ export function EventListWindowed({
             Loading more events...
           </div>
         ) : (
-          <div ref={sentinelRef} data-testid="event-list-sentinel" aria-hidden="true" />
+          <div ref={sentinelRef} data-testid="event-list-sentinel" aria-hidden="true" className="h-px" />
         )
       )}
     </div>
