@@ -175,6 +175,12 @@ export function EventListWindowed({
   // index 0, so that day is mounted before the prepend and still mounted
   // after it, with every prepended day above it.
   const pendingPrependRef = useRef<{ key: string; top: number; resetKey: string } | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // What the reference day's `top` should stay at until the reader takes
+  // over. Set by the correction below; cleared by the first deliberate
+  // scroll gesture.
+  const settleRef = useRef<{ key: string; top: number } | null>(null);
 
   const handleShowEarlier = useCallback(() => {
     if (!onShowEarlier) return;
@@ -202,6 +208,55 @@ export function EventListWindowed({
     if (top === null) return;
     const delta = top - pending.top;
     if (delta !== 0) window.scrollBy(0, delta);
+    // Hold this position against late height changes until the reader
+    // scrolls. `pending.top` — not `top` — because that is where the
+    // reference day was before the prepend, and putting it back there is
+    // the whole point of the correction.
+    settleRef.current = { key: pending.key, top: pending.top };
+  }, [groupedEvents, resetKey]);
+
+  useEffect(() => {
+    const settle = settleRef.current;
+    if (!settle) return;
+    const root = listRef.current;
+    if (!root) return;
+
+    // The correction above is right about *where* the reference day should
+    // be — measured, it lands the reference day back on its exact original
+    // `top` — and it runs before paint. What it cannot cover is height that
+    // arrives afterwards. Measurably, some does: sampling every frame after
+    // a prepend, the day above the reader grows ~104px between frame 0 and
+    // frame 1 and then holds steady, with no DOM mutation, no font load and
+    // no failed image to explain it. Re-asserting the reference day's
+    // position on every resize of the list absorbs that without needing to
+    // know what caused it — which is the point, because a targeted fix for
+    // a cause we have not identified would be a guess.
+    const reassert = () => {
+      const current = settleRef.current;
+      if (!current) return;
+      const top = daySectionTop(current.key);
+      if (top === null) { settleRef.current = null; return; }
+      const delta = top - current.top;
+      if (delta !== 0) window.scrollBy(0, delta);
+    };
+
+    // Any deliberate scroll gesture ends the settle window. Deliberately NOT
+    // the `scroll` event: our own `scrollBy` fires that, so listening to it
+    // would cancel the settle window with the very correction that opened
+    // it. These three are inputs the reader produces and we never do.
+    const stop = () => { settleRef.current = null; };
+
+    const observer = new ResizeObserver(reassert);
+    observer.observe(root);
+    window.addEventListener('wheel', stop, { passive: true });
+    window.addEventListener('touchstart', stop, { passive: true });
+    window.addEventListener('keydown', stop);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('wheel', stop);
+      window.removeEventListener('touchstart', stop);
+      window.removeEventListener('keydown', stop);
+    };
   }, [groupedEvents, resetKey]);
 
   useEffect(() => {
@@ -231,7 +286,7 @@ export function EventListWindowed({
   }, [showSentinel, hasMoreLoadedDays, endIdx, groupedEvents, canExpandEnd, onExpandEnd, resetKey, hasScrolled]);
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div ref={listRef} className="space-y-4 sm:space-y-6">
       {earlierDay && onShowEarlier && (
         <div className="text-center py-2">
           <button

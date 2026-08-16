@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/preact';
 import { EventListWindowed } from '@/components/calendar/EventListWindowed';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
+import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import type { Event } from '@/lib/types';
@@ -466,6 +467,10 @@ describe('EventListWindowed — showing earlier days', () => {
     // installed because the component constructs an observer whenever a
     // sentinel renders, and jsdom provides no constructor to construct.
     installIntersectionObserverMock();
+    // Same reasoning as above, for the settle window's ResizeObserver: it is
+    // constructed on every successful prepend correction, whether or not a
+    // given test ever triggers a resize.
+    installResizeObserverMock();
     scrollBy = vi.fn();
     vi.stubGlobal('scrollBy', scrollBy);
   });
@@ -631,9 +636,20 @@ describe('upward prepend scroll correction', () => {
     });
   }
 
+  beforeEach(() => {
+    // Installed unconditionally, like the IntersectionObserver mocks
+    // elsewhere in this file: the settle window constructs a
+    // ResizeObserver on every successful prepend correction, whether or
+    // not a given test ever triggers a resize. Tests that need to fire it
+    // install their own via `installResizeObserverMock()`, which simply
+    // replaces this stub before render.
+    installResizeObserverMock();
+  });
+
   afterEach(() => {
     // @ts-expect-error — restoring the prototype method jsdom shipped.
     delete HTMLElement.prototype.getBoundingClientRect;
+    vi.unstubAllGlobals();
   });
 
   it('scrolls by how far the reference day moved, not by the document delta', async () => {
@@ -703,6 +719,75 @@ describe('upward prepend scroll correction', () => {
       <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-05'])}
         resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
     );
+
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('re-corrects when the prepended region changes height after the commit', async () => {
+    // `stubLayout`'s `top` is relative to `window.scrollY`, and an earlier
+    // test in this block (deliberately) leaves it at a nonzero value with no
+    // reset — harmless there, since a delta between two measurements at the
+    // same `scrollY` cancels it out, but this test computes a delta against
+    // a `scrollY` it deliberately changes partway through, so it needs its
+    // own known starting point rather than whatever a sibling left behind.
+    Object.defineProperty(window, 'scrollY', { value: 0, writable: true, configurable: true });
+    stubLayout(100);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const resize = installResizeObserverMock();
+
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+        resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
+        resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
+    );
+    expect(scrollBy).toHaveBeenCalledWith(0, 100);
+
+    // `scrollBy` is a bare spy here, not a real implementation — it never
+    // moves `window.scrollY`, so `stubLayout`'s `top` (which subtracts
+    // `scrollY`) would otherwise re-report the pre-correction position on
+    // every later measurement, no matter what changed. A real `scrollBy`
+    // call updates `scrollY`; simulate that by hand so the next measurement
+    // reflects a page that has actually been corrected once already.
+    Object.defineProperty(window, 'scrollY', { value: 100, writable: true, configurable: true });
+
+    // Content above the reader changes height one frame late — measured at
+    // ~104px of growth in the browser. Modelled here as a 60px shrink so the
+    // expected correction is signed and unambiguous: the reference day moves
+    // UP by 60, so the re-assert scrolls by -60.
+    stubLayout(40);
+    resize.trigger();
+
+    expect(scrollBy).toHaveBeenLastCalledWith(0, -60);
+  });
+
+  it('stops re-correcting once the reader interacts', async () => {
+    stubLayout(100);
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const resize = installResizeObserverMock();
+
+    const { rerender } = render(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+        resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
+    rerender(
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
+        resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
+    );
+    scrollBy.mockClear();
+
+    // Any deliberate scroll gesture ends the settle window: a correction
+    // applied after the reader has taken over fights them for the viewport,
+    // which is strictly worse than the drift it would remove.
+    fireEvent.wheel(window);
+    stubLayout(70);
+    resize.trigger();
 
     expect(scrollBy).not.toHaveBeenCalled();
   });
