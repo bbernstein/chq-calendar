@@ -1113,10 +1113,11 @@ export interface EventListProps extends Omit<EventListViewProps, 'groups'> {
   onExpandEnd?: () => void;
 }
 
+// The windowed container arrives in the next task; until then the flag
+// selects nothing and the legacy path is unconditional. The unused names are
+// destructured so they do not reach `rest` — `@typescript-eslint/no-unused-vars`
+// ignores rest siblings, so this lints clean without a suppression.
 export function EventList({ navV2, resetKey, earlierDay, onShowEarlier, canExpandEnd, onExpandEnd, ...rest }: EventListProps) {
-  // The windowed container arrives in the next task; until then the flag
-  // selects nothing and the legacy path is unconditional.
-  void navV2; void resetKey; void earlierDay; void onShowEarlier; void canExpandEnd; void onExpandEnd;
   return <EventListLegacy {...rest} />;
 }
 ```
@@ -1374,6 +1375,9 @@ import { extendRenderEndIndex, renderEndIndex } from '@/lib/utils/renderWindow';
 import { EventListView, type EventListViewProps } from './EventListView';
 
 export interface EventListWindowedProps extends Omit<EventListViewProps, 'groups'> {
+  // NOTE: `earlierDay` and `onShowEarlier` below are declared now and wired
+  // in Task 5. Destructure them in this task even though they are unused, so
+  // they never reach the `...view` spread and land on `EventListView`.
   groupedEvents: DayGroup[];
   /** Identity of the non-window filters — see `renderResetKey`. */
   resetKey: string;
@@ -1402,7 +1406,7 @@ function isPageScrollable(): boolean {
  * scroll position to solve a problem 1,470 events do not have.
  */
 export function EventListWindowed({
-  groupedEvents, resetKey, canExpandEnd, onExpandEnd, ...view
+  groupedEvents, resetKey, canExpandEnd, onExpandEnd, earlierDay, onShowEarlier, ...view
 }: EventListWindowedProps) {
   // Anchored on a day key, never an index: expanding the window backward
   // prepends groups and shifts every index underneath us.
@@ -1413,10 +1417,13 @@ export function EventListWindowed({
   // `resetKey` alone: a window that merely grew is the same question, and
   // resetting on it would throw the reader back to the top of the list on
   // every auto-expand.
+  // `groupedEvents` is read but deliberately not a dependency — that is the
+  // whole point of the reset key, and this repo's ESLint has no
+  // react-hooks plugin, so do not add a suppression comment for a rule that
+  // is not configured.
   useEffect(() => {
     const idx = renderEndIndex(groupedEvents, null);
     setRenderLastKey(idx >= 0 ? groupedEvents[idx].key : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
   const endIdx = useMemo(
