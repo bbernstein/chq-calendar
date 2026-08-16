@@ -137,10 +137,19 @@ function group(key: string, count: number): DayGroup {
   return { key, baseLabel: `Day ${key}`, weekNumbers: [], events };
 }
 
-// 5 events/day, not 1: at 1/day, 20 days never reaches the 50-event render
-// batch, so every day would already be mounted and the test would prove
-// nothing about revealing a day past the render window. See the identical
-// note in EventList.test.tsx.
+// 5 events/day, not 1: at 1/day, even 12 days would never reach the 50-event
+// render batch (RENDER_BATCH_EVENTS in renderWindow.ts), so every day would
+// already be mounted and the heavy tests below would prove nothing about
+// revealing a day past the render window. See the identical note in
+// EventList.test.tsx.
+//
+// 12 days, not 20: at 5/day the batch fills by day 10 (5*10 = 50), so day 12
+// — the last day, and the shared fixture's navigation target — is genuinely
+// left unmounted by the initial render, which is the only state these tests
+// need. Going lower than 12 (or raising events/day) risks the target landing
+// inside the fill instead of past it, which would make `revealDay` optional
+// again — the exact trap an earlier 20-day/1-event version of this fixture
+// fell into.
 function makeGroups(keys: string[]): DayGroup[] {
   return keys.map(k => group(k, 5));
 }
@@ -209,7 +218,7 @@ function Harness({ groupedEvents: initialGroups, earlierKey }: { groupedEvents: 
 
   return (
     <div>
-      <button type="button" onClick={() => goToDay('2026-07-20')}>Go</button>
+      <button type="button" onClick={() => goToDay('2026-07-12')}>Go</button>
       <EventList {...eventListBaseProps} groupedEvents={groupedEvents} resetKey="k"
         revealDay={pendingScroll}
         earlierDay={earlierKey ?? null}
@@ -224,7 +233,14 @@ describe('goToDay -> revealDay -> scrollToDay chain', () => {
     document.documentElement.style.removeProperty('--day-rail-h');
   });
 
-  it('scrolls to a day beyond the current render window', () => {
+  // Explicit timeout: this is an integration test rendering a real
+  // `EventList` + `useDayAnchor` through ~60 `EventCard`s (12 days x 5
+  // events — see the fixture note on `makeGroups` above). Locally on Node 24
+  // it runs in well under a second, but the default 5s budget is tight on a
+  // loaded, 2-core CI runner running with coverage instrumentation and
+  // parallel workers, which is exactly what timed this test out before the
+  // fixture was shrunk.
+  it('scrolls to a day beyond the current render window', { timeout: 15000 }, () => {
     installIntersectionObserverMock();
     // useDayAnchor's settle effect constructs a ResizeObserver on every
     // mount now, whether or not this test ever triggers a resize.
@@ -233,20 +249,20 @@ describe('goToDay -> revealDay -> scrollToDay chain', () => {
     // offset is what makes the scrollBy assertion below distinguishable
     // from "delta happened to be 0" rather than "scrollToDay never ran".
     document.documentElement.style.setProperty('--day-rail-h', '50px');
-    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const keys = Array.from({ length: 12 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
     const scrollBy = vi.fn();
     vi.stubGlobal('scrollBy', scrollBy);
 
     const { getByRole, container } = render(<Harness groupedEvents={makeGroups(keys)} />);
-    // Precondition: day 20 genuinely starts outside the render window —
+    // Precondition: day 12 genuinely starts outside the render window —
     // otherwise this test would pass whether or not `revealDay` works.
-    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).toBeNull();
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-12"]`)).toBeNull();
 
     fireEvent.click(getByRole('button', { name: 'Go' }));
 
-    // Day 20's section now exists (revealDay mounted it) and scrollToDay ran
+    // Day 12's section now exists (revealDay mounted it) and scrollToDay ran
     // against it: top(0, jsdom's default) - stickyOffset(50) = -50.
-    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).not.toBeNull();
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-12"]`)).not.toBeNull();
     expect(scrollBy).toHaveBeenCalledWith(0, -50);
   });
 });
@@ -265,17 +281,27 @@ describe('settle arbitration: a rail navigation supersedes a pending prepend hol
   // `trigger()` call — exactly as a real resize notifies every live
   // observer — so this reproduces the concurrent-fire race directly rather
   // than asserting about it from the side.
-  it('clears the stale prepend hold so only the rail correction survives a shared resize', () => {
+  // Explicit timeout: same integration-test cost as the chain test above
+  // (~60 EventCards from a real EventList + useDayAnchor render), plus a
+  // ResizeObserver mock and a second real render window. Comfortably under a
+  // second locally on Node 24, but a loaded 2-core CI runner with coverage
+  // instrumentation is a different machine, which is what timed this test
+  // out before the fixture was shrunk from 20 days to 12.
+  it('clears the stale prepend hold so only the rail correction survives a shared resize', { timeout: 15000 }, () => {
     installIntersectionObserverMock();
     const resize = installResizeObserverMock();
     document.documentElement.style.setProperty('--day-rail-h', '50px');
-    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const keys = Array.from({ length: 12 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
     const scrollBy = vi.fn();
     vi.stubGlobal('scrollBy', scrollBy);
 
-    const { getByRole } = render(
+    const { getByRole, container } = render(
       <Harness groupedEvents={makeGroups(keys)} earlierKey="2026-06-30" />
     );
+    // Precondition: day 12 genuinely starts outside the render window — the
+    // rail tap below has to be the thing that reveals it, or this test could
+    // pass with `revealDay` doing nothing.
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-12"]`)).toBeNull();
 
     // Arm EventList's prepend hold.
     fireEvent.click(getByRole('button', { name: /show earlier/i }));
@@ -295,10 +321,10 @@ describe('settle arbitration: a rail navigation supersedes a pending prepend hol
 
     // One shared resize notifies both observers, exactly as the coordinator
     // described: EventList's (armed on 2026-07-01, if not cleared) and
-    // useDayAnchor's (armed on 2026-07-20).
+    // useDayAnchor's (armed on 2026-07-12).
     resize.trigger();
 
-    // Exactly one correction — the rail's: top(0, day 20's unstubbed
+    // Exactly one correction — the rail's: top(0, day 12's unstubbed
     // default) - stickyOffset(50) = -50. A second call, or a call with 300,
     // would mean the stale prepend hold fought it.
     expect(scrollBy).toHaveBeenCalledTimes(1);
@@ -312,26 +338,35 @@ describe('settle arbitration: a rail navigation supersedes a pending prepend hol
   // those — armed the prepend correction alongside it. The prepend's own
   // height change is what fires the observers, so the rail's reassert then
   // cancelled the very correction this branch worked hardest to make exact.
-  it('lets a later prepend keep its own correction, unfought by the rail hold', () => {
+  // Explicit timeout: this is the slowest test in the file (two Harness
+  // interactions plus a shared resize, over the same ~60-card render as the
+  // other two heavy tests above), and the one CI actually timed out on. See
+  // the sibling comment above for why the default 5s is too tight on a
+  // loaded 2-core runner.
+  it('lets a later prepend keep its own correction, unfought by the rail hold', { timeout: 15000 }, () => {
     installIntersectionObserverMock();
     const resize = installResizeObserverMock();
     document.documentElement.style.setProperty('--day-rail-h', '50px');
-    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const keys = Array.from({ length: 12 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
     const scrollBy = vi.fn();
     vi.stubGlobal('scrollBy', scrollBy);
 
-    const { getByRole } = render(
+    const { getByRole, container } = render(
       <Harness groupedEvents={makeGroups(keys)} earlierKey="2026-06-30" />
     );
+    // Precondition: day 12 genuinely starts outside the render window — the
+    // rail tap below has to be the thing that reveals it, or this test could
+    // pass with `revealDay` doing nothing.
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-12"]`)).toBeNull();
 
-    // Arm useDayAnchor's hold on 2026-07-20 via a rail navigation.
+    // Arm useDayAnchor's hold on 2026-07-12 via a rail navigation.
     fireEvent.click(getByRole('button', { name: 'Go' }));
     // Then, with no intervening wheel/touchstart/keydown, prepend.
     fireEvent.click(getByRole('button', { name: /show earlier/i }));
     scrollBy.mockClear();
 
     // Content above the prepend's reference day (2026-07-01, held at its
-    // arm-time top of 0) grew; the rail's stale target (2026-07-20) would
+    // arm-time top of 0) grew; the rail's stale target (2026-07-12) would
     // meanwhile compute 0 - 50 = -50 and drag the reader off it.
     document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-01"]`)!
       .getBoundingClientRect = () => ({ top: 300 }) as DOMRect;
