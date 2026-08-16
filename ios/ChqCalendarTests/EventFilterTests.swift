@@ -87,7 +87,7 @@ struct EventFilterTests {
         #expect(result.map(\.id) == ["late"])
     }
 
-    // MARK: - apply: .next adaptive window + grace + extraDays
+    // MARK: - apply: .next adaptive window + grace + windowEndDayKey
 
     @Test func adaptiveEndDateStopsAtFirstDayReachingMinCount() throws {
         let from = try #require(ChqTime.parse("2026-07-10 08:00:00"))
@@ -157,7 +157,7 @@ struct EventFilterTests {
         #expect(result.map(\.id) == ["kayak"])
     }
 
-    @Test func extraDaysWidensNextWindowByWholeDays() throws {
+    @Test func windowEndDayKeyWidensNextWindowByWholeDays() throws {
         let now = try #require(ChqTime.parse("2026-07-10 09:00:00"))
         let from = now.addingTimeInterval(-3600) // 08:00
 
@@ -169,13 +169,13 @@ struct EventFilterTests {
         let later = makeEvent(id: "later", start: try #require(ChqTime.parse("2026-07-11 10:00:00")))
         events.append(later)
 
-        let noExtra = FilterSelection(dateScope: .next, extraDays: 0)
-        let resultNoExtra = EventFilter.apply(noExtra, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
-        #expect(!resultNoExtra.contains { $0.id == "later" })
+        let noExpansion = FilterSelection(dateScope: .next)
+        let resultNoExpansion = EventFilter.apply(noExpansion, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+        #expect(!resultNoExpansion.contains { $0.id == "later" })
 
-        let withExtra = FilterSelection(dateScope: .next, extraDays: 1)
-        let resultWithExtra = EventFilter.apply(withExtra, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
-        #expect(resultWithExtra.contains { $0.id == "later" })
+        let withExpansion = FilterSelection(dateScope: .next, windowEndDayKey: "2026-07-11")
+        let resultWithExpansion = EventFilter.apply(withExpansion, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+        #expect(resultWithExpansion.contains { $0.id == "later" })
     }
 
     // MARK: - apply: weeks filter

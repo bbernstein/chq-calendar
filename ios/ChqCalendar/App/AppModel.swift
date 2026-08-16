@@ -1015,10 +1015,12 @@ final class AppModel {
     /// to the selection as a whole, so changing scope cannot leave a
     /// previous scope's state behind to take effect again later.
     ///
-    /// - `extraDays` is `.next`-only (`EventFilter.apply` reads it in that
-    ///   branch and nowhere else). Without this, "Show next day" ×2 → This
-    ///   Week → Now returns to a window two days wider than a fresh `.next`
-    ///   selection, with nothing on screen explaining why (#156).
+    /// - `windowStartDayKey`/`windowEndDayKey` are how far the user has
+    ///   navigated beyond whatever scope was active when they did it —
+    ///   meaningless once that scope is gone. Without this, "Show next day"
+    ///   ×2 → This Week → Now returns to a window two days wider than a
+    ///   fresh `.next` selection, with nothing on screen explaining why
+    ///   (#156).
     /// - `selectedDayKey` is `.day`-only. Leaving it set is inert *today*
     ///   because it is read only while `dateScope == .day`, but that is an
     ///   invariant held by convention across three methods; clearing it
@@ -1027,11 +1029,12 @@ final class AppModel {
     ///   `DateFilterLabel` would have to describe (#197 item 5).
     ///
     /// `browseDay` deliberately does *not* call this: it is the one writer
-    /// that sets `selectedDayKey` and clears `extraDays` in the same
+    /// that sets `selectedDayKey` and clears the window fields in the same
     /// assignment, in that order.
     private func clearScopeLocalDateState() {
-        filter.extraDays = 0
         filter.selectedDayKey = nil
+        filter.windowStartDayKey = nil
+        filter.windowEndDayKey = nil
     }
 
     /// Replaces the week selection wholesale — the strip owns tap/drag
@@ -1067,8 +1070,9 @@ final class AppModel {
     /// a non-canonical (but validly parsed) key.
     ///
     /// Clears `selectedWeeks`, since a standing week filter can exclude the
-    /// very day the user asked for, and `extraDays`, which is a `.next`-only
-    /// concept. Deliberately leaves `searchText`, venues, categories, and
+    /// very day the user asked for, and the window-expansion fields, which
+    /// only mean something relative to the scope being left behind.
+    /// Deliberately leaves `searchText`, venues, categories, and
     /// favorites-only alone: those are the user's standing preferences, not
     /// date state.
     func browseDay(_ dayKey: String) {
@@ -1076,7 +1080,8 @@ final class AppModel {
         filter.dateScope = .day
         filter.selectedDayKey = ChqTime.dayKey(for: parsed)
         filter.selectedWeeks = []
-        filter.extraDays = 0
+        filter.windowStartDayKey = nil
+        filter.windowEndDayKey = nil
         persistFilter()
     }
 
@@ -1194,8 +1199,8 @@ final class AppModel {
     }
 
     /// "Show all events" — clears every filter, including the search term
-    /// and `extraDays`, and drops the scope to `.all`. Mirrors the web's
-    /// CLEAR_FILTERS.
+    /// and the window-expansion fields, and drops the scope to `.all`.
+    /// Mirrors the web's CLEAR_FILTERS.
     ///
     /// This deliberately clears `searchText`, which the previous
     /// `clearFilters()` preserved. That preservation only made sense while
@@ -1231,8 +1236,20 @@ final class AppModel {
         }
     }
 
-    func showNextDay() {
-        filter.extraDays += 1
+    /// Widens the window by one calendar day from wherever it currently ends
+    /// — the same operation whether that end came from the scope or from a
+    /// previous widening.
+    func expandWindowEnd() {
+        let bounds = ViewWindow.navigableBounds(
+            year: selectedYear, events: snapshot?.events ?? [], starredDays: [])
+        guard
+            let window = ViewWindow.make(
+                selection: filter, events: snapshot?.events ?? [], now: now(),
+                year: selectedYear, isCurrentYear: isCurrentYear, bounds: bounds),
+            let next = ChqTime.day(window.endDay, offsetBy: 1),
+            next <= bounds.upperBound
+        else { return }
+        filter.windowEndDayKey = next
     }
 
     private func persistFilter() {

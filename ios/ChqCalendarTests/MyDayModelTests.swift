@@ -247,16 +247,17 @@ struct MyDayModelTests {
         let now = try #require(ChqTime.parse("2026-08-09 08:00:00"))
         let model = makeSnapshotModel(events: [], now: now)
         model.filter.selectedWeeks = [3]
-        model.filter.extraDays = 2
+        model.filter.windowEndDayKey = "2026-08-11"
 
         model.browseDay("2026-08-09")
 
         #expect(model.filter.dateScope == .day)
         #expect(model.filter.selectedDayKey == "2026-08-09")
         // A standing week filter can exclude the very day the user asked
-        // for, and extraDays is a `.next`-only concept.
+        // for, and the window-expansion fields only mean something relative
+        // to the scope being left behind.
         #expect(model.filter.selectedWeeks.isEmpty)
-        #expect(model.filter.extraDays == 0)
+        #expect(model.filter.windowEndDayKey == nil)
     }
 
     @Test func browseDayLeavesStandingNonDatePreferencesAlone() throws {
@@ -280,7 +281,7 @@ struct MyDayModelTests {
         let model = makeSnapshotModel(events: [], now: now)
         model.filter.dateScope = .all
         model.filter.selectedWeeks = [3]
-        model.filter.extraDays = 2
+        model.filter.windowEndDayKey = "2026-08-11"
         model.filter.searchText = "yoga"
         let before = model.filter
 

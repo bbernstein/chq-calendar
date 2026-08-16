@@ -41,6 +41,15 @@ struct FilterChipStateTests {
             .today, selection: sel, currentWeek: 6, isCurrentYear: true))
     }
 
+    /// The positive branch for `.today` — its siblings `.next` and `.season`
+    /// are pinned above and below, but nothing previously asserted that
+    /// selecting `.today` itself reads the `.today` chip as selected.
+    @Test func todayChipTracksScopeDirectlyWhenSelected() {
+        #expect(FilterChipState.isScopeSelected(
+            .today, selection: FilterSelection(dateScope: .today),
+            currentWeek: 3, isCurrentYear: true))
+    }
+
     @Test func seasonChipFollowsTheScope() {
         #expect(FilterChipState.isScopeSelected(
             .season, selection: FilterSelection(dateScope: .season),
