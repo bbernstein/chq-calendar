@@ -58,6 +58,12 @@ Every task's requirements implicitly include this section.
   `{"backend":{"lines":81.1},"frontend":{"lines":74.3}}`. Deleting the legacy
   list path (Task 3) removes both covered code and its tests; re-check the floor
   after that task specifically.
+- **This repo has no `eslint-plugin-react-hooks`.** Two consequences. No linter
+  checks any dependency array here, so reason them through by hand. And an
+  `eslint-disable-next-line react-hooks/exhaustive-deps` directive is a **hard
+  ESLint 9 error**, not a harmless no-op — a disable directive naming an
+  unregistered rule fails the lint run. Explain a deliberate dependency array
+  in a plain comment instead.
 - **Verification before every commit**, from `frontend/`:
   `npm run build` (runs `validate` = type-check + lint, then tests, then bundle).
   Frontend `lint` does not fail on warnings, but do not add new ones.
@@ -1671,9 +1677,19 @@ describe('useDayAnchor', () => {
     expect(result.current.anchorDay).toBe('2026-07-04');
   });
 
-  it('is null when no day is rendered', () => {
+  // Drives the transition, NOT the initial state. `useState(null)` already
+  // starts at null, so asserting null on a fresh empty render would pass
+  // against a hook that never called `setAnchorDay` at all. Establishing a
+  // non-null anchor first is what makes the reset the thing under test.
+  it('clears the anchor when the rendered days empty out', () => {
+    mountWithTops({ '2026-07-04': -300, '2026-07-05': -20 });
+    const { result, rerender } = renderHook(
+      ({ keys }) => useDayAnchor(keys),
+      { initialProps: { keys: ['2026-07-04', '2026-07-05'] } }
+    );
+    expect(result.current.anchorDay).toBe('2026-07-05');
     mountWithTops({});
-    const { result } = renderHook(() => useDayAnchor([]));
+    rerender({ keys: [] });
     expect(result.current.anchorDay).toBeNull();
   });
 
@@ -1797,7 +1813,12 @@ export function useDayAnchor(renderedDayKeys: string[]): {
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deliberately keyed on `keysId`, the serialized contents, rather than on
+    // `renderedDayKeys`, whose identity changes on every parent render and
+    // would tear down and rebuild the listener each time. Written as a plain
+    // comment, NOT an `eslint-disable-next-line react-hooks/exhaustive-deps`
+    // directive: this repo has no `eslint-plugin-react-hooks`, so a directive
+    // for an unregistered rule is a hard ESLint 9 error rather than a no-op.
   }, [keysId]);
 
   const scrollToDay = useCallback((key: string) => {
