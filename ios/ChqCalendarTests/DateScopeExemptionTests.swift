@@ -9,8 +9,15 @@ import Testing
 ///
 /// Written BEFORE the `EffectiveScope` refactor collapses them into one.
 /// `FilterChipState` is the site where disagreement is a *silent* wrong
-/// answer rather than a compile error, which is why the matrix below is
-/// exhaustive rather than illustrative.
+/// answer rather than a compile error, which is why the matrix below aims
+/// to be exhaustive rather than illustrative.
+///
+/// It is not, in fact, exhaustive: the off-year `.thisWeek` scope combined
+/// with `selectedWeeks == [currentWeek]` is a cell this matrix never
+/// covers. That gap let a bug through the plan's own `FilterChipState`
+/// code during this refactor; it was caught by
+/// `FilterChipStateTests.swift`'s `timeRelativeChipsNeverLightOnANonCurrentYear`
+/// (lines 126-129) instead, which is the guard actually covering that cell.
 ///
 /// Do NOT edit these to make a later change pass. If one goes red, the
 /// refactor is wrong.
@@ -67,7 +74,12 @@ struct DateScopeExemptionTests {
         }
     }
 
-    @Test func seasonScopeStillFiltersOnAPastSeason() throws {
+    // Renamed from `seasonScopeStillFiltersOnAPastSeason`, which asserted
+    // the opposite of what it said: the event OUTSIDE the season is what
+    // survives the filter, because `.season` is downgraded (not exempt),
+    // so nothing is being filtered on a past season at all. Rename only —
+    // per this file's header, not a single assertion below has changed.
+    @Test func seasonScopeIsDowngradedNotFilteredOnAPastSeason() throws {
         // .season is NOT relative to "now" either, but it is currently
         // downgraded anyway. Pinned so the refactor cannot quietly "fix" it.
         let outside = makeEvent(id: "outside", start: try #require(ChqTime.parse("2026-01-05 10:00:00")))

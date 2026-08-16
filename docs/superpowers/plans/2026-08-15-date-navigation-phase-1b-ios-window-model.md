@@ -23,7 +23,7 @@
 - **`windowStartDayKey` / `windowEndDayKey` are session-only.** `UserStateStore.saveFilters` builds a separate `PersistedFilters` struct (`UserStateStore.swift:279-290`) that already omits `searchText`, `extraDays`, and `selectedDayKey` — so **no persistence change is required**, and none may be added. They must also be excluded from `FilterSelection.isDefault`.
 - **The `.day` exemption is the highest-risk change in this plan.** It currently lives in three places that must agree: `EventFilter.swift:42`, `DateFilterLabel.swift:74-78`, and `FilterChipState.swift:56, 66, 92, 101`. `FilterChipState` is the one where getting it wrong is a **silent behavioral bug** rather than a compile error. Task 1 pins all three before Task 2 touches any of them.
 - **Screenshot obligation.** This plan modifies `ios/ChqCalendar/Features/Calendar/EventListView.swift` and `ios/ChqCalendarShared/**`, both matched by `.github/workflows/app-store-assets.yml`. **No pixel changes** — the "Show next day" button keeps its label, placement, and behavior. Opt out explicitly in the PR description with `[skip-screenshots: phase 1b is a pure refactor; no visible change — button label, placement and behavior are unchanged]`.
-- **Version is 1.1.3** wherever a version is referenced. Do not reintroduce 1.1.2.
+- **This plan does not touch `MARKETING_VERSION`.** `project.pbxproj` is at `1.1.2` on `main` as of this writing; that is current, not stale. If a version bump is ever needed alongside this work, confirm the live value in `project.pbxproj` first rather than trusting a number written into this plan on an earlier day.
 
 ---
 
@@ -1332,14 +1332,36 @@ import Testing
 /// Nothing compiles across that boundary, so the two can drift in silence —
 /// these are the invariants a reader of either file is entitled to assume
 /// hold on both. The web's mirror lives in
-/// `frontend/src/__tests__/lib/utils/dayWindow.test.ts`.
+/// `frontend/src/__tests__/lib/utils/dayWindow.test.ts`; each test below
+/// names the web test it mirrors.
 struct WindowParityTests {
 
-    @Test func dayKeysAreZeroPaddedAndSortChronologically() {
-        let keys = ["2026-12-31", "2026-07-05", "2026-07-15"]
-        #expect(keys.sorted() == ["2026-07-05", "2026-07-15", "2026-12-31"])
+    private static func at(_ s: String) throws -> Date {
+        try #require(ChqTime.parse(s))
     }
 
+    private func bounds() -> ClosedRange<String> {
+        DayWindow.bounds(year: 2026, starredDays: [])
+    }
+
+    /// Mirrors "formats a date as a zero-padded local day key" + "sorts
+    /// lexicographically in chronological order". Round-trips through
+    /// `ChqTime.dayKey(for:)` itself — every hand-typed key is already
+    /// zero-padded by construction, so a test built only from hand-typed
+    /// strings cannot fail no matter what the formatter does.
+    @Test func dayKeysAreZeroPaddedAndSortChronologically() throws {
+        let jan5 = try Self.at("2026-01-05 08:00:00")
+        let jul15 = try Self.at("2026-07-15 08:00:00")
+        let dec31 = try Self.at("2026-12-31 08:00:00")
+
+        #expect(ChqTime.dayKey(for: jan5) == "2026-01-05")
+        #expect(ChqTime.dayKey(for: jul15) == "2026-07-15")
+
+        let keys = [ChqTime.dayKey(for: dec31), ChqTime.dayKey(for: jan5), ChqTime.dayKey(for: jul15)]
+        #expect(keys.sorted() == ["2026-01-05", "2026-07-15", "2026-12-31"])
+    }
+
+    /// Mirrors "crosses a DST transition without drifting".
     @Test func dayArithmeticCrossesMonthYearAndDstBoundaries() {
         #expect(ChqTime.day("2026-07-31", offsetBy: 1) == "2026-08-01")
         #expect(ChqTime.day("2026-08-01", offsetBy: -1) == "2026-07-31")
@@ -1352,6 +1374,8 @@ struct WindowParityTests {
         #expect(ChqTime.day("2026-03-08", offsetBy: 1) == "2026-03-09")
     }
 
+    /// Mirrors "produces inclusive contiguous ranges" and "returns an empty
+    /// range when the bounds are inverted".
     @Test func dayRangesAreInclusiveAndEmptyWhenInverted() {
         #expect(ChqTime.dayKeys(from: "2026-07-14", through: "2026-07-16")
             == ["2026-07-14", "2026-07-15", "2026-07-16"])
@@ -1359,15 +1383,71 @@ struct WindowParityTests {
         #expect(ChqTime.dayKeys(from: "2026-07-16", through: "2026-07-14") == [])
     }
 
+    /// Mirrors "spans both boundary Saturdays" (noon-to-noon) — extended to
+    /// actually assert noon, which the original wording claimed without any
+    /// clock-component check.
     @Test func theSeasonIsNineWeeksOfNoonSaturdayBoundaries() {
         let weeks = SeasonCalendar.weeks(forYear: 2026)
         #expect(weeks.count == 9)
+        let calendar = ChqTime.calendar
+        for week in weeks {
+            #expect(
+                calendar.component(.hour, from: week.start) == 12,
+                "week \(week.number) start must be noon")
+            #expect(
+                calendar.component(.hour, from: week.end) == 12,
+                "week \(week.number) end must be noon")
+        }
         for i in 0..<(weeks.count - 1) {
             #expect(weeks[i].end == weeks[i + 1].start, "week \(i + 1) end must equal week \(i + 2) start")
         }
     }
+
+    /// Mirrors `windowContains`'s "does not contain an instant exactly at
+    /// endExclusive" — the half-openness the whole shared model exists to
+    /// enforce — exercised through the real `ViewWindow.make`, not a
+    /// synthetic window.
+    @Test func endExclusiveBelongsToTheNextWindowNotThisOne() throws {
+        let now = try Self.at("2026-07-15 15:00:00")
+        let w = try #require(ViewWindow.make(
+            selection: FilterSelection(dateScope: .today), events: [], now: now,
+            year: 2026, isCurrentYear: true, bounds: bounds()))
+        #expect(w.contains(w.start))
+        #expect(!w.contains(w.endExclusive))
+    }
+
+    /// Mirrors `lastDayCovered`'s "names the last day shown, stepping back
+    /// only on an exact midnight": a window ending at midnight does not show
+    /// that day (`.today`), one ending mid-day does (`.thisWeek`'s noon
+    /// Saturday).
+    @Test func lastDayCoveredOnMidnightAndNoonBounds() throws {
+        #expect(ViewWindow.lastDayCovered(try Self.at("2026-07-16 00:00:00")) == "2026-07-15")
+        #expect(ViewWindow.lastDayCovered(try Self.at("2026-07-18 12:00:00")) == "2026-07-18")
+    }
+
+    /// Mirrors "ignores an expansion that would narrow the base window".
+    @Test func anExpansionNarrowerThanTheBaseWindowIsIgnored() throws {
+        let now = try Self.at("2026-07-15 15:00:00")
+        var sel = FilterSelection(dateScope: .today)
+        sel.windowEndDayKey = "2026-07-10"
+        let w = try #require(ViewWindow.make(
+            selection: sel, events: [], now: now,
+            year: 2026, isCurrentYear: true, bounds: bounds()))
+        #expect(w.endDay == "2026-07-15")
+    }
 }
 ```
+
+**Not one of these tests may name only `ChqTime` or `SeasonCalendar` without also
+exercising `ViewWindow` itself** — that was the defect in an earlier draft of
+this task: a "parity" suite where three of four tests never touched
+`ViewWindow` at all, and the fourth (`theSeasonIsNineWeeksOfNoonSaturdayBoundaries`,
+as originally drafted) asserted contiguity but never checked the "noon" its own
+name promised — a test that could not fail no matter what the code did. Every
+test above either calls `ViewWindow.make`/`ViewWindow.lastDayCovered` directly,
+or — for the `ChqTime`/`SeasonCalendar` helpers `ViewWindow` is built from —
+round-trips through the real formatter rather than asserting a property of
+`Array<String>.sorted()` that holds regardless of this codebase.
 
 - [ ] **Step 2: Run, then run the full suite**
 
@@ -1384,8 +1464,13 @@ git commit -m "test(ios): pin the invariants shared with the web window module
 Nothing compiles across the platform boundary, so the two ViewWindow
 implementations can drift in silence. These pin what a reader of either
 file is entitled to assume holds on both: zero-padded day keys that sort
-chronologically, DST-safe day arithmetic, inclusive ranges that go empty
-when inverted, and nine contiguous noon-Saturday weeks."
+chronologically (round-tripped through the real formatter, not hand-typed
+strings), DST-safe day arithmetic, inclusive ranges that go empty when
+inverted, nine contiguous noon-Saturday weeks (asserting noon, not just
+contiguity), ViewWindow's half-open endExclusive bound, lastDayCovered on
+both a midnight and a noon bound, and an expansion narrower than the base
+window being ignored — exercised through ViewWindow.make itself, not just
+its ChqTime/SeasonCalendar building blocks."
 ```
 
 ---
