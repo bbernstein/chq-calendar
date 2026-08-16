@@ -92,12 +92,17 @@ export interface RenderResetInput {
  * would silently suppress a reset. Serializing the tuple as one JSON value
  * is unambiguous by construction.
  *
- * The search field is derived from `searchTermsOf` — the same term-splitting
- * `searchEvents` itself uses — rather than the raw `searchTerm`, so this key
- * agrees with what the search stage actually matches on: `"Organ"` and
- * `"organ "` share a key (case-insensitive, trailing whitespace splits away
- * to nothing), while `"a\tb"` and `"a b"` do not (a tab is not a split
- * point, so they are genuinely different searches). The empty term (which
+ * The search field is derived from `searchTermsOf` — the same tokenization
+ * `searchEvents` itself uses — rather than the raw `searchTerm`. That is what
+ * makes the key exact rather than merely conservative: every later stage of
+ * `searchEvents` is a pure function of those terms, so two raw strings that
+ * tokenize alike cannot produce different results. `"Organ"` and `"organ "`
+ * therefore share a key (case-insensitive, trailing whitespace splits away to
+ * nothing), while `"a\tb"` and `"a b"` do not, because they tokenize
+ * differently — one term against two. (Do not extend that into a claim about
+ * whitespace generally: `searchEvents` re-splits each term on `/\s+/` for its
+ * word-level scoring, so a tab *is* a separator there. Tokenization is what
+ * this key needs; it is not the whole of what matches.) The empty term (which
  * `searchEvents` special-cases to mean "no filter, return everything") is
  * encoded as `null` rather than `searchTermsOf('')`'s `[]`, because a
  * whitespace-only term also normalizes to `[]` but means the opposite —
