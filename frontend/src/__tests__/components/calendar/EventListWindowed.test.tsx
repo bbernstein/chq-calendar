@@ -593,8 +593,13 @@ describe('EventListWindowed — showing earlier days', () => {
     setDayTop('2026-07-05', 400);
     screen.getByRole('button', { name: /Show earlier/ }).click();
 
+    // The reference day (2026-07-05) is still present and has genuinely
+    // moved — the same shape the correction is meant to react to — but
+    // resetKey changed too: a filter change, not a prepend. Without the
+    // resetKey guard this would still scroll, on a real, nonzero delta.
+    setDayTop('2026-07-05', 1000);
     rerender(
-      <EventListWindowed {...baseProps} resetKey="k2" groupedEvents={[group('2026-08-01', 4)]}
+      <EventListWindowed {...baseProps} resetKey="k2" groupedEvents={groups}
         earlierDay={null} />
     );
 
@@ -667,8 +672,13 @@ describe('upward prepend scroll correction', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
 
+    // The reference day (2026-07-02) is still present and has genuinely
+    // moved — a day was prepended ahead of it, same shape as a real
+    // prepend — but resetKey changed too: a filter change, not a prepend.
+    // Without the resetKey guard this would still scroll, on a real,
+    // nonzero delta (2026-07-02 moved from index 0 to index 1).
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-08-01'])}
+      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-08-01', '2026-07-02'])}
         resetKey="DIFFERENT" earlierDay={null} onShowEarlier={() => {}} />
     );
 
