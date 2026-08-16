@@ -341,16 +341,15 @@ function HomeContent() {
             />
           </div>
         </div>
-        <div ref={railRef}>
-          <DayRail
-            chips={railChips}
-            anchorDay={anchorDay}
-            todayKey={todayKey}
-            onSelectDay={goToDay}
-            onStepDay={stepDay}
-            onGoToToday={goToToday}
-          />
-        </div>
+        <DayRail
+          chips={railChips}
+          anchorDay={anchorDay}
+          todayKey={todayKey}
+          onSelectDay={goToDay}
+          onStepDay={stepDay}
+          onGoToToday={goToToday}
+          rootRef={railRef}
+        />
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
             {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (

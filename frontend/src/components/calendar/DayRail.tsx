@@ -9,6 +9,17 @@ export interface DayRailProps {
   onSelectDay: (key: string) => void;
   onStepDay: (delta: -1 | 1) => void;
   onGoToToday: () => void;
+  /**
+   * A callback ref applied to the rail's own root element — the sticky one,
+   * carrying `data-day-rail`. `position: sticky` is bounded by its element's
+   * *containing block*; a wrapper `<div>` around this component sized to fit
+   * only the rail would BE that containing block, giving sticky zero travel
+   * and defeating it outright. The ref has to land on this root, not on a
+   * caller-supplied wrapper, so `--day-rail-h` is measured on the element
+   * that is actually stuck and the containing block stays whatever ancestor
+   * the caller renders this inside of (in practice, `<main>`, which is tall).
+   */
+  rootRef?: (el: HTMLElement | null) => void;
 }
 
 /**
@@ -32,7 +43,7 @@ export interface DayRailProps {
  * no matches says so.
  */
 export function DayRail({
-  chips, anchorDay, todayKey, onSelectDay, onStepDay, onGoToToday,
+  chips, anchorDay, todayKey, onSelectDay, onStepDay, onGoToToday, rootRef,
 }: DayRailProps) {
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -52,10 +63,28 @@ export function DayRail({
 
   // Keep the highlighted chip in view as the reader scrolls the list. The
   // rail scrolls itself horizontally; it never scrolls the page.
+  //
+  // Deliberately NOT `chip.scrollIntoView(...)`. `block: 'nearest'` minimises
+  // vertical movement but does not forbid it — with the rail scrolled
+  // partway off-screen (an ordinary scroll position, not a bug), that call
+  // drags the whole page to bring the chip's vertical position into view,
+  // which is exactly the page-scroll this control must never cause. Setting
+  // the strip's own `scrollLeft` can only move the strip.
   useEffect(() => {
     if (!anchorDay) return;
-    const el = stripRef.current?.querySelector<HTMLElement>(`[data-chip="${anchorDay}"]`);
-    el?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    const strip = stripRef.current;
+    const chip = strip?.querySelector<HTMLElement>(`[data-chip="${anchorDay}"]`);
+    if (!strip || !chip) return;
+    // `offsetLeft` is relative to the nearest positioned ancestor, which is
+    // not reliably `strip` (the sticky root above it is itself positioned).
+    // Bounding rects sidestep that: `chipRect.left - stripRect.left` is the
+    // chip's edge relative to the strip's edge as currently painted, and
+    // adding back the strip's own `scrollLeft` converts that into a
+    // scroll-independent, content-relative position.
+    const stripRect = strip.getBoundingClientRect();
+    const chipRect = chip.getBoundingClientRect();
+    const chipCenter = (chipRect.left - stripRect.left) + chipRect.width / 2 + strip.scrollLeft;
+    strip.scrollLeft = chipCenter - strip.clientWidth / 2;
   }, [anchorDay]);
 
   // Left/Right move focus along the rail, Home jumps to today. Focus only —
@@ -82,6 +111,7 @@ export function DayRail({
 
   return (
     <div
+      ref={rootRef}
       role="group"
       aria-label="Days"
       data-day-rail

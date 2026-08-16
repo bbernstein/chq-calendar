@@ -152,4 +152,64 @@ describe('DayRail', () => {
     );
     expect(container.firstChild).toBeNull();
   });
+
+  // Defect 2 (browser-verified, see task-10 report): `chip.scrollIntoView({
+  // block: 'nearest', ... })` minimises vertical movement but does not
+  // forbid it — with the rail scrolled off-screen, that call dragged the
+  // whole page back into view. jsdom computes no real layout, so this cannot
+  // assert the resulting geometry; it asserts the MECHANISM instead —
+  // `scrollIntoView` is never called, and the strip's own `scrollLeft` is
+  // written, which is the only kind of scroll this control is allowed to
+  // cause.
+  it('keeps the anchor chip in view by moving the strip, never by scrolling the page', () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const { rerender } = render(
+        <DayRail chips={chips} anchorDay="2026-07-04" todayKey="2026-07-05"
+          onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
+      );
+      // Stubbed only after mount: the effect that centres the *initial*
+      // anchor has already run by the time `render()` returns, so the
+      // rerender below is what re-triggers it under observation.
+      const strip = chipButton('2026-07-04').parentElement as HTMLElement;
+      const scrollLeftWrites: number[] = [];
+      Object.defineProperty(strip, 'scrollLeft', {
+        configurable: true,
+        get: () => 0,
+        set: (v: number) => { scrollLeftWrites.push(v); },
+      });
+
+      rerender(
+        <DayRail chips={chips} anchorDay="2026-07-06" todayKey="2026-07-05"
+          onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
+      );
+
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      expect(scrollLeftWrites.length).toBeGreaterThan(0);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  // Defect 1 (browser-verified, see task-10 report): a wrapper `<div>`
+  // around the rail becomes the containing block `position: sticky` is
+  // bounded by, sized to fit only the rail — giving sticky zero travel.
+  // jsdom implements no layout, so stickiness itself cannot be asserted
+  // here; this instead pins the *structural* invariant whose violation
+  // caused it — `rootRef` must land on the very element that carries
+  // `data-day-rail` and the sticky class, with nothing wrapping it.
+  it('gives rootRef the same element that is data-day-rail and sticky — no wrapper', () => {
+    const ref: { current: HTMLElement | null } = { current: null };
+    render(
+      <DayRail chips={chips} anchorDay="2026-07-05" todayKey="2026-07-05"
+        onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
+        rootRef={(el) => { ref.current = el; }} />
+    );
+    const stickyEl = document.querySelector('[data-day-rail]');
+    expect(ref.current).not.toBeNull();
+    expect(ref.current).toBe(stickyEl);
+    expect(ref.current?.className).toMatch(/\bsticky\b/);
+  });
 });
