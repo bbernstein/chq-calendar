@@ -133,11 +133,13 @@ describe('renderResetKey', () => {
     expect(renderResetKey({ ...on, favoriteCount: 2 })).not.toBe(renderResetKey(on));
   });
 
-  it('does not change when only the window fields would have changed', () => {
-    // There is no window field in the input at all — this test pins the
-    // omission, because including one is the single mistake that would make
-    // every auto-expand reset scroll position.
-    expect(Object.keys(base)).not.toContain('windowStartDay');
-    expect(Object.keys(base)).not.toContain('windowEndDay');
+  it('ignores window state even when it is handed some', () => {
+    // Reaching into the window fields is the single mistake that would make
+    // every auto-expand reset scroll position. Assigning to a variable
+    // first is deliberate: TypeScript's excess-property check applies to an
+    // object literal at the call site, not to a variable, so this compiles
+    // while still proving the function ignores what it was not given.
+    const withWindow = { ...base, windowStartDay: '2026-07-01', windowEndDay: '2026-07-09' };
+    expect(renderResetKey(withWindow)).toBe(renderResetKey(base));
   });
 });
