@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { navigableBounds, viewWindow, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
+import { navigableBounds, viewWindow, addDays, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
 import { renderResetKey } from '@/lib/utils/renderWindow';
 import { useFilterState } from '@/hooks/useFilterState';
+import { useDayAnchor } from '@/hooks/useDayAnchor';
+import { useDayRailHeight } from '@/hooks/useDayRailHeight';
+import { DayRail } from '@/components/calendar/DayRail';
+import { railTarget } from '@/app/dayRailNavigation';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
@@ -179,6 +183,75 @@ function HomeContent() {
   ]);
 
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
+
+  // The rail spans the navigable bounds, independent of the current scope:
+  // it is a navigation surface, not a filter readout, so in Today scope it
+  // still shows the week around you.
+  const railChips = useMemo(
+    () => dayChips(dayKeys(navBounds.startDay, navBounds.endDay), eventCountsByDay(groupedEvents)),
+    [navBounds, groupedEvents]
+  );
+
+  const renderedDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
+  const { anchorDay, scrollToDay } = useDayAnchor(renderedDayKeys);
+  const railRef = useDayRailHeight();
+
+  const todayKey = isCurrentYear ? dayKeyOf(new Date()) : null;
+
+  // Expanding, then scrolling, is deliberately three steps, and each waits on
+  // the one before: the reducer widens the *view* window (it never knows about
+  // scroll position), `revealDay` makes the *render* window mount that far,
+  // and only then can we scroll to a node that exists. `pendingScroll` is
+  // state rather than a ref precisely because it has to drive `revealDay` as
+  // a prop — a ref would not re-render the list.
+  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+
+  const goToDay = useCallback((target: string) => {
+    const plan = railTarget({ target, window: dateWindow, bounds: navBounds });
+    if (!plan) return;
+    if (plan.expandStart) filters.expandWindowStart(plan.expandStart);
+    if (plan.expandEnd) filters.expandWindowEnd(plan.expandEnd);
+    // Set it even when no expansion was needed: the day is inside the view
+    // window but may still be past the render window's current reach, and
+    // `revealDay` is what closes that gap. The effect below scrolls and
+    // clears on the very next commit if the node is already there.
+    setPendingScroll(plan.scrollTo);
+  }, [dateWindow, navBounds, filters.expandWindowStart, filters.expandWindowEnd]);
+
+  useEffect(() => {
+    if (!pendingScroll) return;
+    if (groupedEvents.some(g => g.key === pendingScroll)) {
+      setPendingScroll(null);
+      scrollToDay(pendingScroll);
+      return;
+    }
+    // Not in the day groups. Two very different reasons, and only one is
+    // worth waiting for.
+    //
+    // If the view window already covers the target, the day simply has no
+    // matching events — an empty day under the current filters. That is not a
+    // failure; it is what "the rail moves by calendar day" means. Give up, or
+    // the pending target would survive forever and hijack a later commit.
+    //
+    // If the window does not cover it yet, the expansion dispatched above has
+    // not landed in this commit. Keep waiting — the next one will have it.
+    const covered = dateWindow
+      && pendingScroll >= dateWindow.startDay && pendingScroll <= dateWindow.endDay;
+    if (covered) setPendingScroll(null);
+  }, [pendingScroll, groupedEvents, dateWindow, scrollToDay]);
+
+  const stepDay = useCallback((delta: -1 | 1) => {
+    if (!anchorDay) return;
+    goToDay(addDays(anchorDay, delta));
+  }, [anchorDay, goToDay]);
+
+  // ⟳ Now is navigation, never a filter change: it widens the window to
+  // contain today if it has to, and touches no scope, week, category or
+  // search.
+  const goToToday = useCallback(() => {
+    if (todayKey) goToDay(todayKey);
+  }, [todayKey, goToDay]);
+
   const activeChips = useMemo(() => buildActiveChips({
     searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
     dateFilter: filters.dateFilter, setDateFilter: filters.setDateFilter,
@@ -252,6 +325,16 @@ function HomeContent() {
             />
           </div>
         </div>
+        <div ref={railRef}>
+          <DayRail
+            chips={railChips}
+            anchorDay={anchorDay}
+            todayKey={todayKey}
+            onSelectDay={goToDay}
+            onStepDay={stepDay}
+            onGoToToday={goToToday}
+          />
+        </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
             {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (
@@ -263,7 +346,8 @@ function HomeContent() {
                 earlierDay={earlierDay}
                 onShowEarlier={showEarlier}
                 canExpandEnd={!!laterDay}
-                onExpandEnd={expandEnd} />
+                onExpandEnd={expandEnd}
+                revealDay={pendingScroll} />
             )}
           </div>
         </div>

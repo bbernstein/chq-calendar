@@ -17,6 +17,10 @@ function group(key: string, count: number): DayGroup {
   return { key, baseLabel: `Day ${key}`, weekNumbers: [], events };
 }
 
+function makeGroups(keys: string[]): DayGroup[] {
+  return keys.map(k => group(k, 1));
+}
+
 const noop = () => {};
 const baseProps = {
   expandedDescriptions: new Set<string>(),
@@ -613,10 +617,6 @@ describe('EventList — showing earlier days', () => {
 });
 
 describe('upward prepend scroll correction', () => {
-  function makeGroups(keys: string[]): DayGroup[] {
-    return keys.map(k => group(k, 1));
-  }
-
   /**
    * Drives the one thing jsdom can express about this: that the correction
    * is computed from a day section's own rect, not from document height.
@@ -833,5 +833,56 @@ describe('upward prepend scroll correction', () => {
     // must not move the reader.
     if (resize.liveCount > 0) resize.trigger();
     expect(scrollBy).not.toHaveBeenCalled();
+  });
+});
+
+describe('revealDay', () => {
+  // 5 events/day, not the shared makeGroups' 1: at 1/day, 20 days never
+  // reaches the 50-event batch minimum, so fillFrom falls through to
+  // "render everything" and day 20 would already be mounted before
+  // revealDay is even in play. At 5/day the batch fills by day 10, leaving
+  // day 20 in groupedEvents but genuinely un-rendered — the state these
+  // tests need to exist.
+  function makeGroups(keys: string[]): DayGroup[] {
+    return keys.map(k => group(k, 5));
+  }
+
+  // Constructed whenever the render window has more to grow into, same as
+  // the top describe block above — jsdom has no IntersectionObserver.
+  beforeEach(() => { installIntersectionObserverMock(); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('mounts through to a day past the render window', () => {
+    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const { container, rerender } = render(
+      <EventList {...baseProps} groupedEvents={makeGroups(keys)} resetKey="k" />
+    );
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).toBeNull();
+
+    rerender(
+      <EventList {...baseProps} groupedEvents={makeGroups(keys)} resetKey="k" revealDay="2026-07-20" />
+    );
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).not.toBeNull();
+  });
+
+  it('never shrinks the render window back', () => {
+    const keys = Array.from({ length: 20 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+    const { container, rerender } = render(
+      <EventList {...baseProps} groupedEvents={makeGroups(keys)} resetKey="k" revealDay="2026-07-20" />
+    );
+    // Revealing an earlier day must not unmount what revealing a later one
+    // already brought in — growth is one-way, and the reader may be reading
+    // any of it.
+    rerender(
+      <EventList {...baseProps} groupedEvents={makeGroups(keys)} resetKey="k" revealDay="2026-07-02" />
+    );
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-20"]`)).not.toBeNull();
+  });
+
+  it('ignores a reveal target that is not in the day groups', () => {
+    const keys = ['2026-07-01', '2026-07-02'];
+    expect(() => render(
+      <EventList {...baseProps} groupedEvents={makeGroups(keys)} resetKey="k" revealDay="2026-09-09" />
+    )).not.toThrow();
   });
 });

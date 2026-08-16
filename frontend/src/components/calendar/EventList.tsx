@@ -15,6 +15,16 @@ export interface EventListProps extends Omit<EventListViewProps, 'groups'> {
   /** The previous event day, or null at the navigable start. */
   earlierDay?: string | null;
   onShowEarlier?: () => void;
+  /**
+   * A day the render window must reach, whatever its own growth has managed.
+   *
+   * The render window grows forward one sentinel step at a time, so a rail
+   * chip tapped ten days ahead widens the *view* window and still has no DOM
+   * node to scroll to. This is the one input that lets navigation outrun
+   * scrolling. It only ever grows the window — revealing an earlier day is a
+   * no-op, because the reader may be reading anything already mounted.
+   */
+  revealDay?: string | null;
 }
 
 /** Whether the reader is scrolled away from the top right now. */
@@ -43,7 +53,7 @@ function readerHasScrolled(): boolean {
  * component must too.
  */
 export function EventList({
-  groupedEvents, resetKey, canExpandEnd, onExpandEnd, earlierDay, onShowEarlier, ...view
+  groupedEvents, resetKey, canExpandEnd, onExpandEnd, earlierDay, onShowEarlier, revealDay, ...view
 }: EventListProps) {
   // Anchored on a day key, never an index: expanding the window backward
   // prepends groups and shifts every index underneath us.
@@ -109,6 +119,20 @@ export function EventList({
     () => groupedEvents.slice(0, endIdx + 1),
     [groupedEvents, endIdx]
   );
+
+  // `endIdx` must exist before this reads it, so it sits after that memo
+  // rather than "immediately after the latch effect" above — a plain
+  // function-scope `const endIdx` referenced any earlier is a TDZ
+  // ReferenceError, not a stale read.
+  useEffect(() => {
+    if (!revealDay) return;
+    const idx = groupedEvents.findIndex(g => g.key === revealDay);
+    // Not in the groups at all: the day has no matching events, so there is
+    // nothing to reveal and nothing to wait for.
+    if (idx < 0) return;
+    if (idx <= endIdx) return;
+    setAnchor({ key: revealDay, resetKey });
+  }, [revealDay, groupedEvents, endIdx, resetKey]);
 
   const hasMoreLoadedDays = endIdx >= 0 && endIdx + 1 < groupedEvents.length;
   const showSentinel = groupedEvents.length > 0 && (hasMoreLoadedDays || !!canExpandEnd);
