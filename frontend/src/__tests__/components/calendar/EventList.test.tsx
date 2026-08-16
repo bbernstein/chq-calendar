@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/preact';
-import { EventListWindowed } from '@/components/calendar/EventListWindowed';
+import { EventList } from '@/components/calendar/EventList';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
 import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
@@ -44,7 +44,7 @@ function setReaderScrolled(scrolled: boolean) {
   });
 }
 
-describe('EventListWindowed', () => {
+describe('EventList', () => {
   let io: ReturnType<typeof installIntersectionObserverMock>;
 
   beforeEach(() => {
@@ -55,7 +55,7 @@ describe('EventListWindowed', () => {
 
   it('renders whole days, filling to at least one batch of events', () => {
     const groups = [group('2026-07-05', 20), group('2026-07-06', 20), group('2026-07-07', 20), group('2026-07-08', 20)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    render(<EventList {...baseProps} groupedEvents={groups} />);
 
     // 20 + 20 + 20 = 60 >= 50 → three whole days, never a partial one.
     expect(screen.getByText('Day 2026-07-07')).toBeInTheDocument();
@@ -65,14 +65,14 @@ describe('EventListWindowed', () => {
 
   it('never splits a day across the render edge', () => {
     const groups = [group('2026-07-05', 80), group('2026-07-06', 5)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    render(<EventList {...baseProps} groupedEvents={groups} />);
     expect(screen.getByText('Event 2026-07-05-79')).toBeInTheDocument();
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
   });
 
   it('extends the render window by whole days when the sentinel intersects', () => {
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20), group('2026-07-07', 40)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    render(<EventList {...baseProps} groupedEvents={groups} />);
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
 
     io.trigger();
@@ -84,7 +84,7 @@ describe('EventListWindowed', () => {
   it('does not call onExpandEnd while loaded days remain', () => {
     const onExpandEnd = vi.fn();
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />);
+    render(<EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />);
 
     io.trigger();
 
@@ -95,7 +95,7 @@ describe('EventListWindowed', () => {
   it('asks the page to expand the view window once the loaded days run out', () => {
     const onExpandEnd = vi.fn();
     const groups = [group('2026-07-05', 10)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />);
+    render(<EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />);
 
     io.trigger();
 
@@ -105,7 +105,7 @@ describe('EventListWindowed', () => {
   it('renders no sentinel when there is nothing left in either window', () => {
     const groups = [group('2026-07-05', 10)];
     const { container } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd={false} />
+      <EventList {...baseProps} groupedEvents={groups} canExpandEnd={false} />
     );
     expect(container.querySelector('[data-testid="event-list-sentinel"]')).toBeNull();
   });
@@ -113,7 +113,7 @@ describe('EventListWindowed', () => {
   it('labels the sentinel "Loading more events..." only while a cheap step can actually mount something', () => {
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
     const { container } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />
+      <EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />
     );
     // day2 is loaded but not yet rendered — the cheap branch has something
     // to do the moment the sentinel intersects, so the label is honest.
@@ -140,7 +140,7 @@ describe('EventListWindowed', () => {
     setReaderScrolled(false);
     const groups = [group('2026-07-05', 3)];
     const { container } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />
+      <EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />
     );
     expect(screen.queryByText('Loading more events...')).not.toBeInTheDocument();
     const sentinel = container.querySelector('[data-testid="event-list-sentinel"]');
@@ -157,7 +157,7 @@ describe('EventListWindowed', () => {
     // "Today and tomorrow" before the reader touched a thing.
     setReaderScrolled(false);
     const onExpandEnd = vi.fn();
-    render(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 3)]} canExpandEnd onExpandEnd={onExpandEnd} />);
+    render(<EventList {...baseProps} groupedEvents={[group('2026-07-05', 3)]} canExpandEnd onExpandEnd={onExpandEnd} />);
 
     io.trigger();
 
@@ -172,7 +172,7 @@ describe('EventListWindowed', () => {
     // already loaded whenever the reader hadn't scrolled yet.
     setReaderScrolled(false);
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    render(<EventList {...baseProps} groupedEvents={groups} />);
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
 
     io.trigger();
@@ -208,7 +208,7 @@ describe('EventListWindowed', () => {
     setReaderScrolled(false);
     const onExpandEnd = vi.fn();
     const groups = [group('2026-07-05', 3)];
-    render(<EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />);
+    render(<EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />);
     const createdBeforeScroll = io.totalCreated;
 
     io.trigger();
@@ -229,7 +229,7 @@ describe('EventListWindowed', () => {
   });
 
   it('does not auto-expand a freshly-filtered short list just because the reader scrolled under a previous scope', () => {
-    // `hasScrolled` is a session-lifetime latch: `EventListWindowed` is
+    // `hasScrolled` is a session-lifetime latch: `EventList` is
     // never remounted and never keyed by `resetKey`, so once it flips true
     // under ANY scope it stays true for the rest of the session. If the
     // expansion decision read `hasScrolled` instead of live scroll position,
@@ -245,7 +245,7 @@ describe('EventListWindowed', () => {
     const onExpandEnd = vi.fn();
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />
+      <EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />
     );
 
     // The reader scrolls under this first scope — latches hasScrolled.
@@ -258,7 +258,7 @@ describe('EventListWindowed', () => {
     setReaderScrolled(false);
     const shortFilteredGroups = [group('2026-07-10', 3)];
     rerender(
-      <EventListWindowed {...baseProps} resetKey="k2" groupedEvents={shortFilteredGroups}
+      <EventList {...baseProps} resetKey="k2" groupedEvents={shortFilteredGroups}
         canExpandEnd onExpandEnd={onExpandEnd} />
     );
 
@@ -278,7 +278,7 @@ describe('EventListWindowed', () => {
     const onExpandEnd = vi.fn();
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />
+      <EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={onExpandEnd} />
     );
     // Initial fill: day1 alone (60) already clears the batch, so only day1
     // is mounted and day2 is still "loaded but not rendered" — the cheap
@@ -310,7 +310,7 @@ describe('EventListWindowed', () => {
     // The page responds to onExpandEnd by widening groupedEvents (what
     // page.tsx does for real) — a new day is now loaded but not rendered.
     const widened = [...groups, group('2026-07-07', 20)];
-    rerender(<EventListWindowed {...baseProps} groupedEvents={widened} canExpandEnd onExpandEnd={onExpandEnd} />);
+    rerender(<EventList {...baseProps} groupedEvents={widened} canExpandEnd onExpandEnd={onExpandEnd} />);
     expect(screen.queryByText('Day 2026-07-07')).not.toBeInTheDocument();
 
     // Cycle 3: cheap again. The alternation is cheap → expensive → cheap,
@@ -337,14 +337,14 @@ describe('EventListWindowed', () => {
       group('2026-07-05', 60), group('2026-07-06', 5),
       group('2026-07-07', 5), group('2026-07-08', 40),
     ];
-    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    const { rerender } = render(<EventList {...baseProps} groupedEvents={groups} />);
     io.trigger(); // cheap growth: anchors on day 07-08, mounting everything
     expect(screen.getByText('Day 2026-07-08')).toBeInTheDocument();
 
     // Background refresh: the current anchor day (07-08) vanishes. Same
     // resetKey — this is not a filter change.
     const withoutAnchorDay = [group('2026-07-05', 60), group('2026-07-06', 5), group('2026-07-07', 5)];
-    rerender(<EventListWindowed {...baseProps} groupedEvents={withoutAnchorDay} />);
+    rerender(<EventList {...baseProps} groupedEvents={withoutAnchorDay} />);
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
 
     // Background refresh: the day reappears under the same key, e.g. a
@@ -354,7 +354,7 @@ describe('EventListWindowed', () => {
       group('2026-07-05', 60), group('2026-07-06', 5),
       group('2026-07-07', 5), group('2026-07-08', 40),
     ];
-    rerender(<EventListWindowed {...baseProps} groupedEvents={anchorDayReturns} />);
+    rerender(<EventList {...baseProps} groupedEvents={anchorDayReturns} />);
 
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
     expect(screen.queryByText('Day 2026-07-08')).not.toBeInTheDocument();
@@ -372,19 +372,19 @@ describe('EventListWindowed', () => {
     //
     // The frame itself is verified in the browser pass, not here.
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
-    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    const { rerender } = render(<EventList {...baseProps} groupedEvents={groups} />);
     io.trigger();
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
 
     const rebuilt = [group('2026-07-05', 60), group('2026-07-06', 20)];
-    rerender(<EventListWindowed {...baseProps} resetKey="k2" groupedEvents={rebuilt} />);
+    rerender(<EventList {...baseProps} resetKey="k2" groupedEvents={rebuilt} />);
 
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
   });
 
   it('ignores a non-intersecting report', () => {
     const onExpandEnd = vi.fn();
-    render(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 3)]} canExpandEnd onExpandEnd={onExpandEnd} />);
+    render(<EventList {...baseProps} groupedEvents={[group('2026-07-05', 3)]} canExpandEnd onExpandEnd={onExpandEnd} />);
 
     io.trigger(false);
 
@@ -393,10 +393,10 @@ describe('EventListWindowed', () => {
 
   it('keeps the rendered days when the window grows at the end', () => {
     const groups = [group('2026-07-05', 60)];
-    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />);
+    const { rerender } = render(<EventList {...baseProps} groupedEvents={groups} canExpandEnd onExpandEnd={noop} />);
     const grown = [...groups, group('2026-07-06', 20)];
 
-    rerender(<EventListWindowed {...baseProps} groupedEvents={grown} canExpandEnd onExpandEnd={noop} />);
+    rerender(<EventList {...baseProps} groupedEvents={grown} canExpandEnd onExpandEnd={noop} />);
 
     // The appended day is not mounted until the sentinel asks for it, and
     // the day already on screen is untouched — no reset, no jump.
@@ -415,10 +415,10 @@ describe('EventListWindowed', () => {
     // anchor the initial fill re-runs over the prepended array and unmounts
     // days that were already on screen.
     const groups = [group('2026-07-05', 30), group('2026-07-06', 30), group('2026-07-07', 30)];
-    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    const { rerender } = render(<EventList {...baseProps} groupedEvents={groups} />);
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
 
-    rerender(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-03', 30), ...groups]} />);
+    rerender(<EventList {...baseProps} groupedEvents={[group('2026-07-03', 30), ...groups]} />);
 
     expect(screen.getByText('Day 2026-07-03')).toBeInTheDocument();
     expect(screen.getByText('Day 2026-07-05')).toBeInTheDocument();
@@ -427,11 +427,11 @@ describe('EventListWindowed', () => {
 
   it('keeps the rendered tail when earlier days are prepended', () => {
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
-    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    const { rerender } = render(<EventList {...baseProps} groupedEvents={groups} />);
     io.trigger();
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
 
-    rerender(<EventListWindowed {...baseProps} groupedEvents={[group('2026-07-03', 10), ...groups]} />);
+    rerender(<EventList {...baseProps} groupedEvents={[group('2026-07-03', 10), ...groups]} />);
 
     expect(screen.getByText('Day 2026-07-03')).toBeInTheDocument();
     expect(screen.getByText('Day 2026-07-05')).toBeInTheDocument();
@@ -440,11 +440,11 @@ describe('EventListWindowed', () => {
 
   it('resets the render window when the non-window filters change', () => {
     const groups = [group('2026-07-05', 60), group('2026-07-06', 20)];
-    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    const { rerender } = render(<EventList {...baseProps} groupedEvents={groups} />);
     io.trigger();
     expect(screen.getByText('Day 2026-07-06')).toBeInTheDocument();
 
-    rerender(<EventListWindowed {...baseProps} resetKey="k2" groupedEvents={groups} />);
+    rerender(<EventList {...baseProps} resetKey="k2" groupedEvents={groups} />);
 
     expect(screen.queryByText('Day 2026-07-06')).not.toBeInTheDocument();
   });
@@ -452,14 +452,14 @@ describe('EventListWindowed', () => {
   it('renders nothing for no groups and asks for no expansion', () => {
     const onExpandEnd = vi.fn();
     const { container } = render(
-      <EventListWindowed {...baseProps} groupedEvents={[]} canExpandEnd onExpandEnd={onExpandEnd} />
+      <EventList {...baseProps} groupedEvents={[]} canExpandEnd onExpandEnd={onExpandEnd} />
     );
     expect(container.querySelectorAll('.event-card')).toHaveLength(0);
     expect(onExpandEnd).not.toHaveBeenCalled();
   });
 });
 
-describe('EventListWindowed — showing earlier days', () => {
+describe('EventList — showing earlier days', () => {
   let scrollBy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -501,16 +501,16 @@ describe('EventListWindowed — showing earlier days', () => {
 
   it('offers the earlier control only when there is an earlier day', () => {
     const groups = [group('2026-07-05', 10)];
-    const { rerender } = render(<EventListWindowed {...baseProps} groupedEvents={groups} />);
+    const { rerender } = render(<EventList {...baseProps} groupedEvents={groups} />);
     expect(screen.queryByRole('button', { name: /Show earlier/ })).not.toBeInTheDocument();
 
-    rerender(<EventListWindowed {...baseProps} groupedEvents={groups} earlierDay="2026-07-03" onShowEarlier={noop} />);
+    rerender(<EventList {...baseProps} groupedEvents={groups} earlierDay="2026-07-03" onShowEarlier={noop} />);
     expect(screen.getByRole('button', { name: /Show earlier/ })).toBeInTheDocument();
   });
 
   it('names the day it will show, never just "earlier"', () => {
     render(
-      <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 10)]}
+      <EventList {...baseProps} groupedEvents={[group('2026-07-05', 10)]}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
     // The visible text is the accessible name — no aria-label duplicating
@@ -524,7 +524,7 @@ describe('EventListWindowed — showing earlier days', () => {
   it('calls onShowEarlier when clicked', () => {
     const onShowEarlier = vi.fn();
     render(
-      <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-05', 10)]}
+      <EventList {...baseProps} groupedEvents={[group('2026-07-05', 10)]}
         earlierDay="2026-07-03" onShowEarlier={onShowEarlier} />
     );
     screen.getByRole('button', { name: /Show earlier/ }).click();
@@ -535,7 +535,7 @@ describe('EventListWindowed — showing earlier days', () => {
     const setDayTop = stubDayTops();
     const groups = [group('2026-07-05', 10)];
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups}
+      <EventList {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
     setDayTop('2026-07-05', 400);
@@ -544,7 +544,7 @@ describe('EventListWindowed — showing earlier days', () => {
     // The page prepends a day: the reference section is now 600px further down.
     setDayTop('2026-07-05', 1000);
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={[group('2026-07-03', 8), ...groups]}
+      <EventList {...baseProps} groupedEvents={[group('2026-07-03', 8), ...groups]}
         earlierDay="2026-07-02" onShowEarlier={noop} />
     );
 
@@ -554,12 +554,12 @@ describe('EventListWindowed — showing earlier days', () => {
   it('does not touch scroll position on an ordinary re-render', () => {
     const groups = [group('2026-07-05', 10)];
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups}
+      <EventList {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
 
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={[...groups, group('2026-07-06', 5)]}
+      <EventList {...baseProps} groupedEvents={[...groups, group('2026-07-06', 5)]}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
 
@@ -570,7 +570,7 @@ describe('EventListWindowed — showing earlier days', () => {
     const setDayTop = stubDayTops();
     const groups = [group('2026-07-05', 10)];
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups}
+      <EventList {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
     setDayTop('2026-07-05', 400);
@@ -578,12 +578,12 @@ describe('EventListWindowed — showing earlier days', () => {
 
     setDayTop('2026-07-05', 1000);
     const prepended = [group('2026-07-03', 8), ...groups];
-    rerender(<EventListWindowed {...baseProps} groupedEvents={prepended} earlierDay="2026-07-02" onShowEarlier={noop} />);
+    rerender(<EventList {...baseProps} groupedEvents={prepended} earlierDay="2026-07-02" onShowEarlier={noop} />);
 
     // A second, unrelated re-render must not re-trigger the correction — the
     // pending ref was already consumed by the layout effect above.
     setDayTop('2026-07-05', 1400);
-    rerender(<EventListWindowed {...baseProps} groupedEvents={[...prepended, group('2026-07-06', 5)]} earlierDay="2026-07-02" onShowEarlier={noop} />);
+    rerender(<EventList {...baseProps} groupedEvents={[...prepended, group('2026-07-06', 5)]} earlierDay="2026-07-02" onShowEarlier={noop} />);
 
     expect(scrollBy).toHaveBeenCalledTimes(1);
   });
@@ -592,7 +592,7 @@ describe('EventListWindowed — showing earlier days', () => {
     const setDayTop = stubDayTops();
     const groups = [group('2026-07-05', 10)];
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={groups}
+      <EventList {...baseProps} groupedEvents={groups}
         earlierDay="2026-07-03" onShowEarlier={noop} />
     );
     setDayTop('2026-07-05', 400);
@@ -604,7 +604,7 @@ describe('EventListWindowed — showing earlier days', () => {
     // resetKey guard this would still scroll, on a real, nonzero delta.
     setDayTop('2026-07-05', 1000);
     rerender(
-      <EventListWindowed {...baseProps} resetKey="k2" groupedEvents={groups}
+      <EventList {...baseProps} resetKey="k2" groupedEvents={groups}
         earlierDay={null} />
     );
 
@@ -668,7 +668,7 @@ describe('upward prepend scroll correction', () => {
 
     const initial = makeGroups(['2026-07-02', '2026-07-03']);
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={initial} resetKey="k"
+      <EventList {...baseProps} groupedEvents={initial} resetKey="k"
         earlierDay="2026-07-01" onShowEarlier={() => {}} />
     );
 
@@ -677,7 +677,7 @@ describe('upward prepend scroll correction', () => {
     // The page prepends one day: the reference section (2026-07-02) is now
     // 100px further down than it was.
     rerender(
-      <EventListWindowed {...baseProps}
+      <EventList {...baseProps}
         groupedEvents={makeGroups(['2026-07-01', '2026-07-02', '2026-07-03'])}
         resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
     );
@@ -691,7 +691,7 @@ describe('upward prepend scroll correction', () => {
     vi.stubGlobal('scrollBy', scrollBy);
 
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
         resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
     );
     fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
@@ -702,7 +702,7 @@ describe('upward prepend scroll correction', () => {
     // Without the resetKey guard this would still scroll, on a real,
     // nonzero delta (2026-07-02 moved from index 0 to index 1).
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-08-01', '2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-08-01', '2026-07-02'])}
         resetKey="DIFFERENT" earlierDay={null} onShowEarlier={() => {}} />
     );
 
@@ -715,7 +715,7 @@ describe('upward prepend scroll correction', () => {
     vi.stubGlobal('scrollBy', scrollBy);
 
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
         resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
     );
     fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
@@ -724,7 +724,7 @@ describe('upward prepend scroll correction', () => {
     // correction computed against a missing node would scroll by whatever
     // the fallback rect happens to be — do nothing instead.
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-05'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-05'])}
         resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
     );
 
@@ -738,12 +738,12 @@ describe('upward prepend scroll correction', () => {
     const resize = installResizeObserverMock();
 
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
         resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
     );
     fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
         resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
     );
     expect(scrollBy).toHaveBeenCalledWith(0, 100);
@@ -773,12 +773,12 @@ describe('upward prepend scroll correction', () => {
     const resize = installResizeObserverMock();
 
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
         resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
     );
     fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
         resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
     );
     scrollBy.mockClear();
@@ -800,12 +800,12 @@ describe('upward prepend scroll correction', () => {
     const resize = installResizeObserverMock();
 
     const { rerender } = render(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-02'])}
         resetKey="k" earlierDay="2026-07-01" onShowEarlier={() => {}} />
     );
     fireEvent.click(screen.getByRole('button', { name: /show earlier/i }));
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-07-01', '2026-07-02'])}
         resetKey="k" earlierDay={null} onShowEarlier={() => {}} />
     );
     expect(scrollBy).toHaveBeenCalledWith(0, 100);
@@ -820,7 +820,7 @@ describe('upward prepend scroll correction', () => {
     // now (idx 1, not idx 0): a settle window that outlived its commit would
     // "correct" this into a wrong, unrequested scroll.
     rerender(
-      <EventListWindowed {...baseProps} groupedEvents={makeGroups(['2026-06-15', '2026-07-02'])}
+      <EventList {...baseProps} groupedEvents={makeGroups(['2026-06-15', '2026-07-02'])}
         resetKey="k2" earlierDay={null} onShowEarlier={() => {}} />
     );
 

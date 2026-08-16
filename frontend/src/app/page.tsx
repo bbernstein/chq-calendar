@@ -7,7 +7,6 @@ import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import { navigableBounds, viewWindow, addDays, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
 import { renderResetKey } from '@/lib/utils/renderWindow';
-import { isNavV2Enabled } from '@/lib/featureFlags';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
@@ -136,21 +135,18 @@ function HomeContent() {
   );
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
 
-  const navV2 = isNavV2Enabled();
-
   // Every day that has an event under the *non-date* filters — the set
   // navigation steps through. Derived by re-running the same filter with the
   // date stage wide open, so search, category, venue, week and favourites
   // all constrain where stepping can go, and a step always lands on a day
   // that will actually render something.
   const navEventDays = useMemo(() => {
-    if (!navV2) return [];
     const unbounded = viewWindow({
       dateFilter: 'all', seasonWeeks, currentWeekNumber, now: new Date(),
       bounds: navBounds, expandedStartDay: null, expandedEndDay: null,
     });
     return eventDayKeys(filterEvents(events, { ...nonDateFilterOpts, viewWindow: unbounded }));
-  }, [navV2, events, nonDateFilterOpts, seasonWeeks, currentWeekNumber, navBounds]);
+  }, [events, nonDateFilterOpts, seasonWeeks, currentWeekNumber, navBounds]);
 
   const { earlierDay, laterDay } = useMemo(
     () => navigationTargets(navEventDays, dateWindow),
@@ -183,18 +179,6 @@ function HomeContent() {
   ]);
 
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
-  const hasMoreDays = useMemo(() => {
-    if (filters.dateFilter !== 'next' || !dateWindow || !events.length) return false;
-    return events.some(e => new Date(e.startDate) >= dateWindow.endExclusive);
-  }, [filters.dateFilter, dateWindow, events]);
-
-  // "Show next day" widens the window by one calendar day from wherever it
-  // currently ends — which is the same operation whether the end came from
-  // the scope or from a previous widening.
-  const showNextDay = useCallback(() => {
-    if (!dateWindow) return;
-    filters.expandWindowEnd(addDays(dateWindow.endDay, 1));
-  }, [dateWindow, filters.expandWindowEnd]);
   const activeChips = useMemo(() => buildActiveChips({
     searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
     dateFilter: filters.dateFilter, setDateFilter: filters.setDateFilter,
@@ -267,24 +251,16 @@ function HomeContent() {
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
-            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : navV2 ? (
+            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter}
                 weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks}
-                navV2
                 resetKey={listResetKey}
                 earlierDay={earlierDay}
                 onShowEarlier={showEarlier}
                 canExpandEnd={!!laterDay}
                 onExpandEnd={expandEnd} />
-            ) : (
-              <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
-                onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
-                favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter} onShowNextDay={showNextDay}
-                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks} />
             )}
           </div>
         </div>
