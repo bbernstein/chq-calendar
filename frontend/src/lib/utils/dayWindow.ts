@@ -362,3 +362,16 @@ export function formatDayLabel(key: DayKey): string {
     day: 'numeric',
   });
 }
+
+/** `"Sat, Jul 4 – Thu, Jul 9"` — how the date chip names the window it covers. */
+export function formatDayRange(from: DayKey, through: DayKey): string {
+  // An inverted range is not representable as a sentence; an empty string is
+  // what the caller can test for. This is defensive rather than expected:
+  // `viewWindow` only ever widens, so start <= end holds for every window it
+  // returns.
+  if (from > through) return '';
+  const fmt = (key: DayKey) =>
+    startOfDay(key).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (from === through) return fmt(from);
+  return `${fmt(from)} – ${fmt(through)}`;
+}

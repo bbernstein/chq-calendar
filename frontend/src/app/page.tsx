@@ -186,6 +186,9 @@ function HomeContent() {
     selectedLocations: filters.selectedLocations, toggleLocation: filters.toggleLocation,
     selectedTags: filters.selectedTags, toggleTag: filters.toggleTag,
     showFavoritesOnly: filters.showFavoritesOnly, toggleFavoritesOnly: filters.toggleFavoritesOnly,
+    viewWindow: dateWindow,
+    windowExpanded: filters.windowStartDay !== null || filters.windowEndDay !== null,
+    resetWindow: filters.resetWindow,
   }), [
     filters.searchTerm, filters.setSearchTerm,
     filters.dateFilter, filters.setDateFilter,
@@ -193,6 +196,7 @@ function HomeContent() {
     filters.selectedLocations, filters.toggleLocation,
     filters.selectedTags, filters.toggleTag,
     filters.showFavoritesOnly, filters.toggleFavoritesOnly,
+    dateWindow, filters.windowStartDay, filters.windowEndDay, filters.resetWindow,
   ]);
   const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => isSelected || (filters.dateFilter === 'this-week' && currentWeekNumber === weekNumber);
 

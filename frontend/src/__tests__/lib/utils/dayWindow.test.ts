@@ -13,6 +13,7 @@ import {
   eventDayKeys,
   navigationTargets,
   formatDayLabel,
+  formatDayRange,
 } from '@/lib/utils/dayWindow';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import type { Event } from '@/lib/types';
@@ -550,5 +551,23 @@ describe('formatDayLabel', () => {
   it('names the weekday, abbreviated month and day', () => {
     expect(formatDayLabel('2026-07-05')).toBe('Sunday, Jul 5');
     expect(formatDayLabel('2026-08-15')).toBe('Saturday, Aug 15');
+  });
+});
+
+describe('formatDayRange', () => {
+  it('names a single day once', () => {
+    expect(formatDayRange('2026-07-04', '2026-07-04')).toBe('Sat, Jul 4');
+  });
+
+  it('elides the repeated month within one month', () => {
+    expect(formatDayRange('2026-07-04', '2026-07-09')).toBe('Sat, Jul 4 – Thu, Jul 9');
+  });
+
+  it('keeps both months across a month boundary', () => {
+    expect(formatDayRange('2026-07-28', '2026-08-02')).toBe('Tue, Jul 28 – Sun, Aug 2');
+  });
+
+  it('returns an empty string for an inverted range rather than a nonsense one', () => {
+    expect(formatDayRange('2026-07-09', '2026-07-04')).toBe('');
   });
 });

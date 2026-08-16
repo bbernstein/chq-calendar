@@ -1,5 +1,6 @@
 import { getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
 import type { DateFilter } from '@/hooks/useFilterState';
+import { formatDayRange, type ViewWindow } from '@/lib/utils/dayWindow';
 
 export interface ActiveChip {
   key: string;
@@ -29,6 +30,11 @@ interface BuildArgs {
   toggleTag: (tag: string) => void;
   showFavoritesOnly: boolean;
   toggleFavoritesOnly: () => void;
+  /** The window the list is actually showing, or null if the scope matches nothing. */
+  viewWindow: ViewWindow | null;
+  /** True once navigation has grown the window past the scope's own bounds. */
+  windowExpanded: boolean;
+  resetWindow: () => void;
 }
 
 export function buildActiveChips(args: BuildArgs): ActiveChip[] {
@@ -45,7 +51,23 @@ export function buildActiveChips(args: BuildArgs): ActiveChip[] {
     });
   }
 
-  if (args.dateFilter !== 'all') {
+  // Two chips' worth of meaning in one chip, because they are never both
+  // true. An untouched window is exactly the scope, so the chip says the
+  // scope's name and its ✕ clears the scope — unchanged behaviour for anyone
+  // who never navigates. A window that has grown is no longer the scope, so
+  // saying "Now" would be a lie about what is on screen; the chip names the
+  // days instead and its ✕ puts the window back to the scope's base, leaving
+  // the scope alone. That is the first of D3's two distinct escapes; the
+  // second is ⟳ Now, which moves the reader without touching any filter.
+  if (args.windowExpanded && args.viewWindow) {
+    chips.push({
+      key: 'date-window',
+      category: 'date',
+      prefix: 'When',
+      label: formatDayRange(args.viewWindow.startDay, args.viewWindow.endDay),
+      onRemove: () => args.resetWindow(),
+    });
+  } else if (args.dateFilter !== 'all') {
     chips.push({
       key: `date-${args.dateFilter}`,
       category: 'date',
