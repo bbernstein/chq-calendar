@@ -171,7 +171,7 @@ export function navigableBounds(
 }
 
 export interface WindowOptions {
-  dateFilter: 'all' | 'today' | 'next' | 'this-week';
+  dateFilter: 'all' | 'today' | 'next' | 'this-week' | 'season';
   seasonWeeks: SeasonWeek[];
   currentWeekNumber: number | null;
   now: Date;
@@ -228,6 +228,26 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
         endDay: lastDayCovered(endExclusive),
         start,
         endExclusive,
+      };
+    }
+
+    case 'season': {
+      // The whole season, absolute. Unlike 'next'/'today'/'this-week' this
+      // says nothing about *now*, so it is meaningful in an archived year and
+      // is never downgraded — which is exactly why the scope set needed it:
+      // 'all' was previously the only non-time-relative scope, and it means
+      // the whole year, not the season.
+      //
+      // Copied, not aliased: these `Date`s belong to the caller's
+      // `seasonWeeks` array, and returning them by reference would let a
+      // mutation of the returned window reach back into it.
+      const first = o.seasonWeeks[0];
+      const last = o.seasonWeeks[o.seasonWeeks.length - 1];
+      return {
+        startDay: dayKeyOf(first.start),
+        endDay: lastDayCovered(last.end),
+        start: new Date(first.start),
+        endExclusive: new Date(last.end),
       };
     }
 

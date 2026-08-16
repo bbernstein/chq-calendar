@@ -1,7 +1,7 @@
 import { useReducer, useCallback, useEffect, useMemo } from 'react';
 import { USER_STATE_EXPIRY_MS } from '@/lib/constants';
 
-export type DateFilter = 'all' | 'today' | 'next' | 'this-week';
+export type DateFilter = 'all' | 'today' | 'next' | 'this-week' | 'season';
 
 interface FilterState {
   searchTerm: string;

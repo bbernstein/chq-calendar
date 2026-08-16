@@ -164,12 +164,14 @@ export function useWeekDragSelection(
       setSelectedWeeks([]);
       return;
     }
-    // Touch has no shift/cmd modifiers, so tapping a week while a relative
-    // date filter (Now / Today / This Week) is active should replace that
-    // filter with the single tapped week — matching desktop click behavior.
-    // Multi-week selection is only available once no relative filter is set.
+    // Touch has no shift/cmd modifiers, so tapping a week while a scope is
+    // active should replace that scope with the single tapped week —
+    // matching desktop click behavior. 'season' is in this set for the same
+    // reason the others are: it is a scope, and scopes are mutually
+    // exclusive with the week strip.
     const isRelativeFilterActive =
-      dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week';
+      dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week'
+      || dateFilter === 'season';
     if (isRelativeFilterActive) {
       setDateFilter('all');
       setSelectedWeeks([weekNum]);

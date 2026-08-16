@@ -264,6 +264,47 @@ describe('baseWindow', () => {
     expect(second.start.getTime()).toBe(originalWeekStart);
     expect(second.endExclusive.getTime()).toBe(originalWeekEnd);
   });
+
+  describe("baseWindow: 'season'", () => {
+    it('spans the first week start to the last week end', () => {
+      const w = baseWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+      })!;
+      expect(w.start).toEqual(seasonWeeks[0].start);
+      expect(w.endExclusive).toEqual(seasonWeeks[seasonWeeks.length - 1].end);
+      expect(w.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
+      expect(w.endDay).toBe(lastDayCovered(seasonWeeks[seasonWeeks.length - 1].end));
+    });
+
+    // The season's own dates are the caller's array. Handing them back by
+    // reference would let one mutation of a returned window corrupt every
+    // later window derived from the same season — the same defensive-copy
+    // rule 'all' and 'this-week' already follow.
+    it('copies the season dates rather than aliasing seasonWeeks', () => {
+      const w = baseWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+      })!;
+      expect(w.start).not.toBe(seasonWeeks[0].start);
+      expect(w.endExclusive).not.toBe(seasonWeeks[seasonWeeks.length - 1].end);
+    });
+
+    // Season is absolute, not time-relative, so it is meaningful in an
+    // archived year and must not be null there.
+    it('is non-null regardless of whether the season is in progress', () => {
+      const offSeason = new Date(2026, 0, 15, 12, 0, 0);
+      expect(baseWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber: null, now: offSeason, bounds,
+      })).not.toBeNull();
+    });
+
+    it('is widened by navigation exactly as every other scope is', () => {
+      const w = viewWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+        expandedStartDay: null, expandedEndDay: bounds.endDay,
+      })!;
+      expect(w.endDay).toBe(bounds.endDay);
+    });
+  });
 });
 
 describe('viewWindow expansion', () => {

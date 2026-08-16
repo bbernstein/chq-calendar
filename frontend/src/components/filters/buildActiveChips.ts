@@ -13,6 +13,7 @@ const DATE_LABELS: Record<Exclude<DateFilter, 'all'>, string> = {
   next: 'Now',
   today: 'Today',
   'this-week': 'This Week',
+  season: 'All Season',
 };
 
 interface BuildArgs {
