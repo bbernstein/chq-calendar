@@ -2182,7 +2182,7 @@ construction.
   (status line only)
 - Modify: this plan (check off completed tasks)
 
-- [ ] **Step 1: Full verification sweep**
+- [x] **Step 1: Full verification sweep**
 
 From the repo root:
 
@@ -2195,7 +2195,16 @@ Expected: both green; frontend line coverage at or above the 74.3 floor in
 `.coverage-floor.json`. If coverage dropped, add tests — do not lower the
 floor.
 
-- [ ] **Step 2: Browser pass with the flag ON**
+- [x] **Step 2: Browser pass with the flag ON** — performed; 11 of 12 checks
+  passed, check 6 found a real bug (see task-7-report.md): the render-window
+  `anchor` in `EventListWindowed` starts `null` and is only ever set by the
+  bottom-sentinel's growth callback. If the reader clicks "Show earlier"
+  before any bottom-scroll growth has fired, `renderEndIndex` recomputes
+  `fillFrom(groups, 0, 50)` from scratch against the newly-prepended array and
+  can silently drop previously-rendered later days from the DOM (confirmed
+  reproducible, confirmed it does NOT occur once a growth step has fired
+  first, confirmed it compounds across repeated clicks). Must be fixed before
+  `VITE_NAV_V2` is flipped on.
 
 ```bash
 cd frontend && VITE_NAV_V2=true npm run dev
@@ -2231,7 +2240,9 @@ Visit `http://localhost:3000` and confirm each of these, in order:
 Record the result of every numbered check in the PR body. If the Chrome
 extension is unavailable, do the pass manually and say so.
 
-- [ ] **Step 3: Browser pass with the flag OFF**
+- [x] **Step 3: Browser pass with the flag OFF** — confirmed byte-identical
+  legacy behaviour: "Show next day" reappears, batch growth is exactly 50 at
+  a time, no "Show earlier" anywhere.
 
 ```bash
 cd frontend && npm run dev
@@ -2240,14 +2251,15 @@ cd frontend && npm run dev
 Confirm: "Show next day" is back under the `Now` scope, the list grows 50
 events at a time, and nothing named "Show earlier" exists anywhere.
 
-- [ ] **Step 4: Update the spec's status line**
+- [x] **Step 4: Update the spec's status line**
 
 In `docs/superpowers/specs/2026-08-15-cross-platform-date-navigation-design.md`,
 change the `**Status:**` line to record that phases 0, 1a, 1b are merged and
 phase 2 is implemented behind `VITE_NAV_V2` (default off), and that the flip
 is phase 3's first act.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit** — committed locally only, per the controlling
+  agent's instruction to stop before Step 6 (no push, no PR).
 
 ```bash
 git add docs/superpowers/specs/2026-08-15-cross-platform-date-navigation-design.md docs/superpowers/plans/2026-08-15-date-navigation-phase-2-web-render-window.md

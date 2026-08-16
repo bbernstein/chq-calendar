@@ -1,10 +1,15 @@
 # Cross-platform date navigation — design
 
-**Status:** Approved design, not implemented. Supersedes the design
-sections of issues [#225](https://github.com/bbernstein/chq-calendar/issues/225)
-(web) and [#226](https://github.com/bbernstein/chq-calendar/issues/226)
-(iOS), which remain the authoritative record of the *problem* and of the
-code archaeology behind it.
+**Status:** Phases 0, 1a, and 1b are merged and live on `main`. Phase 2 (web
+bidirectional render window + edge expansion) is implemented and merged
+behind `VITE_NAV_V2`, which is unset (off) in CI and in the deploy workflow —
+production behaviour is unchanged. Flipping the flag on is phase 3's first
+act, alongside the sticky-stacking rail this phase deliberately deferred.
+Supersedes the design sections of issues
+[#225](https://github.com/bbernstein/chq-calendar/issues/225) (web) and
+[#226](https://github.com/bbernstein/chq-calendar/issues/226) (iOS), which
+remain the authoritative record of the *problem* and of the code archaeology
+behind it.
 
 **Date:** 2026-08-15
 
