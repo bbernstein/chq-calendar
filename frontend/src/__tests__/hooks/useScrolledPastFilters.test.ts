@@ -35,6 +35,23 @@ describe('useScrolledPastFilters', () => {
     expect(result.current.scrolled).toBe(false);
   });
 
+  // Same latch as the unmount case, by a different route: a sentinel swap in
+  // an environment with no observer to correct the reading. Without a reset
+  // the stale `true` survives with nothing left running that could clear it,
+  // and the filter card stays parked and inert with no way back to it.
+  it('clears a stale scrolled reading when swapped with no observer available', () => {
+    const io = installIntersectionObserverMock();
+    const { result } = renderHook(() => useScrolledPastFilters());
+    act(() => { result.current.sentinelRef(document.createElement('div')); });
+    io.trigger(false);
+    expect(result.current.scrolled).toBe(true);
+
+    vi.stubGlobal('IntersectionObserver', undefined);
+    act(() => { result.current.sentinelRef(document.createElement('div')); });
+
+    expect(result.current.scrolled).toBe(false);
+  });
+
   it('resets to not-scrolled when the sentinel unmounts, rather than holding a stale value', () => {
     const io = installIntersectionObserverMock();
     const { result } = renderHook(() => useScrolledPastFilters());

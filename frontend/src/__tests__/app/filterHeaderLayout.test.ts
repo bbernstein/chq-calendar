@@ -38,30 +38,32 @@ describe('filterHeaderTop', () => {
 });
 
 describe('filterCardParked', () => {
-  it('is parked once the reader has scrolled past it with the panel closed', () => {
-    expect(filterCardParked({ scrolledPast: true, open: false, exitingVisible: false })).toBe(true);
+  it('is parked once the card itself has left the viewport with the panel closed', () => {
+    expect(filterCardParked({ outOfView: true, open: false, exitingVisible: false })).toBe(true);
   });
 
-  it('is not parked at the top of the page, where it is ordinary in-flow content', () => {
-    expect(filterCardParked({ scrolledPast: false, open: false, exitingVisible: false })).toBe(false);
+  it('is not parked while the card is on screen', () => {
+    expect(filterCardParked({ outOfView: false, open: false, exitingVisible: false })).toBe(false);
   });
 
   // Reachable while open is the entire point of the toggle: an open panel
-  // that is `inert` is a panel the reader can see and cannot use.
-  it('is not parked while the panel is open over the list', () => {
-    expect(filterCardParked({ scrolledPast: true, open: true, exitingVisible: false })).toBe(false);
+  // that is `inert` is a panel the reader can see and cannot use. `open`
+  // wins even if the observer has not yet reported the card back in view —
+  // its callback lands a frame later than the state that revealed it.
+  it('is not parked while the panel is open, whatever the observer last said', () => {
+    expect(filterCardParked({ outOfView: true, open: true, exitingVisible: false })).toBe(false);
   });
 
   // Mid-exit the panel is `position: fixed`, not parked. It still ends up
   // beyond reach — page.tsx ORs the two — but by a different route, and
   // conflating them here would hide which one is driving.
   it('is not parked while the exit animation is running', () => {
-    expect(filterCardParked({ scrolledPast: true, open: false, exitingVisible: true })).toBe(false);
+    expect(filterCardParked({ outOfView: true, open: false, exitingVisible: true })).toBe(false);
   });
 
-  // A stale `open` left over from scrolling back up must not park the card
-  // at the top of the page, where the reader can plainly see it.
-  it('is not parked at the top of the page even with a stale open flag', () => {
-    expect(filterCardParked({ scrolledPast: false, open: true, exitingVisible: false })).toBe(false);
+  // Partly on screen is still reachable: mid-slide the reader can see the
+  // card and must be able to use it.
+  it('is not parked while the card is only partly scrolled away', () => {
+    expect(filterCardParked({ outOfView: false, open: true, exitingVisible: false })).toBe(false);
   });
 });

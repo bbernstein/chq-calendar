@@ -5,74 +5,152 @@ import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 
 afterEach(() => { vi.unstubAllGlobals(); document.documentElement.style.removeProperty('--filter-card-h'); });
 
-// jsdom reports 0 for every layout measurement, so each test supplies its
-// own `scrollHeight` and computed margin. What is being pinned is which
-// numbers the hook combines — the header parks by exactly this value, and
-// anything short of the card's full height plus its gap leaves the rail
-// hanging below the viewport top.
-function cardWith({ scrollHeight, marginBottom }: { scrollHeight: number; marginBottom: string }) {
-  const el = document.createElement('div');
-  Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
-  el.style.marginBottom = marginBottom;
-  return el;
+// jsdom reports 0 for every layout measurement, so each test supplies its own
+// rects. What is being pinned is WHICH distance is published and WHEN: the
+// header parks by exactly this value, and anything else leaves the rail off
+// the viewport's top edge by the difference.
+function headerContainer({ cardTop, railTop, cardHeight = 0, withRail = true, cardPosition = 'static' }: {
+  cardTop: number; railTop?: number; cardHeight?: number; withRail?: boolean; cardPosition?: string;
+}) {
+  const container = document.createElement('div');
+  const card = document.createElement('div');
+  card.setAttribute('data-filter-card', '');
+  card.style.position = cardPosition;
+  card.getBoundingClientRect = () => ({ top: cardTop, height: cardHeight }) as DOMRect;
+  container.append(card);
+  if (withRail) {
+    const rail = document.createElement('div');
+    rail.setAttribute('data-day-rail', '');
+    rail.getBoundingClientRect = () => ({ top: railTop! }) as DOMRect;
+    container.append(rail);
+  }
+  // jsdom's getComputedStyle needs the node in the document to report
+  // inline styles reliably.
+  document.body.append(container);
+  return container;
 }
 
+const published = () => document.documentElement.style.getPropertyValue('--filter-card-h');
+
 describe('useFilterCardHeight', () => {
-  it('publishes the card content height plus its bottom margin', () => {
+  it('publishes the distance from the top of the card to the top of the rail', () => {
     installResizeObserverMock();
     const { result } = renderHook(() => useFilterCardHeight());
-    act(() => { result.current(cardWith({ scrollHeight: 269, marginBottom: '16px' })); });
-    expect(document.documentElement.style.getPropertyValue('--filter-card-h')).toBe('285px');
+    act(() => { result.current(headerContainer({ cardTop: 64, railTop: 349 })); });
+    expect(published()).toBe('285px');
   });
 
-  // The margin is the gap the card holds above the rail. Drop it and the
-  // rail parks 16-24px below the viewport top, with a slice of the card
-  // still showing above it.
-  it('includes the margin rather than the content height alone', () => {
+  // The gap between card and rail is the card's `mb-4 sm:mb-6`, and it has to
+  // ride up with the card. Measuring the card's own box alone parks the rail
+  // 16-24px low, with a slice of the card still showing above it.
+  it('includes the gap between the card and the rail, not just the card box', () => {
     installResizeObserverMock();
     const { result } = renderHook(() => useFilterCardHeight());
-    act(() => { result.current(cardWith({ scrollHeight: 300, marginBottom: '24px' })); });
-    expect(document.documentElement.style.getPropertyValue('--filter-card-h')).toBe('324px');
+    act(() => { result.current(headerContainer({ cardTop: 0, railTop: 324, cardHeight: 300 })); });
+    expect(published()).toBe('324px');
   });
 
-  // The load-bearing choice. While open over the list the card carries
-  // `max-h-[70vh] overflow-y-auto`, so its rendered box is the cap and its
-  // content is taller. Parking by the rendered box would leave the rail the
-  // overflowed remainder too low the moment the panel closed — and only for
-  // readers whose filter card exceeds 70vh.
-  it('measures content height, not the capped rendered box', () => {
+  // The reason this is one measurement rather than `scrollHeight` plus a
+  // computed margin: a reconstructed distance can disagree with the layout.
+  it('measures the real distance rather than reconstructing it from the card box', () => {
     installResizeObserverMock();
     const { result } = renderHook(() => useFilterCardHeight());
-    const el = cardWith({ scrollHeight: 900, marginBottom: '16px' });
-    el.getBoundingClientRect = () => ({ height: 590 }) as DOMRect;
-    act(() => { result.current(el); });
-    expect(document.documentElement.style.getPropertyValue('--filter-card-h')).toBe('916px');
+    act(() => { result.current(headerContainer({ cardTop: 100, railTop: 700, cardHeight: 40 })); });
+    expect(published()).toBe('600px');
   });
 
-  it('tolerates a card with no bottom margin', () => {
-    installResizeObserverMock();
-    const { result } = renderHook(() => useFilterCardHeight());
-    act(() => { result.current(cardWith({ scrollHeight: 200, marginBottom: '' })); });
-    expect(document.documentElement.style.getPropertyValue('--filter-card-h')).toBe('200px');
-  });
-
-  // Text zoom, an added filter chip row, a week strip wrapping — all grow
-  // the card, and a stale park leaves the rail off its mark by the delta.
-  it('republishes when the card resizes', () => {
+  // THE TRIGGER, which is a separate bug from the arithmetic. `ResizeObserver`
+  // reports border and content boxes and never margins, so the observer has to
+  // sit on the header CONTAINER — whose height is card + margin + rail — not
+  // on the card, whose own box does not change when only its margin does.
+  it('observes the header container, so a margin-only change still republishes', () => {
     const resize = installResizeObserverMock();
     const { result } = renderHook(() => useFilterCardHeight());
-    const el = cardWith({ scrollHeight: 269, marginBottom: '16px' });
-    act(() => { result.current(el); });
-    Object.defineProperty(el, 'scrollHeight', { value: 412, configurable: true });
+    const container = headerContainer({ cardTop: 64, railTop: 349 });
+    const card = container.querySelector('[data-filter-card]')!;
+    const rail = container.querySelector('[data-day-rail]')!;
+    act(() => { result.current(container); });
+    expect(published()).toBe('285px');
+
+    // A breakpoint widens the card's bottom margin. The card's own box is
+    // untouched; only the rail moves down.
+    rail.getBoundingClientRect = () => ({ top: 357 }) as DOMRect;
     resize.trigger();
-    expect(document.documentElement.style.getPropertyValue('--filter-card-h')).toBe('428px');
+
+    expect(published()).toBe('293px');
+    expect(card.getBoundingClientRect().height).toBe(0);   // card box never changed
   });
 
-  it('drops back to zero when the card unmounts', () => {
+  it('is correct while the header is already pinned above the viewport', () => {
     installResizeObserverMock();
     const { result } = renderHook(() => useFilterCardHeight());
-    act(() => { result.current(cardWith({ scrollHeight: 269, marginBottom: '16px' })); });
+    act(() => { result.current(headerContainer({ cardTop: -285, railTop: 0 })); });
+    expect(published()).toBe('285px');
+  });
+
+  // Mid-exit the card is `position: fixed` at a frozen rect and out of the
+  // header's flow, so the distance describes nothing. Publishing it would set
+  // the offset to roughly zero, and the moment the animation ended and the
+  // header returned to its parked `top`, the card would flash back into view.
+  it('holds the last good value while the card is out of flow mid-exit', () => {
+    const resize = installResizeObserverMock();
+    const { result } = renderHook(() => useFilterCardHeight());
+    const container = headerContainer({ cardTop: 64, railTop: 349 });
+    act(() => { result.current(container); });
+    expect(published()).toBe('285px');
+
+    const card = container.querySelector('[data-filter-card]') as HTMLElement;
+    card.style.position = 'fixed';
+    card.getBoundingClientRect = () => ({ top: 0, height: 269 }) as DOMRect;
+    resize.trigger();
+
+    expect(published()).toBe('285px');
+  });
+
+  it('resumes publishing once the card is back in flow', () => {
+    const resize = installResizeObserverMock();
+    const { result } = renderHook(() => useFilterCardHeight());
+    const container = headerContainer({ cardTop: 64, railTop: 349 });
+    const card = container.querySelector('[data-filter-card]') as HTMLElement;
+    act(() => { result.current(container); });
+
+    card.style.position = 'fixed';
+    resize.trigger();
+    card.style.position = 'static';
+    card.getBoundingClientRect = () => ({ top: 64, height: 0 }) as DOMRect;
+    resize.trigger();
+
+    expect(published()).toBe('285px');
+  });
+
+  // An archived year with no navigable days renders no rail.
+  it('falls back to the card box when there is no rail', () => {
+    installResizeObserverMock();
+    const { result } = renderHook(() => useFilterCardHeight());
+    act(() => { result.current(headerContainer({ cardTop: 64, cardHeight: 269, withRail: false })); });
+    expect(published()).toBe('269px');
+  });
+
+  // Text zoom, an added chip row, a week strip wrapping — all move the rail,
+  // and a stale park leaves it off its mark by the delta.
+  it('republishes when the header resizes', () => {
+    const resize = installResizeObserverMock();
+    const { result } = renderHook(() => useFilterCardHeight());
+    const container = headerContainer({ cardTop: 64, railTop: 349 });
+    const rail = container.querySelector('[data-day-rail]')!;
+    act(() => { result.current(container); });
+
+    rail.getBoundingClientRect = () => ({ top: 492 }) as DOMRect;
+    resize.trigger();
+
+    expect(published()).toBe('428px');
+  });
+
+  it('drops back to zero when the header unmounts', () => {
+    installResizeObserverMock();
+    const { result } = renderHook(() => useFilterCardHeight());
+    act(() => { result.current(headerContainer({ cardTop: 64, railTop: 349 })); });
     act(() => { result.current(null); });
-    expect(document.documentElement.style.getPropertyValue('--filter-card-h')).toBe('0px');
+    expect(published()).toBe('0px');
   });
 });

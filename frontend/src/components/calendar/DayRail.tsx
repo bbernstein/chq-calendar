@@ -238,7 +238,7 @@ export function DayRail({
         aria-label={prevLabel}
         disabled={!canStepBack}
         onClick={() => onStepDay(-1)}
-        className="shrink-0 px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
+        className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
       >
         ‹
       </button>
@@ -266,7 +266,7 @@ export function DayRail({
               // exists to replace.
               tabIndex={chip.key === tabStopKey ? 0 : -1}
               onClick={() => { if (!isEmpty) onSelectDay(chip.key); }}
-              className={`shrink-0 min-w-11 px-2 py-1 rounded-md text-center leading-tight transition-colors ${
+              className={`shrink-0 min-h-11 min-w-11 px-2 py-1 rounded-md text-center leading-tight transition-colors ${
                 isAnchor
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700'
@@ -292,7 +292,7 @@ export function DayRail({
         aria-label={nextLabel}
         disabled={!canStepForward}
         onClick={() => onStepDay(1)}
-        className="shrink-0 px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
+        className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
       >
         ›
       </button>
@@ -309,7 +309,7 @@ export function DayRail({
           type="button"
           aria-label="Go to today"
           onClick={onGoToToday}
-          className="shrink-0 px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
+          className="shrink-0 inline-flex min-h-11 items-center justify-center px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
         >
           ⟳ Now
         </button>

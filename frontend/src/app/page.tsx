@@ -13,6 +13,7 @@ import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useDayRailHeight } from '@/hooks/useDayRailHeight';
 import { useScrolledPastFilters } from '@/hooks/useScrolledPastFilters';
 import { useFilterCardHeight } from '@/hooks/useFilterCardHeight';
+import { useElementOutOfView } from '@/hooks/useElementOutOfView';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
 import { filterCardParked, filterHeaderTop } from '@/app/filterHeaderLayout';
 import { DayRail } from '@/components/calendar/DayRail';
@@ -260,19 +261,31 @@ function HomeContent() {
   // Parked above the viewport on the header's negative `top`, or animating
   // away as a fixed-position ghost — either way in the DOM but beyond the
   // reader's reach, so out of the tab order and the accessibility tree.
+  //
+  // `cardOutOfView` asks the card itself rather than reusing
+  // `filtersScrolledPast`. The sentinel that drives `scrolledPast` sits below
+  // the whole header, so it reports the card gone a rail-height after it
+  // actually went — and in that window the card was pinned out of sight and
+  // still Tab-reachable. See `useElementOutOfView` for why the sentinel
+  // cannot simply be moved to the card's own bottom edge.
+  const { outOfView: filtersCardOutOfView, ref: filtersCardViewRef } = useElementOutOfView();
   const filtersCardBeyondReach = filtersExitingVisible || filterCardParked({
-    scrolledPast: filtersScrolledPast, open: filtersOpen, exitingVisible: filtersExitingVisible,
+    outOfView: filtersCardOutOfView, open: filtersOpen, exitingVisible: filtersExitingVisible,
   });
-  // One element, two measurements: `useFilterPanel` needs the node to read
-  // its rect and test focus containment, and the header needs its height
-  // published as `--filter-card-h` to know how far to ride up. Both are
-  // stable callback refs, so merging them in a `useCallback` keeps the
-  // ResizeObserver from tearing down and rebuilding on every render.
+  // The header container's observer, not the card's. `--filter-card-h` has to
+  // re-publish when the card's MARGIN changes at a breakpoint, and
+  // `ResizeObserver` never reports a margin — but the container's own height
+  // is card + margin + rail, so it changes whenever any of them does. See
+  // `useFilterCardHeight`.
   const filtersCardHeightRef = useFilterCardHeight();
+  // Two observers on the card itself: `useFilterPanel` needs the node to read
+  // its rect and test focus containment, and `inert` needs to know whether
+  // the card is still on screen. Both are stable callback refs, so merging
+  // them in a `useCallback` keeps them from tearing down on every render.
   const filtersCardRef = useCallback((el: HTMLElement | null) => {
     filtersPanelRef(el);
-    filtersCardHeightRef(el);
-  }, [filtersPanelRef, filtersCardHeightRef]);
+    filtersCardViewRef(el);
+  }, [filtersPanelRef, filtersCardViewRef]);
 
   // Declared here rather than beside `expandEnd` above, where it would read
   // more naturally: it needs `cancelHold`, and a `const` referenced before
@@ -416,11 +429,14 @@ function HomeContent() {
           geometry — not the browser — was the root cause.
         */}
         <div
+          data-filter-header
+          ref={filtersCardHeightRef}
           className="sticky z-30"
           style={{ top: filterHeaderTop({ overlaying: filtersPanelOverlaying }) }}
         >
           <div
             id={filtersPanelId}
+            data-filter-card
             ref={filtersCardRef}
             className={`bg-white dark:bg-gray-800 rounded-lg mb-4 sm:mb-6 ${
               // D4: a heavier, bottom-weighted shadow only while the panel is

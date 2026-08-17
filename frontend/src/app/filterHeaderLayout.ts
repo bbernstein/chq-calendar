@@ -59,14 +59,21 @@ export function filterHeaderTop({ overlaying }: { overlaying: boolean }): string
  *
  * This is not cosmetic. A parked card is still in the DOM and still in flow;
  * without `inert` a keyboard reader tabbing down the page would land in it,
- * and the browser would scroll the header back into view to show them the
- * focused control — yanking the page to the top mid-read. `display: none`
- * used to give this for free, which is exactly why removing it has to
- * restore it explicitly.
+ * and the browser would try to scroll the header back into view to show them
+ * the focused control — which it cannot do for a pinned sticky element, so it
+ * chases the position instead of revealing it. `display: none` used to give
+ * this for free, which is exactly why removing it has to restore it
+ * explicitly.
+ *
+ * `outOfView` is the card's own visibility, measured against the viewport
+ * (`useElementOutOfView`), NOT the page's `scrolledPast` sentinel. The
+ * sentinel sits below the whole sticky header, so it turns true a
+ * rail-height after the card has actually left — and for that window the
+ * card was pinned out of sight and still Tab-reachable.
  */
 export function filterCardParked(
-  { scrolledPast, open, exitingVisible }:
-  { scrolledPast: boolean; open: boolean; exitingVisible: boolean },
+  { outOfView, open, exitingVisible }:
+  { outOfView: boolean; open: boolean; exitingVisible: boolean },
 ): boolean {
-  return scrolledPast && !open && !exitingVisible;
+  return outOfView && !open && !exitingVisible;
 }

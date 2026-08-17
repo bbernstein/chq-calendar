@@ -41,7 +41,13 @@ export function useScrolledPastFilters(): {
     // transitions install `installIntersectionObserverMock()`; everywhere
     // else this defaults to "not scrolled", which is the same value a real
     // browser reports before the observer's first callback fires.
-    if (typeof IntersectionObserver === 'undefined') return;
+    if (typeof IntersectionObserver === 'undefined') {
+      // Reset rather than return: this ref runs again on every element swap,
+      // so bailing out without it leaves a stale `true` latched from a
+      // previous sentinel with nothing left running to correct it.
+      setScrolled(false);
+      return;
+    }
 
     const observer = new IntersectionObserver(
       ([entry]) => setScrolled(!entry.isIntersecting),

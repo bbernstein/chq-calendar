@@ -3,27 +3,54 @@ import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 const PROPERTY = '--filter-card-h';
 
 /**
- * How far the sticky header has to ride up for the filter card to be gone
- * and the rail to land exactly at the viewport top: the card's full content
- * height plus the gap it holds above the rail.
+ * How far the sticky header has to ride up for the filter card to be gone and
+ * the rail to land flush at the viewport top: the distance from the top of the
+ * card to the top of the rail.
  *
- * `scrollHeight`, not `getBoundingClientRect().height`, and the difference is
- * load-bearing rather than stylistic. While the panel is open over the list
- * it carries `max-h-[70vh] overflow-y-auto`, so a tall card's *rendered* box
- * is the cap, not its content. Parking by the capped number would leave the
- * rail sitting the overflowed remainder too low the moment the panel closed
- * — and only for readers whose filter card exceeds 70vh, which is the subset
- * least likely to be tested. `scrollHeight` reports the content height
- * whether or not the cap is applied, so the value is the same in both states
- * and the close needs no re-measure to be correct.
+ * ## Measured as one distance, and observed on the container
  *
- * The bottom margin is the card's own `mb-4 sm:mb-6`, which sits between it
- * and the rail and therefore has to ride up too; it is not part of
- * `scrollHeight`.
+ * Two separate mistakes are avoided here, and they are easy to conflate.
+ *
+ * **What is measured.** An earlier version added the card's `scrollHeight` to
+ * its computed `margin-bottom`. Reconstructing a distance from parts invites
+ * the parts to disagree with the layout; asking for `railTop - cardTop` is the
+ * distance itself.
+ *
+ * **When it is re-measured.** Fixing the arithmetic did not fix the trigger.
+ * `ResizeObserver` reports border and content boxes, never margins — so with
+ * the observer on the CARD, a breakpoint that moved only `mb-4 sm:mb-6` would
+ * change neither the card's box nor the rail's, fire nothing, and leave a
+ * stale offset that parks the rail off the viewport's top edge by the
+ * difference. The header container's height, by contrast, is card + margin +
+ * rail: it changes whenever any of the three does. So the observer goes on the
+ * container and the measurement reads its children.
+ *
+ * That is why this hook's ref belongs on `[data-filter-header]` rather than on
+ * the card, even though it is the card's offset being published.
+ *
+ * ## Mid-exit
+ *
+ * While the panel animates away it is `position: fixed` at a frozen rect and no
+ * longer in the header's flow, so `railTop - cardTop` momentarily describes
+ * nothing. Publishing it would set the offset to roughly zero, and the instant
+ * the animation ended and the header returned to its parked `top`, the card
+ * would flash back into view at the top of the page. Returning `null` holds the
+ * last good value until the card is back in flow and the observer fires again.
  */
-const collapsedOffset = (el: HTMLElement) => {
-  const marginBottom = parseFloat(getComputedStyle(el).marginBottom);
-  return el.scrollHeight + (Number.isFinite(marginBottom) ? marginBottom : 0);
+const railOffsetFromCardTop = (container: HTMLElement): number | null => {
+  const card = container.querySelector('[data-filter-card]');
+  if (!card) return null;
+
+  // Out of flow: mid-exit. Hold the last good value — see above.
+  if (getComputedStyle(card).position === 'fixed') return null;
+
+  const rail = container.querySelector('[data-day-rail]');
+  // No rail — an archived year with no navigable days, or a first paint
+  // before it mounts. The card's own box is the honest answer: there is
+  // nothing below it to hold clear of.
+  if (!rail) return card.getBoundingClientRect().height;
+
+  return rail.getBoundingClientRect().top - card.getBoundingClientRect().top;
 };
 
 /**
@@ -33,10 +60,11 @@ const collapsedOffset = (el: HTMLElement) => {
  * whenever the panel is not overlaying the list, which parks the card just
  * above the viewport and leaves the rail flush against its top edge. That
  * negative offset is what lets the card scroll away under its own steam
- * instead of being removed from flow — see the comment on the sticky
- * container in `page.tsx` for why removing it from flow was a bug rather
- * than a style choice.
+ * instead of being removed from flow — see `filterHeaderLayout.ts` for why
+ * removing it from flow was a bug rather than a style choice.
+ *
+ * The returned ref goes on the header container, not the card.
  */
 export function useFilterCardHeight() {
-  return usePublishedElementHeight(PROPERTY, collapsedOffset);
+  return usePublishedElementHeight(PROPERTY, railOffsetFromCardTop);
 }
