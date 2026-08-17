@@ -4,6 +4,7 @@ import Home from '@/app/page';
 import { installFetchMock, type FetchMock } from './helpers/fetchMock';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
 import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
+import { getDefaultYear } from '@/lib/constants';
 
 /**
  * The first test that renders `page.tsx`.
@@ -27,7 +28,14 @@ import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
  * The browser harnesses remain the only thing that can see the bug itself.
  */
 
-const YEAR = new Date().getFullYear();
+// The year the PAGE will ask for, not the year it happens to be. The app's
+// season turns over on October 1 (`getDefaultYear`), so from Oct 1 onward it
+// requests next year's events — and a fixture dated with
+// `new Date().getFullYear()` would then be a year adrift from the events the
+// page is looking for, silently widening the navigable window across a
+// year-long gap. Deriving it from the same function the app uses keeps this
+// test saying the same thing on every day of the year.
+const YEAR = getDefaultYear();
 
 function eventsPayload() {
   return {
@@ -106,6 +114,20 @@ function scrollPastHeader() {
 }
 
 describe('page.tsx — the sticky filter header', () => {
+  // Guards the fixture against the app's October 1 season turnover directly,
+  // rather than trusting both sides to call `getDefaultYear` forever. If the
+  // page ever asks for a year these events are not dated in, the window this
+  // file reasons about silently changes shape — so assert the coupling
+  // instead of assuming it.
+  it('requests the same season year the fixture is dated in', async () => {
+    await renderPage();
+
+    const requested = mock.calls(/all-events-/).map(r => new URL(r.url).pathname);
+
+    expect(requested.length).toBeGreaterThan(0);
+    expect(requested.every(p => p.endsWith(`all-events-${YEAR}.json`))).toBe(true);
+  });
+
   it('renders the filter card in flow at the top of the page, with no toggle', async () => {
     await renderPage();
 

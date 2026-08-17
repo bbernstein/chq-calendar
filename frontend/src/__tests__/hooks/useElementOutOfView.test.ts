@@ -65,6 +65,24 @@ describe('useElementOutOfView', () => {
     expect(io.totalCreated).toBe(2);
   });
 
+  // The latch this guards against: an element that WAS out of view, then a
+  // swap into an environment with no observer to correct the reading. Without
+  // a reset on that path the stale `true` survives with nothing left running
+  // that could ever clear it — and whatever it guards stays permanently
+  // unreachable, which is the one direction this hook must not fail in.
+  it('clears a stale out-of-view reading when swapped with no observer available', () => {
+    const io = installIntersectionObserverMock();
+    const { result } = renderHook(() => useElementOutOfView());
+    act(() => { result.current.ref(document.createElement('div')); });
+    io.trigger(false);
+    expect(result.current.outOfView).toBe(true);
+
+    vi.stubGlobal('IntersectionObserver', undefined);
+    act(() => { result.current.ref(document.createElement('div')); });
+
+    expect(result.current.outOfView).toBe(false);
+  });
+
   // jsdom has no IntersectionObserver, and neither do a few old browsers.
   // Reporting "in view" there is the same answer a real browser gives before
   // its first callback, and it must not throw on mount.

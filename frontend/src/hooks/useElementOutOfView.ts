@@ -48,8 +48,15 @@ export function useElementOutOfView(): {
     }
 
     // Absent from jsdom. Defaulting to "in view" matches what a real browser
-    // reports before the observer's first callback fires.
-    if (typeof IntersectionObserver === 'undefined') return;
+    // reports before the observer's first callback fires — and the reset has
+    // to happen HERE, not merely as the initial state: this ref runs again on
+    // every element swap, so bailing out without it would leave a `true`
+    // latched from a previous element with nothing left running to correct
+    // it. Same reason the `!el` branch resets rather than returning.
+    if (typeof IntersectionObserver === 'undefined') {
+      setOutOfView(false);
+      return;
+    }
 
     const observer = new IntersectionObserver(
       ([entry]) => setOutOfView(!entry.isIntersecting),
