@@ -188,7 +188,7 @@ export function DayRail({
   onSelectDay, onStepDay, onGoToToday, rootRef, filtersToggle, windowDayKeys,
 }: DayRailProps) {
   const chipKeys = useMemo(() => chips.map(c => c.key), [chips]);
-  const { stripRef, contentRef, pillRef, clipRef, resume } =
+  const { stripRef, contentRef, pillRef, clipRef, contentEl, resume } =
     useRailHighlight(chipKeys, windowDayKeys);
 
   // Reachability, not adjacency: `chips` spans every calendar day in the
@@ -225,7 +225,7 @@ export function DayRail({
   // does. Moving the window on mere focus would make arrowing through the
   // rail refilter the list on every keystroke.
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const content = contentRef.current;
+    const content = contentEl.current;
     if (!content) return;
     // `:scope >` restricts the walk to the real chip row. The highlighted
     // copy below carries no `data-chip` and holds no focusable elements, so

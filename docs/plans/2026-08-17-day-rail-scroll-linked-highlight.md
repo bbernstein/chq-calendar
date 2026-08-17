@@ -1,7 +1,6 @@
 # Day rail — scroll-linked highlight
 
-**Status:** Implemented and browser-verified on branch. Not pushed, no PR
-yet.
+**Status:** Implemented and browser-verified. In review as PR #241.
 **Branch:** `feat/web-rail-scroll-linked-highlight`
 **Follows:** phase 3a (#238, #239, #240) — the day rail itself.
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { daySectionTop, daySectionMetrics, dayRailHeightPx } from '@/lib/utils/daySections';
 import {
@@ -20,15 +20,30 @@ export const JUMP_CHIPS = 1.5;
 /** Fallback chip pitch, used only before anything has been measured. */
 const FALLBACK_PITCH = 48;
 
+/**
+ * Callback refs, not ref objects.
+ *
+ * The listener effect below has to re-run when these elements actually
+ * appear, and a ref object mutating gives it nothing to depend on. `DayRail`
+ * renders nothing at all until events have loaded, so the elements are null
+ * on first mount and arrive later — an effect that missed that moment would
+ * leave the strip's own `scroll` listener and the content `ResizeObserver`
+ * permanently unattached, silently disabling peek detection in production
+ * while every test that mounts with chips already present still passed.
+ */
+export type RailNodeRef = (el: HTMLDivElement | null) => void;
+
 export interface RailHighlight {
   /** The horizontally scrolling element. */
-  stripRef: RefObject<HTMLDivElement | null>;
+  stripRef: RailNodeRef;
   /** The content inside it — the positioning context for pill and clip. */
-  contentRef: RefObject<HTMLDivElement | null>;
+  contentRef: RailNodeRef;
   /** The highlight itself. */
-  pillRef: RefObject<HTMLDivElement | null>;
+  pillRef: RailNodeRef;
   /** The duplicated, highlighted copy of the chip row. */
-  clipRef: RefObject<HTMLDivElement | null>;
+  clipRef: RailNodeRef;
+  /** The content element, for the caller's own keyboard walk. */
+  contentEl: RefObject<HTMLDivElement | null>;
   /** Hand `scrollLeft` back to the highlight after an explicit commit. */
   resume: () => void;
 }
@@ -73,6 +88,21 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   const contentRef = useRef<HTMLDivElement | null>(null);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const clipRef = useRef<HTMLDivElement | null>(null);
+
+  // Bumped only when an element attaches or detaches — once on load, not per
+  // render and never per frame. This is what the listener effect depends on,
+  // so it re-runs exactly when there is something new to listen to.
+  const [nodeGeneration, setNodeGeneration] = useState(0);
+  const nodeSetter = (ref: RefObject<HTMLDivElement | null>): RailNodeRef =>
+    (el) => {
+      if (ref.current === el) return;
+      ref.current = el;
+      setNodeGeneration(n => n + 1);
+    };
+  const setStrip = useCallback(nodeSetter(stripRef), []);
+  const setContent = useCallback(nodeSetter(contentRef), []);
+  const setPill = useCallback(nodeSetter(pillRef), []);
+  const setClip = useCallback(nodeSetter(clipRef), []);
 
   /** Chip extents in content coordinates, rebuilt only when the row changes. */
   const extents = useRef<Map<string, ChipExtent>>(new Map());
@@ -365,9 +395,16 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       strip?.removeEventListener('scroll', onStripScroll);
       observer?.disconnect();
     };
-    // Deliberately mount-scoped: the elements these attach to are created once
-    // by `DayRail` and live as long as this hook does.
-  }, [cancelTween]);
+    // Keyed on the elements, not on the day list. `chipsId`/`keysId` change on
+    // every filter, scope and window change and would tear down and rebuild
+    // every listener for nothing — none of this wiring depends on the chip or
+    // day contents, only `sync`'s closure does, and that is reached through
+    // `latest`. But it cannot be mount-scoped either: the elements do not
+    // exist on first mount.
+  }, [nodeGeneration, cancelTween]);
 
-  return { stripRef, contentRef, pillRef, clipRef, resume };
+  return {
+    stripRef: setStrip, contentRef: setContent, pillRef: setPill, clipRef: setClip,
+    contentEl: contentRef, resume,
+  };
 }

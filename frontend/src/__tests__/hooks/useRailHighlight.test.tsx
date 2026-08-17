@@ -26,10 +26,21 @@ interface LayoutSpec {
   clientWidth?: number;
 }
 
+/**
+ * The genuine implementation, captured once at module load.
+ *
+ * `installLayout` runs per `mount()`, and reading the "original" off the
+ * prototype at that point would capture the previous *stub* — seventeen
+ * mounts would nest seventeen stubs, each delegating to the last. Holding the
+ * real one here keeps the fallback one call deep and gives `afterEach`
+ * something true to restore, so the stub cannot leak into other test files
+ * sharing this worker.
+ */
+const REAL_RECT = Element.prototype.getBoundingClientRect;
+
 function installLayout(spec: LayoutSpec) {
   const contentWidth = spec.chips.length * PITCH;
   const chipLeft = (key: string) => spec.chips.indexOf(key) * PITCH;
-  const original = Element.prototype.getBoundingClientRect;
 
   Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
     const el = this as HTMLElement;
@@ -53,7 +64,7 @@ function installLayout(spec: LayoutSpec) {
       const key = owner?.getAttribute(DAY_SECTION_ATTR) ?? '';
       return { top: 0, height: spec.sections[key]?.headerHeight ?? 36, left: 0, width: 400 } as DOMRect;
     }
-    return original.call(this);
+    return REAL_RECT.call(this);
   };
 
   document.documentElement.style.setProperty('--day-rail-h', `${RAIL_H}px`);
@@ -72,6 +83,8 @@ function Harness({ chips, windowDayKeys, onApi }: {
 }) {
   const api = useRailHighlight(chips, windowDayKeys);
   onApi(api);
+  // Mirrors `DayRail`, which returns null until it has days to show.
+  if (chips.length === 0) return null;
   return (
     <div ref={api.stripRef} data-rail-strip>
       <div ref={api.contentRef} data-rail-content>
@@ -83,16 +96,29 @@ function Harness({ chips, windowDayKeys, onApi }: {
   );
 }
 
-function mount(spec: LayoutSpec, windowDayKeys?: string[]) {
+function mount(spec: LayoutSpec, windowDayKeys?: string[], startEmpty = false) {
   installLayout(spec);
   let api!: RailHighlight;
   const utils = render(
     <Harness
-      chips={spec.chips}
-      windowDayKeys={windowDayKeys ?? Object.keys(spec.sections)}
+      chips={startEmpty ? [] : spec.chips}
+      windowDayKeys={startEmpty ? [] : (windowDayKeys ?? Object.keys(spec.sections))}
       onApi={(a) => { api = a; }}
     />
   );
+  if (startEmpty) {
+    // The real load order: `DayRail` renders nothing until events arrive, so
+    // the strip and its content do not exist on the first mount.
+    act(() => {
+      utils.rerender(
+        <Harness
+          chips={spec.chips}
+          windowDayKeys={windowDayKeys ?? Object.keys(spec.sections)}
+          onApi={(a) => { api = a; }}
+        />
+      );
+    });
+  }
   const strip = utils.container.querySelector<HTMLElement>('[data-rail-strip]')!;
   // jsdom reports 0 for all three and ignores writes to scrollLeft.
   Object.defineProperty(strip, 'clientWidth', { value: spec.clientWidth ?? 240, configurable: true });
@@ -141,6 +167,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Element.prototype.getBoundingClientRect = REAL_RECT;
   document.body.innerHTML = '';
   document.documentElement.style.removeProperty('--day-rail-h');
   vi.unstubAllGlobals();
@@ -325,6 +352,27 @@ describe('useRailHighlight', () => {
       scroll();
       expect(scrollWrites.length).toBeGreaterThan(0);
     });
+  });
+
+  // The strip does not exist on the first mount — `DayRail` renders nothing
+  // until events have loaded. A listener effect scoped to mount would attach
+  // nothing and never re-run, leaving peek detection dead in production while
+  // every other test here, which mounts with chips already present, passed.
+  it('attaches its listeners to elements that appear after the first mount', () => {
+    const spec: LayoutSpec = {
+      chips: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'],
+      sections: { d1: { top: -900 }, d2: { top: -100 }, d3: { top: 700 } },
+    };
+    const { strip } = mount(spec, undefined, /* startEmpty */ true);
+    scroll();
+    // A peek is only detectable if the strip's own scroll listener attached.
+    act(() => {
+      strip.scrollLeft = 500;
+      strip.dispatchEvent(new Event('scroll'));
+    });
+    scrollWrites.length = 0;
+    scroll();
+    expect(scrollWrites).toEqual([]);
   });
 
   describe('catching up after a jump', () => {
