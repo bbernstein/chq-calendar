@@ -1,15 +1,14 @@
 import type { SeasonWeek } from '@/lib/types';
+import type { DateFilter as DateFilterValue } from '@/hooks/useFilterState';
 import { WeekSelector } from './WeekSelector';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 
 interface DateFilterProps {
-  dateFilter: string;
-  setDateFilter: (filter: 'all' | 'today' | 'next' | 'this-week') => void;
+  dateFilter: DateFilterValue;
+  setDateFilter: (filter: DateFilterValue) => void;
   selectedWeeks: number[];
   setSelectedWeeks: React.Dispatch<React.SetStateAction<number[]>>;
-  currentWeekNumber: number | null;
   seasonWeeks: SeasonWeek[];
-  isThisWeekButtonActive: boolean;
   weekDrag: {
     isDragging: boolean;
     handleWeekMouseDown: (weekNum: number, e: React.MouseEvent) => void;
@@ -33,6 +32,7 @@ function DateFilterButton({ label, title, isActive, onClick, ariaLabel }: {
       onClick={onClick}
       title={title}
       aria-label={ariaLabel}
+      aria-pressed={isActive}
       className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
         isActive
           ? 'bg-blue-600 text-white border-blue-600'
@@ -44,66 +44,50 @@ function DateFilterButton({ label, title, isActive, onClick, ariaLabel }: {
   );
 }
 
-function SelectedFilterInfo({ dateFilter, selectedWeeks, currentWeekNumber, seasonWeeks, isCurrentYear }: {
-  dateFilter: string; selectedWeeks: number[]; currentWeekNumber: number | null; seasonWeeks: SeasonWeek[]; isCurrentYear: boolean;
-}) {
-  // Suppress time-relative descriptions for non-current years (buttons are hidden, but
-  // dateFilter may briefly be 'next'/'today'/'this-week' before reconciliation clears it)
-  const effectiveDateFilter = !isCurrentYear && (dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week') ? 'all' : dateFilter;
-  if (selectedWeeks.length === 0 && effectiveDateFilter === 'all') return null;
-
-  const getDescription = () => {
-    if (effectiveDateFilter === 'today') {
-      const today = new Date();
-      const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
-      const fullDate = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      return `Today, ${dayName}, ${fullDate}`;
-    } else if (effectiveDateFilter === 'next') {
-      const now = new Date();
-      const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-      return `Next events after ${timeString}`;
-    } else if (effectiveDateFilter === 'this-week') {
-      if (currentWeekNumber === null) return 'This Week (Not in season)';
-      const currentWeek = seasonWeeks[currentWeekNumber - 1];
-      const startStr = currentWeek.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const endStr = currentWeek.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      return `This Week (${startStr} 12pm - ${endStr} 12pm)`;
-    } else if (selectedWeeks.length === 1) {
-      const weekNum = selectedWeeks[0];
-      const week = seasonWeeks[weekNum - 1];
-      const startStr = week.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const endStr = week.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      return `Week ${weekNum} (${startStr} - ${endStr})`;
-    } else if (selectedWeeks.length > 1) {
-      const startWeek = Math.min(...selectedWeeks);
-      const endWeek = Math.max(...selectedWeeks);
-      const startStr = seasonWeeks[startWeek - 1].start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const endStr = seasonWeeks[endWeek - 1].end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      return `Weeks ${startWeek}-${endWeek} (${startStr} - ${endStr})`;
-    }
-    return '';
-  };
-
-  return (
-    <div className="mt-1 text-xs sm:text-sm text-gray-600 dark:text-gray-300">
-      Selected: {getDescription()}
-    </div>
-  );
-}
-
+/**
+ * The scope row.
+ *
+ * Four scopes, converged with iOS: Now · Today · All Season · All Year. The
+ * first two are time-relative and are hidden on an archived year, where they
+ * mean nothing; the last two are absolute and are always offered, so an
+ * archived season is never left without a scope control.
+ *
+ * There is deliberately no "This Week" button. `isThisWeek` and
+ * `isInChautauquaWeek` compute identical bounds, so tapping the current week
+ * on the strip has always been the same operation — iOS reached this
+ * conclusion first and keeps `.thisWeek` out of `visibleScopes`. The
+ * `'this-week'` value stays in the `DateFilter` union so a value persisted in
+ * localStorage keeps working and renders as the current week highlighted on
+ * the strip.
+ */
 export function DateFilter({
   dateFilter, setDateFilter, selectedWeeks, setSelectedWeeks,
-  currentWeekNumber, seasonWeeks, isThisWeekButtonActive,
-  weekDrag, isWeekHighlighted,
+  seasonWeeks, weekDrag, isWeekHighlighted,
   showFavoritesOnly, onToggleFavoritesOnly, favoriteCount,
   isCurrentYear, weeklyThemes,
 }: DateFilterProps) {
-  const toggleDateFilter = (filter: 'next' | 'today' | 'this-week') => {
-    setDateFilter(dateFilter === filter ? 'all' : filter);
-    if (dateFilter !== filter) {
-      setSelectedWeeks([]);
-    }
+  // Selecting a scope clears the weeks; re-pressing the active scope returns
+  // to All Year. Both halves of the mutual exclusion iOS already enforces in
+  // `setWeekSelection` — the other half (selecting weeks forces the scope to
+  // 'all') lives in useScrollState.
+  //
+  // The weeks are cleared whenever the scope we are moving TO is 'all',
+  // not only when the scope changes. With weeks selected, `dateFilter` is
+  // already 'all' underneath (useScrollState forces it there), so "All Year"
+  // paints inactive and is the only control that means "undo that week" —
+  // but `dateFilter !== filter` is false on that press, and the reducer's
+  // same-value guard swallows the `setDateFilter` too. Without the second
+  // clause the button is inert: permanently `aria-pressed="false"`, telling a
+  // screen-reader user a toggle exists that can never toggle.
+  const selectScope = (filter: DateFilterValue) => {
+    const next = dateFilter === filter ? 'all' : filter;
+    setDateFilter(next);
+    if (dateFilter !== filter || next === 'all') setSelectedWeeks([]);
   };
+
+  // 'all' means "no date narrowing at all", so a week selection contradicts
+  // it even though `dateFilter` is still 'all' underneath.
+  const isAllYearActive = dateFilter === 'all' && selectedWeeks.length === 0;
 
   return (
     <div className="mb-2 sm:mb-4">
@@ -129,11 +113,12 @@ export function DateFilter({
       <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
         {isCurrentYear && (
           <>
-            <DateFilterButton label="Now" title="Show events starting after the current time through the end of this week" isActive={dateFilter === 'next'} onClick={() => toggleDateFilter('next')} />
-            <DateFilterButton label="Today" title="Show all events for today" isActive={dateFilter === 'today'} onClick={() => toggleDateFilter('today')} />
-            <DateFilterButton label="This Week" title="Show events for this week" isActive={isThisWeekButtonActive} onClick={() => toggleDateFilter('this-week')} />
+            <DateFilterButton label="Now" title="Events starting from now, through enough days to be worth reading" isActive={dateFilter === 'next'} onClick={() => selectScope('next')} />
+            <DateFilterButton label="Today" title="Everything on today" isActive={dateFilter === 'today'} onClick={() => selectScope('today')} />
           </>
         )}
+        <DateFilterButton label="All Season" title="The whole Chautauqua season" isActive={dateFilter === 'season'} onClick={() => selectScope('season')} />
+        <DateFilterButton label="All Year" title="Every event in this year, in or out of season" isActive={isAllYearActive} onClick={() => selectScope('all')} />
         <DateFilterButton
           label={`★ ${favoriteCount}`}
           title={favoriteCount > 0 ? 'Show favorited events only' : 'No favorites saved yet'}
@@ -159,14 +144,6 @@ export function DateFilter({
           />
         </div>
       </div>
-
-      <SelectedFilterInfo
-        dateFilter={dateFilter}
-        selectedWeeks={selectedWeeks}
-        currentWeekNumber={currentWeekNumber}
-        seasonWeeks={seasonWeeks}
-        isCurrentYear={isCurrentYear}
-      />
     </div>
   );
 }

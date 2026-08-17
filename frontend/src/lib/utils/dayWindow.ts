@@ -171,7 +171,7 @@ export function navigableBounds(
 }
 
 export interface WindowOptions {
-  dateFilter: 'all' | 'today' | 'next' | 'this-week';
+  dateFilter: 'all' | 'today' | 'next' | 'this-week' | 'season';
   seasonWeeks: SeasonWeek[];
   currentWeekNumber: number | null;
   now: Date;
@@ -228,6 +228,26 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
         endDay: lastDayCovered(endExclusive),
         start,
         endExclusive,
+      };
+    }
+
+    case 'season': {
+      // The whole season, absolute. Unlike 'next'/'today'/'this-week' this
+      // says nothing about *now*, so it is meaningful in an archived year and
+      // is never downgraded — which is exactly why the scope set needed it:
+      // 'all' was previously the only non-time-relative scope, and it means
+      // the whole year, not the season.
+      //
+      // Copied, not aliased: these `Date`s belong to the caller's
+      // `seasonWeeks` array, and returning them by reference would let a
+      // mutation of the returned window reach back into it.
+      const first = o.seasonWeeks[0];
+      const last = o.seasonWeeks[o.seasonWeeks.length - 1];
+      return {
+        startDay: dayKeyOf(first.start),
+        endDay: lastDayCovered(last.end),
+        start: new Date(first.start),
+        endExclusive: new Date(last.end),
       };
     }
 
@@ -340,5 +360,90 @@ export function formatDayLabel(key: DayKey): string {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
+  });
+}
+
+/** `"Sat, Jul 4 – Thu, Jul 9"` — how the date chip names the window it covers. */
+export function formatDayRange(from: DayKey, through: DayKey): string {
+  // An inverted range is not representable as a sentence; an empty string is
+  // what the caller can test for. This is defensive rather than expected:
+  // `viewWindow` only ever widens, so start <= end holds for every window it
+  // returns.
+  if (from > through) return '';
+  const fmt = (key: DayKey) =>
+    startOfDay(key).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (from === through) return fmt(from);
+  return `${fmt(from)} – ${fmt(through)}`;
+}
+
+/** One day on the rail. */
+export interface DayChip {
+  key: DayKey;
+  /** `'Sat'` */
+  weekday: string;
+  /** `'4'` — no leading zero; this is display text, not a key. */
+  dayOfMonth: string;
+  /** `'Jul'` on the first chip and whenever the month changes; else `null`. */
+  month: string | null;
+  /** Matching events on that day under the current non-date filters. */
+  count: number;
+  /**
+   * The full accessible name — labelled by target, never by direction.
+   *
+   * Only a day with matches is named as a destination ("Go to …"). A day
+   * with none is named as a fact ("Monday, July 6, no events"): there is
+   * nothing to go to, the chip is presented as unavailable, and a control
+   * that says "Go to" while going nowhere is the defect this wording exists
+   * to avoid.
+   */
+  label: string;
+}
+
+/**
+ * How many of `events` fall on each day, by day key.
+ *
+ * Takes the events themselves rather than the day groups the list renders,
+ * because the rail is a navigation surface and not a filter readout: it must
+ * be fed the set that navigation can reach (everything matching the
+ * *non-date* filters), not the date-windowed subset currently on screen.
+ * Counting the rendered groups instead would mark every day outside the
+ * current scope "no events" — which is the same wall in a new control, since
+ * a chip is judged empty on the strength of that count.
+ *
+ * Unparseable dates are dropped, matching `eventDayKeys` and every other
+ * call site in the app.
+ */
+export function eventCountsByDay(events: Event[]): Map<DayKey, number> {
+  const counts = new Map<DayKey, number>();
+  for (const event of events) {
+    const parsed = new Date(event.startDate);
+    if (Number.isNaN(parsed.getTime())) continue;
+    const key = dayKeyOf(parsed);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function dayChips(days: DayKey[], countsByDay: Map<DayKey, number>): DayChip[] {
+  let lastMonth: string | null = null;
+  return days.map((key) => {
+    const date = startOfDay(key);
+    const month = date.toLocaleDateString('en-US', { month: 'short' });
+    // The month rides the first chip and every change after it — without the
+    // first-chip rule a rail scrolled to mid-July would show no month at all,
+    // which is exactly the disorientation the rail exists to fix.
+    const showMonth = month !== lastMonth;
+    lastMonth = month;
+    const count = countsByDay.get(key) ?? 0;
+    const spoken = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const events = count === 0 ? 'no events' : count === 1 ? '1 event' : `${count} events`;
+    return {
+      key,
+      weekday: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      dayOfMonth: String(date.getDate()),
+      month: showMonth ? month : null,
+      count,
+      label: count === 0 ? `${spoken}, ${events}` : `Go to ${spoken}, ${events}`,
+    };
   });
 }

@@ -1,4 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+// The one union both halves of this hook's date handling must agree on. The
+// parameter used to be typed `'all' | 'today' | 'next' | 'this-week'` while
+// the body branched on `'season'`; it only compiled because the adjacent
+// `dateFilter` parameter was an untyped `string`, so the mismatch could not
+// surface at either the call site or the comparison.
+import type { DateFilter } from '@/hooks/useFilterState';
 
 interface HScrollState {
   canScrollLeft: boolean;
@@ -64,8 +70,8 @@ export function useVerticalScroll() {
 
 export function useWeekDragSelection(
   currentWeekNumber: number | null,
-  dateFilter: string,
-  setDateFilter: (filter: 'all' | 'today' | 'next' | 'this-week') => void,
+  dateFilter: DateFilter,
+  setDateFilter: (filter: DateFilter) => void,
   selectedWeeks: number[],
   setSelectedWeeks: React.Dispatch<React.SetStateAction<number[]>>,
 ) {
@@ -164,13 +170,19 @@ export function useWeekDragSelection(
       setSelectedWeeks([]);
       return;
     }
-    // Touch has no shift/cmd modifiers, so tapping a week while a relative
-    // date filter (Now / Today / This Week) is active should replace that
-    // filter with the single tapped week — matching desktop click behavior.
-    // Multi-week selection is only available once no relative filter is set.
-    const isRelativeFilterActive =
-      dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week';
-    if (isRelativeFilterActive) {
+    // Touch has no shift/cmd modifiers, so tapping a week while a scope is
+    // active should replace that scope with the single tapped week —
+    // matching desktop click behavior. 'season' is in this set for the same
+    // reason the others are: it is a scope, and scopes are mutually
+    // exclusive with the week strip. Named for that ("a scope is active"),
+    // not "relative" — 'season' is an absolute scope, and this branch has
+    // been careful everywhere else to keep that distinction real (it's why
+    // 'season' and 'all' stay visible on an archived year while 'now' and
+    // 'today' do not).
+    const isScopeActive =
+      dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week'
+      || dateFilter === 'season';
+    if (isScopeActive) {
       setDateFilter('all');
       setSelectedWeeks([weekNum]);
       return;

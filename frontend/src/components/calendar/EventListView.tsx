@@ -3,6 +3,7 @@ import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
 import type { ProgramLink } from '@/hooks/useProgramLinks';
 import { downloadICS } from '@/lib/utils/icsHelpers';
+import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
 import { EventCard } from './EventCard';
 import { WeekBadge } from './WeekBadge';
 
@@ -32,8 +33,34 @@ export function EventListView({
   return (
     <>
       {groups.map((dayGroup) => (
-        <div key={dayGroup.key}>
-          <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4">
+        // The day-key attribute is the anchor every scroll consumer resolves
+        // against — the prepend correction, the rail's scrollspy, and its
+        // scroll-to. It is on the section wrapper rather than the sticky
+        // header, because a sticky header's rect stops reporting the
+        // section's real position the moment it sticks.
+        <div
+          key={dayGroup.key}
+          {...{ [DAY_SECTION_ATTR]: dayGroup.key }}
+          // Nothing in the app calls `scrollIntoView` on a day section:
+          // `useDayAnchor.scrollToDay` computes its own delta against
+          // `stickyOffset()` for the reasons documented there. This property
+          // is read only by a native scroll — an anchor jump, a
+          // `focus()`-driven scroll, CSS scroll-snap — and is kept because it
+          // is load-bearing for any such future path, which would otherwise
+          // put the day header exactly at the viewport top, underneath the
+          // sticky rail. Expressed as the measured custom property rather
+          // than a pixel literal so it stays right at any browser text zoom,
+          // targeting the same `--day-rail-h` that `stickyOffset()` reads.
+          style={{ scrollMarginTop: 'var(--day-rail-h)' }}
+        >
+          <div
+            className="sticky bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4"
+            // `top-0` is dropped from the class list in favour of this: two
+            // sticky layers both pinned at 0 overlap, and the header is the
+            // one that has to give way. `z-10` keeps it below the rail's
+            // `z-20`.
+            style={{ top: 'var(--day-rail-h)' }}
+          >
             <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
               {dayGroup.baseLabel}
               {dayGroup.weekNumbers.length > 0 && (

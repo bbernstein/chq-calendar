@@ -13,6 +13,9 @@ import {
   eventDayKeys,
   navigationTargets,
   formatDayLabel,
+  formatDayRange,
+  dayChips,
+  eventCountsByDay,
 } from '@/lib/utils/dayWindow';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import type { Event } from '@/lib/types';
@@ -264,6 +267,47 @@ describe('baseWindow', () => {
     expect(second.start.getTime()).toBe(originalWeekStart);
     expect(second.endExclusive.getTime()).toBe(originalWeekEnd);
   });
+
+  describe("baseWindow: 'season'", () => {
+    it('spans the first week start to the last week end', () => {
+      const w = baseWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+      })!;
+      expect(w.start).toEqual(seasonWeeks[0].start);
+      expect(w.endExclusive).toEqual(seasonWeeks[seasonWeeks.length - 1].end);
+      expect(w.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
+      expect(w.endDay).toBe(lastDayCovered(seasonWeeks[seasonWeeks.length - 1].end));
+    });
+
+    // The season's own dates are the caller's array. Handing them back by
+    // reference would let one mutation of a returned window corrupt every
+    // later window derived from the same season — the same defensive-copy
+    // rule 'all' and 'this-week' already follow.
+    it('copies the season dates rather than aliasing seasonWeeks', () => {
+      const w = baseWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+      })!;
+      expect(w.start).not.toBe(seasonWeeks[0].start);
+      expect(w.endExclusive).not.toBe(seasonWeeks[seasonWeeks.length - 1].end);
+    });
+
+    // Season is absolute, not time-relative, so it is meaningful in an
+    // archived year and must not be null there.
+    it('is non-null regardless of whether the season is in progress', () => {
+      const offSeason = new Date(2026, 0, 15, 12, 0, 0);
+      expect(baseWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber: null, now: offSeason, bounds,
+      })).not.toBeNull();
+    });
+
+    it('is widened by navigation exactly as every other scope is', () => {
+      const w = viewWindow({
+        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
+        expandedStartDay: null, expandedEndDay: bounds.endDay,
+      })!;
+      expect(w.endDay).toBe(bounds.endDay);
+    });
+  });
 });
 
 describe('viewWindow expansion', () => {
@@ -509,5 +553,99 @@ describe('formatDayLabel', () => {
   it('names the weekday, abbreviated month and day', () => {
     expect(formatDayLabel('2026-07-05')).toBe('Sunday, Jul 5');
     expect(formatDayLabel('2026-08-15')).toBe('Saturday, Aug 15');
+  });
+});
+
+describe('formatDayRange', () => {
+  it('names a single day once', () => {
+    expect(formatDayRange('2026-07-04', '2026-07-04')).toBe('Sat, Jul 4');
+  });
+
+  it('names the month on both endpoints even within a single month', () => {
+    expect(formatDayRange('2026-07-04', '2026-07-09')).toBe('Sat, Jul 4 – Thu, Jul 9');
+  });
+
+  it('keeps both months across a month boundary', () => {
+    expect(formatDayRange('2026-07-28', '2026-08-02')).toBe('Tue, Jul 28 – Sun, Aug 2');
+  });
+
+  it('returns an empty string for an inverted range rather than a nonsense one', () => {
+    expect(formatDayRange('2026-07-09', '2026-07-04')).toBe('');
+  });
+});
+
+describe('dayChips', () => {
+  const counts = new Map([['2026-07-04', 12], ['2026-08-01', 3]]);
+
+  it('shows the month on the first chip', () => {
+    expect(dayChips(['2026-07-04'], counts)[0].month).toBe('Jul');
+  });
+
+  it('omits the month while it has not changed', () => {
+    const chips = dayChips(['2026-07-04', '2026-07-05'], counts);
+    expect(chips[1].month).toBeNull();
+  });
+
+  it('shows the month again when it changes', () => {
+    const chips = dayChips(['2026-07-31', '2026-08-01'], counts);
+    expect(chips[1].month).toBe('Aug');
+  });
+
+  it('carries the weekday abbreviation and day of month', () => {
+    const [chip] = dayChips(['2026-07-04'], counts);
+    expect(chip.weekday).toBe('Sat');
+    expect(chip.dayOfMonth).toBe('4');
+  });
+
+  it('carries the count of matching events', () => {
+    expect(dayChips(['2026-07-04'], counts)[0].count).toBe(12);
+  });
+
+  it('reports zero for a day with no matching events', () => {
+    expect(dayChips(['2026-07-06'], counts)[0].count).toBe(0);
+  });
+
+  // Controls are labelled by target, never by direction — "next" tells a
+  // screen-reader user nothing about where they are going.
+  it('labels a chip by its target and its count', () => {
+    expect(dayChips(['2026-07-04'], counts)[0].label).toBe('Go to Saturday, July 4, 12 events');
+  });
+
+  // Named as a fact, not as a destination: an empty chip is presented as
+  // unavailable, and "Go to" on a control that goes nowhere is precisely the
+  // announcement/behaviour mismatch that wording is there to avoid.
+  it('names a day with no matches without offering to go there', () => {
+    expect(dayChips(['2026-07-06'], counts)[0].label).toBe('Monday, July 6, no events');
+  });
+
+  it('uses the singular for exactly one event', () => {
+    expect(dayChips(['2026-08-01'], new Map([['2026-08-01', 1]]))[0].label)
+      .toBe('Go to Saturday, August 1, 1 event');
+  });
+});
+
+describe('eventCountsByDay', () => {
+  it('counts the events falling on each day', () => {
+    const counts = eventCountsByDay([
+      makeEvent('a', new Date(2026, 6, 4, 9, 0)),
+      makeEvent('b', new Date(2026, 6, 4, 20, 0)),
+      makeEvent('c', new Date(2026, 6, 5, 10, 0)),
+    ]);
+    expect(counts.get('2026-07-04')).toBe(2);
+    expect(counts.get('2026-07-05')).toBe(1);
+  });
+
+  it('omits a day with nothing on it rather than recording a zero', () => {
+    const counts = eventCountsByDay([makeEvent('a', new Date(2026, 6, 4, 9, 0))]);
+    expect(counts.has('2026-07-05')).toBe(false);
+  });
+
+  it('drops events whose startDate does not parse', () => {
+    const counts = eventCountsByDay([
+      makeEvent('a', new Date(2026, 6, 4, 9, 0)),
+      { id: 'bad', title: 'bad', startDate: 'not a date' } as Event,
+    ]);
+    expect(counts.size).toBe(1);
+    expect(counts.get('2026-07-04')).toBe(1);
   });
 });

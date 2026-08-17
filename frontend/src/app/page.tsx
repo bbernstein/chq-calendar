@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { navigableBounds, viewWindow, addDays, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
+import { navigableBounds, viewWindow, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
 import { renderResetKey } from '@/lib/utils/renderWindow';
-import { isNavV2Enabled } from '@/lib/featureFlags';
+import { daySectionElement } from '@/lib/utils/daySections';
 import { useFilterState } from '@/hooks/useFilterState';
+import { useDayAnchor } from '@/hooks/useDayAnchor';
+import { useDayRailHeight } from '@/hooks/useDayRailHeight';
+import { useScrolledPastFilters } from '@/hooks/useScrolledPastFilters';
+import { useFilterPanel } from '@/hooks/useFilterPanel';
+import { DayRail } from '@/components/calendar/DayRail';
+import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
@@ -136,30 +142,34 @@ function HomeContent() {
   );
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
 
-  const navV2 = isNavV2Enabled();
-
-  // Every day that has an event under the *non-date* filters — the set
-  // navigation steps through. Derived by re-running the same filter with the
-  // date stage wide open, so search, category, venue, week and favourites
-  // all constrain where stepping can go, and a step always lands on a day
-  // that will actually render something.
-  const navEventDays = useMemo(() => {
-    if (!navV2) return [];
+  // Everything the *non-date* filters admit, anywhere in the navigable
+  // bounds — the same filter re-run with the date stage wide open. This is
+  // what navigation is allowed to reach: search, category, venue, week and
+  // favourites all constrain where stepping can go, but the current scope
+  // does not, because escaping the scope's own edge is the point.
+  const navMatchingEvents = useMemo(() => {
     const unbounded = viewWindow({
       dateFilter: 'all', seasonWeeks, currentWeekNumber, now: new Date(),
       bounds: navBounds, expandedStartDay: null, expandedEndDay: null,
     });
-    return eventDayKeys(filterEvents(events, { ...nonDateFilterOpts, viewWindow: unbounded }));
-  }, [navV2, events, nonDateFilterOpts, seasonWeeks, currentWeekNumber, navBounds]);
+    return filterEvents(events, { ...nonDateFilterOpts, viewWindow: unbounded });
+  }, [events, nonDateFilterOpts, seasonWeeks, currentWeekNumber, navBounds]);
+
+  // Every day that has one — the set navigation steps through, so a step
+  // always lands on a day that will actually render something.
+  const navEventDays = useMemo(() => eventDayKeys(navMatchingEvents), [navMatchingEvents]);
+
+  // How many, per day. Fed to the rail rather than counts taken from the
+  // rendered day groups: the rail spans the navigable bounds, so counting
+  // only what the current scope rendered would mark every day outside the
+  // scope "no events" and make the rail a readout of the filter it exists to
+  // navigate past.
+  const navDayCounts = useMemo(() => eventCountsByDay(navMatchingEvents), [navMatchingEvents]);
 
   const { earlierDay, laterDay } = useMemo(
     () => navigationTargets(navEventDays, dateWindow),
     [navEventDays, dateWindow]
   );
-
-  const showEarlier = useCallback(() => {
-    if (earlierDay) filters.expandWindowStart(earlierDay);
-  }, [earlierDay, filters.expandWindowStart]);
 
   const expandEnd = useCallback(() => {
     if (laterDay) filters.expandWindowEnd(laterDay);
@@ -183,18 +193,134 @@ function HomeContent() {
   ]);
 
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
-  const hasMoreDays = useMemo(() => {
-    if (filters.dateFilter !== 'next' || !dateWindow || !events.length) return false;
-    return events.some(e => new Date(e.startDate) >= dateWindow.endExclusive);
-  }, [filters.dateFilter, dateWindow, events]);
 
-  // "Show next day" widens the window by one calendar day from wherever it
-  // currently ends — which is the same operation whether the end came from
-  // the scope or from a previous widening.
-  const showNextDay = useCallback(() => {
-    if (!dateWindow) return;
-    filters.expandWindowEnd(addDays(dateWindow.endDay, 1));
-  }, [dateWindow, filters.expandWindowEnd]);
+  // The rail spans the navigable bounds, independent of the current scope:
+  // it is a navigation surface, not a filter readout, so in Today scope it
+  // still shows the week around you.
+  const railChips = useMemo(
+    () => dayChips(dayKeys(navBounds.startDay, navBounds.endDay), navDayCounts),
+    [navBounds, navDayCounts]
+  );
+
+  // Every day the *view* window produced, not the render window's mounted
+  // subset — `useDayAnchor` walks this list and skips any key with no DOM
+  // section yet, so naming it "rendered" here would claim something this
+  // value cannot promise. (The mixup this exact name invited is why the
+  // pending-scroll effect below now checks the DOM directly instead of
+  // trusting `groupedEvents` membership as a proxy for "mounted".)
+  const windowDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
+  const { anchorDay, scrollToDay, cancelHold } = useDayAnchor(windowDayKeys);
+  const railRef = useDayRailHeight();
+
+  // "Reach the filters after you've scrolled" — a Filters toggle on the
+  // sticky rail reveals the existing filter card in place, over the list,
+  // instead of the reader scrolling back to the top of a list that can grow
+  // past 9,000px. `scrolled` is deliberately its own mechanism
+  // (IntersectionObserver on a sentinel), not a reuse of `useDayAnchor`'s
+  // scroll listener — see `useScrolledPastFilters` for why coupling them
+  // would be a mistake. Note for anyone extending this: the toggle button is
+  // a `mousedown` like any other DOM element, and `useDayAnchor`'s hold
+  // cancels on `mousedown` — that's fine and expected (the same as clicking
+  // any other rail control), not a bug to chase.
+  const { scrolled: filtersScrolledPast, sentinelRef: filtersSentinelRef } = useScrolledPastFilters();
+  const { open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef, toggleRef: filtersToggleRef } = useFilterPanel();
+  // The panel only needs to cap its own height and scroll internally while
+  // it is acting as an overlay over the list — at the top of the page it is
+  // ordinary in-flow content and the page itself scrolls past it, same as
+  // before this feature existed.
+  const filtersPanelOverlaying = filtersScrolledPast && filtersOpen;
+
+  // Declared here rather than beside `expandEnd` above, where it would read
+  // more naturally: it needs `cancelHold`, and a `const` referenced before
+  // its declaration is a TDZ ReferenceError.
+  const showEarlier = useCallback(() => {
+    if (!earlierDay) return;
+    // Explicit reader intent supersedes a pending rail hold, in BOTH
+    // directions. `EventList`'s `revealDay` effect already drops its prepend
+    // hold when a rail navigation starts; this is the mirror that was
+    // missing. Without it the prepend's height change fires
+    // `useDayAnchor`'s ResizeObserver, whose reassert yanks the old rail
+    // target back and cancels the prepend correction — and a mouse click on
+    // "Show earlier" fires none of the wheel/touch/key gestures that would
+    // otherwise have ended the hold.
+    cancelHold();
+    filters.expandWindowStart(earlierDay);
+  }, [earlierDay, cancelHold, filters.expandWindowStart]);
+
+  // Only when today is somewhere navigation can actually reach. Off-season
+  // — most of the year — today sits outside `navBounds`, `railTarget`
+  // refuses it, and an unclamped key would render a visible, enabled `⟳ Now`
+  // that does nothing at all. Null removes the button instead, which is the
+  // treatment the rail already gives an archived year.
+  const todayKey = reachableTodayKey(isCurrentYear ? dayKeyOf(new Date()) : null, navBounds);
+
+  // Expanding, then scrolling, is deliberately three steps, and each waits on
+  // the one before: the reducer widens the *view* window (it never knows about
+  // scroll position), `revealDay` makes the *render* window mount that far,
+  // and only then can we scroll to a node that exists. `pendingScroll` is
+  // state rather than a ref precisely because it has to drive `revealDay` as
+  // a prop — a ref would not re-render the list.
+  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+
+  const goToDay = useCallback((target: string) => {
+    const plan = railTarget({ target, window: dateWindow, bounds: navBounds });
+    if (!plan) return;
+    if (plan.expandStart) filters.expandWindowStart(plan.expandStart);
+    if (plan.expandEnd) filters.expandWindowEnd(plan.expandEnd);
+    // Set it even when no expansion was needed: the day is inside the view
+    // window but may still be past the render window's current reach, and
+    // `revealDay` is what closes that gap. The effect below scrolls and
+    // clears on the very next commit if the node is already there.
+    setPendingScroll(plan.scrollTo);
+  }, [dateWindow, navBounds, filters.expandWindowStart, filters.expandWindowEnd]);
+
+  useEffect(() => {
+    if (!pendingScroll) return;
+    // Checking the DOM node directly, not `groupedEvents` membership: the
+    // render window is what EventList's `revealDay` layout effect grows, and
+    // "the day is in the view window" does not mean "the day has a mounted
+    // section" — those are the two windows this whole feature exists to keep
+    // separate. `revealDay`'s effect is a layout effect specifically so that
+    // by the time THIS passive effect runs, any growth it triggered has
+    // already committed — see the comment on that effect for why the
+    // ordering guarantee holds.
+    if (daySectionElement(pendingScroll)) {
+      setPendingScroll(null);
+      scrollToDay(pendingScroll);
+      return;
+    }
+    // No section for it yet, and only one of the reasons is worth waiting
+    // for — `shouldAbandonScroll` owns that call. Note that a `null`
+    // `dateWindow` must abandon rather than wait: writing this as
+    // `dateWindow && covered` made the whole expression `null` in that case,
+    // so nothing cleared, and the pending target survived to hijack a later
+    // commit — exactly what this branch exists to prevent.
+    if (shouldAbandonScroll(pendingScroll, dateWindow)) setPendingScroll(null);
+  }, [pendingScroll, dateWindow, scrollToDay]);
+
+  // The chevrons move to the nearest day that has something on it, not to
+  // the adjacent calendar day. A calendar step onto an empty day mounts no
+  // section, so the pending scroll gives up and `anchorDay` — derived from
+  // scroll position — never moves; pressing again recomputes the same dead
+  // target, with the chevron still enabled. Reachability is also what
+  // enables/disables them, so the control and its label agree.
+  const { prevDay, nextDay } = useMemo(
+    () => stepTargets(anchorDay, navEventDays),
+    [anchorDay, navEventDays]
+  );
+
+  const stepDay = useCallback((delta: -1 | 1) => {
+    const target = delta === -1 ? prevDay : nextDay;
+    if (target) goToDay(target);
+  }, [prevDay, nextDay, goToDay]);
+
+  // ⟳ Now is navigation, never a filter change: it widens the window to
+  // contain today if it has to, and touches no scope, week, category or
+  // search.
+  const goToToday = useCallback(() => {
+    if (todayKey) goToDay(todayKey);
+  }, [todayKey, goToDay]);
+
   const activeChips = useMemo(() => buildActiveChips({
     searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
     dateFilter: filters.dateFilter, setDateFilter: filters.setDateFilter,
@@ -202,6 +328,9 @@ function HomeContent() {
     selectedLocations: filters.selectedLocations, toggleLocation: filters.toggleLocation,
     selectedTags: filters.selectedTags, toggleTag: filters.toggleTag,
     showFavoritesOnly: filters.showFavoritesOnly, toggleFavoritesOnly: filters.toggleFavoritesOnly,
+    viewWindow: dateWindow,
+    windowExpanded: filters.windowStartDay !== null || filters.windowEndDay !== null,
+    resetWindow: filters.resetWindow,
   }), [
     filters.searchTerm, filters.setSearchTerm,
     filters.dateFilter, filters.setDateFilter,
@@ -209,8 +338,8 @@ function HomeContent() {
     filters.selectedLocations, filters.toggleLocation,
     filters.selectedTags, filters.toggleTag,
     filters.showFavoritesOnly, filters.toggleFavoritesOnly,
+    dateWindow, filters.windowStartDay, filters.windowEndDay, filters.resetWindow,
   ]);
-  const isThisWeekActive = filters.dateFilter === 'this-week' || (currentWeekNumber !== null && filters.selectedWeeks.length === 1 && filters.selectedWeeks[0] === currentWeekNumber);
   const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => isSelected || (filters.dateFilter === 'this-week' && currentWeekNumber === weekNumber);
 
   return (
@@ -224,67 +353,124 @@ function HomeContent() {
       <IosAppBanner />
       {selectedYear === defaultYear && <CountdownBanner seasonWeeks={seasonWeeks} />}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6">
-          <div className="p-2 sm:p-4">
-            <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
-            <DateFilter
-              dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
-              selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
-              currentWeekNumber={currentWeekNumber} seasonWeeks={seasonWeeks}
-              isThisWeekButtonActive={isThisWeekActive} weekDrag={weekDrag}
-              isWeekHighlighted={isWeekHighlighted}
-              showFavoritesOnly={filters.showFavoritesOnly}
-              onToggleFavoritesOnly={filters.toggleFavoritesOnly}
-              favoriteCount={favorites.favoriteCount}
-              isCurrentYear={isCurrentYear}
-              weeklyThemes={weeklyThemes}
-            />
-            <div className="space-y-3">
-              <LocationFilter
-                availableLocations={filters.availableLocations} selectedCount={filters.selectedLocations.length}
-                recentLocations={filters.recentLocations} toggleLocation={filters.toggleLocation}
-                isLocationSelected={filters.isLocationSelected}
-                pillScroll={locationScroll} listScroll={locationListScroll}
+        {/*
+          Zero-height, marking where the sticky container below naturally
+          begins. Once it scrolls above the viewport, the container behind
+          it has started sticking and the filter card is no longer where the
+          reader would find it without help — that's the "scrolled" signal
+          the toggle appears on. `aria-hidden`: it carries no content, and
+          screen readers walking `<main>` by node would otherwise announce a
+          meaningless empty element.
+        */}
+        <div ref={filtersSentinelRef} aria-hidden="true" />
+        {/*
+          One sticky container wrapping the filter card and the rail, in
+          that order — the reveal-in-place from
+          docs/superpowers/specs/2026-08-16-web-filter-reveal-design.md.
+          `z-30`, above the rail's own `z-20` and the day headers' `z-10`
+          (EventListView), so the revealed panel paints over both rather
+          than being hidden behind either.
+        */}
+        <div className="sticky top-0 z-30">
+          <div
+            id={filtersPanelId}
+            ref={filtersPanelRef}
+            className={`bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6 ${
+              // Hidden by visibility alone — this is still the one SearchBar
+              // and one of each filter control already on the page, not a
+              // second copy revealed instead of it. At the top of the page
+              // (`!filtersScrolledPast`) it always renders, regardless of a
+              // stale `filtersOpen` left over from scrolling back up without
+              // explicitly closing — see the design's "closing is explicit"
+              // requirement; scrolling back to the top is not a close.
+              filtersScrolledPast && !filtersOpen ? 'hidden' : ''
+            } ${
+              // Capped and internally scrollable only while acting as an
+              // overlay over the list. On a 390×844 phone this block —
+              // search, four scopes, a nine-week strip, venues, categories,
+              // active chips — can exceed the viewport; uncapped, its bottom
+              // controls would be unreachable, reproducing the bug this
+              // feature exists to fix one level down.
+              filtersPanelOverlaying ? 'max-h-[70vh] overflow-y-auto' : ''
+            }`}
+          >
+            <div className="p-2 sm:p-4">
+              <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
+              <DateFilter
+                dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
+                selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
+                seasonWeeks={seasonWeeks}
+                weekDrag={weekDrag}
+                isWeekHighlighted={isWeekHighlighted}
+                showFavoritesOnly={filters.showFavoritesOnly}
+                onToggleFavoritesOnly={filters.toggleFavoritesOnly}
+                favoriteCount={favorites.favoriteCount}
+                isCurrentYear={isCurrentYear}
+                weeklyThemes={weeklyThemes}
               />
-              <CategoryFilter
-                availableCategories={filters.availableCategories} selectedCount={filters.selectedCategoriesCount}
-                recentCategories={filters.recentCategories} toggleTag={filters.toggleTag}
-                isTagSelected={filters.isTagSelected}
-                pillScroll={categoryScroll} listScroll={categoryListScroll}
+              <div className="space-y-3">
+                <LocationFilter
+                  availableLocations={filters.availableLocations} selectedCount={filters.selectedLocations.length}
+                  recentLocations={filters.recentLocations} toggleLocation={filters.toggleLocation}
+                  isLocationSelected={filters.isLocationSelected}
+                  pillScroll={locationScroll} listScroll={locationListScroll}
+                />
+                <CategoryFilter
+                  availableCategories={filters.availableCategories} selectedCount={filters.selectedCategoriesCount}
+                  recentCategories={filters.recentCategories} toggleTag={filters.toggleTag}
+                  isTagSelected={filters.isTagSelected}
+                  pillScroll={categoryScroll} listScroll={categoryListScroll}
+                />
+              </div>
+              <ActiveFilters
+                filteredCount={filteredEvents.length}
+                totalCount={events.length}
+                hasFilters={filters.hasFilters}
+                hasDateFilters={filters.hasDateFilters}
+                hasNonDateFilters={filters.hasNonDateFilters}
+                chips={activeChips}
+                onClear={filters.clearFilters}
+                onClearNonDateFilters={filters.clearNonDateFilters}
               />
             </div>
-            <ActiveFilters
-              filteredCount={filteredEvents.length}
-              totalCount={events.length}
-              hasFilters={filters.hasFilters}
-              hasDateFilters={filters.hasDateFilters}
-              hasNonDateFilters={filters.hasNonDateFilters}
-              chips={activeChips}
-              onClear={filters.clearFilters}
-              onClearNonDateFilters={filters.clearNonDateFilters}
-            />
           </div>
+          <DayRail
+            chips={railChips}
+            anchorDay={anchorDay}
+            prevDay={prevDay}
+            nextDay={nextDay}
+            // Off-season 'this-week' restored from localStorage resolves to no
+            // window at all, and `railTarget` refuses every tap in that state.
+            // The rail hides rather than offering ~64 fully-labelled chips that
+            // cannot move the list.
+            scopeHasWindow={dateWindow !== null}
+            todayKey={todayKey}
+            onSelectDay={goToDay}
+            onStepDay={stepDay}
+            onGoToToday={goToToday}
+            rootRef={railRef}
+            filtersToggle={{
+              open: filtersOpen,
+              onToggle: toggleFiltersPanel,
+              panelId: filtersPanelId,
+              visible: filtersScrolledPast,
+              toggleRef: filtersToggleRef,
+            }}
+          />
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
-            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : navV2 ? (
+            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter}
                 weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks}
-                navV2
                 resetKey={listResetKey}
                 earlierDay={earlierDay}
                 onShowEarlier={showEarlier}
                 canExpandEnd={!!laterDay}
-                onExpandEnd={expandEnd} />
-            ) : (
-              <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
-                onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
-                favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                dateFilter={filters.dateFilter} onShowNextDay={showNextDay}
-                hasMoreDays={hasMoreDays} weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks} />
+                onExpandEnd={expandEnd}
+                revealDay={pendingScroll} />
             )}
           </div>
         </div>

@@ -1,51 +1,70 @@
 # Cross-platform date navigation — design
 
-**Status:** Phases 0, 1a, and 1b are merged and live on `main`. Phase 2 (web
-bidirectional render window + edge expansion) is implemented on
-`feat/date-nav-phase-2-web-render-window`, shipping behind `VITE_NAV_V2`,
-which is unset (off) in CI and in the deploy workflow — production behaviour
-is unchanged.
+**Status:** Phases 0, 1a, 1b, 2 and **3a (web)** are complete. Phase 3a is on
+`feat/date-nav-phase-3a-web-day-rail`: it deletes `VITE_NAV_V2` and the legacy
+list container, converges the scope set on Now · Today · All Season · All Year,
+and ships the sticky day rail. **`VITE_NAV_V2` was deleted rather than set** —
+a `VITE_*` flag is build-time, so flipping it still requires a redeploy and buys
+no rollback that `git revert` does not, while keeping it would have forced the
+rail to be gated too and two list containers to keep working. That commit is the
+real release of phase 2, which had been dark in production.
 
-The flag-on browser pass passes all 12 checks, with one recorded residual: a
-~55–59px scroll drift per "Show earlier" click, deferred to phase 3 (root
-cause and durable fix below). An earlier pass caught the render-window
-anchor staying `null` until the first downward growth step, which let a
-"Show earlier" click before any scrolling silently unmount already-rendered
-later days — fixed by latching the initial fill into the anchor as soon as
-there are groups to fill from (and re-latching whenever the anchor day
-drops out of `groupedEvents` without a filter change), with jsdom regression
-tests and a re-verified browser pass backing the fix (see the plan's Task 7
-fix rounds for both).
+Remaining: **3b (iOS rail)**, folded into phase 4.
 
-**Root cause of the ~55–59px residual, corrected** (the theory recorded in
-the first Task 7 fix round — a re-render of the "Show earlier" button's own
-label — is wrong and should not be carried into phase 3: a label changing
-from "(Saturday, Aug 15)" to "(Friday, Aug 14)" changes no box height, so
-the button's own re-render cannot be it). The scroll correction in
-`EventListWindowed.tsx` compares `document.documentElement.scrollHeight`
-before and after the prepend and scrolls by the difference. That comparison
-implicitly assumes two things that are not guaranteed: that every height
-change between the two measurements happened *above* the reader, and that
-all of it had *already landed* by the time the layout effect runs and takes
-its "after" measurement. Neither holds in general — the instrumented
-evidence is `scrollTo(0, 1053)` computed against a `scrollHeight` of 7618,
-while the document measured ~7677 about 300ms later, i.e. ~59px of height
-change the correction never saw.
+### The ~55–59px residual is fixed, and the fix below was not sufficient on its own
 
-**Durable fix for phase 3 (recorded, not implemented in phase 2):** stop
-measuring total document height and instead track a stable reference node
-directly — capture `getBoundingClientRect().top` of a specific on-screen
-element before the click, and in the layout effect call
-`window.scrollBy(0, newTop - oldTop)` on that same node. This is correct
-regardless of what else changes height (above, below, or asynchronously
-after the measurement), and it stays correct when phase 3 adds a sticky day
-rail above the day headers — a change that makes the total-height approach
-worse, not better, since the rail is exactly the kind of height change that
-isn't simply "everything above the reader."
+The prepend correction now tracks a day section's own
+`getBoundingClientRect().top` instead of total document height, as this spec
+recommended. **That alone did not fix the drift.** Measured with the
+reference-node rewrite in place and nothing else: **−48px** scrolled, **+103.5px**
+unscrolled.
 
-Flipping the flag on is phase 3's first act, alongside the sticky-stacking
-rail this phase deliberately deferred and the scroll-correction rewrite
-above. Supersedes the design sections of issues
+**This spec's claim that the reference-node approach is "correct regardless of
+what else changes height (above, below, or asynchronously after the
+measurement)" is an overstatement.** One measurement taken in a layout effect
+cannot see height that has not arrived yet. Instrumenting `window.scrollBy`
+showed the correction landing the reference day back on its exact original
+`top` — and then, **one frame later**, content above the reader growing ~104px
+and staying there. What was needed was a settle window: a `ResizeObserver` on
+the list that re-asserts the reference day's position until the reader takes
+over (cancelled by `wheel`/`touchstart`/`keydown`, deliberately never by
+`scroll`, which the correction's own `scrollBy` fires). With both, drift is
+**0.0px** scrolled and **−0.5px** unscrolled.
+
+**The recorded suspect was also wrong.** This spec blamed a re-render of the
+button's own label; a later theory blamed `EventCard`'s image `onError` hiding
+a broken hotlinked image. Neither survives: zero images were hidden, a
+`MutationObserver` saw no DOM additions after the prepend's own cards, and only
+already-loaded system fonts are in use. The cause is a pure re-layout one frame
+after commit, still unidentified — which is precisely why the fix is a general
+settle window rather than something targeted at a mechanism we cannot name.
+
+### What the browser pass caught that eleven task reviews did not
+
+Every phase-3a task shipped with green unit tests and a clean independent
+review, and the rail's headline behaviour still did not work:
+
+- **The rail was not sticky at all.** It was wrapped in a `<div>` that existed
+  only to hold a measurement ref, and `position: sticky` is bounded by its
+  containing block — a wrapper exactly the rail's height gives it zero travel.
+  Measured while scrolling: `railTop` 423 → 223 → −77 → −777 → −2577. This also
+  silently made the sticky day-header offset pointless, since the headers were
+  clearing a rail that was not there.
+- **The rail scrolled the page.** `scrollIntoView({ block: 'nearest' })`
+  minimises but does not forbid vertical movement; with the rail off-screen it
+  dragged the page back 167px per call.
+- **A distant chip tap landed ~1058px short**, target off-screen: the smooth
+  animation ran ~2s while the document grew 1020px beneath it, and a smooth
+  scroll does not re-target mid-flight.
+
+All three are integration defects invisible to any single task. **The browser
+pass is not a formality at the end of the plan — it is the only thing that tests
+the seams.** After fixes, 34/34 automated browser checks pass: the tapped day
+lands at exactly the sticky offset (64.0px against a 64px rail), and the stuck
+header sits flush under the rail at 320px width and at 200% text zoom — which is
+what measuring `--day-rail-h` rather than hardcoding it buys.
+
+Supersedes the design sections of issues
 [#225](https://github.com/bbernstein/chq-calendar/issues/225) (web) and
 [#226](https://github.com/bbernstein/chq-calendar/issues/226) (iOS), which
 remain the authoritative record of the *problem* and of the code archaeology

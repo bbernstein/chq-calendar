@@ -141,6 +141,19 @@ describe('useWeekDragSelection — handleWeekTap (touchscreen)', () => {
     expect(result.current.dateFilter).toBe('all');
     expect(result.current.selectedWeeks).toEqual([7]);
   });
+
+  it('replaces an active "All Season" filter with the tapped week', () => {
+    const { result } = renderHook(() =>
+      useHarness({ dateFilter: 'season', selectedWeeks: [], currentWeekNumber: 3 }),
+    );
+
+    act(() => {
+      result.current.drag.handleWeekTap(6);
+    });
+
+    expect(result.current.dateFilter).toBe('all');
+    expect(result.current.selectedWeeks).toEqual([6]);
+  });
 });
 
 function makeMouseEvent(overrides: Partial<{ shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) {
