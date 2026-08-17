@@ -559,6 +559,10 @@ function HomeContent() {
           <DayRail
             chips={railChips}
             anchorDay={anchorDay}
+            // The same array `useDayAnchor` walks, so the rail's continuous
+            // highlight and this hook's discrete anchor resolve identical
+            // input through the same `resolveAnchor`.
+            windowDayKeys={windowDayKeys}
             prevDay={prevDay}
             nextDay={nextDay}
             // Off-season 'this-week' restored from localStorage resolves to no

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { daySectionElement, dayRailHeightPx } from '@/lib/utils/daySections';
+import { daySectionElement, daySectionTop, dayRailHeightPx } from '@/lib/utils/daySections';
+import { resolveAnchor } from '@/lib/utils/railPosition';
 
 /**
  * How far below the viewport top a day header counts as "the one I'm reading".
@@ -45,22 +46,17 @@ export function useDayAnchor(windowDayKeys: string[]): {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const limit = stickyOffset() + 1;
-      // Walk forward and keep the last one that has passed the chrome. The
-      // first day in the window is the fallback: before any scroll, nothing
-      // has passed, and the reader is plainly looking at the top of the list.
+      // The walk itself lives in `railPosition.resolveAnchor`, shared with
+      // the rail's scroll-linked highlight. Sharing it is load-bearing
+      // rather than tidy: the highlight's pill and this hook's `aria-current`
+      // must never name different days, and one walk cannot disagree with
+      // itself the way two copies could drift.
+      //
       // `windowDayKeys` is the view window's full day list, not the render
-      // window's mounted subset — a day this loop reaches may have no
-      // section yet, which is exactly what `daySectionElement` returning
-      // null below is for.
-      let next = windowDayKeys[0];
-      for (const key of windowDayKeys) {
-        const el = daySectionElement(key);
-        if (!el) continue;
-        if (el.getBoundingClientRect().top <= limit) next = key;
-        else break;
-      }
-      setAnchorDay(next);
+      // window's mounted subset — a day the walk reaches may have no section
+      // yet, which is what `daySectionTop` returning null is for.
+      const resolved = resolveAnchor(windowDayKeys, stickyOffset() + 1, daySectionTop);
+      if (resolved) setAnchorDay(resolved.key);
     };
 
     const onScroll = () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/preact';
+import { render, screen, fireEvent, act } from '@testing-library/preact';
 import { DayRail } from '@/components/calendar/DayRail';
 import { dayChips } from '@/lib/utils/dayWindow';
 
@@ -15,11 +15,25 @@ function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   const props = {
     chips, anchorDay: '2026-07-05', prevDay: '2026-07-04', nextDay: null as string | null,
     scopeHasWindow: true, todayKey: '2026-07-05',
+    windowDayKeys: ['2026-07-04', '2026-07-05', '2026-07-06'],
     onSelectDay: vi.fn(), onStepDay: vi.fn(), onGoToToday: vi.fn(),
     ...overrides,
   };
   render(<DayRail {...props} />);
   return props;
+}
+
+/** As `renderRail`, but returning the container for the layer queries below. */
+function renderRailIn(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
+  return render(
+    <DayRail
+      chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null}
+      scopeHasWindow todayKey="2026-07-05"
+      windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
+      onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
+      {...overrides}
+    />
+  );
 }
 
 // The day chip that carries `key`. Queried by `data-chip` rather than by
@@ -206,15 +220,149 @@ describe('DayRail', () => {
   it('renders nothing when the scope resolves to no window at all', () => {
     const { container } = render(
       <DayRail chips={chips} anchorDay={null} prevDay={null} nextDay={null}
-        scopeHasWindow={false} todayKey={null}
+        scopeHasWindow={false} todayKey={null} windowDayKeys={[]}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
   });
 
+  // The highlight is painted by duplicating the whole chip row in the
+  // highlighted colour and clipping it to the pill. That copy is paint: it
+  // must not be announced, must not be reachable, and must not be clickable,
+  // or the rail silently doubles every day for a screen-reader or keyboard
+  // reader.
+  describe('the highlighted copy of the row', () => {
+    it('is hidden from assistive technology', () => {
+      const { container } = renderRailIn();
+      const copy = container.querySelector<HTMLElement>('[data-rail-clip]')!;
+      expect(copy.getAttribute('aria-hidden')).toBe('true');
+      expect(copy.className).toContain('pointer-events-none');
+    });
+
+    it('adds no announced buttons', () => {
+      renderRail();
+      // Every button the rail exposes, counted outright: 3 day chips + 2
+      // chevrons. No `⟳ Now` (the anchor already is today) and no Filters
+      // toggle (no `filtersToggle` prop).
+      //
+      // Deliberately NOT filtered to `[data-chip]`: the copy's chips carry
+      // no `data-chip`, so such a filter would exclude exactly the elements
+      // this test exists to catch and could never fail. Falsified by
+      // removing `aria-hidden` from the copy, which takes this to 8.
+      expect(screen.getAllByRole('button')).toHaveLength(5);
+    });
+
+    it('puts nothing extra in the tab order', () => {
+      const { container } = renderRailIn();
+      const copy = container.querySelector<HTMLElement>('[data-rail-clip]')!;
+      expect(copy.children.length).toBeGreaterThan(0); // it really does render chips
+      expect(copy.querySelectorAll('button, a, [tabindex], [contenteditable]')).toHaveLength(0);
+    });
+
+    // Regression, caught by `e2e/verify-rail.mjs` and by nothing else. The
+    // copy's chips were `<button>` (chosen for box-metric parity) and carry
+    // no `data-chip`, which made them match the rail's own chevron selector
+    // `button:not([data-chip])`. Playwright then aimed a chevron click at
+    // inert paint and the real chip beneath intercepted it, timing out.
+    //
+    // Asserted as the selector rather than as "they are divs", because the
+    // selector is the thing that has to keep working — the e2e suite's other
+    // family, `[data-day-rail] [data-chip]`, is covered by the count guard
+    // above, and between them they pin both ways the copy could collide with
+    // a real control.
+    it('contributes nothing to the rail\'s chevron selector', () => {
+      const { container } = renderRailIn();
+      const rail = container.querySelector<HTMLElement>('[data-day-rail]')!;
+      const nonChipButtons = rail.querySelectorAll('button:not([data-chip])');
+      // The two chevrons, and nothing else. No `⟳ Now` (anchor is today) and
+      // no Filters toggle (no `filtersToggle` prop).
+      expect(nonChipButtons).toHaveLength(2);
+    });
+
+    it('starts fully clipped, so it cannot flash before the first measurement', () => {
+      const { container } = renderRailIn();
+      const copy = container.querySelector<HTMLElement>('[data-rail-clip]')!;
+      const pill = container.querySelector<HTMLElement>('[data-rail-pill]')!;
+      // jsdom runs the layout effect against zero-size rects, so the pill
+      // settles at zero width rather than staying at the initial opacity 0 —
+      // what matters here is that neither starts painted across the row.
+      expect(pill.style.width === '' || pill.style.width === '0px').toBe(true);
+      expect(copy.style.clipPath).toMatch(/^inset\(/);
+    });
+  });
+
+  // A returning visitor with `'this-week'` restored from localStorage while
+  // the current date is off-season gets `scopeHasWindow === false`, so the
+  // rail renders nothing on its very first commit — chips and all. The
+  // highlight's listeners must still find the strip when it appears later.
+  //
+  // This is a distinct route to the same null render as "events have not
+  // loaded yet", and the one a real reader actually hits. It is also why the
+  // hook keys its listener effect on the elements rather than on
+  // `chips.length > 0`: chips are non-empty here throughout, so a chip-count
+  // signal would never flip and the listeners would never attach.
+  it('attaches the highlight to a strip that appears only after the scope resolves', () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+    try {
+      const { container, rerender } = renderRailIn({ scopeHasWindow: false });
+      expect(container.querySelector('[data-rail-strip]')).toBeNull();
+
+      act(() => {
+        rerender(
+          <DayRail
+            chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null}
+            scopeHasWindow todayKey="2026-07-05"
+            windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
+            onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
+          />
+        );
+      });
+
+      const strip = container.querySelector<HTMLElement>('[data-rail-strip]')!;
+      const writes: number[] = [];
+      let value = 0;
+      Object.defineProperty(strip, 'scrollLeft', {
+        configurable: true,
+        get: () => value,
+        set: (v: number) => { value = v; writes.push(v); },
+      });
+
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      expect(writes.length).toBeGreaterThan(0); // the highlight is driving it
+
+      // The reader pans the strip. This is only detectable if the strip's own
+      // scroll listener attached to the element that appeared after mount.
+      act(() => {
+        strip.scrollLeft = 500;
+        strip.dispatchEvent(new Event('scroll'));
+      });
+      writes.length = 0;
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      expect(writes).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('listens to nothing while it is rendering nothing', () => {
+    // With no strip, every scroll frame would schedule a rAF only for the
+    // highlight's `sync` to bail on null refs. The listeners go on when the
+    // elements do — see the scope-resolves test above.
+    const raf = vi.fn(() => 0);
+    vi.stubGlobal('requestAnimationFrame', raf);
+    try {
+      renderRailIn({ scopeHasWindow: false });
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      act(() => { window.dispatchEvent(new Event('resize')); });
+      expect(raf).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('renders nothing when there are no days to show', () => {
     const { container } = render(
-      <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} scopeHasWindow todayKey={null}
+      <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} scopeHasWindow todayKey={null} windowDayKeys={[]}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
@@ -228,19 +376,33 @@ describe('DayRail', () => {
   // `scrollIntoView` is never called, and the strip's own `scrollLeft` is
   // written, which is the only kind of scroll this control is allowed to
   // cause.
+  //
+  // The trigger moved with the scroll-linked highlight: the strip used to be
+  // repositioned by an effect on `anchorDay`, and is now repositioned on
+  // scroll, continuously. The property being guarded did not move, so this
+  // test drives it the new way rather than being retired — a rail that
+  // reached for `scrollIntoView` again would still be the same defect.
+  // Geometry lives in `useRailHighlight.test.tsx`, which states it.
   it('keeps the anchor chip in view by moving the strip, never by scrolling the page', () => {
     const scrollIntoView = vi.fn();
     const original = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoView;
+    // The highlight measures inside a rAF, which jsdom defers to a timer, so
+    // an unstubbed frame lands after this test's assertions. Returning 0 is
+    // required: the hook throttles with `if (frame) return; frame = rAF(...)`
+    // and an inline callback clears `frame` before that assignment, so a
+    // truthy handle would be written back afterwards and latch the throttle
+    // shut. Real rAF assigns before the callback runs and is unaffected.
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
     try {
-      const { rerender } = render(
-        <DayRail chips={chips} anchorDay="2026-07-04" prevDay={null} nextDay="2026-07-05" scopeHasWindow todayKey="2026-07-05"
+      const { container } = render(
+        <DayRail chips={chips} anchorDay="2026-07-04" prevDay={null} nextDay="2026-07-05" scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
           onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
       );
-      // Stubbed only after mount: the effect that centres the *initial*
-      // anchor has already run by the time `render()` returns, so the
-      // rerender below is what re-triggers it under observation.
-      const strip = chipButton('2026-07-04').parentElement as HTMLElement;
+      // Stubbed only after mount: the layout effect that places the initial
+      // highlight has already run by the time `render()` returns, so the
+      // scroll below is what re-triggers it under observation.
+      const strip = container.querySelector<HTMLElement>('[data-rail-strip]')!;
       const scrollLeftWrites: number[] = [];
       Object.defineProperty(strip, 'scrollLeft', {
         configurable: true,
@@ -248,15 +410,13 @@ describe('DayRail', () => {
         set: (v: number) => { scrollLeftWrites.push(v); },
       });
 
-      rerender(
-        <DayRail chips={chips} anchorDay="2026-07-06" prevDay="2026-07-05" nextDay={null} scopeHasWindow todayKey="2026-07-05"
-          onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
-      );
+      act(() => { window.dispatchEvent(new Event('scroll')); });
 
       expect(scrollIntoView).not.toHaveBeenCalled();
       expect(scrollLeftWrites.length).toBeGreaterThan(0);
     } finally {
       Element.prototype.scrollIntoView = original;
+      vi.unstubAllGlobals();
     }
   });
 
@@ -270,7 +430,7 @@ describe('DayRail', () => {
   it('gives rootRef the same element that is data-day-rail and sticky — no wrapper', () => {
     const ref: { current: HTMLElement | null } = { current: null };
     render(
-      <DayRail chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null} scopeHasWindow todayKey="2026-07-05"
+      <DayRail chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null} scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
         rootRef={(el) => { ref.current = el; }} />
     );
