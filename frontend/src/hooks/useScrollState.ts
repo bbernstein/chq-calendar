@@ -174,11 +174,15 @@ export function useWeekDragSelection(
     // active should replace that scope with the single tapped week —
     // matching desktop click behavior. 'season' is in this set for the same
     // reason the others are: it is a scope, and scopes are mutually
-    // exclusive with the week strip.
-    const isRelativeFilterActive =
+    // exclusive with the week strip. Named for that ("a scope is active"),
+    // not "relative" — 'season' is an absolute scope, and this branch has
+    // been careful everywhere else to keep that distinction real (it's why
+    // 'season' and 'all' stay visible on an archived year while 'now' and
+    // 'today' do not).
+    const isScopeActive =
       dateFilter === 'next' || dateFilter === 'today' || dateFilter === 'this-week'
       || dateFilter === 'season';
-    if (isRelativeFilterActive) {
+    if (isScopeActive) {
       setDateFilter('all');
       setSelectedWeeks([weekNum]);
       return;

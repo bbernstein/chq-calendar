@@ -561,7 +561,7 @@ describe('formatDayRange', () => {
     expect(formatDayRange('2026-07-04', '2026-07-04')).toBe('Sat, Jul 4');
   });
 
-  it('elides the repeated month within one month', () => {
+  it('names the month on both endpoints even within a single month', () => {
     expect(formatDayRange('2026-07-04', '2026-07-09')).toBe('Sat, Jul 4 – Thu, Jul 9');
   });
 

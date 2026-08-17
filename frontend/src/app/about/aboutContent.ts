@@ -354,6 +354,8 @@ export const WEB_FEATURES: Feature[] = [
     blurb: 'A strip of days that highlights whichever day you have scrolled to. Tap a day with something on it to jump there — the chevrons step the same way, always landing on the next day that has something. Empty days are shown but can’t be tapped.' },
   { id: 'web-go-to-today', group: 'Dates & weeks', title: '⟳ Now takes you back to today', notObvious: true,
     blurb: 'Wherever you have wandered in the season, one tap returns you to today without changing a single filter.' },
+  { id: 'web-filters-toggle', group: 'Dates & weeks', title: 'A Filters button appears once you scroll', notObvious: true,
+    blurb: 'Once you have scrolled, a Filters button appears on the day rail. Tap it and the search field and every filter come back — right over the list, without losing your place. Tap it again, or press Escape, to put them away.' },
   { id: 'web-adaptive', group: 'Dates & weeks', title: 'The “next” window grows to fit', notObvious: true,
     blurb: 'Instead of a fixed number of days, it widens until it has a useful number of events to show.' },
   { id: 'web-show-more', group: 'Dates & weeks', title: 'The list keeps going', notObvious: true,
