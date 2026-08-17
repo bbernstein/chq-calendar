@@ -358,4 +358,18 @@ describe('DayRail filtersToggle', () => {
     });
     expect(document.querySelector('[data-testid="filters-active-dot"]')).toBeNull();
   });
+
+  // D5 replaced a ~54px-wide word with a 16x16 icon on the one control this
+  // whole feature depends on, at the rail's rightmost edge, in a phone-first
+  // app — `px-2 py-1` around it is roughly 32x28. A class-level pin, in the
+  // same spirit as FilterPanelCaret's `h-11 w-full`: jsdom computes no
+  // layout, so the rendered box itself is browser-only territory.
+  it('gives the toggle a 44px minimum touch target', () => {
+    renderRail({
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
+    });
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    expect(toggle.className).toContain('min-h-11');
+    expect(toggle.className).toContain('min-w-11');
+  });
 });

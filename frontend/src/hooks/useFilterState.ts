@@ -228,6 +228,29 @@ export function useFilterState() {
   // search would set hasNonDateFilters=true with no chip to represent it.
   const hasNonDateFilters: boolean = !!(state.searchTerm.trim() || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.showFavoritesOnly);
   const hasFilters: boolean = hasDateFilters || hasNonDateFilters;
+  // "The reader has narrowed the list themselves", as distinct from
+  // `hasFilters`' "a filter of any kind is in effect".
+  //
+  // The two differ on exactly one thing, and it matters: the app starts on
+  // the `next` scope (`initialState`, and `RECONCILE_FILTERS` for the
+  // current year), which makes `hasDateFilters` — and therefore
+  // `hasFilters` — true before the reader has touched a single control. Any
+  // indicator driven by `hasFilters` is therefore lit on a default visit and
+  // tells the reader nothing. This exists so the day rail's funnel dot can
+  // mean what the design says it means: whether you are looking at
+  // everything, or at a slice you chose.
+  //
+  // Both no-op scopes are excluded, not just `next`. `all` is the archived
+  // year's own starting scope (`RECONCILE_FILTERS` with `isCurrentYear:
+  // false`), so treating it as a change would reintroduce the same
+  // always-lit dot for every reader of a past season; and on the current
+  // year `all` widens rather than narrows, so "you are seeing a slice" would
+  // be false there too. Every other scope — `today`, `this-week` — is a
+  // narrowing the reader picked, and lights it.
+  const hasNonDefaultFilters: boolean =
+    (state.dateFilter !== 'next' && state.dateFilter !== 'all')
+    || state.selectedWeeks.length > 0
+    || hasNonDateFilters;
 
   // localStorage persistence
   useEffect(() => {
@@ -255,7 +278,7 @@ export function useFilterState() {
     recentLocations: state.recentLocations,
     recentCategories: state.recentCategories,
     selectedTagsLowerSet, selectedLocationsLowerSet, selectedCategoriesCount,
-    hasFilters, hasDateFilters, hasNonDateFilters,
+    hasFilters, hasDateFilters, hasNonDateFilters, hasNonDefaultFilters,
     toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected,
     clearFilters, clearNonDateFilters,
     showFavoritesOnly: state.showFavoritesOnly, toggleFavoritesOnly,

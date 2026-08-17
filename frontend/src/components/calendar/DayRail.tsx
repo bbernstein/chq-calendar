@@ -90,12 +90,16 @@ export interface DayRailFiltersToggleProps {
    */
   toggleRef?: (el: HTMLButtonElement | null) => void;
   /**
-   * Whether any filter is currently active — `useFilterState`'s
-   * `hasFilters`, passed straight through. Drives the small dot D5 adds to
-   * the icon. An icon alone can't tell the reader "everything" from "a
-   * slice", and neither could the word "Filters" it replaces; the dot is
-   * the one place this change adds something rather than merely preserving
-   * it.
+   * Whether the reader has narrowed the list themselves —
+   * `useFilterState`'s `hasNonDefaultFilters`, passed straight through.
+   * Drives the small dot D5 adds to the icon. An icon alone can't tell the
+   * reader "everything" from "a slice", and neither could the word
+   * "Filters" it replaces; the dot is the one place this change adds
+   * something rather than merely preserving it.
+   *
+   * Deliberately NOT `hasFilters`, which is true on a default visit (the
+   * app starts on the `next` scope, a date filter) and would light the dot
+   * for every reader before they touched anything.
    */
   hasActiveFilters: boolean;
 }
@@ -324,7 +328,18 @@ export function DayRail({
           aria-expanded={filtersToggle.open}
           aria-controls={filtersToggle.panelId}
           onClick={filtersToggle.onToggle}
-          className="shrink-0 px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
+          // `min-h-11 min-w-11` = 44px square, the platform minimum, on the
+          // one control this whole feature depends on — at the rail's
+          // rightmost edge, on a phone-first app. The word "Filters" it
+          // replaced was ~54px wide; a 16px icon in `px-2 py-1` alone would
+          // be roughly 32x28. This costs the rail no visual height: the day
+          // chips are ~50px tall (three lines of `leading-tight` text plus
+          // `py-1`), so the row is already taller than 44px and the parent's
+          // `items-center` centres this inside it rather than growing it.
+          // `inline-flex` + centring because a `min-h` on a plain
+          // inline-block button would leave the icon top-aligned in the
+          // taller box.
+          className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
         >
           <FiltersIcon active={filtersToggle.hasActiveFilters} />
         </button>
