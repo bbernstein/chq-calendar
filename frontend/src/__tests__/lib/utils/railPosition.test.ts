@@ -188,8 +188,25 @@ describe('lerp', () => {
   });
 
   it('lands exactly on the far endpoint rather than near it', () => {
-    // Guards the pill against settling a subpixel short of the chip it is
-    // supposed to be sitting on.
+    // Integer coordinates cannot catch this — `a + (b - a) * t` happens to be
+    // exact for them, so the previous version of this test could never have
+    // failed. These are fractional, as `DOMRect` values are under browser
+    // text zoom, and this specific pair returns 63.529707595868686 (high by
+    // 7.1e-15) without the endpoint returned outright.
+    expect(lerp(14.338952280847916, 63.52970759586868, 1)).toBe(63.52970759586868);
     expect(lerp(148, 196, 1)).toBe(196);
+  });
+
+  it('lands exactly on the near endpoint too', () => {
+    expect(lerp(14.338952280847916, 63.52970759586868, 0)).toBe(14.338952280847916);
+  });
+
+  it('places the pill exactly on the next chip when a handover completes', () => {
+    // The property `lerp`'s endpoint handling exists to protect: at progress
+    // 1 the pill must sit on the next chip, not 7e-15 past it, because the
+    // clip layer's inset is derived from the same number.
+    const a = { left: 14.338952280847916, width: 44.5 };
+    const b = { left: 63.52970759586868, width: 44.5 };
+    expect(pillGeometry(a, b, 1)).toEqual(b);
   });
 });

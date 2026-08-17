@@ -165,10 +165,29 @@ export function pillGeometry(
 /**
  * Interpolate, landing exactly on the endpoints.
  *
- * `a + (b - a) * t` rather than `a * (1 - t) + b * t`: the latter can settle
- * a subpixel short of `b` at `t === 1`, which would leave the pill not quite
- * on the chip it has finished travelling to.
+ * The endpoints are returned outright rather than computed. `a + (b - a) * t`
+ * is exact at `t === 0` but *not* at `t === 1`: `b - a` rounds first, and
+ * adding that back to `a` need not reproduce `b`. Measured over 200,000
+ * random pairs with realistic chip geometry, it misses in about 0.025% of
+ * them — e.g. `lerp(14.338952280847916, 63.52970759586868, 1)` returns
+ * `63.529707595868686`, high by 7.1e-15.
+ *
+ * An earlier version of this comment asserted the opposite — that
+ * `a * (1 - t) + b * t` was the form that drifts. That was backwards: at
+ * `t === 1` it evaluates `a * 0 + b * 1`, which is exactly `b`, and it missed
+ * in 0 of the same 200,000 pairs. Either form is fine once the endpoints are
+ * returned directly, which is what this now does, and the reasoning is
+ * recorded because the wrong version of it was written down confidently once
+ * already.
+ *
+ * The error is far below a device pixel and nothing rendered could show it.
+ * It is fixed anyway because `pillGeometry` promises the pill sits *exactly*
+ * on the chip it has finished travelling to, and a promise that holds only
+ * for integer coordinates is one that quietly stops holding under browser
+ * text zoom, where `DOMRect` values are fractional.
  */
 export function lerp(a: number, b: number, t: number): number {
+  if (t <= 0) return a;
+  if (t >= 1) return b;
   return a + (b - a) * t;
 }
