@@ -26,8 +26,27 @@ const check = (name, ok, detail) => {
 const browser = await chromium.launch();
 
 async function phone({ reducedMotion } = {}) {
+  // Chautauqua's own timezone, pinned rather than inherited from the runner.
+  //
+  // Event `startDate`s are Institution-local and carry no offset, so the app
+  // effectively treats the browser's clock as event-time. CI runs UTC, which
+  // in the afternoon Eastern means the app believes the day's programming has
+  // already ended — under the default `Now` scope today then has no upcoming
+  // events, and `11c ⟳ Now hides once back on today` fails because the anchor
+  // cannot land on today. Reproduced by A/B: this suite passes in Eastern and
+  // fails in UTC on `main` as well as on any branch, so `browser-checks` was
+  // failing for everyone after roughly 20:00 UTC and passing earlier in the
+  // day. Pinning makes every date-sensitive check here independent of the
+  // wall-clock hour and of where it is run.
+  //
+  // This pins the TEST's clock, not the app's. Whether `now` ought to be
+  // evaluated in the Institution's timezone rather than the device's is a real
+  // product question — a visitor on a non-Eastern device late in their local
+  // day sees today's events as already past — and is deliberately left alone
+  // here rather than answered by a test harness.
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    timezoneId: 'America/New_York',
     ...(reducedMotion ? { reducedMotion: 'reduce' } : {}),
   });
   const page = await ctx.newPage();
