@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
-import { render, fireEvent, screen, act } from '@testing-library/preact';
+import { render, fireEvent, screen, act, within } from '@testing-library/preact';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -323,7 +323,17 @@ describe('dismissal by scroll gesture', () => {
 });
 
 describe('exit animation', () => {
-  it('reports an exit rect captured before the panel leaves flow', () => {
+  // Note on what this does NOT prove: `getBoundingClientRect` is stubbed to
+  // return a constant, so this can't distinguish a rect read before `open`
+  // flips from one read after — a stub that returned different values
+  // depending on the panel's own `hidden` class (as
+  // `mockDaySectionTrackingPanel` does for the day-section case above) would
+  // be needed for that, and isn't worth building for a browser-verifiable
+  // ordering concern (see the report). What this honestly pins: the value
+  // `getBoundingClientRect()` returns really does flow through to `exitRect`
+  // unchanged, and the in-flow panel really does drop out of flow (`hidden`)
+  // in the very same commit that `exiting` turns on — not a later render.
+  it('surfaces the panel rect as exitRect and drops the in-flow panel, both in the dismissal commit', () => {
     render(<Harness />);
     const toggle = screen.getByRole('button', { name: 'Filters' });
     fireEvent.click(toggle); // open
@@ -362,6 +372,29 @@ describe('exit animation', () => {
     expect(screen.getByTestId('exit-rect').textContent).toBe('none');
   });
 
+  // `transitionend` bubbles. The panel's own subtree has real, unrelated
+  // Tailwind transitions on it (chip hover colours, chevron rotations), and
+  // a gesture dismissal typically produces a hover-out on whatever was
+  // under the pointer at the same moment — so a listener that doesn't check
+  // `event.target` would finish the exit on a ~150ms colour transition
+  // completing on a filter control, unmounting the ghost a third of the way
+  // through its own ~200ms slide. Firing the event from a descendant (not
+  // the panel itself) and asserting the exit survives is what a target-blind
+  // listener fails here.
+  it('ignores a transitionend that bubbles up from a descendant', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle); // open
+    fireEvent.click(toggle); // dismiss
+    expect(screen.getByTestId('exiting').textContent).toBe('true');
+    const panel = panelElementFor(toggle);
+    const descendant = within(panel).getByRole('button', { name: 'A filter control' });
+
+    act(() => { descendant.dispatchEvent(new Event('transitionend', { bubbles: true })); });
+
+    expect(screen.getByTestId('exiting').textContent).toBe('true');
+  });
+
   // transitionend never fires if the element is never painted (a background
   // tab, some reduced-motion paths a browser takes on its own) — proven by
   // firing nothing and advancing time instead of dispatching the event.
@@ -378,6 +411,30 @@ describe('exit animation', () => {
 
       expect(screen.getByTestId('exiting').textContent).toBe('false');
       expect(screen.getByTestId('exit-rect').textContent).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Pins the fallback timer against the CSS transition duration (200ms in
+  // globals.css), not just against some generously long window: without
+  // this, `EXIT_FALLBACK_MS` could be set to e.g. 20ms and every other test
+  // here — including the 1000ms advance above — would stay green while
+  // every real exit got truncated to a 20ms flash. Advancing to exactly
+  // 200ms (the CSS duration, well short of the fallback's own 400ms budget)
+  // and requiring `exiting` to still be true is what a too-short fallback
+  // fails.
+  it('does not clear exiting before the CSS transition duration has elapsed', () => {
+    vi.useFakeTimers();
+    try {
+      render(<Harness />);
+      const toggle = screen.getByRole('button', { name: 'Filters' });
+      fireEvent.click(toggle); // open
+      fireEvent.click(toggle); // dismiss
+
+      act(() => { vi.advanceTimersByTime(200); });
+
+      expect(screen.getByTestId('exiting').textContent).toBe('true');
     } finally {
       vi.useRealTimers();
     }
@@ -431,7 +488,7 @@ describe('exit animation', () => {
       };
 
       fireEvent.click(toggle); // open
-      fireEvent.click(toggle); // dismiss #1 at t=0 -> fallback timer A due ~t=260
+      fireEvent.click(toggle); // dismiss #1 at t=0 -> fallback timer A due ~t=400
       expect(screen.getByTestId('exit-rect').textContent).toBe('10,0,390,281');
 
       act(() => { vi.advanceTimersByTime(50); }); // t=50, well before A fires
@@ -439,18 +496,18 @@ describe('exit animation', () => {
       expect(screen.getByTestId('exiting').textContent).toBe('false');
       expect(screen.getByTestId('exit-rect').textContent).toBe('none');
 
-      fireEvent.click(toggle); // dismiss #2 at t=50 -> fallback timer B due ~t=310
+      fireEvent.click(toggle); // dismiss #2 at t=50 -> fallback timer B due ~t=450
       expect(screen.getByTestId('exit-rect').textContent).toBe('20,0,390,281');
 
-      // t=270: past A's original t=260 deadline, short of B's t=310 one. A
+      // t=420: past A's original t=400 deadline, short of B's t=450 one. A
       // surviving the reopen would have fired here and cleared `exiting` —
       // this is the assertion a stray, uncancelled timer A fails.
-      act(() => { vi.advanceTimersByTime(220); });
+      act(() => { vi.advanceTimersByTime(370); });
       expect(screen.getByTestId('exiting').textContent).toBe('true');
       expect(screen.getByTestId('exit-rect').textContent).toBe('20,0,390,281');
 
       // B fires on its own schedule and cleans up normally.
-      act(() => { vi.advanceTimersByTime(100); });
+      act(() => { vi.advanceTimersByTime(60); });
       expect(screen.getByTestId('exiting').textContent).toBe('false');
     } finally {
       vi.useRealTimers();

@@ -227,22 +227,50 @@ function HomeContent() {
     open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef,
     toggleRef: filtersToggleRef, exiting: filtersExiting, exitRect: filtersExitRect,
   } = useFilterPanel();
-  // The panel only needs to cap its own height and scroll internally while
-  // it is acting as an overlay over the list — at the top of the page it is
-  // ordinary in-flow content and the page itself scrolls past it, same as
-  // before this feature existed. Exiting counts as overlaying too: the rect
-  // it freezes to (below) was measured while this same cap applied, and
-  // dropping the cap mid-exit would change the box's own height out from
-  // under the frozen rect.
-  const filtersPanelOverlaying = filtersScrolledPast && (filtersOpen || filtersExiting);
+  // Latches `filtersScrolledPast` for the lifetime of one exit, rather than
+  // reading it live below. The two signals are correct independently but
+  // race each other: the dismissal's own scroll correction
+  // (`useFilterPanel`'s `scrollBy(0, -panelHeight)`) runs synchronously at
+  // the START of the exit and can move the reader from just past the
+  // sentinel to just before it, while `useScrolledPastFilters`'s
+  // IntersectionObserver callback for that same move lands a frame or two
+  // later — well inside the ~200ms visual exit (the CSS transition
+  // duration; see `useFilterPanel`'s `EXIT_FALLBACK_MS` for why the JS-side
+  // safety margin is wider than that but irrelevant to this race). A live
+  // read of `filtersScrolledPast`
+  // would flip `filtersExitingVisible` (below) to `false` mid-animation, and
+  // the ghost would lose `position: fixed` and the exit class mid-flight:
+  // snapping back into flow, full opacity, full height, mid-slide. Only
+  // re-captured when `filtersExiting` itself flips (the effect's deps are
+  // deliberately just `[filtersExiting]`, not also `filtersScrolledPast` —
+  // that asymmetry is the latch, not an oversight), so the IO catch-up this
+  // exit's own correction triggers can't retroactively change what was
+  // latched for it.
+  const [exitWasScrolledPast, setExitWasScrolledPast] = useState(false);
+  useEffect(() => {
+    if (filtersExiting) setExitWasScrolledPast(filtersScrolledPast);
+  }, [filtersExiting]);
   // The exit animation only makes sense once the panel has actually left
   // in-flow content — at the top of the page (`!filtersScrolledPast`) the
   // panel is unconditionally shown regardless of `open` (see the className
   // below), so a stray gesture-dismiss while scrolled back to the top with a
   // stale `filtersOpen` must not fix the panel to a rect and animate it away
   // from a position the reader can still see it occupying. `useFilterPanel`
-  // doesn't know about that page-level invariant, so it's arbitrated here.
-  const filtersExitingVisible = filtersExiting && filtersScrolledPast && filtersExitRect !== null;
+  // doesn't know about that page-level invariant, so it's arbitrated here —
+  // via the latch above, not a live `filtersScrolledPast` read, for the race
+  // explained there.
+  const filtersExitingVisible = filtersExiting && exitWasScrolledPast && filtersExitRect !== null;
+  // The panel only needs to cap its own height and scroll internally while
+  // it is acting as an overlay over the list — at the top of the page it is
+  // ordinary in-flow content and the page itself scrolls past it, same as
+  // before this feature existed. `filtersExitingVisible` (not raw
+  // `filtersExiting`, and not ANDed with a live `filtersScrolledPast`)
+  // counts as overlaying too, for the same reason it drives the fixed
+  // positioning above: the rect it freezes to was measured while this same
+  // cap applied, dropping the cap — or losing it mid-exit to the identical
+  // IO race described above — would change the box's own height out from
+  // under the frozen rect.
+  const filtersPanelOverlaying = (filtersScrolledPast && filtersOpen) || filtersExitingVisible;
 
   // Declared here rather than beside `expandEnd` above, where it would read
   // more naturally: it needs `cancelHold`, and a `const` referenced before

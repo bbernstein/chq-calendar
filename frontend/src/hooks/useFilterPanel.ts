@@ -11,12 +11,21 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"]):not([disabled])',
 ].join(', ');
 
-// Matches globals.css's `.filter-panel-exit` transition duration (200ms),
-// plus a margin. `transitionend` does not fire if the element is never
-// painted (a background tab, or the browser skipping the transition on its
-// own under some reduced-motion paths) — without this fallback that leaves
-// `exiting` stuck true and a fixed-position panel stranded on screen.
-const EXIT_FALLBACK_MS = 260;
+// globals.css's `.filter-panel-exit` transition runs 200ms; this is that
+// plus a 200ms margin, not a thin one. `transitionend` does not fire if the
+// element is never painted (a background tab, or the browser skipping the
+// transition on its own under some reduced-motion paths) — without this
+// fallback that leaves `exiting` stuck true and a fixed-position panel
+// stranded on screen. The two failure modes of the margin's width are not
+// symmetric: too short and the fallback can outrace a transition that is
+// still genuinely playing but running late (a dropped-frame stretch or a GC
+// pause on a low-end phone under real content — the panel carries a
+// SearchBar, four scopes, a nine-week strip, venues, categories — is well
+// within a 60ms budget), which unmounts the ghost mid-slide as a visible
+// pop instead of a fade; too long only delays cleanup in the one case this
+// exists for, where the tab isn't being looked at and the extra time is not
+// perceptible. That asymmetry is why this errs wide rather than tight.
+const EXIT_FALLBACK_MS = 400;
 
 /**
  * Open/close state and accessibility wiring for the filter panel the sticky
@@ -275,11 +284,23 @@ export function useFilterPanel(): {
       setExiting(false);
       setExitRect(null);
     };
+    // `transitionend` bubbles, and the panel's own subtree is full of
+    // Tailwind transitions unrelated to the exit — chip hover colours,
+    // chevron rotations. A gesture dismissal typically also produces a
+    // hover-out on whatever was under the pointer, so an unfiltered
+    // listener would finish the exit on that unrelated ~150ms colour
+    // transition instead of the panel's own ~200ms slide, unmounting the
+    // ghost partway through. Only a transition that ran on the panel
+    // element itself (not a descendant) counts.
+    const onTransitionEnd = (e: Event) => {
+      if (e.target !== panel) return;
+      finish();
+    };
     const timeoutId = window.setTimeout(finish, EXIT_FALLBACK_MS);
-    panel?.addEventListener('transitionend', finish);
+    panel?.addEventListener('transitionend', onTransitionEnd);
     return () => {
       window.clearTimeout(timeoutId);
-      panel?.removeEventListener('transitionend', finish);
+      panel?.removeEventListener('transitionend', onTransitionEnd);
     };
   }, [exiting]);
 
