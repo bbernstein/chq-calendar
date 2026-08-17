@@ -270,6 +270,17 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     const clip = clipRef.current;
     if (!strip || !pill || !clip) return;
 
+    // This repeats the walk `useDayAnchor` also performs each frame, and that
+    // duplication is a deliberate trade rather than an oversight. Measured in
+    // Chromium against production data: 0.034ms per walk at a typical render
+    // window (3 mounted day sections) and 0.335ms at a large one (16 sections,
+    // 321 event cards) — so both hooks together cost 0.4% of a 16.7ms frame
+    // typically and 4% at the large end. Sharing one measurement would mean
+    // either threading a subscription from `useDayAnchor` through `page.tsx`
+    // into this component, or hoisting a third hook that both depend on;
+    // both trade a measured 4% worst case for a new coupling across the
+    // boundary this design keeps clean. Revisit if the render window ever
+    // stops being bounded — that, not the day list, is what sets this cost.
     const limit = dayRailHeightPx() + 1;
     const resolved = resolveAnchor(windowDayKeys, limit, daySectionTop);
     if (!resolved) {
@@ -334,21 +345,33 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     else writeScrollLeft(strip, desired);
   }, [keysId, hide, startTween, writeScrollLeft]);
 
-  // Measure and place before paint: a pill positioned in a passive effect
-  // would flash at x=0 on the first frame.
+  // `nodeGeneration` is a dependency on both effects below for the same
+  // reason the listener effect has it, and missing it is subtler here: the
+  // chip row can appear without the chip *list* changing at all. `DayRail`
+  // renders nothing while `scopeHasWindow` is false — an off-season
+  // `'this-week'` restored from localStorage — with `chips` populated the
+  // whole time. When the scope then resolves, `chipsId` and `keysId` are
+  // unchanged, so without this the row would never be measured, `extents`
+  // would stay empty, and the pill would not paint at all.
+  // Two effects, not one, and the split is not cosmetic: `measureChips` walks
+  // every chip in the row calling `getBoundingClientRect` — 251 of them in a
+  // full season — and the row's geometry depends on the *chips*, never on the
+  // day window. Measuring on `keysId` too meant a forced layout and 251 rect
+  // reads on every filter and scope change, for a row that had not moved.
   //
-  // `nodeGeneration` is a dependency for the same reason the listener effect
-  // below has it, and missing it here is subtler: the chip row can appear
-  // without the chip *list* changing at all. `DayRail` renders nothing while
-  // `scopeHasWindow` is false — an off-season `'this-week'` restored from
-  // localStorage — with `chips` populated the whole time. When the scope then
-  // resolves, `chipsId` and `keysId` are unchanged, so without this the row
-  // would never be measured, `extents` would stay empty, and the pill would
-  // not paint at all.
+  // Declaration order is the contract: measure runs before sync in the same
+  // commit, so a commit that changes both the chips and the window still
+  // places the pill against fresh extents.
   useLayoutEffect(() => {
     measureChips();
+  }, [chipsId, nodeGeneration, measureChips]);
+
+  // Placement before paint — in a passive effect the pill would flash at x=0
+  // on the first frame. This one does follow the day window: the anchor moves
+  // when the window does, even with the chip row untouched.
+  useLayoutEffect(() => {
     sync();
-  }, [chipsId, keysId, nodeGeneration, measureChips, sync]);
+  }, [chipsId, keysId, nodeGeneration, sync]);
 
   // `sync` and `measureChips` are reached through a ref so the listener
   // effect below does not depend on them. Both are recreated whenever the day
