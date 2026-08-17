@@ -362,6 +362,12 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   useEffect(() => {
     const strip = stripRef.current;
     const content = contentRef.current;
+    // Nothing rendered — `DayRail` returns null while it has no days, or
+    // while the scope resolves to no window at all. Attaching global scroll
+    // and resize listeners now would schedule a rAF on every frame of every
+    // scroll only for `sync` to bail on the same null refs. `nodeGeneration`
+    // brings us straight back here the moment the elements exist.
+    if (!strip || !content) return;
 
     let frame = 0;
     const onScroll = () => {
@@ -377,7 +383,6 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     // merely passed over the rail. The 1px tolerance absorbs the subpixel
     // rounding browsers apply to a fractional `scrollLeft`.
     const onStripScroll = () => {
-      if (!strip) return;
       if (Math.abs(strip.scrollLeft - lastWritten.current) > 1) {
         suspended.current = true;
         cancelTween();
@@ -387,21 +392,21 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     // Passive throughout: none of these may delay a scroll.
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onResize, { passive: true });
-    strip?.addEventListener('scroll', onStripScroll, { passive: true });
+    strip.addEventListener('scroll', onStripScroll, { passive: true });
 
     // The chip row can change width without the window resizing — `⟳ Now`
     // and the Filters toggle appear and disappear beside it. Absent in some
     // older browsers and in jsdom without a stub; skipping it there only
     // loses a re-measure, which is better than throwing on mount.
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onResize);
-    if (content) observer?.observe(content);
+    observer?.observe(content);
 
     return () => {
       if (frame) cancelAnimationFrame(frame);
       cancelTween();
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
-      strip?.removeEventListener('scroll', onStripScroll);
+      strip.removeEventListener('scroll', onStripScroll);
       observer?.disconnect();
     };
     // Keyed on the elements, not on the day list. `chipsId`/`keysId` change on

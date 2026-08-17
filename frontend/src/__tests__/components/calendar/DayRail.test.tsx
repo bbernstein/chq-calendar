@@ -344,6 +344,22 @@ describe('DayRail', () => {
     }
   });
 
+  it('listens to nothing while it is rendering nothing', () => {
+    // With no strip, every scroll frame would schedule a rAF only for the
+    // highlight's `sync` to bail on null refs. The listeners go on when the
+    // elements do — see the scope-resolves test above.
+    const raf = vi.fn(() => 0);
+    vi.stubGlobal('requestAnimationFrame', raf);
+    try {
+      renderRailIn({ scopeHasWindow: false });
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      act(() => { window.dispatchEvent(new Event('resize')); });
+      expect(raf).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('renders nothing when there are no days to show', () => {
     const { container } = render(
       <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} scopeHasWindow todayKey={null} windowDayKeys={[]}
