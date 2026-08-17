@@ -1,7 +1,7 @@
 # Day rail — scroll-linked highlight
 
-**Status:** Implemented and browser-verified. Branch pushed, PR not yet
-opened.
+**Status:** Implemented and browser-verified on branch. Not pushed, no PR
+yet.
 **Branch:** `feat/web-rail-scroll-linked-highlight`
 **Follows:** phase 3a (#238, #239, #240) — the day rail itself.
 
@@ -96,9 +96,11 @@ any explicit commit. Snapping back to centre the instant the reader scrolls
 one pixel would destroy the peek they just made; scrolling around within
 today's events keeps it, scrolling into tomorrow re-centres.
 
-**Suspension trigger:** `pointerdown` **and** `wheel` on the strip. A
-trackpad two-finger horizontal pan fires no pointer event and would otherwise
-be fought by the per-frame writes.
+**Suspension trigger:** the strip's scroll position diverging from the last
+value this hook wrote. *(Revised during the browser pass — the original plan
+said `pointerdown` and `wheel` on the strip, which also fires for a plain
+vertical page scroll that merely passed over the rail. See the browser
+verification section below.)*
 
 ## Architecture
 
@@ -142,17 +144,31 @@ thrash.
 ```
 <div ref=strip class="overflow-x-auto">                              scroller
   <div class="relative flex gap-1 w-max">                            content
-    <div ref=pill  class="absolute bg-blue-600 rounded-md" />        z-0
-    {chips}                                                          z-10  base colours
+    {chips}                                                          static, base colours
+    <div ref=pill  class="absolute inset-y-0 bg-blue-600" />         z-10
     <div ref=clip aria-hidden class="absolute inset-0 flex gap-1
          text-white pointer-events-none" style="clip-path: inset()"> z-20  duplicate row
-      {chips as divs, not buttons}
+      {chips again, as buttons with tabIndex -1}
     </div>
   </div>
 </div>
 ```
 
 Both layers share one `scrollLeft`, so they cannot desync.
+
+Two details settled while building, against the sketch above:
+
+- **The pill sits ABOVE the chips, not behind them.** Behind, a chip's
+  `hover:bg-blue-50` paints over the highlight on the current day — the one
+  chip whose highlight matters. Above, the pill covers the base text and the
+  clipped copy puts legible text back, which is the same result the layering
+  was for.
+- **The copy's chips are `<button>`, not `<div>`.** The copy must match the
+  real row's box metrics exactly or a width difference opens a seam through a
+  digit, and a `<div>` does not inherit the same UA and preflight rules.
+  `tabIndex={-1}` inside an `aria-hidden` container keeps them out of the tab
+  order and the accessibility tree. Measured worst delta across 251 pairs:
+  0px.
 
 **The pill and the clip layer live in content coordinates**, computed from
 `f` alone and never touched by `scrollLeft`. `scrollLeft` is a wholly
