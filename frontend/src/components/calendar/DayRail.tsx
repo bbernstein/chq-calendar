@@ -1,6 +1,37 @@
-import { useEffect, useRef } from 'react';
+import { useMemo } from 'react';
 import type { DayChip } from '@/lib/utils/dayWindow';
 import { FiltersIcon } from '@/components/filters/FiltersIcon';
+import { useRailHighlight } from '@/hooks/useRailHighlight';
+
+/**
+ * Everything that decides a chip's box, shared verbatim by the two layers.
+ *
+ * The highlighted copy of the row has to lay out pixel-identically to the
+ * real one — it is positioned on top of it and clipped, so a single pixel of
+ * width difference shows up as a seam through the middle of a digit. Sharing
+ * one string is what makes that a compile-time guarantee rather than a thing
+ * two class lists happen to agree on, and it is why the empty-day border is
+ * here (1px, and it must be 1px on both) while the dimming that goes with it
+ * is not (paint only, and the copy is clipped away over an empty day anyway).
+ */
+function chipBoxClass(isEmpty: boolean): string {
+  return `shrink-0 min-h-11 min-w-11 px-2 py-1 rounded-md text-center leading-tight ${
+    isEmpty ? 'border border-dashed border-gray-300 dark:border-gray-600' : 'border border-transparent'
+  }`;
+}
+
+/** A chip's three lines. Rendered identically into both layers. */
+function ChipFace({ chip }: { chip: DayChip }) {
+  return (
+    <>
+      {chip.month && (
+        <span className="block text-[10px] font-semibold uppercase opacity-70" aria-hidden="true">{chip.month}</span>
+      )}
+      <span className="block text-[10px] uppercase opacity-70" aria-hidden="true">{chip.weekday}</span>
+      <span className="block text-sm font-semibold" aria-hidden="true">{chip.dayOfMonth}</span>
+    </>
+  );
+}
 
 export interface DayRailProps {
   chips: DayChip[];
@@ -67,6 +98,18 @@ export interface DayRailProps {
    * math anywhere else has to learn about it.
    */
   filtersToggle?: DayRailFiltersToggleProps;
+  /**
+   * The view window's day list, in order — the same array `useDayAnchor` is
+   * given in `page.tsx`.
+   *
+   * Passed rather than derived from `chips` so both the discrete anchor and
+   * this component's continuous highlight walk *identical* input through the
+   * same `resolveAnchor`. `chips` spans the navigable bounds, a superset, and
+   * walking it here would in practice agree — but "in practice agrees" is
+   * exactly the property that lets `aria-current` and the painted highlight
+   * drift onto different days the first time the two ranges diverge.
+   */
+  windowDayKeys: string[];
 }
 
 export interface DayRailFiltersToggleProps {
@@ -108,9 +151,16 @@ export interface DayRailFiltersToggleProps {
  * The day rail — the fine-grained half of D4's two strips, sticky beneath
  * the week strip.
  *
- * Purely presentational: chips in, callbacks out. Scroll position lives in
- * `useDayAnchor`, the window lives in `useFilterState`, and the rail knows
- * about neither — which is what lets it be tested without a layout stub.
+ * Chips in, callbacks out. The window lives in `useFilterState` and the
+ * *discrete* anchor in `useDayAnchor`; the rail owns neither, and still
+ * decides nothing about which day is current.
+ *
+ * It is no longer layout-free, though, and the old claim that it could be
+ * tested without a layout stub no longer holds: `useRailHighlight` measures
+ * the chip row and the day sections to place the highlight continuously. The
+ * chips, the labels, the keyboard walk and the disabled states all still
+ * test on plain markup; anything about *where the highlight is* needs stated
+ * geometry, which is what `useRailHighlight.test.tsx` provides.
  *
  * It spans the navigable bounds, **not** the current scope. It is a
  * navigation surface, not a filter readout: in `Today` scope it still shows
@@ -135,9 +185,11 @@ export interface DayRailFiltersToggleProps {
  */
 export function DayRail({
   chips, anchorDay, prevDay, nextDay, scopeHasWindow, todayKey,
-  onSelectDay, onStepDay, onGoToToday, rootRef, filtersToggle,
+  onSelectDay, onStepDay, onGoToToday, rootRef, filtersToggle, windowDayKeys,
 }: DayRailProps) {
-  const stripRef = useRef<HTMLDivElement>(null);
+  const chipKeys = useMemo(() => chips.map(c => c.key), [chips]);
+  const { stripRef, contentRef, pillRef, clipRef, resume } =
+    useRailHighlight(chipKeys, windowDayKeys);
 
   // Reachability, not adjacency: `chips` spans every calendar day in the
   // navigable bounds, so `anchorIdx ± 1` is enabled on days a step cannot
@@ -163,40 +215,23 @@ export function DayRail({
   // null anchor would leave the whole strip unreachable from the keyboard.
   const tabStopKey = chips.some(c => c.key === anchorDay) ? anchorDay : chips[0]?.key;
 
-  // Keep the highlighted chip in view as the reader scrolls the list. The
-  // rail scrolls itself horizontally; it never scrolls the page.
-  //
-  // Deliberately NOT `chip.scrollIntoView(...)`. `block: 'nearest'` minimises
-  // vertical movement but does not forbid it — with the rail scrolled
-  // partway off-screen (an ordinary scroll position, not a bug), that call
-  // drags the whole page to bring the chip's vertical position into view,
-  // which is exactly the page-scroll this control must never cause. Setting
-  // the strip's own `scrollLeft` can only move the strip.
-  useEffect(() => {
-    if (!anchorDay) return;
-    const strip = stripRef.current;
-    const chip = strip?.querySelector<HTMLElement>(`[data-chip="${anchorDay}"]`);
-    if (!strip || !chip) return;
-    // `offsetLeft` is relative to the nearest positioned ancestor, which is
-    // not reliably `strip` (the sticky root above it is itself positioned).
-    // Bounding rects sidestep that: `chipRect.left - stripRect.left` is the
-    // chip's edge relative to the strip's edge as currently painted, and
-    // adding back the strip's own `scrollLeft` converts that into a
-    // scroll-independent, content-relative position.
-    const stripRect = strip.getBoundingClientRect();
-    const chipRect = chip.getBoundingClientRect();
-    const chipCenter = (chipRect.left - stripRect.left) + chipRect.width / 2 + strip.scrollLeft;
-    strip.scrollLeft = chipCenter - strip.clientWidth / 2;
-  }, [anchorDay]);
+  // The highlight — where it sits, and what moves the strip — now lives in
+  // `useRailHighlight`, driven continuously from scroll position rather than
+  // from `anchorDay` changing. `anchorDay` is still what this component
+  // *announces* (`aria-current` below); it is no longer what it paints.
 
   // Left/Right move focus along the rail, Home jumps to today. Focus only —
   // activating is Enter/Space on the focused chip, which a <button> already
   // does. Moving the window on mere focus would make arrowing through the
   // rail refilter the list on every keystroke.
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const strip = stripRef.current;
-    if (!strip) return;
-    const buttons = Array.from(strip.querySelectorAll<HTMLElement>('[data-chip]'));
+    const content = contentRef.current;
+    if (!content) return;
+    // `:scope >` matters: the highlighted copy of the row lives inside this
+    // same element and carries the same `data-chip` keys, so an unscoped
+    // query would walk focus through every chip twice — and half of those
+    // are `tabIndex={-1}` decorations that must never receive focus.
+    const buttons = Array.from(content.querySelectorAll<HTMLElement>(':scope > [data-chip]'));
     const current = buttons.indexOf(document.activeElement as HTMLElement);
     if (current < 0) return;
     let next = -1;
@@ -237,61 +272,103 @@ export function DayRail({
         type="button"
         aria-label={prevLabel}
         disabled={!canStepBack}
-        onClick={() => onStepDay(-1)}
+        onClick={() => { resume(); onStepDay(-1); }}
         className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
       >
         ‹
       </button>
 
-      <div ref={stripRef} className="flex-1 flex items-center gap-1 overflow-x-auto scrollbar-hide">
-        {chips.map((chip) => {
-          const isAnchor = chip.key === anchorDay;
-          // A day with nothing on it is not a destination. It keeps its
-          // place on the strip — the rail is a calendar and a gap is
-          // information — and it keeps its focusability, but it is announced
-          // and painted as unavailable rather than offering a trip that
-          // cannot happen.
-          const isEmpty = chip.count === 0;
-          return (
-            <button
-              key={chip.key}
-              type="button"
-              data-chip={chip.key}
-              aria-label={chip.label}
-              aria-current={isAnchor ? 'date' : undefined}
-              aria-disabled={isEmpty || undefined}
-              // One tab stop for the whole strip: a season is ~64 chips, and
-              // every one of them being a tab stop between the filters and
-              // the list is what the ArrowLeft/ArrowRight/Home handler above
-              // exists to replace.
-              tabIndex={chip.key === tabStopKey ? 0 : -1}
-              onClick={() => { if (!isEmpty) onSelectDay(chip.key); }}
-              className={`shrink-0 min-h-11 min-w-11 px-2 py-1 rounded-md text-center leading-tight transition-colors ${
-                isAnchor
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700'
-              } ${
-                // The dashed border says "nothing here", mirroring iOS's
-                // MyDayChipContent.isEmpty; the dimming says "and so there is
-                // nothing to press".
-                isEmpty ? 'border border-dashed border-gray-300 dark:border-gray-600 opacity-50 cursor-default' : 'border border-transparent'
-              }`}
-            >
-              {chip.month && (
-                <span className="block text-[10px] font-semibold uppercase opacity-70" aria-hidden="true">{chip.month}</span>
-              )}
-              <span className="block text-[10px] uppercase opacity-70" aria-hidden="true">{chip.weekday}</span>
-              <span className="block text-sm font-semibold" aria-hidden="true">{chip.dayOfMonth}</span>
-            </button>
-          );
-        })}
+      {/*
+        Three stacked layers inside one scroller, so all of them share a
+        single `scrollLeft` and cannot desync:
+
+          chips (static)  — the real, interactive row
+          pill  (z-10)    — the highlight, painted OVER the chips' own
+                            backgrounds and text
+          copy  (z-20)    — the same row again in the highlighted colour,
+                            clipped to exactly the pill
+
+        The pill sitting above the chips rather than behind them is what
+        keeps `hover:bg-blue-50` from painting over the highlight on the
+        current day; the copy above the pill is what puts legible text back.
+        A chip straddling the pill's edge is therefore genuinely split — the
+        left half in the base colour, the right half white — which is the
+        half-and-half state the reader sees if they stop mid-scroll.
+      */}
+      <div ref={stripRef} data-rail-strip className="flex-1 overflow-x-auto scrollbar-hide">
+        <div ref={contentRef} data-rail-content className="relative flex items-center gap-1 w-max">
+          {chips.map((chip) => {
+            // A day with nothing on it is not a destination. It keeps its
+            // place on the strip — the rail is a calendar and a gap is
+            // information — and it keeps its focusability, but it is
+            // announced and painted as unavailable rather than offering a
+            // trip that cannot happen.
+            const isEmpty = chip.count === 0;
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                data-chip={chip.key}
+                aria-label={chip.label}
+                aria-current={chip.key === anchorDay ? 'date' : undefined}
+                aria-disabled={isEmpty || undefined}
+                // One tab stop for the whole strip: a season is ~64 chips,
+                // and every one of them being a tab stop between the filters
+                // and the list is what the ArrowLeft/ArrowRight/Home handler
+                // above exists to replace.
+                tabIndex={chip.key === tabStopKey ? 0 : -1}
+                onClick={() => { if (!isEmpty) { resume(); onSelectDay(chip.key); } }}
+                className={`${chipBoxClass(isEmpty)} text-gray-700 dark:text-gray-300 ${
+                  // The dimming says "nothing to press" — paint only, so it
+                  // stays out of the shared box class.
+                  isEmpty ? 'opacity-50 cursor-default' : 'hover:bg-blue-50 dark:hover:bg-gray-700'
+                }`}
+              >
+                <ChipFace chip={chip} />
+              </button>
+            );
+          })}
+
+          <div
+            ref={pillRef}
+            data-rail-pill
+            aria-hidden="true"
+            className="absolute inset-y-0 left-0 z-10 rounded-md bg-blue-600 pointer-events-none"
+            // Placed before first paint by `useRailHighlight`'s layout
+            // effect; hidden until then so it cannot flash at x=0.
+            style={{ opacity: 0 }}
+          />
+
+          <div
+            ref={clipRef}
+            data-rail-clip
+            aria-hidden="true"
+            className="absolute inset-0 z-20 flex items-center gap-1 text-white pointer-events-none"
+            style={{ clipPath: 'inset(0 100% 0 0)' }}
+          >
+            {chips.map((chip) => (
+              // Buttons, not divs: this row must match the real one's box
+              // metrics exactly, and a `<div>` does not inherit the same UA
+              // and preflight rules a `<button>` does. Not focusable, not
+              // announced, not clickable — it is paint.
+              <button
+                key={chip.key}
+                type="button"
+                tabIndex={-1}
+                className={chipBoxClass(chip.count === 0)}
+              >
+                <ChipFace chip={chip} />
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <button
         type="button"
         aria-label={nextLabel}
         disabled={!canStepForward}
-        onClick={() => onStepDay(1)}
+        onClick={() => { resume(); onStepDay(1); }}
         className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
       >
         ›
@@ -308,7 +385,7 @@ export function DayRail({
         <button
           type="button"
           aria-label="Go to today"
-          onClick={onGoToToday}
+          onClick={() => { resume(); onGoToToday(); }}
           className="shrink-0 inline-flex min-h-11 items-center justify-center px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
         >
           ⟳ Now

@@ -17,8 +17,38 @@
  */
 export const DAY_SECTION_ATTR = 'data-day-key';
 
+/**
+ * The sticky title inside a day section.
+ *
+ * Declared rather than reached for via `firstElementChild` because the rail's
+ * highlight ramp is floored at this element's height — the distance the title
+ * itself takes to hand over — and a wrapper introduced above the header later
+ * would silently re-point that floor at something else. Named, it is a
+ * compile-time-visible contract like `DAY_SECTION_ATTR`; positional, it is a
+ * bug that only shows up as a ramp that feels wrong.
+ */
+export const DAY_HEADER_ATTR = 'data-day-header';
+
 export function daySectionElement(key: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="${key}"]`);
+}
+
+/**
+ * A day section's own height and the height of its sticky title.
+ *
+ * Both read through `getBoundingClientRect` rather than `offsetHeight`: it is
+ * the measurement the rest of this file already uses, it reports fractional
+ * pixels at browser text zoom, and it is the one every test in this repo
+ * already knows how to state for a layout-free jsdom.
+ */
+export function daySectionMetrics(key: string): { height: number; headerHeight: number } | null {
+  const el = daySectionElement(key);
+  if (!el) return null;
+  const header = el.querySelector<HTMLElement>(`[${DAY_HEADER_ATTR}]`);
+  return {
+    height: el.getBoundingClientRect().height,
+    headerHeight: header ? header.getBoundingClientRect().height : 0,
+  };
 }
 
 /**

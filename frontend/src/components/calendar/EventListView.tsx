@@ -3,7 +3,7 @@ import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
 import type { ProgramLink } from '@/hooks/useProgramLinks';
 import { downloadICS } from '@/lib/utils/icsHelpers';
-import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
+import { DAY_SECTION_ATTR, DAY_HEADER_ATTR } from '@/lib/utils/daySections';
 import { EventCard } from './EventCard';
 import { WeekBadge } from './WeekBadge';
 
@@ -54,6 +54,7 @@ export function EventListView({
           style={{ scrollMarginTop: 'var(--day-rail-h)' }}
         >
           <div
+            {...{ [DAY_HEADER_ATTR]: '' }}
             className="sticky bg-white dark:bg-gray-800 z-10 border-b border-gray-200 dark:border-gray-700 pb-1 sm:pb-2 mb-2 sm:mb-4"
             // `top-0` is dropped from the class list in favour of this: two
             // sticky layers both pinned at 0 overlap, and the header is the

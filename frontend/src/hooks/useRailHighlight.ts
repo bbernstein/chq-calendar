@@ -1,0 +1,303 @@
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import type { RefObject } from 'react';
+import { daySectionTop, daySectionMetrics, dayRailHeightPx } from '@/lib/utils/daySections';
+import {
+  resolveAnchor, rampDistance, dayProgress, stripScrollLeft, pillGeometry, lerp,
+  type ChipExtent,
+} from '@/lib/utils/railPosition';
+
+/** How long the strip takes to catch up after a tap, a chevron, or `⟳ Now`. */
+export const TWEEN_MS = 220;
+
+/**
+ * How far the strip has to be out of position before catching up is treated
+ * as a jump to be animated rather than a scroll to be tracked.
+ *
+ * Measured in chips, not pixels, so it stays right at any text zoom.
+ */
+export const JUMP_CHIPS = 1.5;
+
+/** Fallback chip pitch, used only before anything has been measured. */
+const FALLBACK_PITCH = 48;
+
+export interface RailHighlight {
+  /** The horizontally scrolling element. */
+  stripRef: RefObject<HTMLDivElement | null>;
+  /** The content inside it — the positioning context for pill and clip. */
+  contentRef: RefObject<HTMLDivElement | null>;
+  /** The highlight itself. */
+  pillRef: RefObject<HTMLDivElement | null>;
+  /** The duplicated, highlighted copy of the chip row. */
+  clipRef: RefObject<HTMLDivElement | null>;
+  /** Hand `scrollLeft` back to the highlight after an explicit commit. */
+  resume: () => void;
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * Drives the rail's highlight from scroll position, without re-rendering.
+ *
+ * The day the reader is on is a *fraction*, not a key: it advances
+ * continuously as the list's own sticky day title hands over, so the
+ * highlight tracks the reader's finger and stops half-done when they stop.
+ * That fraction deliberately never becomes React state — `page.tsx` is the
+ * whole application, and putting a per-frame value in `useState` would
+ * re-render it sixty times a second. Everything here is measured in a
+ * rAF-throttled callback and written straight to three DOM properties.
+ *
+ * The discrete anchor stays where it was, in `useDayAnchor`: it drives
+ * `aria-current`, the chevron targets and `⟳ Now`, none of which want a
+ * fractional day. Both resolve through the same `resolveAnchor`, so the pill
+ * and the announced current day cannot name different days.
+ *
+ * **The invariant this rests on:** the anchor is derived from page scroll and
+ * nothing else. This hook only ever reads it. Dragging the rail sideways is a
+ * peek — it moves the reader's view of the season and never the page — so the
+ * pill stays glued to the day being read and drifts off centre rather than
+ * catching whatever chip is dragged under it.
+ *
+ * The four refs are created here rather than accepted as an argument so their
+ * identity is stable: a caller passing a fresh `{ strip, pill, ... }` object
+ * each render would re-subscribe every listener on every render.
+ */
+export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): RailHighlight {
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  const clipRef = useRef<HTMLDivElement | null>(null);
+
+  /** Chip extents in content coordinates, rebuilt only when the row changes. */
+  const extents = useRef<Map<string, ChipExtent>>(new Map());
+  const contentWidth = useRef(0);
+  const pitch = useRef(FALLBACK_PITCH);
+
+  /** True while the reader owns `scrollLeft` — see `resume` below. */
+  const suspended = useRef(false);
+  /** The anchor as of the last frame, so a change of day can lift a peek. */
+  const lastAnchor = useRef<string | null>(null);
+  const tween = useRef<{ to: number; raf: number } | null>(null);
+
+  // Serialized so the effects below re-run when the *contents* change rather
+  // than on every render that hands down a new array identity. (NOTE for
+  // humans, not a real eslint-disable: this repo has no
+  // eslint-plugin-react-hooks, so a literal `react-hooks/exhaustive-deps`
+  // disable comment is a hard ESLint 9 error rather than a silenced warning.)
+  const chipsId = chipKeys.join(',');
+  const keysId = windowDayKeys.join(',');
+
+  const cancelTween = useCallback(() => {
+    if (tween.current) {
+      cancelAnimationFrame(tween.current.raf);
+      tween.current = null;
+    }
+  }, []);
+
+  /**
+   * Hand `scrollLeft` back to the highlight.
+   *
+   * Called on any explicit commit — a chip, a chevron, `⟳ Now`. Scrolling the
+   * page into a different day lifts a peek on its own (see `sync` below), but
+   * tapping the chip for the day already being read changes no anchor, and
+   * without this the strip would stay wherever the reader had panned it.
+   */
+  const resume = useCallback(() => { suspended.current = false; }, []);
+
+  /**
+   * Ease the strip to a destination it cannot simply track.
+   *
+   * A tap scrolls the page instantly, so `scrollLeft` would otherwise
+   * teleport across a week of chips. This is the only self-moving animation
+   * in the rail — everything else is 1:1 with the reader's own gesture — so
+   * it is the only thing `prefers-reduced-motion` turns off.
+   */
+  const startTween = useCallback((strip: HTMLElement, to: number) => {
+    cancelTween();
+    const from = strip.scrollLeft;
+    if (prefersReducedMotion() || Math.abs(to - from) < 1) {
+      strip.scrollLeft = to;
+      return;
+    }
+    const t0 = performance.now();
+    // Identity, not a boolean: a frame belonging to a superseded tween must
+    // not null out the tween that replaced it.
+    const self = { to, raf: 0 };
+    const step = () => {
+      if (tween.current !== self) return;
+      const progress = Math.min(1, (performance.now() - t0) / TWEEN_MS);
+      strip.scrollLeft = lerp(from, to, easeOutCubic(progress));
+      if (progress < 1) self.raf = requestAnimationFrame(step);
+      else tween.current = null;
+    };
+    tween.current = self;
+    self.raf = requestAnimationFrame(step);
+  }, [cancelTween]);
+
+  /**
+   * Re-measure the chip row.
+   *
+   * Rects rather than `offsetLeft`: the content element is the offset parent
+   * today, but `offsetLeft` silently re-points at whatever positioned
+   * ancestor appears above it later, and `chipRect.left - contentRect.left`
+   * cannot. The content element scrolls with its chips, so that difference is
+   * already scroll-independent — no `scrollLeft` term needed.
+   */
+  const measureChips = useCallback(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const contentRect = content.getBoundingClientRect();
+    contentWidth.current = contentRect.width;
+    const next = new Map<string, ChipExtent>();
+    const lefts: number[] = [];
+    // `:scope >` matters: the highlighted copy of the row is a descendant of
+    // this same element and carries the same `data-chip` keys, so an
+    // unscoped query would measure every chip twice.
+    for (const el of Array.from(content.querySelectorAll<HTMLElement>(':scope > [data-chip]'))) {
+      const key = el.dataset.chip;
+      if (!key || next.has(key)) continue;
+      const rect = el.getBoundingClientRect();
+      const left = rect.left - contentRect.left;
+      next.set(key, { left, width: rect.width });
+      lefts.push(left);
+    }
+    extents.current = next;
+    // Pitch from the first gap rather than an average: chips are uniform, and
+    // one subtraction cannot be skewed by a partially-laid-out row.
+    if (lefts.length >= 2 && lefts[1] > lefts[0]) pitch.current = lefts[1] - lefts[0];
+  }, []);
+
+  /** Blank the highlight rather than leave it parked on a stale day. */
+  const hide = useCallback(() => {
+    if (pillRef.current) pillRef.current.style.opacity = '0';
+    if (clipRef.current) clipRef.current.style.clipPath = 'inset(0 100% 0 0)';
+  }, []);
+
+  /**
+   * Measure, compute, write. Every read is taken before any write, so a frame
+   * never interleaves them and forces a synchronous re-layout.
+   */
+  const sync = useCallback(() => {
+    const strip = stripRef.current;
+    const pill = pillRef.current;
+    const clip = clipRef.current;
+    if (!strip || !pill || !clip) return;
+
+    const limit = dayRailHeightPx() + 1;
+    const resolved = resolveAnchor(windowDayKeys, limit, daySectionTop);
+    if (!resolved) {
+      hide();
+      lastAnchor.current = null;
+      return;
+    }
+
+    // Scrolling into a different day lifts a peek: the reader has moved on
+    // from whatever they had panned the rail to look at. Guarded on a
+    // non-null previous anchor so the very first measured frame is not
+    // mistaken for a change of day.
+    if (lastAnchor.current !== null && resolved.key !== lastAnchor.current) {
+      suspended.current = false;
+    }
+    lastAnchor.current = resolved.key;
+
+    const metrics = daySectionMetrics(resolved.key);
+    const ramp = metrics ? rampDistance(metrics.height, metrics.headerHeight) : 0;
+    const progress = resolved.nextTop === null ? 0 : dayProgress(resolved.nextTop, limit, ramp);
+
+    const geometry = pillGeometry(
+      extents.current.get(resolved.key) ?? null,
+      resolved.nextKey ? extents.current.get(resolved.nextKey) ?? null : null,
+      progress,
+    );
+    // The anchor day has no chip — reachable if the view window and the
+    // navigable bounds ever disagree. Nothing to highlight.
+    if (!geometry) { hide(); return; }
+
+    const { left, width } = geometry;
+    const right = Math.max(0, contentWidth.current - (left + width));
+
+    pill.style.opacity = '1';
+    pill.style.width = `${width}px`;
+    pill.style.transform = `translateX(${left}px)`;
+    // The clip layer is `inset-0` inside the content element, so its own box
+    // is the content box and these insets are already in the same coordinate
+    // space as `left` and `width`.
+    clip.style.clipPath = `inset(0 ${right}px 0 ${left}px)`;
+
+    // The reader is panning the rail. The pill above still tracks its day —
+    // that is the point of the peek — but the strip stays where they put it.
+    if (suspended.current) return;
+
+    const desired = stripScrollLeft(
+      left + width / 2,
+      strip.clientWidth,
+      strip.scrollWidth - strip.clientWidth,
+    );
+    const threshold = pitch.current * JUMP_CHIPS;
+
+    if (tween.current) {
+      // Let a running tween finish unless the destination has genuinely
+      // moved — a second tap while the first is still travelling.
+      if (Math.abs(desired - tween.current.to) > threshold) startTween(strip, desired);
+      return;
+    }
+    if (Math.abs(desired - strip.scrollLeft) > threshold) startTween(strip, desired);
+    else strip.scrollLeft = desired;
+  }, [keysId, hide, startTween]);
+
+  // Measure and place before paint: a pill positioned in a passive effect
+  // would flash at x=0 on the first frame.
+  useLayoutEffect(() => {
+    measureChips();
+    sync();
+  }, [chipsId, keysId, measureChips, sync]);
+
+  useEffect(() => {
+    const strip = stripRef.current;
+    const content = contentRef.current;
+
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; sync(); });
+    };
+    const onResize = () => { measureChips(); onScroll(); };
+
+    // The reader taking hold of the rail suspends our writes until they
+    // scroll into a different day. `wheel` as well as `pointerdown`: a
+    // trackpad two-finger horizontal pan fires no pointer event at all, and
+    // would otherwise be fought by the per-frame `scrollLeft` write.
+    const takeOver = () => { suspended.current = true; cancelTween(); };
+
+    // Passive throughout: none of these may delay a scroll.
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize, { passive: true });
+    strip?.addEventListener('pointerdown', takeOver, { passive: true });
+    strip?.addEventListener('wheel', takeOver, { passive: true });
+
+    // The chip row can change width without the window resizing — `⟳ Now`
+    // and the Filters toggle appear and disappear beside it. Absent in some
+    // older browsers and in jsdom without a stub; skipping it there only
+    // loses a re-measure, which is better than throwing on mount.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onResize);
+    if (content) observer?.observe(content);
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      cancelTween();
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      strip?.removeEventListener('pointerdown', takeOver);
+      strip?.removeEventListener('wheel', takeOver);
+      observer?.disconnect();
+    };
+  }, [chipsId, keysId, sync, measureChips, cancelTween]);
+
+  return { stripRef, contentRef, pillRef, clipRef, resume };
+}
