@@ -49,6 +49,15 @@ describe('useDismissOnScrollGesture', () => {
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
+  // SCROLL_KEYS exists so that typing in the panel's own search field can't
+  // close it. A bare letter or Tab must be ignored on keydown.
+  it('does NOT dismiss on a non-scroll key', () => {
+    const onDismiss = setup();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   it('ignores a gesture that starts inside an exempt element', () => {
     const panel = document.createElement('div');
     const inner = document.createElement('button');
