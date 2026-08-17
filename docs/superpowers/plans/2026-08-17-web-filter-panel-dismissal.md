@@ -135,6 +135,16 @@ describe('useDismissOnScrollGesture', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  // Without this, deleting the SCROLL_KEYS guard entirely — so every keydown
+  // dismisses — leaves every other test in this file passing. The narrowing
+  // exists so that typing in the panel's own search field does not close it,
+  // and this is the only test that covers that.
+  it.each(['a', 'Tab'])('does not dismiss on the non-scroll key %s', (key) => {
+    const onDismiss = setup();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key }));
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   // The single most important assertion in this file. Opening the panel fires
   // our own `scrollBy` correction, and a filter change reflows the list — both
   // emit `scroll`. A `scroll` listener would dismiss the panel in the frame it
