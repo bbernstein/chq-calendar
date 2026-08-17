@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
+import { useLayoutEffect } from 'react';
 import { render, fireEvent, screen, act, within } from '@testing-library/preact';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
 
@@ -12,8 +13,18 @@ afterEach(() => { vi.restoreAllMocks(); });
 // stable all-zero rect, so the day section is a harmless no-op reference
 // (delta always 0, `scrollBy` never called) in every test that doesn't
 // explicitly mock it.
+//
+// `scrolledPast: true` throughout: the rail's toggle only exists once the
+// reader has scrolled past the in-flow filter card, so that is the state
+// every interaction modelled here happens in.
+//
+// The "Hide filters" button is the caret's stand-in — a control mounted
+// INSIDE the panel that calls the same `toggle` the rail's button calls.
+// Its placement is the whole point of the focus test below: when it fires,
+// `document.activeElement` is guaranteed to be inside the panel that is
+// about to be hidden.
 function Harness() {
-  const { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect } = useFilterPanel();
+  const { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect } = useFilterPanel({ scrolledPast: true });
   return (
     <div>
       <button ref={toggleRef} type="button" onClick={toggle} aria-expanded={open} aria-controls={panelId}>
@@ -22,6 +33,7 @@ function Harness() {
       <div id={panelId} ref={panelRef} className={open ? '' : 'hidden'}>
         <input aria-label="Search" />
         <button type="button">A filter control</button>
+        <button type="button" onClick={toggle}>Hide filters</button>
       </div>
       <div data-day-key="2026-08-18">day section</div>
       {/*
@@ -83,6 +95,48 @@ describe('useFilterPanel', () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(screen.getByLabelText('Search').closest('[id]')).toHaveClass('hidden');
+  });
+
+  // The caret (`FilterPanelCaret`) is a real <button> mounted INSIDE the
+  // panel and wired to this same `toggle`. When it fires,
+  // `document.activeElement` IS the caret, which is inside the element that
+  // `toggle` is about to make `inert` + `aria-hidden` + `display: none` —
+  // so focus drops to <body> and a keyboard or switch user who activated
+  // "Hide filters" is thrown to the top of the document. `closeViaGesture`
+  // and `closeViaEscape` both handle this; the one path where the stranding
+  // is CERTAIN rather than merely possible did not.
+  //
+  // Asserting `activeElement` is the toggle (not merely "not body") is what
+  // pins the fix rather than any focus movement at all.
+  it('returns focus to the toggle when a control inside the panel closes it', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle); // open
+    const caret = screen.getByRole('button', { name: 'Hide filters' });
+    act(() => { caret.focus(); });
+    expect(document.activeElement).toBe(caret);
+
+    fireEvent.click(caret);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  // The other half of the same containment check: a click on the rail's own
+  // toggle already leaves focus on the toggle, so the check must be a no-op
+  // there rather than an unconditional refocus that could fight it.
+  it('leaves focus alone when the rail toggle closes it from outside the panel', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle); // open
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    act(() => { outside.focus(); });
+
+    fireEvent.click(toggle); // close from outside the panel
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(outside);
   });
 
   it('opening moves focus to the first focusable control inside the panel', () => {
@@ -191,7 +245,7 @@ describe('useFilterPanel', () => {
 
   it('does nothing when there is no day section to use as a reference', () => {
     function HarnessNoSections() {
-      const { open, toggle, panelId, panelRef, toggleRef } = useFilterPanel();
+      const { open, toggle, panelId, panelRef, toggleRef } = useFilterPanel({ scrolledPast: true });
       return (
         <div>
           <button ref={toggleRef} type="button" onClick={toggle} aria-expanded={open} aria-controls={panelId}>
@@ -512,5 +566,90 @@ describe('exit animation', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * `page.tsx`'s own composition of the hook's exit state, reproduced
+ * minimally: `exitingVisible`, the `hidden` class it suppresses, and the
+ * `filter-panel-exit` class plus `position: fixed` it turns on. Nothing else
+ * about the page is here.
+ *
+ * Reproducing it is the point rather than a shortcut. The bug this exists to
+ * pin is not visible in the hook's own state — every value the hook exposes
+ * settles correctly within a commit or two either way. It is visible only in
+ * what the consumer *commits to the DOM in the first frame of the exit*, so
+ * the consumer's rule is what has to be exercised.
+ *
+ * `commits` collects one entry per committed render via a dep-less
+ * `useLayoutEffect`, which is what makes intermediate commits observable at
+ * all: asserting on the final DOM cannot fail here, because a state latch
+ * that is one commit late still lands on the right answer by the time
+ * `fireEvent` returns. That is precisely why the defect shipped.
+ */
+function PageShapedHarness({ commits }: { commits: { exiting: boolean; className: string }[] }) {
+  const { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect, exitScrolledPast } =
+    useFilterPanel({ scrolledPast: true });
+  const exitingVisible = exiting && exitScrolledPast && exitRect !== null;
+  const className = [
+    !open && !exitingVisible ? 'hidden' : '',
+    exitingVisible ? 'filter-panel-exit' : '',
+  ].filter(Boolean).join(' ');
+  useLayoutEffect(() => { commits.push({ exiting, className }); });
+  return (
+    <div>
+      <button ref={toggleRef} type="button" onClick={toggle} aria-expanded={open} aria-controls={panelId}>
+        Filters
+      </button>
+      <div
+        id={panelId}
+        ref={panelRef}
+        data-testid="panel"
+        className={className}
+        style={exitingVisible ? { position: 'fixed', top: `${exitRect!.top}px` } : undefined}
+      >
+        <input aria-label="Search" />
+      </div>
+      <div data-day-key="2026-08-18">day section</div>
+    </div>
+  );
+}
+
+describe('the first dismissal of a session', () => {
+  // The defect: the overlay state driving `exitingVisible` was derived in a
+  // passive `useEffect` in the consumer, one commit behind `exiting` and
+  // `exitRect`. On the FIRST dismissal after the reader crosses the sentinel
+  // it is still at its initial `false`, so the exit's opening commit renders
+  // the panel `display: none` — and **a CSS transition cannot start from
+  // `display: none`**: there is no before-change style, so the element jumps
+  // straight to `translateY(-100%); opacity: 0`, `transitionend` never
+  // fires, and the panel blinks out in a single frame with no slide. Every
+  // dismissal after the first looks right, because the latch stays true,
+  // which is exactly why nothing caught it. It recurs whenever the latch is
+  // reset — a dismissal at the top of the page.
+  //
+  // A layout-effect latch does not fix it either: it still commits the
+  // `display: none` DOM first and then corrects it. This test fails against
+  // both.
+  it('renders the exit out of flow in the very commit the exit begins', () => {
+    const commits: { exiting: boolean; className: string }[] = [];
+    render(<PageShapedHarness commits={commits} />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle); // open
+    const panel = screen.getByTestId('panel');
+    panel.getBoundingClientRect = () => ({ top: 64, left: 0, width: 390, height: 281 }) as DOMRect;
+    commits.length = 0;
+
+    fireEvent.click(toggle); // the FIRST dismissal from this mount
+
+    const firstExitCommit = commits.find(c => c.exiting);
+    expect(firstExitCommit).toBeDefined();
+    // Not `display: none` — a transition has to have a frame to start from.
+    expect(firstExitCommit!.className).not.toContain('hidden');
+    // And already carrying the transition, in that same commit.
+    expect(firstExitCommit!.className).toContain('filter-panel-exit');
+    // The settled DOM agrees, so this isn't pinning a transient the browser
+    // would never paint.
+    expect(panel.style.position).toBe('fixed');
   });
 });

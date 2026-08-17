@@ -227,40 +227,23 @@ function HomeContent() {
   const {
     open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef,
     toggleRef: filtersToggleRef, exiting: filtersExiting, exitRect: filtersExitRect,
-  } = useFilterPanel();
-  // Latches `filtersScrolledPast` for the lifetime of one exit, rather than
-  // reading it live below. The two signals are correct independently but
-  // race each other: the dismissal's own scroll correction
-  // (`useFilterPanel`'s `scrollBy(0, -panelHeight)`) runs synchronously at
-  // the START of the exit and can move the reader from just past the
-  // sentinel to just before it, while `useScrolledPastFilters`'s
-  // IntersectionObserver callback for that same move lands a frame or two
-  // later — well inside the ~200ms visual exit (the CSS transition
-  // duration; see `useFilterPanel`'s `EXIT_FALLBACK_MS` for why the JS-side
-  // safety margin is wider than that but irrelevant to this race). A live
-  // read of `filtersScrolledPast`
-  // would flip `filtersExitingVisible` (below) to `false` mid-animation, and
-  // the ghost would lose `position: fixed` and the exit class mid-flight:
-  // snapping back into flow, full opacity, full height, mid-slide. Only
-  // re-captured when `filtersExiting` itself flips (the effect's deps are
-  // deliberately just `[filtersExiting]`, not also `filtersScrolledPast` —
-  // that asymmetry is the latch, not an oversight), so the IO catch-up this
-  // exit's own correction triggers can't retroactively change what was
-  // latched for it.
-  const [exitWasScrolledPast, setExitWasScrolledPast] = useState(false);
-  useEffect(() => {
-    if (filtersExiting) setExitWasScrolledPast(filtersScrolledPast);
-  }, [filtersExiting]);
+    exitScrolledPast: filtersExitScrolledPast,
+  } = useFilterPanel({ scrolledPast: filtersScrolledPast });
   // The exit animation only makes sense once the panel has actually left
   // in-flow content — at the top of the page (`!filtersScrolledPast`) the
   // panel is unconditionally shown regardless of `open` (see the className
   // below), so a stray gesture-dismiss while scrolled back to the top with a
   // stale `filtersOpen` must not fix the panel to a rect and animate it away
-  // from a position the reader can still see it occupying. `useFilterPanel`
-  // doesn't know about that page-level invariant, so it's arbitrated here —
-  // via the latch above, not a live `filtersScrolledPast` read, for the race
-  // explained there.
-  const filtersExitingVisible = filtersExiting && exitWasScrolledPast && filtersExitRect !== null;
+  // from a position the reader can still see it occupying.
+  //
+  // `filtersExitScrolledPast`, not a live `filtersScrolledPast` read: the
+  // hook freezes the value at the instant the exit begins, in the same batch
+  // as `exiting` and `exitRect`. Two reasons, both explained at length in
+  // `useFilterPanel`'s "Exit animation" doc — the exit's own `scrollBy` can
+  // recross the sentinel mid-animation and drop the ghost out of `fixed`,
+  // and anything derived one commit later renders this first frame
+  // `display: none`, which a CSS transition cannot start from.
+  const filtersExitingVisible = filtersExiting && filtersExitScrolledPast && filtersExitRect !== null;
   // The panel only needs to cap its own height and scroll internally while
   // it is acting as an overlay over the list — at the top of the page it is
   // ordinary in-flow content and the page itself scrolls past it, same as
@@ -432,8 +415,14 @@ function HomeContent() {
               // second copy revealed instead of it. At the top of the page
               // (`!filtersScrolledPast`) it always renders, regardless of a
               // stale `filtersOpen` left over from scrolling back up without
-              // explicitly closing — see the design's "closing is explicit"
-              // requirement; scrolling back to the top is not a close.
+              // explicitly closing. Scrolling back to the top is not a close:
+              // per D3 of
+              // docs/superpowers/specs/2026-08-17-web-filter-panel-dismissal-design.md,
+              // only the Filters control brings the panel back once it is
+              // gone, and the reverse trip up the page is navigation, not a
+              // dismissal. (The earlier 08-16 spec's "closing is explicit"
+              // requirement is the one line the 08-17 design overturns — do
+              // not cite it here.)
               // `filtersExitingVisible` also keeps it un-hidden: it is
               // leaving via the fixed-position animation below, not gone yet.
               filtersScrolledPast && !filtersOpen && !filtersExitingVisible ? 'hidden' : ''
@@ -557,7 +546,14 @@ function HomeContent() {
               panelId: filtersPanelId,
               visible: filtersScrolledPast,
               toggleRef: filtersToggleRef,
-              hasActiveFilters: filters.hasFilters,
+              // `hasNonDefaultFilters`, NOT `hasFilters`. `hasFilters` is
+              // true on a default visit (the default scope is `next`, which
+              // is a date filter), so the dot would be lit for every reader
+              // before they touched anything — an indicator that is always
+              // on communicates nothing, which is the opposite of the job
+              // the design gives it. See `useFilterState` for what "default"
+              // means per year.
+              hasActiveFilters: filters.hasNonDefaultFilters,
             }}
           />
         </div>

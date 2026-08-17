@@ -77,17 +77,27 @@ const EXIT_FALLBACK_MS = 400;
  * ## Focus
  *
  * Opening moves focus to the first focusable control inside the panel.
- * Closing via `Escape` returns it to the toggle button — closing by
- * clicking the toggle again already leaves focus there, so no extra step is
- * needed on that path. Closing via a scroll gesture does *not* return focus
- * by default — a gesture means the reader's attention has already left the
- * panel, and yanking it to the toggle would be its own surprise — except
- * when focus is still inside the panel at the moment of dismissal, which
- * would otherwise strand it on an element about to leave the accessibility
- * tree; that one case returns focus to the toggle too. `{ preventScroll:
- * true }` on every focus call here is deliberate: a browser's default
- * focus-scroll would fight the exact scroll position this hook exists to
- * hold steady.
+ * Closing via `Escape` returns it to the toggle button unconditionally.
+ *
+ * Every other close returns focus to the toggle **only when focus was still
+ * inside the panel** at that moment — otherwise it leaves focus exactly
+ * where the reader put it. Both halves matter. A gesture means the reader's
+ * attention has already left the panel, and yanking focus to the toggle
+ * would be its own surprise; but focus left inside a panel that is about to
+ * go `inert` + `aria-hidden` + `display: none` is stranded on `<body>`, at
+ * the top of the document.
+ *
+ * `toggle()`'s close branch takes the same containment check rather than
+ * assuming a click already left focus on the toggle. That assumption held
+ * while the rail's Filters button was `toggle`'s only caller; the caret
+ * (`FilterPanelCaret`, mounted *inside* the panel) is a second caller for
+ * which `document.activeElement` is guaranteed to be inside the panel when
+ * it fires. One containment check covers both: it is a no-op for the rail
+ * toggle, whose click already moved focus out of the panel.
+ *
+ * `{ preventScroll: true }` on every focus call here is deliberate: a
+ * browser's default focus-scroll would fight the exact scroll position this
+ * hook exists to hold steady.
  *
  * ## Exit animation
  *
@@ -101,6 +111,29 @@ const EXIT_FALLBACK_MS = 400;
  * because that is the only moment it can still be read from the panel's
  * in-flow position.
  *
+ * `scrolledPast` is the caller's page-level "the panel is currently acting
+ * as an overlay over the list" signal, and `exitScrolledPast` is its value
+ * frozen for the lifetime of one exit. It is taken here, synchronously
+ * inside `beginExit`, so that `exiting`, `exitRect` and it all land in the
+ * SAME commit. Deriving it in the consumer from an effect instead — even a
+ * layout effect — is one commit late, and one commit late is fatal rather
+ * than cosmetic: the consumer renders the panel `display: none` for that
+ * first commit, and **a CSS transition cannot start from `display: none`**
+ * (there is no before-change style), so the panel jumps straight to its
+ * `translateY(-100%); opacity: 0` end state with no slide at all and
+ * `transitionend` never fires. That is invisible in jsdom and invisible on
+ * every dismissal after the first, because a state latch stays `true` once
+ * set — it is only ever wrong on the FIRST dismissal after the reader
+ * crosses the sentinel, which is the one every reader sees.
+ *
+ * Freezing it also settles a genuine race the live signal loses: this
+ * exit's own scroll correction (`scrollBy`, run synchronously at the start
+ * of the exit) can move the reader back across the sentinel, and the
+ * caller's IntersectionObserver reports that a frame or two later — well
+ * inside the ~200ms animation. A live read would drop `position: fixed` and
+ * the exit class mid-slide, snapping the ghost back into flow at full
+ * opacity.
+ *
  * Reopening while a previous exit is still animating reuses that same
  * element, so the in-flight exit is discarded (`exiting`/`exitRect` reset,
  * its fallback timer cancelled) rather than left to finish underneath the
@@ -110,7 +143,16 @@ const EXIT_FALLBACK_MS = 400;
  * browser-decided reduced-motion skip); without it a dismissal made while
  * hidden would leave `exiting` stuck `true` forever.
  */
-export function useFilterPanel(): {
+export function useFilterPanel({ scrolledPast }: {
+  /**
+   * Whether the reader has scrolled past the in-flow filter card, i.e.
+   * whether an open panel is currently overlaying the list rather than
+   * sitting in flow at the top of the page. Owned by the caller
+   * (`useScrolledPastFilters`); the hook only needs it at the instant an
+   * exit begins — see the "Exit animation" section above.
+   */
+  scrolledPast: boolean;
+}): {
   open: boolean;
   toggle: () => void;
   panelId: string;
@@ -118,10 +160,12 @@ export function useFilterPanel(): {
   toggleRef: (el: HTMLButtonElement | null) => void;
   exiting: boolean;
   exitRect: DOMRect | null;
+  exitScrolledPast: boolean;
 } {
   const [open, setOpen] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [exitRect, setExitRect] = useState<DOMRect | null>(null);
+  const [exitScrolledPast, setExitScrolledPast] = useState(false);
   const panelId = useId();
   const panelElRef = useRef<HTMLElement | null>(null);
   const toggleElRef = useRef<HTMLButtonElement | null>(null);
@@ -148,10 +192,11 @@ export function useFilterPanel(): {
 
   // The one place `open` is set to `false`. Measures the panel's rect while
   // it is still in flow (the only moment that's possible), then flips
-  // `exiting`/`exitRect`/`open` together in the same commit so `page.tsx`
-  // can switch the panel to `position: fixed` at that rect the instant its
-  // in-flow placeholder disappears — see the hook doc's "Exit animation"
-  // section for why that ordering is load-bearing.
+  // `exiting`/`exitRect`/`exitScrolledPast`/`open` together in the same
+  // commit so `page.tsx` can switch the panel to `position: fixed` at that
+  // rect the instant its in-flow placeholder disappears — see the hook doc's
+  // "Exit animation" section for why all four landing in ONE batch is
+  // load-bearing rather than tidy.
   //
   // `prefers-reduced-motion: reduce` (or a panel that somehow isn't mounted)
   // skips straight to the no-animation close: no rect, no fixed ghost, just
@@ -163,13 +208,15 @@ export function useFilterPanel(): {
     if (!panel || reducedMotion) {
       setExiting(false);
       setExitRect(null);
+      setExitScrolledPast(false);
       setOpen(false);
       return;
     }
     setExitRect(panel.getBoundingClientRect());
+    setExitScrolledPast(scrolledPast);
     setExiting(true);
     setOpen(false);
-  }, []);
+  }, [scrolledPast]);
 
   // Reopening reuses the very element a previous exit may still be
   // animating (no DOM clone — see the hook doc), so that exit has to be
@@ -180,24 +227,43 @@ export function useFilterPanel(): {
   const cancelExit = useCallback(() => {
     setExiting(false);
     setExitRect(null);
+    setExitScrolledPast(false);
+  }, []);
+
+  // Focus left inside a panel that is about to become `inert` +
+  // `aria-hidden` + `display: none` drops to `<body>` — the reader is thrown
+  // to the top of the document. Focus the reader deliberately moved
+  // elsewhere is left alone. Every non-Escape close path takes this; see the
+  // hook doc's "Focus" section for why the caret made it mandatory on
+  // `toggle` too.
+  const returnFocusIfStranded = useCallback(() => {
+    const panel = panelElRef.current;
+    if (panel && document.activeElement && panel.contains(document.activeElement)) {
+      toggleElRef.current?.focus({ preventScroll: true });
+    }
   }, []);
 
   // The only way `open` changes. Reads the current `open` directly (rather
   // than a functional update) because closing now needs `beginExit`'s side
   // effect, not just a flip.
+  //
+  // Two controls call this: the rail's Filters button (outside the panel)
+  // and the caret (inside it). The containment check is a no-op for the
+  // former and the whole point for the latter.
   const toggle = useCallback(() => {
     captureScrollReference();
     if (open) {
       beginExit();
+      returnFocusIfStranded();
     } else {
       cancelExit();
       setOpen(true);
     }
-  }, [open, beginExit, cancelExit]);
+  }, [open, beginExit, cancelExit, returnFocusIfStranded]);
 
-  // Escape is the other closer, and it needs the focus-return step
-  // `toggle()`'s click-close path doesn't need (a click already leaves focus
-  // on the toggle).
+  // Escape is the one closer that returns focus unconditionally: the reader
+  // pressed a key, so they are keyboarding, and the toggle is where they
+  // expect to land whether or not focus had wandered out of the panel.
   const closeViaEscape = useCallback(() => {
     captureScrollReference();
     beginExit();
@@ -205,19 +271,15 @@ export function useFilterPanel(): {
   }, [beginExit]);
 
   // Closing by gesture takes the same scroll-correction capture and exit
-  // animation as every other close. No focus return: a gesture means the
-  // reader's attention has already left the panel, and yanking focus to the
-  // toggle would be its own surprise. The one exception is focus that is
-  // still INSIDE the panel, which would otherwise be stranded on an element
-  // about to leave the accessibility tree.
+  // animation as every other close. No focus return by default: a gesture
+  // means the reader's attention has already left the panel, and yanking
+  // focus to the toggle would be its own surprise. The one exception is
+  // focus that is still INSIDE the panel — see `returnFocusIfStranded`.
   const closeViaGesture = useCallback(() => {
     captureScrollReference();
     beginExit();
-    const panel = panelElRef.current;
-    if (panel && document.activeElement && panel.contains(document.activeElement)) {
-      toggleElRef.current?.focus({ preventScroll: true });
-    }
-  }, [beginExit]);
+    returnFocusIfStranded();
+  }, [beginExit, returnFocusIfStranded]);
 
   // A gesture that starts inside the panel is the reader scrolling the
   // panel's own overflow, not the list. A gesture on the toggle is the
@@ -304,5 +366,5 @@ export function useFilterPanel(): {
     };
   }, [exiting]);
 
-  return { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect };
+  return { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect, exitScrolledPast };
 }

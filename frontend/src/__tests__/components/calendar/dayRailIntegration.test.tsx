@@ -192,7 +192,10 @@ function Harness({ groupedEvents: initialGroups, earlierKey, withFilterPanel }: 
   groupedEvents: DayGroup[]; earlierKey?: string; withFilterPanel?: boolean;
 }) {
   const [groupedEvents, setGroupedEvents] = useState(initialGroups);
-  const filterPanel = useFilterPanel();
+  // `scrolledPast: true` — the panel is only reachable, and the toggle only
+  // rendered, once the reader has scrolled past the in-flow filter card.
+  // That is the state every interaction modelled here happens in.
+  const filterPanel = useFilterPanel({ scrolledPast: true });
   const dayKeysList = groupedEvents.map(g => g.key);
   const bounds = { startDay: dayKeysList[0], endDay: dayKeysList[dayKeysList.length - 1] };
   const { scrollToDay, cancelHold } = useDayAnchor(dayKeysList);
@@ -398,24 +401,33 @@ describe('settle arbitration: a rail navigation supersedes a pending prepend hol
   });
 });
 
-describe('arbitration: a day-chip tap dismisses the panel before it navigates', () => {
+describe('composition: a day-chip tap dismisses the panel and still navigates', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     document.documentElement.style.removeProperty('--day-rail-h');
   });
 
   // A chip tap dismisses the panel AND navigates. Both correct scroll. If
-  // they ran unordered the reader would land in neither place — exactly the
-  // shape of the bug that cost the preceding branch a review round, when
+  // they fought, the reader would land in neither place — exactly the shape
+  // of the bug that cost the preceding branch a review round, when
   // useDayAnchor's hold and EventList's prepend settle both called scrollBy
-  // on one shared resize (see the two tests above). The two reasons this
-  // should hold by construction: Task 1's gesture listener is attached on
-  // `mousedown` at capture phase, which is temporally earlier than the
-  // chip's own `click` handler; and the panel's dismissal correction runs
-  // synchronously in a `useLayoutEffect`, so it is committed before the
-  // day-navigation `scrollBy` (driven by a plain `useEffect` one render
-  // later, once `revealDay` has mounted the target section) ever measures
-  // the DOM. This test exists to prove that rather than assume it.
+  // on one shared resize (see the two tests above).
+  //
+  // **What this pins, honestly: that the two compose — both corrections
+  // happen, exactly once each, dismissal first — through a real
+  // `useFilterPanel`, a real `EventList` and a real `useDayAnchor` wired the
+  // way page.tsx wires them.** That is a worthwhile end-to-end smoke test,
+  // and it is the whole of the claim.
+  //
+  // It is NOT a proof of the ordering *mechanism*, and an earlier version of
+  // this comment said it was. Both mechanisms it named survive being
+  // removed: switching the gesture listener from `mousedown` to `click`
+  // still yields `['dismiss','navigate']`, because the window-level capture
+  // listener runs before the chip's own bubble-phase handler either way; and
+  // demoting the dismissal's correction from `useLayoutEffect` to a passive
+  // `useEffect` still yields it, because that effect is queued from the
+  // earlier commit and flushes before the navigation's own. Proving the
+  // mechanism would need a much finer harness than this earns.
   //
   // Explicit timeout: same integration-test cost as the three tests above
   // (~60 EventCards from a real EventList + useDayAnchor render), plus a
@@ -425,7 +437,7 @@ describe('arbitration: a day-chip tap dismisses the panel before it navigates', 
   // the evidence that matters: a loaded, 2-core CI runner with coverage
   // instrumentation is what timed a test in this file out before its
   // fixture was shrunk, and this test renders the identical fixture.
-  it('dismisses the panel before scrolling to the tapped day, not alongside it', { timeout: 15000 }, () => {
+  it('records both corrections exactly once, dismissal first', { timeout: 15000 }, () => {
     installIntersectionObserverMock();
     installResizeObserverMock();
     document.documentElement.style.setProperty('--day-rail-h', '50px');
@@ -478,8 +490,8 @@ describe('arbitration: a day-chip tap dismisses the panel before it navigates', 
     fireEvent.mouseDown(chip);
     fireEvent.click(chip);
 
-    // Assert the ORDER, not just that both happened: the panel's correction
-    // must be recorded before the day-navigation scroll.
+    // Both corrections happened, once each, dismissal first — neither
+    // swallowed by the other, neither run twice.
     expect(order).toEqual(['dismiss', 'navigate']);
   });
 });
