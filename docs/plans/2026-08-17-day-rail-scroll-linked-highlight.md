@@ -1,6 +1,7 @@
 # Day rail — scroll-linked highlight
 
-**Status:** Approved design, not yet implemented.
+**Status:** Implemented and browser-verified. Branch pushed, PR not yet
+opened.
 **Branch:** `feat/web-rail-scroll-linked-highlight`
 **Follows:** phase 3a (#238, #239, #240) — the day rail itself.
 
@@ -197,15 +198,56 @@ reader's own gesture and stays as-is.
 Existing rail tests assert `aria-current` and "the strip writes its own
 `scrollLeft`". Both stay true, so test churn is minimal.
 
-## Risks to verify early in the browser
+## Browser verification (390x844, Chromium, real production data)
 
-1. Whether `clip-path` on the absolutely-positioned layer resolves against
-   its own border box (expected) rather than the scroller's.
-2. Whether the duplicated row's ~64 extra nodes cost anything measurable on a
-   phone.
-3. Whether the browser's native axis-locking on `overflow-x-auto` keeps a
-   diagonal drag near the screen's top edge from stealing vertical page
-   scroll.
+All three risks resolved, plus one defect found that no test reached.
+
+1. **`clip-path` coordinate space** — resolves against the layer's own border
+   box, as expected. Measured mid-handover: `inset(0 1079.88px 0 10920.1px)`
+   on a 12044px content box, and 10920.1 + 44 + 1079.88 = 12043.98.
+2. **Cost of the duplicated row** — none measurable. The rail turned out to
+   span **251 chips**, not the ~64 estimated here, so the copy is 502 buttons
+   over a 12044px strip. Median frame 8.3ms with the copy and 8.3ms with it
+   `display: none`; p95 9.9 vs 10.0. The 8.3ms is the page's own scroll cost.
+3. **Layer alignment** — worst chip delta across all 251 pairs: **0px**. The
+   shared `chipBoxClass` holds.
+4. **Continuity** — 13 distinct pill positions across the 200px ramp
+   (header 33px), and `pillLeft` is exactly the predicted function of the
+   measured distance in every sample. Critically, the last pre-flip position
+   equals the post-flip position (10896 + 48 = 10944), so the handover is
+   continuous across the anchor change rather than merely smooth either side
+   of it.
+5. **Peek** — a 200px pan leaves the page at rest, the pill on its day, and
+   the peek intact through subsequent same-day scrolling.
+6. **Commit** — tapping a chip six days ahead scrolls the page and eases the
+   strip through 24 distinct positions over ~400ms; under
+   `prefers-reduced-motion` the same tap uses 2 (start and end).
+
+### Defect found: peek detection inferred intent from event type
+
+Suspending on `wheel`/`pointerdown` over the strip also fired for a plain
+**vertical** page scroll with the pointer resting on the rail — and the rail
+is sticky at the top of a phone screen, which is where swipes start.
+Measured: one vertical wheel, then 120px of page scroll, moved the strip
+**0px**. Centring stayed dead until the next day boundary.
+
+Fixed by detecting divergence instead: every write goes through one
+`writeScrollLeft` that reads the value back, and a strip `scroll` finding a
+position other than the one we wrote means the reader moved it. Strictly
+more accurate in both directions — it cannot fire for a scroll that merely
+passed over the rail, and it catches touch drag, trackpad pan, scrollbar and
+keyboard rather than the two events the old list named. After the fix the
+same measurement gives 24px.
+
+This was green on all 1029 tests before the browser pass.
+
+### Remaining, not verified
+
+Native axis-locking on a diagonal touch drag starting on the rail. Chromium
+headless does not reproduce real touch gesture arbitration, so this needs a
+device or simulator pass rather than a scripted one. Low risk: the strip is
+an ordinary `overflow-x-auto` element with no touch-action override, so it
+gets the platform's default behaviour.
 
 ## Files
 
