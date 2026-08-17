@@ -351,11 +351,14 @@ describe('dismissal by scroll gesture', () => {
     expect(result.current.open).toBe(true);
   });
 
+  // NOT `expect(open).toBe(false)` before and after — setting already-false
+  // state is a no-op re-render, so that version passes even with the hook's
+  // `active` gate hardcoded to `true`, i.e. it cannot fail. Assert an
+  // observable side effect of the close path instead (focus, or the scroll
+  // correction) so deleting the gate is caught.
   it('does nothing while closed', () => {
-    const { result } = renderHook(() => useFilterPanel());
-    expect(result.current.open).toBe(false);
-    act(() => { window.dispatchEvent(new Event('wheel')); });
-    expect(result.current.open).toBe(false);
+    // …adapt to the file's Harness pattern; assert a side effect, not the
+    // unchanged `open` value…
   });
 });
 ```
