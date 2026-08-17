@@ -4,6 +4,7 @@ import { render, fireEvent } from '@testing-library/preact';
 import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
 import { EventList } from '@/components/calendar/EventList';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
+import { useFilterPanel } from '@/hooks/useFilterPanel';
 import { daySectionElement, DAY_SECTION_ATTR } from '@/lib/utils/daySections';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
 import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
@@ -180,9 +181,21 @@ const eventListBaseProps = {
  * mechanism the arbitration test below needs alongside `useDayAnchor`'s.
  * `groupedEvents` is local state (not a plain passthrough prop) for exactly
  * that reason: `handleShowEarlier` needs somewhere to prepend into.
+ *
+ * `withFilterPanel`, when given, also mounts the real `useFilterPanel` —
+ * toggle button and panel `<div>`, wired exactly like the minimal Harness in
+ * `useFilterPanel.test.tsx` — for the dismissal-vs-navigation arbitration
+ * test below, which needs a real gesture-dismiss listener (attached only
+ * while the panel is `open`) alongside the real day-chip navigation.
  */
-function Harness({ groupedEvents: initialGroups, earlierKey }: { groupedEvents: DayGroup[]; earlierKey?: string }) {
+function Harness({ groupedEvents: initialGroups, earlierKey, withFilterPanel }: {
+  groupedEvents: DayGroup[]; earlierKey?: string; withFilterPanel?: boolean;
+}) {
   const [groupedEvents, setGroupedEvents] = useState(initialGroups);
+  // `scrolledPast: true` — the panel is only reachable, and the toggle only
+  // rendered, once the reader has scrolled past the in-flow filter card.
+  // That is the state every interaction modelled here happens in.
+  const filterPanel = useFilterPanel({ scrolledPast: true });
   const dayKeysList = groupedEvents.map(g => g.key);
   const bounds = { startDay: dayKeysList[0], endDay: dayKeysList[dayKeysList.length - 1] };
   const { scrollToDay, cancelHold } = useDayAnchor(dayKeysList);
@@ -218,6 +231,17 @@ function Harness({ groupedEvents: initialGroups, earlierKey }: { groupedEvents: 
 
   return (
     <div>
+      {withFilterPanel && (
+        <button ref={filterPanel.toggleRef} type="button" onClick={filterPanel.toggle}
+          aria-expanded={filterPanel.open} aria-controls={filterPanel.panelId}>
+          Filters
+        </button>
+      )}
+      {withFilterPanel && (
+        <div id={filterPanel.panelId} ref={filterPanel.panelRef} className={filterPanel.open ? '' : 'hidden'}>
+          <input aria-label="Search" />
+        </div>
+      )}
       <button type="button" onClick={() => goToDay('2026-07-12')}>Go</button>
       <EventList {...eventListBaseProps} groupedEvents={groupedEvents} resetKey="k"
         revealDay={pendingScroll}
@@ -374,5 +398,100 @@ describe('settle arbitration: a rail navigation supersedes a pending prepend hol
 
     expect(scrollBy).toHaveBeenCalledTimes(1);
     expect(scrollBy).toHaveBeenCalledWith(0, 300);
+  });
+});
+
+describe('composition: a day-chip tap dismisses the panel and still navigates', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.documentElement.style.removeProperty('--day-rail-h');
+  });
+
+  // A chip tap dismisses the panel AND navigates. Both correct scroll. If
+  // they fought, the reader would land in neither place — exactly the shape
+  // of the bug that cost the preceding branch a review round, when
+  // useDayAnchor's hold and EventList's prepend settle both called scrollBy
+  // on one shared resize (see the two tests above).
+  //
+  // **What this pins, honestly: that the two compose — both corrections
+  // happen, exactly once each, dismissal first — through a real
+  // `useFilterPanel`, a real `EventList` and a real `useDayAnchor` wired the
+  // way page.tsx wires them.** That is a worthwhile end-to-end smoke test,
+  // and it is the whole of the claim.
+  //
+  // It is NOT a proof of the ordering *mechanism*, and an earlier version of
+  // this comment said it was. Both mechanisms it named survive being
+  // removed: switching the gesture listener from `mousedown` to `click`
+  // still yields `['dismiss','navigate']`, because the window-level capture
+  // listener runs before the chip's own bubble-phase handler either way; and
+  // demoting the dismissal's correction from `useLayoutEffect` to a passive
+  // `useEffect` still yields it, because that effect is queued from the
+  // earlier commit and flushes before the navigation's own. Proving the
+  // mechanism would need a much finer harness than this earns.
+  //
+  // Explicit timeout: same integration-test cost as the three tests above
+  // (~60 EventCards from a real EventList + useDayAnchor render), plus a
+  // real `useFilterPanel` with its own effects and a window-level gesture
+  // listener — at least as expensive as the tests that already carry this
+  // guard. Comfortably under a second locally on Node 24, but that is not
+  // the evidence that matters: a loaded, 2-core CI runner with coverage
+  // instrumentation is what timed a test in this file out before its
+  // fixture was shrunk, and this test renders the identical fixture.
+  it('records both corrections exactly once, dismissal first', { timeout: 15000 }, () => {
+    installIntersectionObserverMock();
+    installResizeObserverMock();
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const keys = Array.from({ length: 12 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
+
+    // Two independent, distinguishable corrections share one global
+    // `scrollBy` — label each call by its delta rather than by call site, so
+    // the assertion below is about order, not merely that both happened.
+    // -50 is the day-navigation delta this file already establishes
+    // elsewhere (top(0, jsdom's default) - stickyOffset(50)); anything else
+    // is the panel's own correction.
+    const order: string[] = [];
+    const scrollBy = vi.fn((_x: number, dy: number) => {
+      order.push(dy === -50 ? 'navigate' : 'dismiss');
+    });
+    vi.stubGlobal('scrollBy', scrollBy);
+
+    const { getByRole, container } = render(
+      <Harness groupedEvents={makeGroups(keys)} withFilterPanel />
+    );
+    // Precondition: day 12 genuinely starts outside the render window — the
+    // chip tap below has to be the thing that reveals it, or this test could
+    // pass with `revealDay` doing nothing.
+    expect(container.querySelector(`[${DAY_SECTION_ATTR}="2026-07-12"]`)).toBeNull();
+
+    // Arrange: the panel is open. (Day sections all read jsdom's default
+    // zero top here, so `topmostVisibleDaySection` finds nothing >= the
+    // rail's 50px threshold and this correction is a no-op — nothing to
+    // clear from `order`.)
+    const toggle = getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
+    expect(order).toEqual([]);
+
+    // Track 2026-07-01 (the topmost mounted day section) against the
+    // panel's own open/hidden class, the same way `useFilterPanel.test.tsx`
+    // does — a stand-in for the real Chromium-measured drift a panel
+    // leaving the layout produces, giving the dismissal's correction a
+    // real, nonzero, distinguishable delta once the tap below closes it.
+    const panel = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+    document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-01"]`)!
+      .getBoundingClientRect = () => ({ top: panel.classList.contains('hidden') ? 236 : 517 }) as DOMRect;
+
+    // Act: tap the chip. A real tap is two separate DOM events, mousedown
+    // then click — not one — and the gesture hook listens only for the
+    // former. Firing them as two separate `fireEvent` calls is what makes
+    // this a genuine two-correction race rather than an artifact of test
+    // wiring: each is a real, independently-committed interaction, exactly
+    // as a browser dispatches them.
+    const chip = getByRole('button', { name: 'Go' });
+    fireEvent.mouseDown(chip);
+    fireEvent.click(chip);
+
+    // Both corrections happened, once each, dismissal first — neither
+    // swallowed by the other, neither run twice.
+    expect(order).toEqual(['dismiss', 'navigate']);
   });
 });

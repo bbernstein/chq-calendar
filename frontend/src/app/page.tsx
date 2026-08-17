@@ -12,7 +12,9 @@ import { useFilterState } from '@/hooks/useFilterState';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useDayRailHeight } from '@/hooks/useDayRailHeight';
 import { useScrolledPastFilters } from '@/hooks/useScrolledPastFilters';
+import { useFilterCardHeight } from '@/hooks/useFilterCardHeight';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
+import { filterCardParked, filterHeaderTop } from '@/app/filterHeaderLayout';
 import { DayRail } from '@/components/calendar/DayRail';
 import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
 import { useFavorites } from '@/hooks/useFavorites';
@@ -33,6 +35,7 @@ import { LocationFilter } from '@/components/filters/LocationFilter';
 import { CategoryFilter } from '@/components/filters/CategoryFilter';
 import { ActiveFilters } from '@/components/filters/ActiveFilters';
 import { buildActiveChips } from '@/components/filters/buildActiveChips';
+import { FilterPanelCaret } from '@/components/filters/FilterPanelCaret';
 import { EventList } from '@/components/calendar/EventList';
 
 function HomeContent() {
@@ -223,12 +226,53 @@ function HomeContent() {
   // cancels on `mousedown` — that's fine and expected (the same as clicking
   // any other rail control), not a bug to chase.
   const { scrolled: filtersScrolledPast, sentinelRef: filtersSentinelRef } = useScrolledPastFilters();
-  const { open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef, toggleRef: filtersToggleRef } = useFilterPanel();
+  const {
+    open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef,
+    toggleRef: filtersToggleRef, exiting: filtersExiting, exitRect: filtersExitRect,
+    exitScrolledPast: filtersExitScrolledPast,
+  } = useFilterPanel({ scrolledPast: filtersScrolledPast });
+  // The exit animation only makes sense once the panel has actually left
+  // in-flow content — at the top of the page (`!filtersScrolledPast`) the
+  // panel is unconditionally shown regardless of `open` (see the className
+  // below), so a stray gesture-dismiss while scrolled back to the top with a
+  // stale `filtersOpen` must not fix the panel to a rect and animate it away
+  // from a position the reader can still see it occupying.
+  //
+  // `filtersExitScrolledPast`, not a live `filtersScrolledPast` read: the
+  // hook freezes the value at the instant the exit begins, in the same batch
+  // as `exiting` and `exitRect`. Two reasons, both explained at length in
+  // `useFilterPanel`'s "Exit animation" doc — the exit's own `scrollBy` can
+  // recross the sentinel mid-animation and drop the ghost out of `fixed`,
+  // and anything derived one commit later renders this first frame
+  // `display: none`, which a CSS transition cannot start from.
+  const filtersExitingVisible = filtersExiting && filtersExitScrolledPast && filtersExitRect !== null;
   // The panel only needs to cap its own height and scroll internally while
   // it is acting as an overlay over the list — at the top of the page it is
   // ordinary in-flow content and the page itself scrolls past it, same as
-  // before this feature existed.
-  const filtersPanelOverlaying = filtersScrolledPast && filtersOpen;
+  // before this feature existed. `filtersExitingVisible` (not raw
+  // `filtersExiting`, and not ANDed with a live `filtersScrolledPast`)
+  // counts as overlaying too, for the same reason it drives the fixed
+  // positioning above: the rect it freezes to was measured while this same
+  // cap applied, dropping the cap — or losing it mid-exit to the identical
+  // IO race described above — would change the box's own height out from
+  // under the frozen rect.
+  const filtersPanelOverlaying = (filtersScrolledPast && filtersOpen) || filtersExitingVisible;
+  // Parked above the viewport on the header's negative `top`, or animating
+  // away as a fixed-position ghost — either way in the DOM but beyond the
+  // reader's reach, so out of the tab order and the accessibility tree.
+  const filtersCardBeyondReach = filtersExitingVisible || filterCardParked({
+    scrolledPast: filtersScrolledPast, open: filtersOpen, exitingVisible: filtersExitingVisible,
+  });
+  // One element, two measurements: `useFilterPanel` needs the node to read
+  // its rect and test focus containment, and the header needs its height
+  // published as `--filter-card-h` to know how far to ride up. Both are
+  // stable callback refs, so merging them in a `useCallback` keeps the
+  // ResizeObserver from tearing down and rebuilding on every render.
+  const filtersCardHeightRef = useFilterCardHeight();
+  const filtersCardRef = useCallback((el: HTMLElement | null) => {
+    filtersPanelRef(el);
+    filtersCardHeightRef(el);
+  }, [filtersPanelRef, filtersCardHeightRef]);
 
   // Declared here rather than beside `expandEnd` above, where it would read
   // more naturally: it needs `cancelHold`, and a `const` referenced before
@@ -354,36 +398,38 @@ function HomeContent() {
       {selectedYear === defaultYear && <CountdownBanner seasonWeeks={seasonWeeks} />}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/*
-          Zero-height, marking where the sticky container below naturally
-          begins. Once it scrolls above the viewport, the container behind
-          it has started sticking and the filter card is no longer where the
-          reader would find it without help — that's the "scrolled" signal
-          the toggle appears on. `aria-hidden`: it carries no content, and
-          screen readers walking `<main>` by node would otherwise announce a
-          meaningless empty element.
-        */}
-        <div ref={filtersSentinelRef} aria-hidden="true" />
-        {/*
           One sticky container wrapping the filter card and the rail, in
           that order — the reveal-in-place from
           docs/superpowers/specs/2026-08-16-web-filter-reveal-design.md.
           `z-30`, above the rail's own `z-20` and the day headers' `z-10`
           (EventListView), so the revealed panel paints over both rather
           than being hidden behind either.
+
+          `top` is negative whenever the panel is not overlaying the list —
+          the header rides up by exactly the filter card's measured height
+          and pins there, parking the card just above the viewport with the
+          rail flush against the top edge. The card is deliberately NOT
+          taken out of flow: doing that changed document height above the
+          reader, which scroll anchoring then undid, and the page became
+          impossible to scroll slowly in either Chromium or WebKit. See
+          `filterHeaderLayout.ts` for the measured failure and why the
+          geometry — not the browser — was the root cause.
         */}
-        <div className="sticky top-0 z-30">
+        <div
+          className="sticky z-30"
+          style={{ top: filterHeaderTop({ overlaying: filtersPanelOverlaying }) }}
+        >
           <div
             id={filtersPanelId}
-            ref={filtersPanelRef}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6 ${
-              // Hidden by visibility alone — this is still the one SearchBar
-              // and one of each filter control already on the page, not a
-              // second copy revealed instead of it. At the top of the page
-              // (`!filtersScrolledPast`) it always renders, regardless of a
-              // stale `filtersOpen` left over from scrolling back up without
-              // explicitly closing — see the design's "closing is explicit"
-              // requirement; scrolling back to the top is not a close.
-              filtersScrolledPast && !filtersOpen ? 'hidden' : ''
+            ref={filtersCardRef}
+            className={`bg-white dark:bg-gray-800 rounded-lg mb-4 sm:mb-6 ${
+              // D4: a heavier, bottom-weighted shadow only while the panel is
+              // behaving like the page header it now visually replaces — the
+              // "reads as sitting above the list" cue only means something
+              // once it's actually stacked over the list rather than sitting
+              // in flow at the top of the page, where the ordinary card
+              // `shadow` below already applies.
+              filtersPanelOverlaying ? 'shadow-lg' : 'shadow'
             } ${
               // Capped and internally scrollable only while acting as an
               // overlay over the list. On a 390×844 phone this block —
@@ -392,7 +438,50 @@ function HomeContent() {
               // controls would be unreachable, reproducing the bug this
               // feature exists to fix one level down.
               filtersPanelOverlaying ? 'max-h-[70vh] overflow-y-auto' : ''
+            } ${
+              // The exit transition itself — see globals.css. Applied only
+              // once the element has switched to `position: fixed` below;
+              // adding it any earlier would animate the in-flow panel.
+              filtersExitingVisible ? 'filter-panel-exit' : ''
             }`}
+            style={filtersExitingVisible ? {
+              // Switches this same element (no DOM clone) from in-flow to
+              // `position: fixed` at the exact rect it just occupied, so the
+              // in-flow placeholder disappears in the same commit the fixed
+              // one appears — nothing above the list relayouts to make room,
+              // and nothing here shifts before the transition starts sliding
+              // it away. `top`/`left` are viewport-relative, which is what
+              // `getBoundingClientRect` returns and exactly what `position:
+              // fixed` coordinates need. `width`/`height` are pinned too, so
+              // leaving flow doesn't let the box's own size change (e.g. an
+              // internal-scroll cap being lifted) before it starts sliding.
+              position: 'fixed',
+              top: `${filtersExitRect!.top}px`,
+              left: `${filtersExitRect!.left}px`,
+              width: `${filtersExitRect!.width}px`,
+              height: `${filtersExitRect!.height}px`,
+            } : undefined}
+            // Two states put this element beyond the reader's reach while it
+            // is still in the DOM, and both need the same treatment.
+            //
+            // Exiting: a fixed-position echo of a panel that has already, in
+            // this same commit, stopped being the real filter block (`open`
+            // is false and the in-flow slot is empty) — decorative for the
+            // ~200ms it takes to visually finish leaving.
+            //
+            // Parked: scrolled past with the panel closed, riding above the
+            // viewport on the header's negative `top`. It is still in flow —
+            // that is the whole point, see `filterHeaderLayout.ts` — so
+            // without this a keyboard reader would Tab straight into it and
+            // the browser would scroll the header back down to show them the
+            // focused control, throwing them to the top of the page mid-read.
+            // `display: none` used to cover this for free.
+            //
+            // `inert` rather than `aria-hidden` alone: `aria-hidden` hides it
+            // from the accessibility tree but leaves its very real
+            // SearchBar and filter controls in the tab order.
+            aria-hidden={filtersCardBeyondReach ? 'true' : undefined}
+            inert={filtersCardBeyondReach || undefined}
           >
             <div className="p-2 sm:p-4">
               <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
@@ -433,6 +522,23 @@ function HomeContent() {
                 onClearNonDateFilters={filters.clearNonDateFilters}
               />
             </div>
+            {/*
+              D4: the caret only while the panel is behaving like the page
+              header (revealed over the list) — at the top of the page this
+              is just the ordinary in-flow filter card, and a "Hide filters"
+              control there would close nothing a reader could see happen
+              (`filtersOpen` only ever becomes true via the rail's toggle,
+              which itself only exists once `filtersScrolledPast`).
+              Mounted INSIDE this element (a sibling of the padded content
+              div, but still a descendant of the `filtersPanelRef` node) so
+              `useFilterPanel`'s `isExempt` already spares it — see
+              FilterPanelCaret's own doc comment for why placement matters
+              here beyond layout. `onClose` reuses the same `toggle` the
+              rail's own Filters button calls; the design lists the caret and
+              the Filters toggle as two separate dismissers, not two
+              implementations.
+            */}
+            {filtersPanelOverlaying && <FilterPanelCaret onClose={toggleFiltersPanel} />}
           </div>
           <DayRail
             chips={railChips}
@@ -455,9 +561,40 @@ function HomeContent() {
               panelId: filtersPanelId,
               visible: filtersScrolledPast,
               toggleRef: filtersToggleRef,
+              // `hasNonDefaultFilters`, NOT `hasFilters`. `hasFilters` is
+              // true on a default visit (the default scope is `next`, which
+              // is a date filter), so the dot would be lit for every reader
+              // before they touched anything — an indicator that is always
+              // on communicates nothing, which is the opposite of the job
+              // the design gives it. See `useFilterState` for what "default"
+              // means per year.
+              hasActiveFilters: filters.hasNonDefaultFilters,
             }}
           />
         </div>
+        {/*
+          Zero-height, marking where the sticky header's flow space ENDS.
+          Once it scrolls above the viewport the whole header — filter card,
+          gap and rail — has gone by, so the card is certainly parked out of
+          sight and the rail's Filters toggle is the only way back to it.
+          That is the "scrolled" signal.
+
+          Below the header rather than above it, which is load-bearing in two
+          ways. It is the honest reading of the signal (above the header, it
+          fired 64px in, while the card was still half on screen — and the
+          card is what `filterCardParked` then makes `inert`). And it is what
+          keeps the signal stable while the exit animation runs: the panel
+          goes `position: fixed` mid-exit, so the header briefly loses the
+          card's height, and a sentinel below moves up by exactly the amount
+          scroll anchoring subtracts from `scrollY` — leaving its own viewport
+          position unchanged. Above the header it would not move, and the
+          signal would flip underneath its own animation.
+
+          `aria-hidden`: it carries no content, and screen readers walking
+          `<main>` by node would otherwise announce a meaningless empty
+          element.
+        */}
+        <div ref={filtersSentinelRef} aria-hidden="true" />
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
             {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (

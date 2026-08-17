@@ -1,7 +1,16 @@
 # Web — reaching the filters after you have scrolled — design
 
-**Status:** designed 2026-08-16, to be implemented inside PR #238 (phase 3a). The
-user will not merge phase 3a without it.
+**Status:** implemented and shipped in PR #238 (phase 3a), merged 2026-08-17.
+
+**Partly superseded by `2026-08-17-web-filter-panel-dismissal-design.md`.** The
+problem below, and the decision to reveal the existing filter block in place
+rather than scroll the reader to the top, both still stand. **The model of a
+panel that persists until explicitly dismissed does not** — phone testing found
+that the panel reads as a page header, so readers expect scrolling to dismiss it.
+Requirement 5 below ("closing is explicit") is the specific line that document
+overturns; requirement 3 (the panel scrolls internally) is also revisited there,
+since a panel that leaves on a scroll gesture needs its own overflow handled
+differently. Read that document for the current behaviour.
 
 **Date:** 2026-08-16
 

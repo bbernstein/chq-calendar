@@ -88,6 +88,59 @@ describe('useFilterState', () => {
     });
   });
 
+  // Drives the day rail's funnel dot. The distinction from `hasFilters` is
+  // the whole reason it exists: `hasFilters` is already true on a default
+  // visit, so a dot driven by it is lit for every reader before they touch
+  // anything and tells them nothing at all.
+  describe('hasNonDefaultFilters', () => {
+    it('is false on a default visit, where hasFilters is already true', () => {
+      const { result } = renderHook(() => useFilterState());
+      expect(result.current.dateFilter).toBe('next');
+      expect(result.current.hasFilters).toBe(true);
+      expect(result.current.hasNonDefaultFilters).toBe(false);
+    });
+
+    it('is true once the reader narrows the scope', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.setDateFilter('today'); });
+      expect(result.current.hasNonDefaultFilters).toBe(true);
+      act(() => { result.current.setDateFilter('this-week'); });
+      expect(result.current.hasNonDefaultFilters).toBe(true);
+    });
+
+    // `all` is where an archived season starts (`reconcileFilters` with
+    // `isCurrentYear: false`), and on the current year it widens rather than
+    // narrows — either way the reader is looking at everything, which is the
+    // one thing the dot must not claim is a slice.
+    it('is false on the all-season scope, in either direction', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.setDateFilter('all'); });
+      expect(result.current.hasNonDefaultFilters).toBe(false);
+      act(() => { result.current.reconcileFilters([], [], false); });
+      expect(result.current.dateFilter).toBe('all');
+      expect(result.current.hasNonDefaultFilters).toBe(false);
+    });
+
+    it('is true for a week selection, a search, a venue, a category or favourites', () => {
+      const { result } = renderHook(() => useFilterState());
+      act(() => { result.current.setDateFilter('all'); });
+      act(() => { result.current.setSelectedWeeks([3]); });
+      expect(result.current.hasNonDefaultFilters).toBe(true);
+
+      act(() => { result.current.setSelectedWeeks([]); });
+      act(() => { result.current.setSearchTerm('symphony'); });
+      expect(result.current.hasNonDefaultFilters).toBe(true);
+
+      act(() => { result.current.setSearchTerm(''); });
+      act(() => { result.current.toggleLocation('Amphitheater'); });
+      expect(result.current.hasNonDefaultFilters).toBe(true);
+
+      act(() => { result.current.toggleLocation('Amphitheater'); });
+      act(() => { result.current.toggleFavoritesOnly(); });
+      expect(result.current.hasNonDefaultFilters).toBe(true);
+    });
+  });
+
   describe('hasDateFilters / hasNonDateFilters', () => {
     it('hasDateFilters is true when dateFilter is non-all', () => {
       const { result } = renderHook(() => useFilterState());
