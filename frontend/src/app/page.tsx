@@ -33,6 +33,7 @@ import { LocationFilter } from '@/components/filters/LocationFilter';
 import { CategoryFilter } from '@/components/filters/CategoryFilter';
 import { ActiveFilters } from '@/components/filters/ActiveFilters';
 import { buildActiveChips } from '@/components/filters/buildActiveChips';
+import { FilterPanelCaret } from '@/components/filters/FilterPanelCaret';
 import { EventList } from '@/components/calendar/EventList';
 
 function HomeContent() {
@@ -417,7 +418,15 @@ function HomeContent() {
           <div
             id={filtersPanelId}
             ref={filtersPanelRef}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6 ${
+            className={`bg-white dark:bg-gray-800 rounded-lg mb-4 sm:mb-6 ${
+              // D4: a heavier, bottom-weighted shadow only while the panel is
+              // behaving like the page header it now visually replaces — the
+              // "reads as sitting above the list" cue only means something
+              // once it's actually stacked over the list rather than sitting
+              // in flow at the top of the page, where the ordinary card
+              // `shadow` below already applies.
+              filtersPanelOverlaying ? 'shadow-lg' : 'shadow'
+            } ${
               // Hidden by visibility alone — this is still the one SearchBar
               // and one of each filter control already on the page, not a
               // second copy revealed instead of it. At the top of the page
@@ -509,6 +518,23 @@ function HomeContent() {
                 onClearNonDateFilters={filters.clearNonDateFilters}
               />
             </div>
+            {/*
+              D4: the caret only while the panel is behaving like the page
+              header (revealed over the list) — at the top of the page this
+              is just the ordinary in-flow filter card, and a "Hide filters"
+              control there would close nothing a reader could see happen
+              (`filtersOpen` only ever becomes true via the rail's toggle,
+              which itself only exists once `filtersScrolledPast`).
+              Mounted INSIDE this element (a sibling of the padded content
+              div, but still a descendant of the `filtersPanelRef` node) so
+              `useFilterPanel`'s `isExempt` already spares it — see
+              FilterPanelCaret's own doc comment for why placement matters
+              here beyond layout. `onClose` reuses the same `toggle` the
+              rail's own Filters button calls; the design lists the caret and
+              the Filters toggle as two separate dismissers, not two
+              implementations.
+            */}
+            {filtersPanelOverlaying && <FilterPanelCaret onClose={toggleFiltersPanel} />}
           </div>
           <DayRail
             chips={railChips}
@@ -531,6 +557,7 @@ function HomeContent() {
               panelId: filtersPanelId,
               visible: filtersScrolledPast,
               toggleRef: filtersToggleRef,
+              hasActiveFilters: filters.hasFilters,
             }}
           />
         </div>

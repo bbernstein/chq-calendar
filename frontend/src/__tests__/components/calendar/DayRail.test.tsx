@@ -289,14 +289,14 @@ describe('DayRail filtersToggle', () => {
   // the real stuck header without widening `--day-rail-h`.
   it('renders nothing when not visible', () => {
     renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: false },
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: false, hasActiveFilters: false },
     });
     expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull();
   });
 
   it('renders, with aria-expanded/aria-controls, once visible', () => {
     renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true },
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
     });
     const toggle = screen.getByRole('button', { name: 'Filters' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -305,7 +305,7 @@ describe('DayRail filtersToggle', () => {
 
   it('tracks aria-expanded when the panel is open', () => {
     renderRail({
-      filtersToggle: { open: true, onToggle: vi.fn(), panelId: 'filters-panel', visible: true },
+      filtersToggle: { open: true, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
     });
     expect(screen.getByRole('button', { name: 'Filters' }).getAttribute('aria-expanded')).toBe('true');
   });
@@ -313,7 +313,7 @@ describe('DayRail filtersToggle', () => {
   it('calls onToggle when clicked', () => {
     const onToggle = vi.fn();
     renderRail({
-      filtersToggle: { open: false, onToggle, panelId: 'filters-panel', visible: true },
+      filtersToggle: { open: false, onToggle, panelId: 'filters-panel', visible: true, hasActiveFilters: false },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
     expect(onToggle).toHaveBeenCalledTimes(1);
@@ -322,5 +322,40 @@ describe('DayRail filtersToggle', () => {
   it('is absent entirely when no filtersToggle prop is supplied', () => {
     renderRail();
     expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull();
+  });
+
+  // D5: the word "Filters" becomes a funnel icon (rendered by FiltersIcon,
+  // aria-hidden), but the toggle keeps the exact same accessible name — a
+  // screen-reader user who has learned "Filters" must not have it silently
+  // renamed to "" or to something the icon's markup happens to expose.
+  it('keeps the accessible name exactly "Filters" once the label is an icon', () => {
+    renderRail({
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
+    });
+    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy();
+  });
+
+  // The one thing this redesign adds rather than merely preserves (see the
+  // design's D5 and "Why the dot matters" in the task brief): a small dot
+  // on the icon when any filter is active, so the reader can tell "slice"
+  // from "everything" without opening the panel.
+  it('shows the active-filter dot when a filter is active', () => {
+    renderRail({
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: true },
+    });
+    const dot = document.querySelector('[data-testid="filters-active-dot"]');
+    expect(dot).not.toBeNull();
+    // Asserted directly on the attribute, not inferred from a class-name
+    // query — a class-only lookup would pass whether or not the dot is
+    // aria-hidden, and an unhidden dot would risk polluting the button's
+    // accessible name computed above.
+    expect(dot!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('omits the active-filter dot when no filter is active', () => {
+    renderRail({
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
+    });
+    expect(document.querySelector('[data-testid="filters-active-dot"]')).toBeNull();
   });
 });
