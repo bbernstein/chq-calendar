@@ -94,5 +94,63 @@ jobs:
           name: frontend-build-node${{ matrix.node-version }}
           path: frontend/out/
 
+  # Geometry, scroll corrections and animation timing — the things jsdom
+  # cannot express. This job exists because two defects reached production
+  # with the whole unit suite green: a rail that was not sticky at all, and a
+  # filter header whose collapse fought the browser's scroll anchoring so
+  # slow scrolling advanced the page 0px. See frontend/e2e/README.md.
+  browser-checks:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == true
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install all workspace dependencies
+        run: npm ci
+
+      # Chromium only. These are geometry checks against one engine, not a
+      # browser-support matrix, and --with-deps pulls the system libraries
+      # headless Chromium needs on a bare runner.
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend
+        env:
+          VITE_API_URL: ""
+          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY || 'ci-placeholder-key' }}
+          VITE_ENABLE_PUBLISHER_FEEDS: "true"
+
+      # `vite preview` serves the built output on port 3000 (vite.config.ts).
+      # Backgrounded, then polled — a fixed sleep is either flaky or slow.
+      - name: Start preview server
+        run: npm run preview --workspace=frontend &
+
+      - name: Wait for the preview server
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3000/; then
+              echo "preview server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "preview server did not start within 60s"
+          exit 1
+
+      - name: Run browser checks
+        run: npm run test:browser --workspace=frontend
+        env:
+          URL: http://localhost:3000/
+
   # Note: Integration tests removed due to DynamoDB service container complexity
   # Post-deployment tests in deploy-production.yml verify the actual production system

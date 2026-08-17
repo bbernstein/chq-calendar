@@ -7,6 +7,7 @@ type Callback = (entries: Entry[]) => void;
 interface Instance {
   callback: Callback;
   disconnected: boolean;
+  targets: Element[];
 }
 
 /**
@@ -26,11 +27,13 @@ export function installIntersectionObserverMock() {
   class MockIntersectionObserver {
     private instance: Instance;
     constructor(callback: Callback) {
-      this.instance = { callback, disconnected: false };
+      this.instance = { callback, disconnected: false, targets: [] };
       instances.push(this.instance);
     }
-    observe() {}
-    unobserve() {}
+    observe(el: Element) { this.instance.targets.push(el); }
+    unobserve(el: Element) {
+      this.instance.targets = this.instance.targets.filter(t => t !== el);
+    }
     takeRecords(): Entry[] { return []; }
     disconnect() { this.instance.disconnected = true; }
   }
@@ -43,6 +46,22 @@ export function installIntersectionObserverMock() {
       const newest = live[live.length - 1];
       if (!newest) throw new Error('no live IntersectionObserver to trigger');
       act(() => { newest.callback([{ isIntersecting }]); });
+    },
+    /**
+     * Fire the observer watching a SPECIFIC element.
+     *
+     * `trigger()` fires the newest live observer, which is unambiguous only
+     * while one is installed. A page renders several — the filter sentinel,
+     * the filter card, the list's own window — and "newest" then depends on
+     * render order, so a test using it is asserting against whichever
+     * observer happened to mount last. Name the element instead.
+     */
+    triggerFor(el: Element, isIntersecting = true) {
+      const live = instances.filter(i => !i.disconnected && i.targets.includes(el));
+      if (!live.length) {
+        throw new Error(`no live IntersectionObserver is observing ${el.nodeName}${el.id ? `#${el.id}` : ''}`);
+      }
+      act(() => { for (const i of live) i.callback([{ isIntersecting }]); });
     },
     get liveCount() { return instances.filter(i => !i.disconnected).length; },
     get totalCreated() { return instances.length; },

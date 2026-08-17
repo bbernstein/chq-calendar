@@ -381,6 +381,15 @@ export function useFilterPanel({ scrolledPast }: {
       captureScrollReference();
       setExiting(false);
       setExitRect(null);
+      // Reset alongside the other two, exactly as `cancelExit` does. Today
+      // every consumer gates on `exiting` first, so a stale `true` here is
+      // unreachable — but "unreachable" is a property of the current
+      // consumers, not of this hook, and the next one to read
+      // `exitScrolledPast` without checking `exiting` would inherit a value
+      // frozen during an exit that has been over for minutes. The three
+      // pieces of exit state are set together in `beginExit`; they are
+      // cleared together everywhere else.
+      setExitScrolledPast(false);
     };
     // `transitionend` bubbles, and the panel's own subtree is full of
     // Tailwind transitions unrelated to the exit — chip hover colours,
