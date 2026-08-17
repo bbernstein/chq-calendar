@@ -336,10 +336,19 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
 
   // Measure and place before paint: a pill positioned in a passive effect
   // would flash at x=0 on the first frame.
+  //
+  // `nodeGeneration` is a dependency for the same reason the listener effect
+  // below has it, and missing it here is subtler: the chip row can appear
+  // without the chip *list* changing at all. `DayRail` renders nothing while
+  // `scopeHasWindow` is false — an off-season `'this-week'` restored from
+  // localStorage — with `chips` populated the whole time. When the scope then
+  // resolves, `chipsId` and `keysId` are unchanged, so without this the row
+  // would never be measured, `extents` would stay empty, and the pill would
+  // not paint at all.
   useLayoutEffect(() => {
     measureChips();
     sync();
-  }, [chipsId, keysId, measureChips, sync]);
+  }, [chipsId, keysId, nodeGeneration, measureChips, sync]);
 
   // `sync` and `measureChips` are reached through a ref so the listener
   // effect below does not depend on them. Both are recreated whenever the day

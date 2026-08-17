@@ -291,6 +291,59 @@ describe('DayRail', () => {
     });
   });
 
+  // A returning visitor with `'this-week'` restored from localStorage while
+  // the current date is off-season gets `scopeHasWindow === false`, so the
+  // rail renders nothing on its very first commit — chips and all. The
+  // highlight's listeners must still find the strip when it appears later.
+  //
+  // This is a distinct route to the same null render as "events have not
+  // loaded yet", and the one a real reader actually hits. It is also why the
+  // hook keys its listener effect on the elements rather than on
+  // `chips.length > 0`: chips are non-empty here throughout, so a chip-count
+  // signal would never flip and the listeners would never attach.
+  it('attaches the highlight to a strip that appears only after the scope resolves', () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+    try {
+      const { container, rerender } = renderRailIn({ scopeHasWindow: false });
+      expect(container.querySelector('[data-rail-strip]')).toBeNull();
+
+      act(() => {
+        rerender(
+          <DayRail
+            chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null}
+            scopeHasWindow todayKey="2026-07-05"
+            windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
+            onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
+          />
+        );
+      });
+
+      const strip = container.querySelector<HTMLElement>('[data-rail-strip]')!;
+      const writes: number[] = [];
+      let value = 0;
+      Object.defineProperty(strip, 'scrollLeft', {
+        configurable: true,
+        get: () => value,
+        set: (v: number) => { value = v; writes.push(v); },
+      });
+
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      expect(writes.length).toBeGreaterThan(0); // the highlight is driving it
+
+      // The reader pans the strip. This is only detectable if the strip's own
+      // scroll listener attached to the element that appeared after mount.
+      act(() => {
+        strip.scrollLeft = 500;
+        strip.dispatchEvent(new Event('scroll'));
+      });
+      writes.length = 0;
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      expect(writes).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('renders nothing when there are no days to show', () => {
     const { container } = render(
       <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} scopeHasWindow todayKey={null} windowDayKeys={[]}
