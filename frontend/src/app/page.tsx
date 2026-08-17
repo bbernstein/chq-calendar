@@ -272,18 +272,20 @@ function HomeContent() {
   const filtersCardBeyondReach = filtersExitingVisible || filterCardParked({
     outOfView: filtersCardOutOfView, open: filtersOpen, exitingVisible: filtersExitingVisible,
   });
-  // One element, three observers: `useFilterPanel` needs the node to read its
-  // rect and test focus containment, the header needs the rail's offset
-  // published as `--filter-card-h` to know how far to ride up, and `inert`
-  // needs to know whether the card is still on screen. All three are stable
-  // callback refs, so merging them in a `useCallback` keeps the observers
-  // from tearing down and rebuilding on every render.
+  // The header container's observer, not the card's. `--filter-card-h` has to
+  // re-publish when the card's MARGIN changes at a breakpoint, and
+  // `ResizeObserver` never reports a margin — but the container's own height
+  // is card + margin + rail, so it changes whenever any of them does. See
+  // `useFilterCardHeight`.
   const filtersCardHeightRef = useFilterCardHeight();
+  // Two observers on the card itself: `useFilterPanel` needs the node to read
+  // its rect and test focus containment, and `inert` needs to know whether
+  // the card is still on screen. Both are stable callback refs, so merging
+  // them in a `useCallback` keeps them from tearing down on every render.
   const filtersCardRef = useCallback((el: HTMLElement | null) => {
     filtersPanelRef(el);
-    filtersCardHeightRef(el);
     filtersCardViewRef(el);
-  }, [filtersPanelRef, filtersCardHeightRef, filtersCardViewRef]);
+  }, [filtersPanelRef, filtersCardViewRef]);
 
   // Declared here rather than beside `expandEnd` above, where it would read
   // more naturally: it needs `cancelHold`, and a `const` referenced before
@@ -428,11 +430,13 @@ function HomeContent() {
         */}
         <div
           data-filter-header
+          ref={filtersCardHeightRef}
           className="sticky z-30"
           style={{ top: filterHeaderTop({ overlaying: filtersPanelOverlaying }) }}
         >
           <div
             id={filtersPanelId}
+            data-filter-card
             ref={filtersCardRef}
             className={`bg-white dark:bg-gray-800 rounded-lg mb-4 sm:mb-6 ${
               // D4: a heavier, bottom-weighted shadow only while the panel is

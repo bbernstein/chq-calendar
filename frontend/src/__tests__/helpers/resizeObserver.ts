@@ -10,16 +10,18 @@ import { act } from '@testing-library/preact';
  * real resize notifies all of them.
  */
 export function installResizeObserverMock() {
-  const instances: { callback: () => void; disconnected: boolean }[] = [];
+  const instances: { callback: () => void; disconnected: boolean; targets: Element[] }[] = [];
 
   class MockResizeObserver {
-    private instance: { callback: () => void; disconnected: boolean };
+    private instance: { callback: () => void; disconnected: boolean; targets: Element[] };
     constructor(callback: () => void) {
-      this.instance = { callback, disconnected: false };
+      this.instance = { callback, disconnected: false, targets: [] };
       instances.push(this.instance);
     }
-    observe() {}
-    unobserve() {}
+    observe(el: Element) { this.instance.targets.push(el); }
+    unobserve(el: Element) {
+      this.instance.targets = this.instance.targets.filter(t => t !== el);
+    }
     disconnect() { this.instance.disconnected = true; }
   }
 
@@ -30,6 +32,19 @@ export function installResizeObserverMock() {
       const live = instances.filter(i => !i.disconnected);
       if (live.length === 0) throw new Error('no live ResizeObserver to trigger');
       act(() => { live.forEach(i => i.callback()); });
+    },
+    /**
+     * Whether anything live is observing this element.
+     *
+     * WHICH element is observed can be the whole point: `--filter-card-h`
+     * has to re-publish when the filter card's margin changes at a
+     * breakpoint, and `ResizeObserver` never reports a margin — so an
+     * observer on the card would never fire, while one on the header
+     * container (card + margin + rail) does. A test that only exercises the
+     * measurement cannot tell those apart.
+     */
+    isObserving(el: Element) {
+      return instances.some(i => !i.disconnected && i.targets.includes(el));
     },
     get liveCount() { return instances.filter(i => !i.disconnected).length; },
   };

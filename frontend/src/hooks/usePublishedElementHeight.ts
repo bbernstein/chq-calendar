@@ -4,6 +4,12 @@ import { useCallback, useRef } from 'react';
  * Publishes a measured element height as a CSS custom property on `:root`,
  * re-measuring on every resize.
  *
+ * Note the observed element is not always the measured one: the caller
+ * decides what `measure` reads. The filter card's offset, for instance,
+ * observes the header CONTAINER and measures the distance between two of its
+ * children — because `ResizeObserver` reports border and content boxes only,
+ * never margins, so an element whose own box never changes can still move.
+ *
  * Two unrelated pieces of the sticky header need a height that CSS cannot
  * derive for itself — the rail's own height (`--day-rail-h`) and the filter
  * card's (`--filter-card-h`) — and both are wrong by one text-zoom step the
@@ -21,7 +27,7 @@ import { useCallback, useRef } from 'react';
  */
 export function usePublishedElementHeight(
   property: string,
-  measure: (el: HTMLElement) => number,
+  measure: (el: HTMLElement) => number | null,
 ) {
   const observerRef = useRef<ResizeObserver | null>(null);
   const measureRef = useRef(measure);
@@ -40,9 +46,15 @@ export function usePublishedElementHeight(
     }
 
     const publish = () => {
-      document.documentElement.style.setProperty(
-        propertyRef.current, `${measureRef.current(el)}px`
-      );
+      const value = measureRef.current(el);
+      // `null` means "the layout cannot be read meaningfully right now" —
+      // keep the last good value rather than publishing a wrong one. The
+      // filter card uses this while it is mid-exit and `position: fixed`,
+      // where the distance it would measure is momentarily nonsense and
+      // publishing it would flash the card back into view as the animation
+      // ends.
+      if (value === null) return;
+      document.documentElement.style.setProperty(propertyRef.current, `${value}px`);
     };
     publish();
 

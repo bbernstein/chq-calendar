@@ -64,11 +64,12 @@ function eventsPayload() {
 
 let mock: FetchMock;
 let io: ReturnType<typeof installIntersectionObserverMock>;
+let ro: ReturnType<typeof installResizeObserverMock>;
 
 beforeEach(() => {
   localStorage.clear();
   io = installIntersectionObserverMock();
-  installResizeObserverMock();
+  ro = installResizeObserverMock();
   mock = installFetchMock({ allowUnhandled: true });
   mock.on('GET', /all-events-\d{4}\.json/, eventsPayload());
 });
@@ -220,6 +221,19 @@ describe('page.tsx — the sticky filter header', () => {
 
     expect(card().hasAttribute('inert')).toBe(false);
     expect(card().getAttribute('aria-hidden')).toBeNull();
+  });
+
+  // WHERE the height observer is attached is the fix, not just what it
+  // measures. `--filter-card-h` must re-publish when the card's margin
+  // changes at a breakpoint, and `ResizeObserver` never reports a margin —
+  // so an observer on the card would never fire and the rail would park off
+  // the viewport's top edge. The container's height is card + margin + rail,
+  // so it changes whenever any of them does.
+  it('observes the header container for the park offset, not the card', async () => {
+    await renderPage();
+
+    expect(ro.isObserving(header())).toBe(true);
+    expect(ro.isObserving(card())).toBe(false);
   });
 
   it('shows the Filters toggle only once the reader has scrolled past the header', async () => {
