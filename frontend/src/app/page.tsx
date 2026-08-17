@@ -223,12 +223,26 @@ function HomeContent() {
   // cancels on `mousedown` — that's fine and expected (the same as clicking
   // any other rail control), not a bug to chase.
   const { scrolled: filtersScrolledPast, sentinelRef: filtersSentinelRef } = useScrolledPastFilters();
-  const { open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef, toggleRef: filtersToggleRef } = useFilterPanel();
+  const {
+    open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef,
+    toggleRef: filtersToggleRef, exiting: filtersExiting, exitRect: filtersExitRect,
+  } = useFilterPanel();
   // The panel only needs to cap its own height and scroll internally while
   // it is acting as an overlay over the list — at the top of the page it is
   // ordinary in-flow content and the page itself scrolls past it, same as
-  // before this feature existed.
-  const filtersPanelOverlaying = filtersScrolledPast && filtersOpen;
+  // before this feature existed. Exiting counts as overlaying too: the rect
+  // it freezes to (below) was measured while this same cap applied, and
+  // dropping the cap mid-exit would change the box's own height out from
+  // under the frozen rect.
+  const filtersPanelOverlaying = filtersScrolledPast && (filtersOpen || filtersExiting);
+  // The exit animation only makes sense once the panel has actually left
+  // in-flow content — at the top of the page (`!filtersScrolledPast`) the
+  // panel is unconditionally shown regardless of `open` (see the className
+  // below), so a stray gesture-dismiss while scrolled back to the top with a
+  // stale `filtersOpen` must not fix the panel to a rect and animate it away
+  // from a position the reader can still see it occupying. `useFilterPanel`
+  // doesn't know about that page-level invariant, so it's arbitrated here.
+  const filtersExitingVisible = filtersExiting && filtersScrolledPast && filtersExitRect !== null;
 
   // Declared here rather than beside `expandEnd` above, where it would read
   // more naturally: it needs `cancelHold`, and a `const` referenced before
@@ -383,7 +397,9 @@ function HomeContent() {
               // stale `filtersOpen` left over from scrolling back up without
               // explicitly closing — see the design's "closing is explicit"
               // requirement; scrolling back to the top is not a close.
-              filtersScrolledPast && !filtersOpen ? 'hidden' : ''
+              // `filtersExitingVisible` also keeps it un-hidden: it is
+              // leaving via the fixed-position animation below, not gone yet.
+              filtersScrolledPast && !filtersOpen && !filtersExitingVisible ? 'hidden' : ''
             } ${
               // Capped and internally scrollable only while acting as an
               // overlay over the list. On a 390×844 phone this block —
@@ -392,7 +408,39 @@ function HomeContent() {
               // controls would be unreachable, reproducing the bug this
               // feature exists to fix one level down.
               filtersPanelOverlaying ? 'max-h-[70vh] overflow-y-auto' : ''
+            } ${
+              // The exit transition itself — see globals.css. Applied only
+              // once the element has switched to `position: fixed` below;
+              // adding it any earlier would animate the in-flow panel.
+              filtersExitingVisible ? 'filter-panel-exit' : ''
             }`}
+            style={filtersExitingVisible ? {
+              // Switches this same element (no DOM clone) from in-flow to
+              // `position: fixed` at the exact rect it just occupied, so the
+              // in-flow placeholder disappears in the same commit the fixed
+              // one appears — nothing above the list relayouts to make room,
+              // and nothing here shifts before the transition starts sliding
+              // it away. `top`/`left` are viewport-relative, which is what
+              // `getBoundingClientRect` returns and exactly what `position:
+              // fixed` coordinates need. `width`/`height` are pinned too, so
+              // leaving flow doesn't let the box's own size change (e.g. an
+              // internal-scroll cap being lifted) before it starts sliding.
+              position: 'fixed',
+              top: `${filtersExitRect!.top}px`,
+              left: `${filtersExitRect!.left}px`,
+              width: `${filtersExitRect!.width}px`,
+              height: `${filtersExitRect!.height}px`,
+            } : undefined}
+            // Decorative: the exit is a fixed-position echo of a panel that
+            // has already, in this same commit, stopped being the real
+            // filter block (`open` is false and the in-flow slot is empty).
+            // `aria-hidden` keeps it out of the accessibility tree;
+            // `inert` (not just `aria-hidden`, which alone leaves native
+            // controls Tab-reachable) keeps its still-real SearchBar/filter
+            // controls out of the tab order too, for the ~200ms it takes to
+            // visually finish leaving.
+            aria-hidden={filtersExitingVisible ? 'true' : undefined}
+            inert={filtersExitingVisible || undefined}
           >
             <div className="p-2 sm:p-4">
               <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />

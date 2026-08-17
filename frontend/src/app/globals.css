@@ -198,3 +198,16 @@
     background: rgba(0, 0, 0, 0.5);
   }
 }
+
+/*
+ * The filter panel's exit. Compositor-only — `transform` and `opacity`
+ * never trigger layout, which is the entire reason the panel is moved out
+ * of flow before this runs rather than being collapsed in place.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .filter-panel-exit {
+    transition: transform 200ms ease-out, opacity 200ms ease-out;
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}

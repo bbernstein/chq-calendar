@@ -13,7 +13,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 // (delta always 0, `scrollBy` never called) in every test that doesn't
 // explicitly mock it.
 function Harness() {
-  const { open, toggle, panelId, panelRef, toggleRef } = useFilterPanel();
+  const { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect } = useFilterPanel();
   return (
     <div>
       <button ref={toggleRef} type="button" onClick={toggle} aria-expanded={open} aria-controls={panelId}>
@@ -24,6 +24,19 @@ function Harness() {
         <button type="button">A filter control</button>
       </div>
       <div data-day-key="2026-08-18">day section</div>
+      {/*
+        The hook's `exiting`/`exitRect` are consumed by page.tsx to render a
+        fixed-position, animating copy of this same element — rendering that
+        here would duplicate page.tsx's own logic without testing the hook
+        any more thoroughly. These two text nodes are just a window onto the
+        hook's state, so the exit-animation tests below can assert on it
+        directly instead of reverse-engineering it from page markup the hook
+        itself knows nothing about.
+      */}
+      <div data-testid="exiting">{String(exiting)}</div>
+      <div data-testid="exit-rect">
+        {exitRect ? `${exitRect.top},${exitRect.left},${exitRect.width},${exitRect.height}` : 'none'}
+      </div>
     </div>
   );
 }
@@ -306,5 +319,141 @@ describe('dismissal by scroll gesture', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(document.activeElement).toBe(search);
+  });
+});
+
+describe('exit animation', () => {
+  it('reports an exit rect captured before the panel leaves flow', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle); // open
+    const panel = panelElementFor(toggle);
+    const stubbedRect = { top: 64, left: 0, width: 390, height: 281 } as DOMRect;
+    panel.getBoundingClientRect = () => stubbedRect;
+
+    fireEvent.click(toggle); // dismiss
+
+    // The state machine lives in the hook, not in any DOM the harness
+    // renders, so it's asserted through the harness's own exposed markers
+    // rather than through page structure the hook knows nothing about.
+    expect(screen.getByTestId('exiting').textContent).toBe('true');
+    expect(screen.getByTestId('exit-rect').textContent).toBe('64,0,390,281');
+    // And the in-flow panel is gone from flow in the same commit — the
+    // architecture the whole task turns on. Confirming a class change here
+    // isn't circular: page.tsx (Task 4's other file) reads this same
+    // `exiting` flag to decide whether to render fixed, but the Harness's
+    // own consumption of it (the `open`-driven `hidden` class) is a second,
+    // independent witness that `open` really did flip in the same commit
+    // that `exiting` turned on.
+    expect(panel).toHaveClass('hidden');
+  });
+
+  it('clears exiting when the transition ends', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle); // open
+    fireEvent.click(toggle); // dismiss
+    expect(screen.getByTestId('exiting').textContent).toBe('true');
+    const panel = panelElementFor(toggle);
+
+    act(() => { panel.dispatchEvent(new Event('transitionend')); });
+
+    expect(screen.getByTestId('exiting').textContent).toBe('false');
+    expect(screen.getByTestId('exit-rect').textContent).toBe('none');
+  });
+
+  // transitionend never fires if the element is never painted (a background
+  // tab, some reduced-motion paths a browser takes on its own) — proven by
+  // firing nothing and advancing time instead of dispatching the event.
+  it('clears exiting via the fallback timer when transitionend never fires', () => {
+    vi.useFakeTimers();
+    try {
+      render(<Harness />);
+      const toggle = screen.getByRole('button', { name: 'Filters' });
+      fireEvent.click(toggle); // open
+      fireEvent.click(toggle); // dismiss
+      expect(screen.getByTestId('exiting').textContent).toBe('true');
+
+      act(() => { vi.advanceTimersByTime(1000); });
+
+      expect(screen.getByTestId('exiting').textContent).toBe('false');
+      expect(screen.getByTestId('exit-rect').textContent).toBe('none');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Reduced motion must remove the panel outright: no fixed-position ghost
+  // left animating (or stranded) on screen for a reader who asked for none.
+  it('skips the animation under prefers-reduced-motion', () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList);
+
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle); // open
+    fireEvent.click(toggle); // dismiss
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('exiting').textContent).toBe('false');
+    expect(screen.getByTestId('exit-rect').textContent).toBe('none');
+  });
+
+  // A dismissal while one is already animating must not strand the first:
+  // reopening reuses the same element the first exit was playing on (no DOM
+  // clone), so the first exit's fallback timer has to be cancelled on
+  // reopen, not merely superseded by state that gets overwritten later.
+  // Proven with fake timers on a precise schedule, not just "state looks
+  // right after both clicks": if the first timer survives the reopen
+  // uncancelled, it fires at its own original deadline and clears the
+  // SECOND exit's state out from under it while that exit still has time
+  // left — which is exactly what this pins.
+  it('does not strand a previous exit when dismissed twice quickly', () => {
+    vi.useFakeTimers();
+    try {
+      render(<Harness />);
+      const toggle = screen.getByRole('button', { name: 'Filters' });
+      const panel = panelElementFor(toggle);
+      let rectCall = 0;
+      panel.getBoundingClientRect = () => {
+        rectCall += 1;
+        return (rectCall === 1
+          ? { top: 10, left: 0, width: 390, height: 281 }
+          : { top: 20, left: 0, width: 390, height: 281 }) as DOMRect;
+      };
+
+      fireEvent.click(toggle); // open
+      fireEvent.click(toggle); // dismiss #1 at t=0 -> fallback timer A due ~t=260
+      expect(screen.getByTestId('exit-rect').textContent).toBe('10,0,390,281');
+
+      act(() => { vi.advanceTimersByTime(50); }); // t=50, well before A fires
+      fireEvent.click(toggle); // re-open at t=50: must cancel A
+      expect(screen.getByTestId('exiting').textContent).toBe('false');
+      expect(screen.getByTestId('exit-rect').textContent).toBe('none');
+
+      fireEvent.click(toggle); // dismiss #2 at t=50 -> fallback timer B due ~t=310
+      expect(screen.getByTestId('exit-rect').textContent).toBe('20,0,390,281');
+
+      // t=270: past A's original t=260 deadline, short of B's t=310 one. A
+      // surviving the reopen would have fired here and cleared `exiting` —
+      // this is the assertion a stray, uncancelled timer A fails.
+      act(() => { vi.advanceTimersByTime(220); });
+      expect(screen.getByTestId('exiting').textContent).toBe('true');
+      expect(screen.getByTestId('exit-rect').textContent).toBe('20,0,390,281');
+
+      // B fires on its own schedule and cleans up normally.
+      act(() => { vi.advanceTimersByTime(100); });
+      expect(screen.getByTestId('exiting').textContent).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

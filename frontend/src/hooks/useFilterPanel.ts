@@ -11,6 +11,13 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"]):not([disabled])',
 ].join(', ');
 
+// Matches globals.css's `.filter-panel-exit` transition duration (200ms),
+// plus a margin. `transitionend` does not fire if the element is never
+// painted (a background tab, or the browser skipping the transition on its
+// own under some reduced-motion paths) — without this fallback that leaves
+// `exiting` stuck true and a fixed-position panel stranded on screen.
+const EXIT_FALLBACK_MS = 260;
+
 /**
  * Open/close state and accessibility wiring for the filter panel the sticky
  * rail's "Filters" toggle reveals.
@@ -63,9 +70,36 @@ const FOCUSABLE_SELECTOR = [
  * Opening moves focus to the first focusable control inside the panel.
  * Closing via `Escape` returns it to the toggle button — closing by
  * clicking the toggle again already leaves focus there, so no extra step is
- * needed on that path. `{ preventScroll: true }` on every focus call here is
- * deliberate: a browser's default focus-scroll would fight the exact scroll
- * position this hook exists to hold steady.
+ * needed on that path. Closing via a scroll gesture does *not* return focus
+ * by default — a gesture means the reader's attention has already left the
+ * panel, and yanking it to the toggle would be its own surprise — except
+ * when focus is still inside the panel at the moment of dismissal, which
+ * would otherwise strand it on an element about to leave the accessibility
+ * tree; that one case returns focus to the toggle too. `{ preventScroll:
+ * true }` on every focus call here is deliberate: a browser's default
+ * focus-scroll would fight the exact scroll position this hook exists to
+ * hold steady.
+ *
+ * ## Exit animation
+ *
+ * Every close (toggle, `Escape`, or gesture) plays a ~200ms slide-and-fade
+ * unless `prefers-reduced-motion: reduce` is set, in which case the panel is
+ * removed outright — see `globals.css`'s `.filter-panel-exit`. `exiting` and
+ * `exitRect` are exposed so `page.tsx` can render the *same* panel element
+ * `position: fixed` at the rect it just occupied while the in-flow slot
+ * drops empty in the same commit — no DOM clone, no relayout of the list
+ * underneath it. The rect is captured here, before `open` flips to `false`,
+ * because that is the only moment it can still be read from the panel's
+ * in-flow position.
+ *
+ * Reopening while a previous exit is still animating reuses that same
+ * element, so the in-flight exit is discarded (`exiting`/`exitRect` reset,
+ * its fallback timer cancelled) rather than left to finish underneath the
+ * reopened panel — the double-dismiss case the hook's tests pin by name.
+ * The fallback timer (`EXIT_FALLBACK_MS`) exists because `transitionend`
+ * never fires for an element that's never painted (a background tab, or a
+ * browser-decided reduced-motion skip); without it a dismissal made while
+ * hidden would leave `exiting` stuck `true` forever.
  */
 export function useFilterPanel(): {
   open: boolean;
@@ -73,8 +107,12 @@ export function useFilterPanel(): {
   panelId: string;
   panelRef: (el: HTMLElement | null) => void;
   toggleRef: (el: HTMLButtonElement | null) => void;
+  exiting: boolean;
+  exitRect: DOMRect | null;
 } {
   const [open, setOpen] = useState(false);
+  const [exiting, setExiting] = useState(false);
+  const [exitRect, setExitRect] = useState<DOMRect | null>(null);
   const panelId = useId();
   const panelElRef = useRef<HTMLElement | null>(null);
   const toggleElRef = useRef<HTMLButtonElement | null>(null);
@@ -99,36 +137,78 @@ export function useFilterPanel(): {
     pendingScrollCorrectionRef.current = el ? { el, top: el.getBoundingClientRect().top } : null;
   };
 
-  // The only way `open` changes. Functional update, so this stays stable
-  // across renders (empty deps) without closing over a stale `open`.
+  // The one place `open` is set to `false`. Measures the panel's rect while
+  // it is still in flow (the only moment that's possible), then flips
+  // `exiting`/`exitRect`/`open` together in the same commit so `page.tsx`
+  // can switch the panel to `position: fixed` at that rect the instant its
+  // in-flow placeholder disappears — see the hook doc's "Exit animation"
+  // section for why that ordering is load-bearing.
+  //
+  // `prefers-reduced-motion: reduce` (or a panel that somehow isn't mounted)
+  // skips straight to the no-animation close: no rect, no fixed ghost, just
+  // gone, and any exit already in flight is discarded so it doesn't linger
+  // after this simpler close ran on top of it.
+  const beginExit = useCallback(() => {
+    const panel = panelElRef.current;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!panel || reducedMotion) {
+      setExiting(false);
+      setExitRect(null);
+      setOpen(false);
+      return;
+    }
+    setExitRect(panel.getBoundingClientRect());
+    setExiting(true);
+    setOpen(false);
+  }, []);
+
+  // Reopening reuses the very element a previous exit may still be
+  // animating (no DOM clone — see the hook doc), so that exit has to be
+  // discarded outright rather than left to finish underneath the reopened
+  // panel. Clearing `exiting` here is also what cancels its fallback timer:
+  // the effect that owns that timer is scoped to `exiting` and tears itself
+  // down the instant this flips it back to `false`.
+  const cancelExit = useCallback(() => {
+    setExiting(false);
+    setExitRect(null);
+  }, []);
+
+  // The only way `open` changes. Reads the current `open` directly (rather
+  // than a functional update) because closing now needs `beginExit`'s side
+  // effect, not just a flip.
   const toggle = useCallback(() => {
     captureScrollReference();
-    setOpen((o) => !o);
-  }, []);
+    if (open) {
+      beginExit();
+    } else {
+      cancelExit();
+      setOpen(true);
+    }
+  }, [open, beginExit, cancelExit]);
 
-  // Escape is the other closer, and it needs a concrete `false` (not a
-  // toggle) plus the focus-return step `toggle()` doesn't need.
+  // Escape is the other closer, and it needs the focus-return step
+  // `toggle()`'s click-close path doesn't need (a click already leaves focus
+  // on the toggle).
   const closeViaEscape = useCallback(() => {
     captureScrollReference();
-    setOpen(false);
+    beginExit();
     toggleElRef.current?.focus({ preventScroll: true });
-  }, []);
+  }, [beginExit]);
 
-  // Closing by gesture takes the same scroll-correction capture as every
-  // other close — the panel leaving shrinks content above the reader, and
-  // holding them still is exactly as necessary here as on the other paths.
-  // No focus return: a gesture means the reader's attention has already left
-  // the panel, and yanking focus to the toggle would be its own surprise.
-  // The one exception is focus that is still INSIDE the panel, which would
-  // otherwise be stranded on a detached element.
+  // Closing by gesture takes the same scroll-correction capture and exit
+  // animation as every other close. No focus return: a gesture means the
+  // reader's attention has already left the panel, and yanking focus to the
+  // toggle would be its own surprise. The one exception is focus that is
+  // still INSIDE the panel, which would otherwise be stranded on an element
+  // about to leave the accessibility tree.
   const closeViaGesture = useCallback(() => {
     captureScrollReference();
-    setOpen(false);
+    beginExit();
     const panel = panelElRef.current;
     if (panel && document.activeElement && panel.contains(document.activeElement)) {
       toggleElRef.current?.focus({ preventScroll: true });
     }
-  }, []);
+  }, [beginExit]);
 
   // A gesture that starts inside the panel is the reader scrolling the
   // panel's own overflow, not the list. A gesture on the toggle is the
@@ -181,5 +261,27 @@ export function useFilterPanel(): {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, closeViaEscape]);
 
-  return { open, toggle, panelId, panelRef, toggleRef };
+  // Owns the exit animation's cleanup, scoped to `exiting` so it re-arms on
+  // every fresh exit and tears itself down — cancelling both the listener
+  // and the fallback timer — the instant `exiting` flips back to `false`,
+  // whether that happened here, via a reopen (`cancelExit`), or via the
+  // reduced-motion path in `beginExit`. That teardown-on-every-transition is
+  // exactly what makes the double-dismiss case safe without any extra
+  // bookkeeping: a stale timer from a discarded exit cannot outlive it.
+  useEffect(() => {
+    if (!exiting) return;
+    const panel = panelElRef.current;
+    const finish = () => {
+      setExiting(false);
+      setExitRect(null);
+    };
+    const timeoutId = window.setTimeout(finish, EXIT_FALLBACK_MS);
+    panel?.addEventListener('transitionend', finish);
+    return () => {
+      window.clearTimeout(timeoutId);
+      panel?.removeEventListener('transitionend', finish);
+    };
+  }, [exiting]);
+
+  return { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect };
 }
