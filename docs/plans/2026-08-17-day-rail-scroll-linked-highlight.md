@@ -147,7 +147,7 @@ thrash.
     <div ref=pill  class="absolute inset-y-0 bg-blue-600" />         z-10
     <div ref=clip aria-hidden class="absolute inset-0 flex gap-1
          text-white pointer-events-none" style="clip-path: inset()"> z-20  duplicate row
-      {chips again, as buttons with tabIndex -1}
+      {chips again, as non-interactive divs}
     </div>
   </div>
 </div>
@@ -162,12 +162,16 @@ Two details settled while building, against the sketch above:
   chip whose highlight matters. Above, the pill covers the base text and the
   clipped copy puts legible text back, which is the same result the layering
   was for.
-- **The copy's chips are `<button>`, not `<div>`.** The copy must match the
-  real row's box metrics exactly or a width difference opens a seam through a
-  digit, and a `<div>` does not inherit the same UA and preflight rules.
-  `tabIndex={-1}` inside an `aria-hidden` container keeps them out of the tab
-  order and the accessibility tree. Measured worst delta across 251 pairs:
-  0px.
+- **The copy's chips are `<div>`, not `<button>`.** They were buttons first,
+  chosen for box-metric parity, and `e2e/verify-rail.mjs` proved that wrong:
+  the rail's own chevron selector is `button:not([data-chip])`, the copy
+  carries no `data-chip`, so the copy matched it and a chevron click landed on
+  inert paint. Adding `data-chip` to fix that would instead double every
+  `[data-day-rail] [data-chip]` query in the same suite; a `<div>` is the only
+  shape satisfying both. Parity turned out not to need a button at all —
+  Tailwind's preflight normalises a button's font, padding, border and margin
+  to a div's. Measured worst delta across all 251 pairs: 0px on left, width,
+  top and height.
 
 **The pill and the clip layer live in content coordinates**, computed from
 `f` alone and never touched by `scrollLeft`. `scrollLeft` is a wholly
@@ -201,10 +205,16 @@ reader's own gesture and stays as-is.
 - **Pure** (`railPosition`): ramp floor on a one-event day, clamping at both
   ends of the season, `f` continuity across the flip.
 - **Hook** (`useRailHighlight`): stubbed rects, following the existing
-  `useDayAnchor.test.ts` pattern. Suspension on `pointerdown`/`wheel`; resume
-  on anchor change.
+  `useDayAnchor.test.ts` pattern. Suspension by scroll divergence — the strip
+  landing somewhere other than the last value written — and *not* on a
+  vertical scroll that merely passed over the rail; resume on anchor change,
+  on an explicit commit, and against a scroll event still in flight from the
+  pan just lifted. Plus listeners attaching to elements that appear after the
+  first mount, and no listeners at all while nothing is rendered.
 - **Component** (`DayRail`): clip layer is `aria-hidden`, contains nothing
-  focusable, `aria-current` still lands on the anchor.
+  focusable, contributes nothing to the chevron selector, `aria-current`
+  still lands on the anchor, and the highlight attaches when the strip
+  appears only after the scope resolves.
 - **Browser, mandatory.** Chrome on a phone viewport, with a GIF of a slow
   drag *stopped mid-transition* showing the half-and-half chip. This is the
   acceptance criterion and no test can reach it — phase 3a shipped eleven
