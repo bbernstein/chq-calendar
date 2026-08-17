@@ -81,6 +81,22 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
 
   /** True while the reader owns `scrollLeft` — see `resume` below. */
   const suspended = useRef(false);
+  /**
+   * The last `scrollLeft` this hook wrote, read back after writing.
+   *
+   * This is how a peek is detected: if the strip's position ever differs from
+   * what we last put there, something other than us moved it. That is a
+   * direct observation rather than an inference from event types, and it was
+   * arrived at by watching the inference fail — suspending on `wheel` or
+   * `pointerdown` over the strip also fires for a plain *vertical* page
+   * scroll with the pointer resting on the rail, which on a phone is exactly
+   * where the rail is. Browser-measured: one vertical wheel over the rail,
+   * then 120px of page scroll, moved the strip 0px. Divergence cannot make
+   * that mistake, and it catches every way the reader can move the strip —
+   * touch drag, trackpad pan, scrollbar, keyboard — rather than the two the
+   * event list happened to name.
+   */
+  const lastWritten = useRef(0);
   /** The anchor as of the last frame, so a change of day can lift a peek. */
   const lastAnchor = useRef<string | null>(null);
   const tween = useRef<{ to: number; raf: number } | null>(null);
@@ -111,6 +127,19 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   const resume = useCallback(() => { suspended.current = false; }, []);
 
   /**
+   * The one place `scrollLeft` is written.
+   *
+   * Reads the value back rather than recording what was asked for: the
+   * browser clamps to the scrollable range, so storing the request would
+   * leave `lastWritten` permanently disagreeing with reality at either end of
+   * the season and read as a peek that never happened.
+   */
+  const writeScrollLeft = useCallback((strip: HTMLElement, value: number) => {
+    strip.scrollLeft = value;
+    lastWritten.current = strip.scrollLeft;
+  }, []);
+
+  /**
    * Ease the strip to a destination it cannot simply track.
    *
    * A tap scrolls the page instantly, so `scrollLeft` would otherwise
@@ -122,7 +151,7 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     cancelTween();
     const from = strip.scrollLeft;
     if (prefersReducedMotion() || Math.abs(to - from) < 1) {
-      strip.scrollLeft = to;
+      writeScrollLeft(strip, to);
       return;
     }
     const t0 = performance.now();
@@ -132,13 +161,13 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     const step = () => {
       if (tween.current !== self) return;
       const progress = Math.min(1, (performance.now() - t0) / TWEEN_MS);
-      strip.scrollLeft = lerp(from, to, easeOutCubic(progress));
+      writeScrollLeft(strip, lerp(from, to, easeOutCubic(progress)));
       if (progress < 1) self.raf = requestAnimationFrame(step);
       else tween.current = null;
     };
     tween.current = self;
     self.raf = requestAnimationFrame(step);
-  }, [cancelTween]);
+  }, [cancelTween, writeScrollLeft]);
 
   /**
    * Re-measure the chip row.
@@ -248,8 +277,8 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       return;
     }
     if (Math.abs(desired - strip.scrollLeft) > threshold) startTween(strip, desired);
-    else strip.scrollLeft = desired;
-  }, [keysId, hide, startTween]);
+    else writeScrollLeft(strip, desired);
+  }, [keysId, hide, startTween, writeScrollLeft]);
 
   // Measure and place before paint: a pill positioned in a passive effect
   // would flash at x=0 on the first frame.
@@ -269,17 +298,24 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     };
     const onResize = () => { measureChips(); onScroll(); };
 
-    // The reader taking hold of the rail suspends our writes until they
-    // scroll into a different day. `wheel` as well as `pointerdown`: a
-    // trackpad two-finger horizontal pan fires no pointer event at all, and
-    // would otherwise be fought by the per-frame `scrollLeft` write.
-    const takeOver = () => { suspended.current = true; cancelTween(); };
+    // The reader moved the strip themselves — suspend until they scroll into
+    // a different day or commit explicitly. Detected by the strip's position
+    // diverging from the last value we put there, which is the only signal
+    // that distinguishes a genuine pan from a vertical page scroll that
+    // merely passed over the rail. The 1px tolerance absorbs the subpixel
+    // rounding browsers apply to a fractional `scrollLeft`.
+    const onStripScroll = () => {
+      if (!strip) return;
+      if (Math.abs(strip.scrollLeft - lastWritten.current) > 1) {
+        suspended.current = true;
+        cancelTween();
+      }
+    };
 
     // Passive throughout: none of these may delay a scroll.
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onResize, { passive: true });
-    strip?.addEventListener('pointerdown', takeOver, { passive: true });
-    strip?.addEventListener('wheel', takeOver, { passive: true });
+    strip?.addEventListener('scroll', onStripScroll, { passive: true });
 
     // The chip row can change width without the window resizing — `⟳ Now`
     // and the Filters toggle appear and disappear beside it. Absent in some
@@ -293,8 +329,7 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       cancelTween();
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onResize);
-      strip?.removeEventListener('pointerdown', takeOver);
-      strip?.removeEventListener('wheel', takeOver);
+      strip?.removeEventListener('scroll', onStripScroll);
       observer?.disconnect();
     };
   }, [chipsId, keysId, sync, measureChips, cancelTween]);

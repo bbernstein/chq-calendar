@@ -233,22 +233,38 @@ describe('useRailHighlight', () => {
   });
 
   describe('peeking', () => {
-    it('stops driving the strip once the reader takes hold of it', () => {
+    /** The reader moves the strip themselves, and the browser fires `scroll`. */
+    function readerPans(strip: HTMLElement, to: number) {
+      act(() => {
+        strip.scrollLeft = to;
+        strip.dispatchEvent(new Event('scroll'));
+      });
+    }
+
+    it('stops driving the strip once the reader has moved it', () => {
       const { strip } = mount(atRest);
       scroll();
+      readerPans(strip, 500);
       scrollWrites.length = 0;
-      act(() => { strip.dispatchEvent(new Event('pointerdown')); });
       scroll();
       expect(scrollWrites).toEqual([]);
     });
 
-    it('stops driving the strip on a trackpad pan, which fires no pointer event', () => {
+    // Browser-measured regression. Suspending on `wheel`/`pointerdown` over
+    // the strip also caught a plain vertical page scroll with the pointer
+    // resting on the rail — which on a phone is exactly where the rail is.
+    // One vertical wheel then 120px of page scroll moved the strip 0px.
+    it('keeps driving the strip through a page scroll that merely passed over the rail', () => {
       const { strip } = mount(atRest);
       scroll();
+      act(() => {
+        strip.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, deltaX: 0 }));
+        strip.dispatchEvent(new Event('pointerdown'));
+      });
       scrollWrites.length = 0;
-      act(() => { strip.dispatchEvent(new Event('wheel')); });
       scroll();
-      expect(scrollWrites).toEqual([]);
+      // Neither event moved the strip, so neither is a peek.
+      expect(scrollWrites.length).toBeGreaterThan(0);
     });
 
     it('keeps the pill glued to its day while the reader peeks', () => {
@@ -256,7 +272,7 @@ describe('useRailHighlight', () => {
       // being read, rather than catching whichever chip is dragged under it.
       const { strip, pill } = mount(atRest);
       scroll();
-      act(() => { strip.dispatchEvent(new Event('pointerdown')); });
+      readerPans(strip, 500);
       scroll();
       expect(pillLeft(pill)).toBe(PITCH);
       expect(pill.style.opacity).toBe('1');
@@ -269,7 +285,7 @@ describe('useRailHighlight', () => {
       };
       const { strip } = mount(spec);
       scroll();
-      act(() => { strip.dispatchEvent(new Event('pointerdown')); });
+      readerPans(strip, 500);
       scrollWrites.length = 0;
       // Still on d2 — the peek survives scrolling around within the day.
       scroll();
@@ -285,7 +301,7 @@ describe('useRailHighlight', () => {
       // else would hand the strip back.
       const { strip, api } = mount(atRest);
       scroll();
-      act(() => { strip.dispatchEvent(new Event('pointerdown')); });
+      readerPans(strip, 500);
       scrollWrites.length = 0;
       act(() => { api().resume(); });
       scroll();
