@@ -95,6 +95,16 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
    * that mistake, and it catches every way the reader can move the strip —
    * touch drag, trackpad pan, scrollbar, keyboard — rather than the two the
    * event list happened to name.
+   *
+   * The comparison rests on one ordering assumption, stated here rather than
+   * left implicit: a `scroll` event is dispatched no earlier than the task
+   * that caused it, and its handler reads the *live* `scrollLeft` at dispatch
+   * time. So by the time our own write's event is delivered, `lastWritten`
+   * has already been updated to that same value and the two compare equal —
+   * even mid-tween, where a write happens every frame. Every mainstream
+   * engine defers scroll dispatch by at least a task. If one did not, our own
+   * writes would read as peeks and the highlight would stop centring after
+   * the first frame.
    */
   const lastWritten = useRef(0);
   /** The anchor as of the last frame, so a change of day can lift a peek. */
@@ -124,7 +134,15 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
    * tapping the chip for the day already being read changes no anchor, and
    * without this the strip would stay wherever the reader had panned it.
    */
-  const resume = useCallback(() => { suspended.current = false; }, []);
+  const resume = useCallback(() => {
+    suspended.current = false;
+    // Re-baseline before handing control back. `lastWritten` still points at
+    // wherever *we* last wrote, which is not where the reader left the strip,
+    // so a `scroll` event still in flight from their pan would compare
+    // divergent and re-suspend immediately — silently undoing this call.
+    const strip = stripRef.current;
+    if (strip) lastWritten.current = strip.scrollLeft;
+  }, []);
 
   /**
    * The one place `scrollLeft` is written.
@@ -185,9 +203,13 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     contentWidth.current = contentRect.width;
     const next = new Map<string, ChipExtent>();
     const lefts: number[] = [];
-    // `:scope >` matters: the highlighted copy of the row is a descendant of
-    // this same element and carries the same `data-chip` keys, so an
-    // unscoped query would measure every chip twice.
+    // `:scope >` restricts the measurement to the real chip row. The
+    // highlighted copy is a descendant of this same element; it carries no
+    // `data-chip` today, so this is defence in depth rather than the only
+    // thing keeping it out of the map — but an unscoped query would silently
+    // start measuring every chip twice the day anything under `content`
+    // gained a chip key, and the failure would be a mispositioned pill
+    // rather than an error.
     for (const el of Array.from(content.querySelectorAll<HTMLElement>(':scope > [data-chip]'))) {
       const key = el.dataset.chip;
       if (!key || next.has(key)) continue;
@@ -232,6 +254,8 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     // mistaken for a change of day.
     if (lastAnchor.current !== null && resolved.key !== lastAnchor.current) {
       suspended.current = false;
+      // Re-baseline for the same reason `resume` does — see there.
+      lastWritten.current = strip.scrollLeft;
     }
     lastAnchor.current = resolved.key;
 
@@ -287,6 +311,15 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     sync();
   }, [chipsId, keysId, measureChips, sync]);
 
+  // `sync` and `measureChips` are reached through a ref so the listener
+  // effect below does not depend on them. Both are recreated whenever the day
+  // list changes, and wiring the listeners to them directly tore down and
+  // rebuilt every `window` listener and the `ResizeObserver` on every filter,
+  // scope and window change — churn that buys nothing, since none of the
+  // wiring itself depends on the chip or day contents.
+  const latest = useRef({ sync, measureChips });
+  latest.current = { sync, measureChips };
+
   useEffect(() => {
     const strip = stripRef.current;
     const content = contentRef.current;
@@ -294,9 +327,9 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     let frame = 0;
     const onScroll = () => {
       if (frame) return;
-      frame = requestAnimationFrame(() => { frame = 0; sync(); });
+      frame = requestAnimationFrame(() => { frame = 0; latest.current.sync(); });
     };
-    const onResize = () => { measureChips(); onScroll(); };
+    const onResize = () => { latest.current.measureChips(); onScroll(); };
 
     // The reader moved the strip themselves — suspend until they scroll into
     // a different day or commit explicitly. Detected by the strip's position
@@ -332,7 +365,9 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       strip?.removeEventListener('scroll', onStripScroll);
       observer?.disconnect();
     };
-  }, [chipsId, keysId, sync, measureChips, cancelTween]);
+    // Deliberately mount-scoped: the elements these attach to are created once
+    // by `DayRail` and live as long as this hook does.
+  }, [cancelTween]);
 
   return { stripRef, contentRef, pillRef, clipRef, resume };
 }

@@ -296,6 +296,24 @@ describe('useRailHighlight', () => {
       expect(scrollWrites.length).toBeGreaterThan(0);
     });
 
+    // `resume` has to re-baseline, not just clear the flag. A `scroll` event
+    // still in flight from the reader's pan is delivered after the click that
+    // called `resume`, and compares the strip's position against whatever we
+    // last wrote — which is not where the reader left it. Without the
+    // re-baseline that comparison diverges and re-suspends immediately,
+    // silently undoing the resume.
+    it('survives a scroll event still in flight from the pan it just lifted', () => {
+      const { strip, api } = mount(atRest);
+      scroll();
+      readerPans(strip, 500);
+      act(() => { api().resume(); });
+      // The straggler: same position, dispatched after resume.
+      act(() => { strip.dispatchEvent(new Event('scroll')); });
+      scrollWrites.length = 0;
+      scroll();
+      expect(scrollWrites.length).toBeGreaterThan(0);
+    });
+
     it('lifts the peek on an explicit commit to the day already being read', () => {
       // Tapping the current day's own chip changes no anchor, so nothing
       // else would hand the strip back.

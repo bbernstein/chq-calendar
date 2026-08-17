@@ -227,10 +227,12 @@ export function DayRail({
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const content = contentRef.current;
     if (!content) return;
-    // `:scope >` matters: the highlighted copy of the row lives inside this
-    // same element and carries the same `data-chip` keys, so an unscoped
-    // query would walk focus through every chip twice — and half of those
-    // are `tabIndex={-1}` decorations that must never receive focus.
+    // `:scope >` restricts the walk to the real chip row. The highlighted
+    // copy below carries no `data-chip` and holds no focusable elements, so
+    // this is defence in depth rather than the only thing keeping the copy
+    // out — but it is the cheap half of that pair, and it keeps the walk
+    // correct against any future descendant of `content` that does carry a
+    // chip key.
     const buttons = Array.from(content.querySelectorAll<HTMLElement>(':scope > [data-chip]'));
     const current = buttons.indexOf(document.activeElement as HTMLElement);
     if (current < 0) return;
@@ -347,18 +349,26 @@ export function DayRail({
             style={{ clipPath: 'inset(0 100% 0 0)' }}
           >
             {chips.map((chip) => (
-              // Buttons, not divs: this row must match the real one's box
-              // metrics exactly, and a `<div>` does not inherit the same UA
-              // and preflight rules a `<button>` does. Not focusable, not
-              // announced, not clickable — it is paint.
-              <button
-                key={chip.key}
-                type="button"
-                tabIndex={-1}
-                className={chipBoxClass(chip.count === 0)}
-              >
+              // Divs, not buttons, and carrying no `data-chip`. This row is
+              // paint: it must not be a control, and it must not answer to a
+              // selector looking for one.
+              //
+              // Both halves of that are load-bearing, and each was learned the
+              // hard way. `<button>` here (chosen originally for box-metric
+              // parity) made the copy match the rail's own
+              // `button:not([data-chip])` chevron selector, so a click landed
+              // on inert paint with the real chip intercepting beneath it —
+              // caught by `e2e/verify-rail.mjs`, not by any unit test. Adding
+              // `data-chip` to fix *that* would instead double every
+              // `[data-day-rail] [data-chip]` query in the same suite. A plain
+              // `<div>` is the only shape that satisfies both, and it is the
+              // honest one. Tailwind's preflight normalises a button's font,
+              // padding, border and margin to a div's, so the box metrics are
+              // identical anyway — browser-measured at 0px worst delta across
+              // all 251 pairs.
+              <div key={chip.key} className={chipBoxClass(chip.count === 0)}>
                 <ChipFace chip={chip} />
-              </button>
+              </div>
             ))}
           </div>
         </div>

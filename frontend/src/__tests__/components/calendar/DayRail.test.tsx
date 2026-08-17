@@ -255,9 +255,28 @@ describe('DayRail', () => {
     it('puts nothing extra in the tab order', () => {
       const { container } = renderRailIn();
       const copy = container.querySelector<HTMLElement>('[data-rail-clip]')!;
-      const focusable = Array.from(copy.querySelectorAll('button'));
-      expect(focusable.length).toBeGreaterThan(0); // it really does render chips
-      expect(focusable.every(b => b.getAttribute('tabindex') === '-1')).toBe(true);
+      expect(copy.children.length).toBeGreaterThan(0); // it really does render chips
+      expect(copy.querySelectorAll('button, a, [tabindex], [contenteditable]')).toHaveLength(0);
+    });
+
+    // Regression, caught by `e2e/verify-rail.mjs` and by nothing else. The
+    // copy's chips were `<button>` (chosen for box-metric parity) and carry
+    // no `data-chip`, which made them match the rail's own chevron selector
+    // `button:not([data-chip])`. Playwright then aimed a chevron click at
+    // inert paint and the real chip beneath intercepted it, timing out.
+    //
+    // Asserted as the selector rather than as "they are divs", because the
+    // selector is the thing that has to keep working — the e2e suite's other
+    // family, `[data-day-rail] [data-chip]`, is covered by the count guard
+    // above, and between them they pin both ways the copy could collide with
+    // a real control.
+    it('contributes nothing to the rail\'s chevron selector', () => {
+      const { container } = renderRailIn();
+      const rail = container.querySelector<HTMLElement>('[data-day-rail]')!;
+      const nonChipButtons = rail.querySelectorAll('button:not([data-chip])');
+      // The two chevrons, and nothing else. No `⟳ Now` (anchor is today) and
+      // no Filters toggle (no `filtersToggle` prop).
+      expect(nonChipButtons).toHaveLength(2);
     });
 
     it('starts fully clipped, so it cannot flash before the first measurement', () => {
