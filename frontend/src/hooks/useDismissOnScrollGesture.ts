@@ -25,10 +25,15 @@ const SCROLL_KEYS = new Set([
  *   venue — contradicting the deliberate rule that picking a venue, a category
  *   and a week is one intent.
  *
- * `isExempt` receives the event target so the caller can spare gestures that
+ * `isExempt` receives the whole event so the caller can spare gestures that
  * start inside the thing being dismissed (scrolling the panel's own overflow)
  * or on the control that toggles it (which would otherwise dismiss and reopen
  * in one tap).
+ *
+ * The event rather than just its target, because exemption is not always a
+ * property of where the gesture landed: a key another component has already
+ * claimed for its own focus movement is not a scroll, however page-scrolling
+ * that key normally is. Deciding that needs the key as well as the target.
  *
  * ## `mousedown` is broader than "a scrollbar drag"
  *
@@ -58,14 +63,14 @@ const SCROLL_KEYS = new Set([
 export function useDismissOnScrollGesture({ active, onDismiss, isExempt }: {
   active: boolean;
   onDismiss: () => void;
-  isExempt: (target: EventTarget | null) => boolean;
+  isExempt: (event: Event) => boolean;
 }): void {
   useEffect(() => {
     if (!active) return;
 
     const handle = (e: Event) => {
       if (e.type === 'keydown' && !SCROLL_KEYS.has((e as KeyboardEvent).key)) return;
-      if (isExempt(e.target)) return;
+      if (isExempt(e)) return;
       onDismiss();
     };
 

@@ -6,8 +6,8 @@ afterEach(() => { document.body.innerHTML = ''; });
 
 function setup(o: { active?: boolean; exempt?: HTMLElement } = {}) {
   const onDismiss = vi.fn();
-  const isExempt = (t: EventTarget | null) =>
-    !!o.exempt && t instanceof Node && o.exempt.contains(t);
+  const isExempt = (e: Event) =>
+    !!o.exempt && e.target instanceof Node && o.exempt.contains(e.target);
   renderHook(() => useDismissOnScrollGesture({
     active: o.active ?? true, onDismiss, isExempt,
   }));

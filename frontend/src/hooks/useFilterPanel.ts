@@ -285,10 +285,27 @@ export function useFilterPanel({ scrolledPast }: {
   // panel's own overflow, not the list. A gesture on the toggle is the
   // reader closing it deliberately — dismissing here too would close on
   // `mousedown` and reopen on the following `click`.
-  const isExempt = useCallback((target: EventTarget | null) => {
+  //
+  // `Home` on a day-rail chip is a third case, and a narrower one. The rail
+  // sits below the panel, stays keyboard-reachable while the panel is open,
+  // and claims `Home` for moving focus to today's chip — the same local job
+  // `ArrowLeft`/`ArrowRight` do there, and those are not scroll keys at all.
+  // The dismiss listener is capture-phase, so it would fire before the rail's
+  // own handler and slide the panel away under a keypress that was never
+  // about the page.
+  //
+  // Deliberately the single key the rail actually consumes, and not the rail
+  // as a whole: a chip TAP must still dismiss (the reader has turned back to
+  // the results — `dayRailIntegration` pins that composition by name), and
+  // `PageDown` with focus parked on a chip really is a page scroll.
+  const isExempt = useCallback((event: Event) => {
+    const target = event.target;
     if (!(target instanceof Node)) return false;
-    return !!panelElRef.current?.contains(target)
-      || !!toggleElRef.current?.contains(target);
+    if (panelElRef.current?.contains(target) || toggleElRef.current?.contains(target)) return true;
+    return event.type === 'keydown'
+      && (event as KeyboardEvent).key === 'Home'
+      && target instanceof Element
+      && !!target.closest('[data-chip]');
   }, []);
 
   useDismissOnScrollGesture({ active: open, onDismiss: closeViaGesture, isExempt });

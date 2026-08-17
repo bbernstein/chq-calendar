@@ -35,6 +35,12 @@ function Harness() {
         <button type="button">A filter control</button>
         <button type="button" onClick={toggle}>Hide filters</button>
       </div>
+      {/*
+        A day-rail chip. The rail sits below the panel and stays
+        keyboard-reachable while the panel is open, and it claims `Home` for
+        its own focus movement — see the `isExempt` tests below.
+      */}
+      <button type="button" data-chip="2026-08-18">Aug 18</button>
       <div data-day-key="2026-08-18">day section</div>
       {/*
         The hook's `exiting`/`exitRect` are consumed by page.tsx to render a
@@ -309,6 +315,62 @@ describe('dismissal by scroll gesture', () => {
     act(() => { inner.dispatchEvent(new Event('wheel', { bubbles: true })); });
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // The day rail sits below the panel, stays keyboard-reachable while the
+  // panel is open, and claims `Home` to move focus to today's chip — the
+  // same local job `ArrowLeft`/`ArrowRight` do there, and those are not
+  // scroll keys at all. The dismiss listener is capture-phase, so without an
+  // exemption it fires BEFORE the rail's own handler and slides the panel
+  // away under a keypress that was never about the page.
+  it('ignores Home pressed on a day-rail chip, which the rail claims for focus', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    const chip = screen.getByRole('button', { name: 'Aug 18' });
+    fireEvent.click(toggle);
+
+    act(() => { chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // The exemption is that one key, not the rail. Focus parked on a chip does
+  // not turn a genuine page scroll into a rail gesture.
+  it('still dismisses on PageDown pressed on a day-rail chip', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    const chip = screen.getByRole('button', { name: 'Aug 18' });
+    fireEvent.click(toggle);
+
+    act(() => { chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true })); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  // And a chip TAP must still dismiss — the reader has turned back to the
+  // results. `dayRailIntegration` pins the same composition end to end;
+  // exempting the rail wholesale would have broken it.
+  it('still dismisses when a day-rail chip is tapped', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    const chip = screen.getByRole('button', { name: 'Aug 18' });
+    fireEvent.click(toggle);
+
+    act(() => { chip.dispatchEvent(new Event('mousedown', { bubbles: true })); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  // Home elsewhere on the page is an ordinary jump to the top, and does
+  // dismiss — the exemption is scoped to the rail's own chips.
+  it('still dismisses on Home pressed outside the rail', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
+
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home' })); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 
   // Without this the toggle's own mousedown dismisses, and its click reopens.
