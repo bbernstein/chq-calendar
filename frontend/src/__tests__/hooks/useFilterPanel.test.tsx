@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
-import { render, fireEvent, screen } from '@testing-library/preact';
+import { render, fireEvent, screen, act } from '@testing-library/preact';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -206,5 +206,105 @@ describe('useFilterPanel', () => {
     // `false`.
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(scrollBySpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('dismissal by scroll gesture', () => {
+  it('closes when the reader makes a scroll gesture', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+    act(() => { window.dispatchEvent(new Event('wheel')); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  // Our own opening correction calls `scrollBy`, which fires `scroll`.
+  it('does not close itself on the scroll its own opening correction fires', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
+
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('ignores a gesture inside the panel', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    const panel = panelElementFor(toggle);
+    fireEvent.click(toggle);
+    const inner = panel.querySelector('input')!;
+
+    act(() => { inner.dispatchEvent(new Event('wheel', { bubbles: true })); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // Without this the toggle's own mousedown dismisses, and its click reopens.
+  it('ignores a gesture on the toggle itself', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
+
+    act(() => { toggle.dispatchEvent(new Event('mousedown', { bubbles: true })); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // The normal case: a gesture means the reader's attention already left the
+  // panel, so closing must not yank focus to the toggle. Only the case where
+  // focus is still stranded inside the (now-hidden) panel gets a return —
+  // proven separately below.
+  it('leaves focus alone on a gesture close when focus was already outside the panel', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    act(() => { outside.focus(); });
+    expect(document.activeElement).toBe(outside);
+
+    act(() => { window.dispatchEvent(new Event('wheel')); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(outside);
+  });
+
+  // Opening moves focus into the panel (the Search field). If the reader
+  // then makes a gesture without ever moving focus themselves, closing the
+  // panel would otherwise strand focus on a now-hidden element.
+  it('returns focus to the toggle on a gesture close when focus was still inside the panel', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
+    expect(document.activeElement).toBe(screen.getByLabelText('Search'));
+
+    act(() => { window.dispatchEvent(new Event('wheel')); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  // Not just "`open` stays false" — that would hold even if the listeners
+  // were wired unconditionally, since closing an already-closed panel is a
+  // no-op state update. Focusing an element inside the (unopened, merely
+  // hidden-by-class) panel and checking it does NOT get yanked to the toggle
+  // is the one observable difference: `active: open` never attaches the
+  // listeners while closed, so the gesture reaches nobody.
+  it('does nothing while closed', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    const search = screen.getByLabelText('Search');
+    act(() => { search.focus(); });
+    expect(document.activeElement).toBe(search);
+
+    act(() => { window.dispatchEvent(new Event('wheel')); });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(search);
   });
 });

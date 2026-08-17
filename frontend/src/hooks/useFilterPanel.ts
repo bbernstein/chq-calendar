@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { topmostVisibleDaySection } from '@/lib/utils/daySections';
+import { useDismissOnScrollGesture } from '@/hooks/useDismissOnScrollGesture';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -112,6 +113,34 @@ export function useFilterPanel(): {
     setOpen(false);
     toggleElRef.current?.focus({ preventScroll: true });
   }, []);
+
+  // Closing by gesture takes the same scroll-correction capture as every
+  // other close — the panel leaving shrinks content above the reader, and
+  // holding them still is exactly as necessary here as on the other paths.
+  // No focus return: a gesture means the reader's attention has already left
+  // the panel, and yanking focus to the toggle would be its own surprise.
+  // The one exception is focus that is still INSIDE the panel, which would
+  // otherwise be stranded on a detached element.
+  const closeViaGesture = useCallback(() => {
+    captureScrollReference();
+    setOpen(false);
+    const panel = panelElRef.current;
+    if (panel && document.activeElement && panel.contains(document.activeElement)) {
+      toggleElRef.current?.focus({ preventScroll: true });
+    }
+  }, []);
+
+  // A gesture that starts inside the panel is the reader scrolling the
+  // panel's own overflow, not the list. A gesture on the toggle is the
+  // reader closing it deliberately — dismissing here too would close on
+  // `mousedown` and reopen on the following `click`.
+  const isExempt = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof Node)) return false;
+    return !!panelElRef.current?.contains(target)
+      || !!toggleElRef.current?.contains(target);
+  }, []);
+
+  useDismissOnScrollGesture({ active: open, onDismiss: closeViaGesture, isExempt });
 
   // Correct scroll position synchronously after the DOM has already
   // reflected the open/close change, before the browser paints. See the
