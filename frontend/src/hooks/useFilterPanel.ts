@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { topmostVisibleDaySection } from '@/lib/utils/daySections';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -19,26 +20,42 @@ const FOCUSABLE_SELECTOR = [
  *
  * ## Scroll preservation
  *
- * Revealing the filter card changes the height of content sitting above the
- * list, and a browser's own scroll-anchoring can silently compensate for
- * that — verified against a real Chromium build (Playwright): toggling a
- * 100px-tall block visible from `hidden` inside an already-stuck
- * `position: sticky` container produced a 100px `scrollY` drift with no
- * script touching `scrollTo` at all, even though the sticky container's own
- * visual position never moved. Left alone, that drift both violates "scroll
- * position never changes" and cancels out the overlay effect the design
- * relies on (the compensation pushes the list down exactly as far as the
- * panel grew, which reads as content being inserted rather than covered).
+ * "Scroll position never changes" means the reader's position, not the raw
+ * `scrollY` number — those are only the same thing when nothing above the
+ * reader changes height, which is exactly what does NOT hold here: the
+ * revealed panel adds real in-flow content above the list. A first version
+ * of this hook captured `scrollY` before toggling and forced it back
+ * afterward, which is wrong for that reason — verified against a real
+ * Chromium build (Playwright): the browser's own scroll-anchoring correctly
+ * compensated for the panel's height (`scrollY` moved to keep the reader's
+ * content in place), and forcing `scrollY` back to its pre-toggle value
+ * *undid that correct compensation*, dropping the reader by the panel's
+ * height instead of holding them still.
  *
- * The fix is to control the scroll position ourselves rather than hope the
- * browser's heuristic agrees with us: `scrollY` is captured the instant the
- * reader asks to open or close — before Preact has patched the DOM — and
- * restored via `window.scrollTo` in a `useLayoutEffect`, which runs
- * synchronously after the DOM mutation commits but before the browser
- * paints. That ordering was verified against the same Chromium build: a
- * same-task `scrollTo` issued right after the mutation left `scrollY`
- * exactly where it started, with the sticky container correctly overlaying
- * the list beneath it.
+ * The fix follows this branch's own established pattern for the same
+ * failure class — `EventList`'s upward-prepend correction and
+ * `useDayAnchor`'s settle hold, both of which track a day section's
+ * `getBoundingClientRect().top` and `scrollBy` the delta, never `scrollTo` a
+ * saved number. `topmostVisibleDaySection` (in `daySections.ts`) picks the
+ * first day section still clear of the sticky rail as the reference; its
+ * `top` is captured the instant the reader asks to open or close, and
+ * re-measured plus corrected via `window.scrollBy` in a `useLayoutEffect`,
+ * which runs synchronously after the DOM mutation commits but before the
+ * browser paints — late enough that `getBoundingClientRect()` reflects the
+ * panel's new layout (and any scroll-anchoring the browser already applied
+ * for it), early enough that no frame paints the uncorrected position.
+ *
+ * This composes with native scroll-anchoring rather than fighting it, and
+ * was verified both ways against a real Chromium build: when anchoring is
+ * live, the reference section's re-measured `top` already matches its
+ * captured value (anchoring did the right thing), so the computed delta is
+ * `0` and this is a no-op; with `overflow-anchor: none` forcing anchoring
+ * off, the delta the browser doesn't supply is exactly what this computes
+ * and corrects by hand. Either way the reference section's viewport
+ * position lands unchanged — that's the real, browser-verified invariant;
+ * jsdom cannot express it (no layout, no scroll-anchoring), so the hook
+ * tests instead pin the mechanism: a day section's `top` is read before the
+ * toggle and `scrollBy` (never `scrollTo`) is called with the delta after.
  *
  * ## Focus
  *
@@ -64,35 +81,52 @@ export function useFilterPanel(): {
   // Set immediately before every call to `setOpen`, consumed by the layout
   // effect below the very next commit. A ref, not a plain variable — it has
   // to survive from the event handler (this render) to the effect (after
-  // the next one).
-  const pendingScrollRestoreRef = useRef<number | null>(null);
+  // the next one). Holds the reference day section's element and its
+  // pre-toggle `top`, not a `scrollY` number — see the hook doc for why.
+  const pendingScrollCorrectionRef = useRef<{ el: HTMLElement; top: number } | null>(null);
 
   const panelRef = useCallback((el: HTMLElement | null) => { panelElRef.current = el; }, []);
   const toggleRef = useCallback((el: HTMLButtonElement | null) => { toggleElRef.current = el; }, []);
 
+  // Captures the reference day section's current position, to be
+  // re-measured and corrected for by the layout effect below after this
+  // same toggle's DOM mutation commits. No section (a short or empty list)
+  // means nothing to correct against — the ref is left `null` and the
+  // layout effect no-ops, same as before this feature existed.
+  const captureScrollReference = () => {
+    const el = topmostVisibleDaySection();
+    pendingScrollCorrectionRef.current = el ? { el, top: el.getBoundingClientRect().top } : null;
+  };
+
   // The only way `open` changes. Functional update, so this stays stable
   // across renders (empty deps) without closing over a stale `open`.
   const toggle = useCallback(() => {
-    pendingScrollRestoreRef.current = window.scrollY;
+    captureScrollReference();
     setOpen((o) => !o);
   }, []);
 
   // Escape is the other closer, and it needs a concrete `false` (not a
   // toggle) plus the focus-return step `toggle()` doesn't need.
   const closeViaEscape = useCallback(() => {
-    pendingScrollRestoreRef.current = window.scrollY;
+    captureScrollReference();
     setOpen(false);
     toggleElRef.current?.focus({ preventScroll: true });
   }, []);
 
-  // Restore scroll position synchronously after the DOM has already
+  // Correct scroll position synchronously after the DOM has already
   // reflected the open/close change, before the browser paints. See the
-  // hook doc for why this has to be a layout effect and not a passive one.
+  // hook doc for why this has to be a layout effect (not a passive one) and
+  // why it measures a day section rather than restoring a saved `scrollY`.
   useLayoutEffect(() => {
-    const saved = pendingScrollRestoreRef.current;
-    if (saved === null) return;
-    pendingScrollRestoreRef.current = null;
-    window.scrollTo(0, saved);
+    const pending = pendingScrollCorrectionRef.current;
+    pendingScrollCorrectionRef.current = null;
+    if (!pending) return;
+    // Forces a synchronous layout, which is also what surfaces any
+    // scroll-anchoring correction the browser already applied for this same
+    // mutation — see the hook doc for why that makes this safe to run
+    // unconditionally rather than fight what the browser already got right.
+    const delta = pending.el.getBoundingClientRect().top - pending.top;
+    if (delta !== 0) window.scrollBy(0, delta);
   }, [open]);
 
   // Move focus into the panel on open. Not on close — Escape already

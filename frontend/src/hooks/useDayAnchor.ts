@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { daySectionElement } from '@/lib/utils/daySections';
+import { daySectionElement, dayRailHeightPx } from '@/lib/utils/daySections';
 
 /**
  * How far below the viewport top a day header counts as "the one I'm reading".
  *
- * Read from `--day-rail-h` rather than hardcoded: the rail's height changes
- * with browser text zoom, and a hardcoded offset would put the highlight one
- * day out of step for anyone who zooms — the same reason the sticky offset
- * itself is a custom property.
+ * Delegates to `dayRailHeightPx` in `daySections.ts` — the filter panel's
+ * scroll correction needs the identical "behind the chrome" threshold, so
+ * the measurement lives in one place rather than two copies drifting apart.
+ * Kept as a local alias (not a call-site rename throughout this file) to
+ * keep this file's own diff minimal.
  */
 function stickyOffset(): number {
-  if (typeof document === 'undefined') return 0;
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--day-rail-h');
-  const parsed = Number.parseFloat(raw);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return dayRailHeightPx();
 }
 
 /**
