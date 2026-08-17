@@ -95,8 +95,33 @@ space is scarcest. The accessible name does not change.
 | Reader state | Panel | Rail | Toggle |
 |---|---|---|---|
 | At the top of the page | the filter card, in flow | below it | hidden — the controls are already there |
-| Scrolled, closed | absent | stuck at viewport top | shown |
+| Scrolled, closed | **parked just above the viewport, still in flow** | stuck at viewport top | shown |
 | Scrolled, open | in flow above the rail, pushing it down | stuck below the panel | shown, expanded |
+
+**"Parked", not "absent" — corrected 2026-08-17 after the first
+implementation shipped.** The panel was originally removed from flow
+(`display: none`) once the reader scrolled past it, and that made the page
+impossible to scroll slowly in any browser implementing scroll anchoring
+(Chromium and WebKit both do): hiding it took ~290px of flow height from
+above the reader, anchoring subtracted that from `scrollY`, `scrollY` clamped
+at the top of the document, the sentinel came back into view and the panel
+returned. Measured: 2400px of slow wheel input advanced the page 0px and
+returned it to the top 20 times, on production as well as locally.
+
+The root cause is geometric rather than a browser quirk — **a ~290px header
+cannot collapse after 64px of scrolling**, because there is no room above the
+reader to absorb it, so the collapse destroys its own precondition. The
+header therefore rides up by exactly the card's measured height
+(`--filter-card-h`) and pins there. Document height never changes, anchoring
+has nothing to correct, and the card scrolls away under its own steam — which
+is what "behave the way it looks" asked for in the first place. See
+`frontend/src/app/filterHeaderLayout.ts`.
+
+Two consequences follow and are not optional. A parked card is still in the
+DOM and still in flow, so it must be `inert` or a keyboard reader Tabs into
+it and the browser scrolls the page back to the top to show them the focused
+control. And the sentinel must sit **below** the header rather than above it,
+so that it moves with the height the exit animation temporarily removes.
 
 Four things dismiss it: **a scroll gesture, the caret, the Filters toggle,
 `Escape`.** Opening and closing both preserve the reader's position via the

@@ -307,7 +307,12 @@ export function useFilterPanel({ scrolledPast }: {
     // unconditionally rather than fight what the browser already got right.
     const delta = pending.el.getBoundingClientRect().top - pending.top;
     if (delta !== 0) window.scrollBy(0, delta);
-  }, [open]);
+    // `exiting` as well as `open`: the panel enters flow on open and leaves
+    // it on close, but it ALSO leaves flow when the exit animation starts
+    // (`position: fixed`) and re-enters it when that animation ends. All
+    // four are the same height change above the reader and all four need the
+    // same correction — see `finish()` for the one that was missing.
+  }, [open, exiting]);
 
   // Move focus into the panel on open. Not on close — Escape already
   // handles its own focus return, and the toggle-click close path leaves
@@ -343,6 +348,20 @@ export function useFilterPanel({ scrolledPast }: {
     if (!exiting) return;
     const panel = panelElRef.current;
     const finish = () => {
+      // The mirror of the capture every close path already does before the
+      // panel LEAVES flow. Ending the exit puts it back: `exiting` false
+      // drops `position: fixed`, and the panel becomes in-flow content again
+      // — parked above the viewport on the header's negative `top`, but
+      // in flow, and its full height re-enters the document ABOVE the
+      // reader. Uncorrected, that lands as a measured 285px jump down the
+      // list at the exact moment the animation ends.
+      //
+      // This mirror did not exist before the panel was parked rather than
+      // hidden, and did not need to: the panel used to return to
+      // `display: none`, so it never re-entered flow at all and there was
+      // nothing to correct. See `filterHeaderLayout.ts` for why hiding it
+      // was the bug.
+      captureScrollReference();
       setExiting(false);
       setExitRect(null);
     };
