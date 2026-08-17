@@ -27,6 +27,18 @@ describe('useDismissOnScrollGesture', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  // `touchmove` is listened for alongside `touchstart`, and was the one
+  // registered event type in the list with no coverage at all — dropping it
+  // from the array would have gone unnoticed. It is not merely redundant
+  // with `touchstart`: a `touchstart` whose default is prevented by a
+  // carousel or a drag handler still produces `touchmove` when the reader
+  // flicks, and the spec names both.
+  it('dismisses on a touchmove', () => {
+    const onDismiss = setup();
+    window.dispatchEvent(new Event('touchmove'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it('dismisses on a scrollbar drag', () => {
     const onDismiss = setup();
     window.dispatchEvent(new Event('mousedown'));

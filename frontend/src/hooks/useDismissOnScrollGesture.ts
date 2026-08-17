@@ -30,6 +30,28 @@ const SCROLL_KEYS = new Set([
  * or on the control that toggles it (which would otherwise dismiss and reopen
  * in one tap).
  *
+ * ## `mousedown` is broader than "a scrollbar drag"
+ *
+ * The design authorises `mousedown` as the way a desktop reader drags the
+ * scrollbar, but there is no event that means "the scrollbar specifically" —
+ * a scrollbar drag is an ordinary `mousedown` whose target is the scrolling
+ * element. So as implemented, **any** desktop press outside the panel and
+ * outside the toggle dismisses: clicking a tag chip on an event card,
+ * a favourite star, an article link.
+ *
+ * That is deliberate rather than tolerated. The panel is an overlay covering
+ * roughly 63% of the viewport; a press on the list beneath it is the reader
+ * turning their attention back to the results, which is precisely what the
+ * dismissal rule exists to serve. It also matches the ordinary
+ * light-dismiss behaviour of every drawer-like surface. The one interaction
+ * this could plausibly harm — pressing something inside the panel — is
+ * exempted by construction, and the one that would double-handle (the
+ * toggle: dismiss on `mousedown`, reopen on `click`) is exempted too.
+ *
+ * Touch is not symmetrical here and does not need to be: `touchstart` fires
+ * for a tap as well as a scroll, so the same breadth already applies there,
+ * and it is the same judgement.
+ *
  * Listeners are attached only while `active`, and are passive: this must never
  * delay a scroll.
  */
