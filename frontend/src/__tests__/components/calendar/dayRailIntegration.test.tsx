@@ -416,7 +416,16 @@ describe('arbitration: a day-chip tap dismisses the panel before it navigates', 
   // day-navigation `scrollBy` (driven by a plain `useEffect` one render
   // later, once `revealDay` has mounted the target section) ever measures
   // the DOM. This test exists to prove that rather than assume it.
-  it('dismisses the panel before scrolling to the tapped day, not alongside it', () => {
+  //
+  // Explicit timeout: same integration-test cost as the three tests above
+  // (~60 EventCards from a real EventList + useDayAnchor render), plus a
+  // real `useFilterPanel` with its own effects and a window-level gesture
+  // listener — at least as expensive as the tests that already carry this
+  // guard. Comfortably under a second locally on Node 24, but that is not
+  // the evidence that matters: a loaded, 2-core CI runner with coverage
+  // instrumentation is what timed a test in this file out before its
+  // fixture was shrunk, and this test renders the identical fixture.
+  it('dismisses the panel before scrolling to the tapped day, not alongside it', { timeout: 15000 }, () => {
     installIntersectionObserverMock();
     installResizeObserverMock();
     document.documentElement.style.setProperty('--day-rail-h', '50px');
@@ -446,7 +455,8 @@ describe('arbitration: a day-chip tap dismisses the panel before it navigates', 
     // zero top here, so `topmostVisibleDaySection` finds nothing >= the
     // rail's 50px threshold and this correction is a no-op — nothing to
     // clear from `order`.)
-    fireEvent.click(getByRole('button', { name: 'Filters' }));
+    const toggle = getByRole('button', { name: 'Filters' });
+    fireEvent.click(toggle);
     expect(order).toEqual([]);
 
     // Track 2026-07-01 (the topmost mounted day section) against the
@@ -454,7 +464,6 @@ describe('arbitration: a day-chip tap dismisses the panel before it navigates', 
     // does — a stand-in for the real Chromium-measured drift a panel
     // leaving the layout produces, giving the dismissal's correction a
     // real, nonzero, distinguishable delta once the tap below closes it.
-    const toggle = getByRole('button', { name: 'Filters' });
     const panel = document.getElementById(toggle.getAttribute('aria-controls')!)!;
     document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-01"]`)!
       .getBoundingClientRect = () => ({ top: panel.classList.contains('hidden') ? 236 : 517 }) as DOMRect;
