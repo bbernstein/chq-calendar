@@ -283,7 +283,7 @@ Wire Task 1 into `useFilterPanel`, with no animation yet — the panel simply di
 **Files:**
 - Modify: `frontend/src/hooks/useFilterPanel.ts`
 - Modify: `frontend/src/app/page.tsx`
-- Test: `frontend/src/__tests__/hooks/useFilterPanel.test.ts`
+- Test: `frontend/src/__tests__/hooks/useFilterPanel.test.tsx`
 
 **Interfaces:**
 - Consumes: `useDismissOnScrollGesture` from Task 1.
@@ -291,7 +291,14 @@ Wire Task 1 into `useFilterPanel`, with no animation yet — the panel simply di
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `frontend/src/__tests__/hooks/useFilterPanel.test.ts` (read the file first; reuse its existing render helper):
+Append to `frontend/src/__tests__/hooks/useFilterPanel.test.tsx` — note the
+`.tsx` extension. **Read the file first and follow its existing style**: it
+renders a `Harness()` component through `render()` rather than driving the hook
+with `renderHook`, and it already provides `mockDaySectionTrackingPanel` (a day
+section whose stubbed `top` changes with the panel's visibility, using numbers
+measured from a real Chromium build) and `panelElementFor(toggle)`. Use those
+rather than inventing parallel helpers; the sketch below is written against
+`renderHook` for brevity and **must be adapted** to the `Harness` pattern:
 
 ```ts
 describe('dismissal by scroll gesture', () => {
@@ -345,7 +352,7 @@ describe('dismissal by scroll gesture', () => {
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `cd frontend && ../node_modules/.bin/vitest run src/__tests__/hooks/useFilterPanel.test.ts -t 'dismissal by scroll gesture'`
+Run: `cd frontend && ../node_modules/.bin/vitest run src/__tests__/hooks/useFilterPanel.test.tsx -t 'dismissal by scroll gesture'`
 Expected: FAIL — the panel stays open after the wheel event.
 
 - [ ] **Step 3: Wire the hook in**
@@ -384,7 +391,7 @@ In `frontend/src/hooks/useFilterPanel.ts`, add the import and a dismissal path. 
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd frontend && ../node_modules/.bin/vitest run src/__tests__/hooks/useFilterPanel.test.ts`
+Run: `cd frontend && ../node_modules/.bin/vitest run src/__tests__/hooks/useFilterPanel.test.tsx`
 Expected: PASS, including every pre-existing test in the file.
 
 - [ ] **Step 5: Prove each new test can fail**
@@ -462,7 +469,7 @@ git push
 - Modify: `frontend/src/hooks/useFilterPanel.ts`
 - Modify: `frontend/src/app/page.tsx`
 - Modify: `frontend/src/app/globals.css`
-- Test: `frontend/src/__tests__/hooks/useFilterPanel.test.ts`
+- Test: `frontend/src/__tests__/hooks/useFilterPanel.test.tsx`
 
 **Interfaces:**
 - Produces: `useFilterPanel` returns an added `exiting: boolean` and `exitRect: DOMRect | null`. `page.tsx` uses them to render the leaving panel out of flow.
@@ -496,11 +503,13 @@ describe('exit animation', () => {
 });
 ```
 
-Write these out fully against the file's existing helpers before implementing.
+Write these out fully against the file's existing `Harness` / `render` pattern
+and its `mockDaySectionTrackingPanel` and `panelElementFor` helpers before
+implementing — not with `renderHook`.
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `cd frontend && ../node_modules/.bin/vitest run src/__tests__/hooks/useFilterPanel.test.ts -t 'exit animation'`
+Run: `cd frontend && ../node_modules/.bin/vitest run src/__tests__/hooks/useFilterPanel.test.tsx -t 'exit animation'`
 Expected: FAIL — `exiting` is not part of the hook's return.
 
 - [ ] **Step 3: Implement the state machine**
