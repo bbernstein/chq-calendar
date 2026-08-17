@@ -11,6 +11,8 @@ import { daySectionElement } from '@/lib/utils/daySections';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useDayRailHeight } from '@/hooks/useDayRailHeight';
+import { useScrolledPastFilters } from '@/hooks/useScrolledPastFilters';
+import { useFilterPanel } from '@/hooks/useFilterPanel';
 import { DayRail } from '@/components/calendar/DayRail';
 import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
 import { useFavorites } from '@/hooks/useFavorites';
@@ -210,6 +212,24 @@ function HomeContent() {
   const { anchorDay, scrollToDay, cancelHold } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
 
+  // "Reach the filters after you've scrolled" — a Filters toggle on the
+  // sticky rail reveals the existing filter card in place, over the list,
+  // instead of the reader scrolling back to the top of a list that can grow
+  // past 9,000px. `scrolled` is deliberately its own mechanism
+  // (IntersectionObserver on a sentinel), not a reuse of `useDayAnchor`'s
+  // scroll listener — see `useScrolledPastFilters` for why coupling them
+  // would be a mistake. Note for anyone extending this: the toggle button is
+  // a `mousedown` like any other DOM element, and `useDayAnchor`'s hold
+  // cancels on `mousedown` — that's fine and expected (the same as clicking
+  // any other rail control), not a bug to chase.
+  const { scrolled: filtersScrolledPast, sentinelRef: filtersSentinelRef } = useScrolledPastFilters();
+  const { open: filtersOpen, toggle: toggleFiltersPanel, panelId: filtersPanelId, panelRef: filtersPanelRef, toggleRef: filtersToggleRef } = useFilterPanel();
+  // The panel only needs to cap its own height and scroll internally while
+  // it is acting as an overlay over the list — at the top of the page it is
+  // ordinary in-flow content and the page itself scrolls past it, same as
+  // before this feature existed.
+  const filtersPanelOverlaying = filtersScrolledPast && filtersOpen;
+
   // Declared here rather than beside `expandEnd` above, where it would read
   // more naturally: it needs `cancelHold`, and a `const` referenced before
   // its declaration is a TDZ ReferenceError.
@@ -333,63 +353,111 @@ function HomeContent() {
       <IosAppBanner />
       {selectedYear === defaultYear && <CountdownBanner seasonWeeks={seasonWeeks} />}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6">
-          <div className="p-2 sm:p-4">
-            <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
-            <DateFilter
-              dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
-              selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
-              seasonWeeks={seasonWeeks}
-              weekDrag={weekDrag}
-              isWeekHighlighted={isWeekHighlighted}
-              showFavoritesOnly={filters.showFavoritesOnly}
-              onToggleFavoritesOnly={filters.toggleFavoritesOnly}
-              favoriteCount={favorites.favoriteCount}
-              isCurrentYear={isCurrentYear}
-              weeklyThemes={weeklyThemes}
-            />
-            <div className="space-y-3">
-              <LocationFilter
-                availableLocations={filters.availableLocations} selectedCount={filters.selectedLocations.length}
-                recentLocations={filters.recentLocations} toggleLocation={filters.toggleLocation}
-                isLocationSelected={filters.isLocationSelected}
-                pillScroll={locationScroll} listScroll={locationListScroll}
+        {/*
+          Zero-height, marking where the sticky container below naturally
+          begins. Once it scrolls above the viewport, the container behind
+          it has started sticking and the filter card is no longer where the
+          reader would find it without help — that's the "scrolled" signal
+          the toggle appears on. `aria-hidden`: it carries no content, and
+          screen readers walking `<main>` by node would otherwise announce a
+          meaningless empty element.
+        */}
+        <div ref={filtersSentinelRef} aria-hidden="true" />
+        {/*
+          One sticky container wrapping the filter card and the rail, in
+          that order — the reveal-in-place from
+          docs/superpowers/specs/2026-08-16-web-filter-reveal-design.md.
+          `z-30`, above the rail's own `z-20` and the day headers' `z-10`
+          (EventListView), so the revealed panel paints over both rather
+          than being hidden behind either.
+        */}
+        <div className="sticky top-0 z-30">
+          <div
+            id={filtersPanelId}
+            ref={filtersPanelRef}
+            className={`bg-white dark:bg-gray-800 rounded-lg shadow mb-4 sm:mb-6 ${
+              // Hidden by visibility alone — this is still the one SearchBar
+              // and one of each filter control already on the page, not a
+              // second copy revealed instead of it. At the top of the page
+              // (`!filtersScrolledPast`) it always renders, regardless of a
+              // stale `filtersOpen` left over from scrolling back up without
+              // explicitly closing — see the design's "closing is explicit"
+              // requirement; scrolling back to the top is not a close.
+              filtersScrolledPast && !filtersOpen ? 'hidden' : ''
+            } ${
+              // Capped and internally scrollable only while acting as an
+              // overlay over the list. On a 390×844 phone this block —
+              // search, four scopes, a nine-week strip, venues, categories,
+              // active chips — can exceed the viewport; uncapped, its bottom
+              // controls would be unreachable, reproducing the bug this
+              // feature exists to fix one level down.
+              filtersPanelOverlaying ? 'max-h-[70vh] overflow-y-auto' : ''
+            }`}
+          >
+            <div className="p-2 sm:p-4">
+              <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
+              <DateFilter
+                dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
+                selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
+                seasonWeeks={seasonWeeks}
+                weekDrag={weekDrag}
+                isWeekHighlighted={isWeekHighlighted}
+                showFavoritesOnly={filters.showFavoritesOnly}
+                onToggleFavoritesOnly={filters.toggleFavoritesOnly}
+                favoriteCount={favorites.favoriteCount}
+                isCurrentYear={isCurrentYear}
+                weeklyThemes={weeklyThemes}
               />
-              <CategoryFilter
-                availableCategories={filters.availableCategories} selectedCount={filters.selectedCategoriesCount}
-                recentCategories={filters.recentCategories} toggleTag={filters.toggleTag}
-                isTagSelected={filters.isTagSelected}
-                pillScroll={categoryScroll} listScroll={categoryListScroll}
+              <div className="space-y-3">
+                <LocationFilter
+                  availableLocations={filters.availableLocations} selectedCount={filters.selectedLocations.length}
+                  recentLocations={filters.recentLocations} toggleLocation={filters.toggleLocation}
+                  isLocationSelected={filters.isLocationSelected}
+                  pillScroll={locationScroll} listScroll={locationListScroll}
+                />
+                <CategoryFilter
+                  availableCategories={filters.availableCategories} selectedCount={filters.selectedCategoriesCount}
+                  recentCategories={filters.recentCategories} toggleTag={filters.toggleTag}
+                  isTagSelected={filters.isTagSelected}
+                  pillScroll={categoryScroll} listScroll={categoryListScroll}
+                />
+              </div>
+              <ActiveFilters
+                filteredCount={filteredEvents.length}
+                totalCount={events.length}
+                hasFilters={filters.hasFilters}
+                hasDateFilters={filters.hasDateFilters}
+                hasNonDateFilters={filters.hasNonDateFilters}
+                chips={activeChips}
+                onClear={filters.clearFilters}
+                onClearNonDateFilters={filters.clearNonDateFilters}
               />
             </div>
-            <ActiveFilters
-              filteredCount={filteredEvents.length}
-              totalCount={events.length}
-              hasFilters={filters.hasFilters}
-              hasDateFilters={filters.hasDateFilters}
-              hasNonDateFilters={filters.hasNonDateFilters}
-              chips={activeChips}
-              onClear={filters.clearFilters}
-              onClearNonDateFilters={filters.clearNonDateFilters}
-            />
           </div>
+          <DayRail
+            chips={railChips}
+            anchorDay={anchorDay}
+            prevDay={prevDay}
+            nextDay={nextDay}
+            // Off-season 'this-week' restored from localStorage resolves to no
+            // window at all, and `railTarget` refuses every tap in that state.
+            // The rail hides rather than offering ~64 fully-labelled chips that
+            // cannot move the list.
+            scopeHasWindow={dateWindow !== null}
+            todayKey={todayKey}
+            onSelectDay={goToDay}
+            onStepDay={stepDay}
+            onGoToToday={goToToday}
+            rootRef={railRef}
+            filtersToggle={{
+              open: filtersOpen,
+              onToggle: toggleFiltersPanel,
+              panelId: filtersPanelId,
+              visible: filtersScrolledPast,
+              toggleRef: filtersToggleRef,
+            }}
+          />
         </div>
-        <DayRail
-          chips={railChips}
-          anchorDay={anchorDay}
-          prevDay={prevDay}
-          nextDay={nextDay}
-          // Off-season 'this-week' restored from localStorage resolves to no
-          // window at all, and `railTarget` refuses every tap in that state.
-          // The rail hides rather than offering ~64 fully-labelled chips that
-          // cannot move the list.
-          scopeHasWindow={dateWindow !== null}
-          todayKey={todayKey}
-          onSelectDay={goToDay}
-          onStepDay={stepDay}
-          onGoToToday={goToToday}
-          rootRef={railRef}
-        />
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
             {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (

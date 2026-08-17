@@ -280,3 +280,47 @@ describe('DayRail', () => {
     expect(ref.current?.className).toMatch(/\bsticky\b/);
   });
 });
+
+describe('DayRail filtersToggle', () => {
+  // Deliberately rendered inside DayRail's own row rather than as a sibling
+  // element: `useDayRailHeight` measures only DayRail's root, so any new
+  // *persistent* chrome added outside that row (visible whenever the reader
+  // has scrolled, not just while the panel is open) would silently widen
+  // the real stuck header without widening `--day-rail-h`.
+  it('renders nothing when not visible', () => {
+    renderRail({
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: false },
+    });
+    expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull();
+  });
+
+  it('renders, with aria-expanded/aria-controls, once visible', () => {
+    renderRail({
+      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true },
+    });
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-controls')).toBe('filters-panel');
+  });
+
+  it('tracks aria-expanded when the panel is open', () => {
+    renderRail({
+      filtersToggle: { open: true, onToggle: vi.fn(), panelId: 'filters-panel', visible: true },
+    });
+    expect(screen.getByRole('button', { name: 'Filters' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('calls onToggle when clicked', () => {
+    const onToggle = vi.fn();
+    renderRail({
+      filtersToggle: { open: false, onToggle, panelId: 'filters-panel', visible: true },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('is absent entirely when no filtersToggle prop is supplied', () => {
+    renderRail();
+    expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull();
+  });
+});

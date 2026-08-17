@@ -52,6 +52,42 @@ export interface DayRailProps {
    * the caller renders this inside of (in practice, `<main>`, which is tall).
    */
   rootRef?: (el: HTMLElement | null) => void;
+  /**
+   * The "Filters" toggle, rendered inside this component's own row rather
+   * than as a separate element beside it.
+   *
+   * That placement is deliberate, not cosmetic: `useDayRailHeight` measures
+   * only this component's root (`rootRef`, above), so any new *persistent*
+   * chrome added outside this row — visible whenever the reader has
+   * scrolled, not just while the panel is open — would silently widen the
+   * actual stuck header without widening `--day-rail-h`, undercounting the
+   * clearance day headers and `useDayAnchor` compute against it. Inside the
+   * row, the toggle is already part of what gets measured, so no offset
+   * math anywhere else has to learn about it.
+   */
+  filtersToggle?: DayRailFiltersToggleProps;
+}
+
+export interface DayRailFiltersToggleProps {
+  /** Whether the revealed filter panel is currently open. */
+  open: boolean;
+  /** Opens or closes the panel. */
+  onToggle: () => void;
+  /** The panel's id — used for `aria-controls`. */
+  panelId: string;
+  /**
+   * Whether to render the toggle at all. True once the reader has scrolled
+   * past the in-flow filter card (see `useScrolledPastFilters`, owned by the
+   * caller, not this component). At the top of the page the filter card is
+   * already visible and a toggle for it would be redundant — matching the
+   * design's own state table.
+   */
+  visible: boolean;
+  /**
+   * Callback ref for the toggle button itself. The caller uses the node to
+   * return focus here when the panel closes via `Escape`.
+   */
+  toggleRef?: (el: HTMLButtonElement | null) => void;
 }
 
 /**
@@ -85,7 +121,7 @@ export interface DayRailProps {
  */
 export function DayRail({
   chips, anchorDay, prevDay, nextDay, scopeHasWindow, todayKey,
-  onSelectDay, onStepDay, onGoToToday, rootRef,
+  onSelectDay, onStepDay, onGoToToday, rootRef, filtersToggle,
 }: DayRailProps) {
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -262,6 +298,19 @@ export function DayRail({
           className="shrink-0 px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
         >
           ⟳ Now
+        </button>
+      )}
+
+      {filtersToggle?.visible && (
+        <button
+          type="button"
+          ref={filtersToggle.toggleRef}
+          aria-expanded={filtersToggle.open}
+          aria-controls={filtersToggle.panelId}
+          onClick={filtersToggle.onToggle}
+          className="shrink-0 px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
+        >
+          Filters
         </button>
       )}
     </div>
