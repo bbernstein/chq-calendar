@@ -59,6 +59,15 @@ export function chqParts(d: Date): ChqParts {
   for (const { type, value } of partsFormatter.formatToParts(d)) {
     found[type] = value;
   }
+  // `partsFormatter`'s locale and options are fixed at module scope, so
+  // `found.weekday` can only ever be one of `WEEKDAYS` — this NaN path is
+  // defence in depth, not a reachable case today. Silently mapping an
+  // unrecognised abbreviation to Sunday (via `Math.max(0, indexOf(...))`)
+  // would be a wrong answer presented as a right one; NaN matches every
+  // other degradation path in this file (an Invalid Date already returns
+  // NaN for every field) and propagates as "no valid weekday" rather than
+  // masquerading as Sunday.
+  const weekdayIndex = WEEKDAYS.indexOf(found.weekday);
   return {
     year: Number(found.year),
     month: Number(found.month),
@@ -67,18 +76,26 @@ export function chqParts(d: Date): ChqParts {
     hour: Number(found.hour) % 24,
     minute: Number(found.minute),
     second: Number(found.second),
-    weekday: Math.max(0, WEEKDAYS.indexOf(found.weekday)),
+    weekday: weekdayIndex === -1 ? NaN : weekdayIndex,
   };
+}
+
+/**
+ * Zero-pads a number to (at least) two digits — `7` -> `'07'`, `12` -> `'12'`.
+ *
+ * `String(NaN).padStart(2, '0')` is `'NaN'` (already 3 chars, past the
+ * target length, so padStart is a no-op) — this degrades along with
+ * chqParts' NaN fields without a special case, matching the 'NaN-NaN-NaN'
+ * key the old device-local implementation produced.
+ */
+export function pad2(n: number): string {
+  return String(n).padStart(2, '0');
 }
 
 /** The Chautauqua calendar day an instant falls on, as `yyyy-mm-dd`. */
 export function chqDayKey(d: Date): string {
   const { year, month, day } = chqParts(d);
-  // `String(NaN).padStart(2, '0')` is `'NaN'` (already 3 chars, past the
-  // target length, so padStart is a no-op) — this falls out of chqParts'
-  // NaN fields without a special case, and is byte-identical to the
-  // 'NaN-NaN-NaN' key the old device-local implementation produced.
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return `${year}-${pad2(month)}-${pad2(day)}`;
 }
 
 /**

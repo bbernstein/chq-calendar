@@ -1,5 +1,5 @@
 import type { Event } from '@/lib/types';
-import { CHQ_ZONE, chqParts, chqDateAt, parseEventDate } from '@/lib/utils/chqTime';
+import { CHQ_ZONE, chqParts, chqDateAt, pad2 as p2, parseEventDate } from '@/lib/utils/chqTime';
 
 /**
  * Escape special characters in ICS text fields per RFC 5545.
@@ -35,7 +35,6 @@ function foldLine(line: string): string {
  */
 function formatChqICSDate(d: Date): string {
   const { year, month, day, hour, minute, second } = chqParts(d);
-  const p2 = (n: number) => String(n).padStart(2, '0');
   return `${year}${p2(month)}${p2(day)}T${p2(hour)}${p2(minute)}${p2(second)}`;
 }
 

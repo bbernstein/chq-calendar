@@ -110,9 +110,15 @@ function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): numb
 
 export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): DayGroup[] {
   const grouped = new Map<string, DayGroup>();
+  // Each event's startDate is parsed exactly once, here, and reused for the
+  // per-day sort below — parseEventDate is far from free (a regex plus up to
+  // two Intl.DateTimeFormat round-trips), and this loop already needs the
+  // parsed instant for the day key and week numbers.
+  const startTimes = new Map<Event, number>();
 
   for (const event of events) {
     const eventDate = parseEventDate(event.startDate);
+    startTimes.set(event, eventDate.getTime());
     const key = dayKeyOf(eventDate);
     let group = grouped.get(key);
     if (!group) {
@@ -129,9 +135,7 @@ export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Da
   }
 
   for (const group of grouped.values()) {
-    group.events.sort(
-      (a, b) => parseEventDate(a.startDate).getTime() - parseEventDate(b.startDate).getTime()
-    );
+    group.events.sort((a, b) => startTimes.get(a)! - startTimes.get(b)!);
   }
 
   return Array.from(grouped.values()).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));

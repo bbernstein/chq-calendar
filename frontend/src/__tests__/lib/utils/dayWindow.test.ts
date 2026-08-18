@@ -719,6 +719,12 @@ describe('Institution-anchored day boundaries', () => {
     // Noon EDT Saturday — 'this-week' ends here and that morning has events.
     expect(lastDayCovered(new Date('2026-07-25T16:00:00.000Z'))).toBe('2026-07-25');
   });
+
+  it('keeps the final day when the bound is 400ms after midnight (regression: ChqParts has no ms field)', () => {
+    // 04:00:00.400Z is 400ms past Institution midnight on the 28th — not
+    // midnight itself, so the 28th must be kept, not dropped.
+    expect(lastDayCovered(new Date('2026-07-28T04:00:00.400Z'))).toBe('2026-07-28');
+  });
 });
 
 describe('day chips and labels read Institution time', () => {

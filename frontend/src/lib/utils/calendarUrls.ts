@@ -1,7 +1,5 @@
 import type { Event } from '@/lib/types';
-import { CHQ_ZONE, chqParts, parseEventDate } from '@/lib/utils/chqTime';
-
-const p2 = (n: number) => String(n).padStart(2, '0');
+import { CHQ_ZONE, chqParts, pad2 as p2, parseEventDate } from '@/lib/utils/chqTime';
 
 /**
  * Format a Date as YYYYMMDDTHHMMSS for Google Calendar, in Institution wall

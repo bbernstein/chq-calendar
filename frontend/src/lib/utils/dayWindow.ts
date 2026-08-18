@@ -53,9 +53,13 @@ export function dayAfter(key: DayKey): Date {
  * Saturday morning has events).
  */
 export function lastDayCovered(endExclusive: Date): DayKey {
-  const p = chqParts(endExclusive);
-  const isMidnight = p.hour === 0 && p.minute === 0 && p.second === 0;
+  // Compared as instants, not via ChqParts fields: `ChqParts` has no
+  // milliseconds field, and hour/minute/second === 0 alone would misclassify
+  // an instant like `00:00:00.400` as midnight, silently dropping the final
+  // day. `endExclusive` is midnight exactly when it equals the start of its
+  // own day — an exact, ms-safe comparison that needs no new field.
   const key = dayKeyOf(endExclusive);
+  const isMidnight = endExclusive.getTime() === startOfDay(key).getTime();
   return isMidnight ? addDays(key, -1) : key;
 }
 

@@ -88,9 +88,13 @@ export function getCurrentWeekNumber(seasonWeeks: SeasonWeek[]): number | null {
  * Expands day-by-day until enough events are accumulated.
  */
 export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: number): Date {
+  // Parse each startDate exactly once, up front, and reuse it through the
+  // filter/sort/loop below — parseEventDate is far from free (a regex plus
+  // up to two Intl.DateTimeFormat round-trips per call).
   const futureEvents = events
-    .filter(e => parseEventDate(e.startDate) >= startDate)
-    .sort((a, b) => parseEventDate(a.startDate).getTime() - parseEventDate(b.startDate).getTime());
+    .map(e => ({ date: parseEventDate(e.startDate) }))
+    .filter(e => e.date >= startDate)
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   if (futureEvents.length === 0) {
     const p = chqParts(startDate);
@@ -101,8 +105,7 @@ export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: 
   let lastCompleteDayEnd: Date | null = null;
   let currentDayDate: Date | null = null;
 
-  for (const event of futureEvents) {
-    const eventDate = parseEventDate(event.startDate);
+  for (const { date: eventDate } of futureEvents) {
     const p = chqParts(eventDate);
     const eventDay = chqDateAt(p.year, p.month, p.day, 0, 0, 0, 0);
 
