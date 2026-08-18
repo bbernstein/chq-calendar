@@ -7,10 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		918773CD9E6D8A37ACEBF9B5 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69490D350A0441F5696BB6B4 /* Foundation.framework */; };
 		C0FFEE00000000000000004E /* ChqCalendarWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C0FFEE000000000000000044 /* ChqCalendarWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		10A624848B53D4FA361E2DCA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C0FFEE000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0FFEE000000000000000010;
+			remoteInfo = ChqCalendar;
+		};
 		C0FFEE00000000000000002A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C0FFEE000000000000000001 /* Project object */;
@@ -42,20 +50,22 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		69490D350A0441F5696BB6B4 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		C0058FD07FEF2CFF917FF7B9 /* ChqCalendarUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChqCalendarUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0FFEE000000000000000011 /* ChqCalendar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChqCalendar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0FFEE000000000000000021 /* ChqCalendarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChqCalendarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0FFEE000000000000000044 /* ChqCalendarWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ChqCalendarWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C0FFEE000000000000000040 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		C0FFEE000000000000000040 /* Exceptions for "ChqCalendar" folder in "ChqCalendar" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
 			target = C0FFEE000000000000000010 /* ChqCalendar */;
 		};
-		C0FFEE000000000000000042 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		C0FFEE000000000000000042 /* Exceptions for "ChqCalendarWidgets" folder in "ChqCalendarWidgets" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -65,13 +75,74 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		C0FFEE000000000000000018 /* ChqCalendar */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (C0FFEE000000000000000040 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ChqCalendar; sourceTree = "<group>"; };
-		C0FFEE000000000000000028 /* ChqCalendarTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarTests; sourceTree = "<group>"; };
-		C0FFEE000000000000000033 /* ChqCalendarShared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarShared; sourceTree = "<group>"; };
-		C0FFEE000000000000000041 /* ChqCalendarWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (C0FFEE000000000000000042 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarWidgets; sourceTree = "<group>"; };
+		A7F898B273D99F5160405DD0 /* ChqCalendarUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ChqCalendarUITests;
+			sourceTree = "<group>";
+		};
+		C0FFEE000000000000000018 /* ChqCalendar */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0FFEE000000000000000040 /* Exceptions for "ChqCalendar" folder in "ChqCalendar" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ChqCalendar;
+			sourceTree = "<group>";
+		};
+		C0FFEE000000000000000028 /* ChqCalendarTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ChqCalendarTests;
+			sourceTree = "<group>";
+		};
+		C0FFEE000000000000000033 /* ChqCalendarShared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ChqCalendarShared;
+			sourceTree = "<group>";
+		};
+		C0FFEE000000000000000041 /* ChqCalendarWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0FFEE000000000000000042 /* Exceptions for "ChqCalendarWidgets" folder in "ChqCalendarWidgets" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ChqCalendarWidgets;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		BE546CE8CAAF329DDCE4EE7A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				918773CD9E6D8A37ACEBF9B5 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C0FFEE000000000000000016 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -96,6 +167,22 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1B67F587C63C509E423A1209 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BEFFB91DD567CB79BFA02796 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		BEFFB91DD567CB79BFA02796 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				69490D350A0441F5696BB6B4 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		C0FFEE000000000000000002 = {
 			isa = PBXGroup;
 			children = (
@@ -104,6 +191,8 @@
 				C0FFEE000000000000000033 /* ChqCalendarShared */,
 				C0FFEE000000000000000041 /* ChqCalendarWidgets */,
 				C0FFEE000000000000000003 /* Products */,
+				1B67F587C63C509E423A1209 /* Frameworks */,
+				A7F898B273D99F5160405DD0 /* ChqCalendarUITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -113,6 +202,7 @@
 				C0FFEE000000000000000011 /* ChqCalendar.app */,
 				C0FFEE000000000000000021 /* ChqCalendarTests.xctest */,
 				C0FFEE000000000000000044 /* ChqCalendarWidgets.appex */,
+				C0058FD07FEF2CFF917FF7B9 /* ChqCalendarUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -120,6 +210,27 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		37F7F511D77FE81B29343572 /* ChqCalendarUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 681732ADE4D247A3D3440433 /* Build configuration list for PBXNativeTarget "ChqCalendarUITests" */;
+			buildPhases = (
+				12B9D2BE20C4EEEDEE9A9EC2 /* Sources */,
+				BE546CE8CAAF329DDCE4EE7A /* Frameworks */,
+				61845372638AC2BA7FF9E2C3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				11DA5914EDECE5A19E04B6E6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A7F898B273D99F5160405DD0 /* ChqCalendarUITests */,
+			);
+			name = ChqCalendarUITests;
+			productName = ChqCalendarUITests;
+			productReference = C0058FD07FEF2CFF917FF7B9 /* ChqCalendarUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		C0FFEE000000000000000010 /* ChqCalendar */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C0FFEE000000000000000012 /* Build configuration list for PBXNativeTarget "ChqCalendar" */;
@@ -139,8 +250,6 @@
 				C0FFEE000000000000000033 /* ChqCalendarShared */,
 			);
 			name = ChqCalendar;
-			packageProductDependencies = (
-			);
 			productName = ChqCalendar;
 			productReference = C0FFEE000000000000000011 /* ChqCalendar.app */;
 			productType = "com.apple.product-type.application";
@@ -162,8 +271,6 @@
 				C0FFEE000000000000000028 /* ChqCalendarTests */,
 			);
 			name = ChqCalendarTests;
-			packageProductDependencies = (
-			);
 			productName = ChqCalendarTests;
 			productReference = C0FFEE000000000000000021 /* ChqCalendarTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -185,8 +292,6 @@
 				C0FFEE000000000000000041 /* ChqCalendarWidgets */,
 			);
 			name = ChqCalendarWidgets;
-			packageProductDependencies = (
-			);
 			productName = ChqCalendarWidgets;
 			productReference = C0FFEE000000000000000044 /* ChqCalendarWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -201,6 +306,10 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					37F7F511D77FE81B29343572 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = C0FFEE000000000000000010;
+					};
 					C0FFEE000000000000000010 = {
 						CreatedOnToolsVersion = 26.0;
 					};
@@ -230,11 +339,19 @@
 				C0FFEE000000000000000010 /* ChqCalendar */,
 				C0FFEE000000000000000020 /* ChqCalendarTests */,
 				C0FFEE000000000000000043 /* ChqCalendarWidgets */,
+				37F7F511D77FE81B29343572 /* ChqCalendarUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		61845372638AC2BA7FF9E2C3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C0FFEE000000000000000017 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -259,6 +376,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		12B9D2BE20C4EEEDEE9A9EC2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C0FFEE000000000000000015 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -283,6 +407,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		11DA5914EDECE5A19E04B6E6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ChqCalendar;
+			target = C0FFEE000000000000000010 /* ChqCalendar */;
+			targetProxy = 10A624848B53D4FA361E2DCA /* PBXContainerItemProxy */;
+		};
 		C0FFEE000000000000000029 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = C0FFEE000000000000000010 /* ChqCalendar */;
@@ -296,6 +426,22 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		7D414FD0A2DA8353B0EB0C2C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.calendarUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ChqCalendar;
+			};
+			name = Debug;
+		};
 		C0FFEE000000000000000013 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -511,9 +657,35 @@
 			};
 			name = Release;
 		};
+		D47A5213E46D2E16BBE47609 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.chqcal.calendarUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ChqCalendar;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		681732ADE4D247A3D3440433 /* Build configuration list for PBXNativeTarget "ChqCalendarUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D47A5213E46D2E16BBE47609 /* Release */,
+				7D414FD0A2DA8353B0EB0C2C /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		C0FFEE000000000000000012 /* Build configuration list for PBXNativeTarget "ChqCalendar" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
