@@ -2,6 +2,27 @@ import Foundation
 import Observation
 import UserNotifications
 
+/// Everything the **non-date** filters admit, anywhere navigation can reach —
+/// the day rail's source of truth.
+///
+/// The rail spans the navigable bounds, not the current window, so counting
+/// from `dayGroups` would mark every day outside the current scope "no events"
+/// and make the rail a readout of the filter it exists to navigate past.
+///
+/// Cached rather than computed on access: building it is a full
+/// `EventFilter.apply` pass, and the rail reads it once per chip.
+nonisolated struct NavMatching: Equatable, Sendable {
+    /// Days with at least one matching event, sorted. Navigation steps
+    /// through exactly this set, so a step always lands somewhere that will
+    /// render.
+    let eventDays: [String]
+    /// How many matching events each of `eventDays` holds. A day absent from
+    /// this map has none.
+    let countsByDay: [String: Int]
+    /// The outer limit of everything navigation can reach.
+    let bounds: ClosedRange<String>
+}
+
 /// The app's single source of truth: owns the currently-loaded calendar
 /// snapshot, the user's filter/favorite state, and every action a view can
 /// trigger. `@MainActor` because it's read and mutated directly by SwiftUI
@@ -36,7 +57,7 @@ final class AppModel {
     var snapshot: CalendarSnapshot? {
         didSet {
             normalizePersistedFilterCasing()
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -45,9 +66,14 @@ final class AppModel {
     /// Rebuilt only when an input actually changes — the snapshot, the
     /// filter, the favorites set, or the year — never on render. Each
     /// rebuild is two `EventFilter.apply` passes over the snapshot (see
-    /// `FacetCounts`), which is affordable at that cadence and would not be
-    /// per-render.
+    /// `FacetCounts`), plus a third for `navMatching` alongside it (see
+    /// `rebuildDerivedCounts`), which together are affordable at that
+    /// cadence and would not be per-render.
     private(set) var facetCounts: FacetCounts = .empty
+
+    /// See `NavMatching`. `nil` until a snapshot exists — there is no rail to
+    /// draw before then.
+    private(set) var navMatching: NavMatching?
 
     /// The user's most-recently-used venue and category filters.
     private(set) var recents: RecentFilters
@@ -57,14 +83,14 @@ final class AppModel {
     var filter: FilterSelection {
         didSet {
             guard filter != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
     var favorites: Set<String> {
         didSet {
             guard favorites != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -99,7 +125,7 @@ final class AppModel {
     var selectedYear: Int {
         didSet {
             guard selectedYear != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -108,7 +134,7 @@ final class AppModel {
     var defaultYear: Int {
         didSet {
             guard defaultYear != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -1256,6 +1282,19 @@ final class AppModel {
         store.saveFilters(filter)
     }
 
+    /// Recomputes everything derived from (snapshot × filter × favorites ×
+    /// year): the facet counts behind the filter sheet, and the navigation
+    /// data behind the day rail.
+    ///
+    /// Both are rebuilt only when an input actually changes — never on
+    /// render. Together they are three `EventFilter.apply` passes over the
+    /// snapshot, which is affordable at that cadence and would not be
+    /// per-render.
+    private func rebuildDerivedCounts() {
+        rebuildFacetCounts()
+        rebuildNavMatching()
+    }
+
     /// Recomputes `facetCounts` against the current selection.
     ///
     /// `normalizePersistedFilterCasing()` can mutate `filter`, whose own
@@ -1275,6 +1314,62 @@ final class AppModel {
             now: now(),
             year: selectedYear,
             isCurrentYear: isCurrentYear)
+    }
+
+    /// The filter pipeline re-run with the date stage wide open.
+    ///
+    /// `.all` rather than "skip the stage": there is one date stage and it is
+    /// driven by the scope, so opening it is expressed the same way the user
+    /// would. `selectedDayKey` and both window keys are cleared with it —
+    /// leaving them set would let a `.day` selection or a previous expansion
+    /// narrow the very set that decides how far navigation may go.
+    ///
+    /// `selectedWeeks` deliberately stays. Weeks are a filter the reader
+    /// chose, not a scope edge to escape, and the web's `nonDateFilterOpts`
+    /// keeps them for the same reason.
+    private func rebuildNavMatching() {
+        guard let snapshot else {
+            navMatching = nil
+            return
+        }
+
+        var open = filter
+        open.dateScope = .all
+        open.selectedDayKey = nil
+        open.windowStartDayKey = nil
+        open.windowEndDayKey = nil
+
+        let matching = EventFilter.apply(
+            open, to: snapshot.events, favorites: favorites,
+            now: now(), year: selectedYear, isCurrentYear: isCurrentYear)
+
+        var counts: [String: Int] = [:]
+        for event in matching {
+            counts[ChqTime.dayKey(for: event.start), default: 0] += 1
+        }
+
+        navMatching = NavMatching(
+            eventDays: counts.keys.sorted(),
+            countsByDay: counts,
+            bounds: ViewWindow.navigableBounds(
+                year: selectedYear, events: snapshot.events, starredDays: []))
+    }
+
+    /// Everything navigation can reach. Falls back to the season-only range
+    /// before a snapshot exists, so a control asking "is this day reachable"
+    /// never has to handle a missing answer.
+    var navigableBounds: ClosedRange<String> {
+        navMatching?.bounds ?? DayWindow.bounds(year: selectedYear, starredDays: [])
+    }
+
+    /// The window the list is currently showing, or `nil` when the scope
+    /// resolves to no window at all. The rail's controls all key off this:
+    /// a nil window refuses every tap, because expansion cannot rescue it.
+    var currentWindow: ViewWindow? {
+        guard let snapshot else { return nil }
+        return ViewWindow.make(
+            selection: filter, events: snapshot.events, now: now(),
+            year: selectedYear, isCurrentYear: isCurrentYear, bounds: navigableBounds)
     }
 
     /// Persisted `selectedLocations`/`selectedCategories` may carry different
