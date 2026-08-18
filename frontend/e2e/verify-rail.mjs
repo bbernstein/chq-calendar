@@ -246,8 +246,20 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   // computed delta. Loop until the section is actually in position, then stop.
   const parked = await page.evaluate(async () => {
     const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const railBottom = () => document.querySelector('[data-day-rail]').getBoundingClientRect().bottom;
-    const headerOf = (sec) => sec.querySelector('.sticky');
+    // Null-returning rather than throwing: an exception inside `evaluate`
+    // aborts the whole script, where every other failure in this harness is
+    // reported as a named check with the value it measured.
+    const railBottom = () => {
+      const rail = document.querySelector('[data-day-rail]');
+      return rail ? rail.getBoundingClientRect().bottom : null;
+    };
+    // `[data-day-header]` rather than `.sticky`: the attribute is the declared
+    // DOM contract (`DAY_SECTION_ATTR`'s neighbour in `daySections.ts`), while
+    // the class is a Tailwind utility that would silently match any other
+    // sticky descendant a section gained later.
+    const headerOf = (sec) => sec.querySelector('[data-day-header]');
+
+    if (railBottom() === null) return { ok: false, why: 'no day rail on the page' };
 
     // A day tall enough that its header is still stuck once we are inside it:
     // it must outlast the rail, its own header, and the margin we park at.
@@ -255,8 +267,10 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     const roomy = () => [...document.querySelectorAll('[data-day-key]')].find((e) => {
       const header = headerOf(e);
       if (!header) return false;
+      const bottom = railBottom();
+      if (bottom === null) return false;
       return e.getBoundingClientRect().height
-        > railBottom() + header.getBoundingClientRect().height + MARGIN * 2;
+        > bottom + header.getBoundingClientRect().height + MARGIN * 2;
     });
 
     // Search as the window grows, not once before it has.
@@ -289,9 +303,11 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     for (let i = 0; i < 25; i++) {
       const sec = document.querySelector(`[data-day-key="${key}"]`);
       if (!sec) return { ok: false, why: `target day ${key} left the DOM while homing in on it` };
+      const bottom = railBottom();
+      if (bottom === null) return { ok: false, why: 'the day rail left the page while homing in' };
       // Aim to sit MARGIN pixels past the section's start, so the header has
       // stuck and the section has not yet begun pushing it back out.
-      const delta = sec.getBoundingClientRect().top - railBottom() + MARGIN;
+      const delta = sec.getBoundingClientRect().top - bottom + MARGIN;
       if (Math.abs(delta) <= 2) return { ok: true, key };
       window.scrollBy(0, delta);
       await frame();
@@ -306,7 +322,7 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   const geom = !parked.ok ? null : await page.evaluate((key) => {
     const rail = document.querySelector('[data-day-rail]');
     const sec = document.querySelector(`[data-day-key="${key}"]`);
-    const header = sec?.querySelector('.sticky');
+    const header = sec?.querySelector('[data-day-header]');
     if (!rail || !header) return null;
     const r = rail.getBoundingClientRect(), h = header.getBoundingClientRect();
     return { day: key, railBottom: r.bottom, headerTop: h.top, headerText: header.textContent.trim().slice(0, 30) };
