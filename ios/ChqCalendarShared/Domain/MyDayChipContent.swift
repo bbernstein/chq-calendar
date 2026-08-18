@@ -16,7 +16,7 @@ import Foundation
 ///   exactly the case where it matters most.
 /// - **Empty** is `isEmpty`, which the view renders as a dashed stroke plus
 ///   secondary content.
-/// - **Count** is `starCount`, on its own line.
+/// - **Count** is `count`, on its own line.
 nonisolated struct MyDayChipContent: Equatable, Sendable {
     /// `"Today"` for today's chip, otherwise the weekday (`"Sun"`).
     let topLine: String
@@ -25,12 +25,16 @@ nonisolated struct MyDayChipContent: Equatable, Sendable {
     /// was `"EEE d"` ("Sun 9"), which cannot distinguish June from August
     /// without counting.
     let dateLine: String
-    let starCount: Int
+    let count: Int
+    /// SF Symbol beside the count, from the style. `nil` renders a bare
+    /// number, which is what the Events rail wants: an events count needs no
+    /// icon to say what it counts, and a symbol on 58 chips is visual noise.
+    let symbol: String?
     let isToday: Bool
     /// Spoken as one phrase, e.g. `"Sunday, August 9, today, 3 starred events"`.
     let accessibilityLabel: String
 
-    var isEmpty: Bool { starCount == 0 }
+    var isEmpty: Bool { count == 0 }
 
     /// `nil` when `dayKey` isn't a parseable `"yyyy-MM-dd"` day key.
     ///
@@ -40,25 +44,27 @@ nonisolated struct MyDayChipContent: Equatable, Sendable {
     static func make(
         dayKey: String,
         todayKey: String,
-        starCount: Int,
+        count: Int,
+        style: DayChipCountStyle,
         includingYear: Bool
     ) -> MyDayChipContent? {
         guard let date = ChqTime.parse("\(dayKey) 00:00:00") else { return nil }
 
         let isToday = dayKey == todayKey
-        let countPhrase = starCount == 0
-            ? "no starred events"
-            : "\(starCount) starred event\(starCount == 1 ? "" : "s")"
-        let spokenParts = [
-            ChqTime.dayTitle(for: date, includingYear: includingYear),
-            isToday ? "today" : nil,
-            countPhrase,
-        ].compactMap { $0 }
+        let title = ChqTime.dayTitle(for: date, includingYear: includingYear)
+        // The prefix rides the title rather than the whole phrase so it reads
+        // as "Go to Sunday, August 16, 4 events" and not "Go to Sunday,
+        // August 16, today, 4 events" losing its verb somewhere in the
+        // middle. Empty days never take it — see `actionPrefix`.
+        let head = (count > 0 ? style.actionPrefix : nil).map { "\($0) \(title)" } ?? title
+        let spokenParts = [head, isToday ? "today" : nil, style.phrase(for: count)]
+            .compactMap { $0 }
 
         return MyDayChipContent(
             topLine: isToday ? "Today" : ChqTime.weekdayLabel(for: date),
             dateLine: ChqTime.monthDayLabel(for: date),
-            starCount: starCount,
+            count: count,
+            symbol: style.symbol,
             isToday: isToday,
             accessibilityLabel: spokenParts.joined(separator: ", "))
     }
@@ -104,7 +110,8 @@ nonisolated struct MyDayChipContent: Equatable, Sendable {
     static func makeAll(
         days: [String],
         todayKey: String,
-        starredCounts: [String: Int],
+        counts: [String: Int],
+        style: DayChipCountStyle,
         includingYear: Bool
     ) -> [Entry] {
         days.compactMap { day in
@@ -114,7 +121,8 @@ nonisolated struct MyDayChipContent: Equatable, Sendable {
             guard let content = make(
                 dayKey: day,
                 todayKey: todayKey,
-                starCount: starredCounts[day] ?? 0,
+                count: counts[day] ?? 0,
+                style: style,
                 includingYear: includingYear
             ) else { return nil }
             return Entry(day: day, content: content)

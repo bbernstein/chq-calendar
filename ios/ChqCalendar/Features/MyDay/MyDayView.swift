@@ -187,7 +187,8 @@ struct MyDayView: View {
                     ForEach(MyDayChipContent.makeAll(
                         days: window.days,
                         todayKey: todayKey,
-                        starredCounts: starredCounts,
+                        counts: starredCounts,
+                        style: .starred,
                         includingYear: !model.isCurrentYear
                     )) { entry in
                         MyDayChip(content: entry.content, isSelected: entry.day == selectedDay) {
@@ -521,10 +522,14 @@ private struct MyDayChip: View {
     /// same height whether or not anything is starred on it.
     @ViewBuilder
     private var countLine: some View {
-        if content.starCount > 0 {
-            Label("\(content.starCount)", systemImage: "star.fill")
-                .font(.caption2)
-                .labelStyle(.titleAndIcon)
+        if content.count > 0 {
+            if let symbol = content.symbol {
+                Label("\(content.count)", systemImage: symbol)
+                    .font(.caption2)
+                    .labelStyle(.titleAndIcon)
+            } else {
+                Text("\(content.count)").font(.caption2)
+            }
         } else {
             Text(" ").font(.caption2)
         }
