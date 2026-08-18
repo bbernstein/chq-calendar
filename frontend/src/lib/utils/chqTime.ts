@@ -124,9 +124,23 @@ export function chqDateAt(
  * A feed timestamp — naive Institution wall time — as an absolute instant.
  *
  * Accepts the space-separated form the CHQ feed emits and the T-separated
- * form publisher feeds use, with or without seconds. Anything else yields an
- * Invalid Date, which `groupEventsByDay` turns into its `NaN-NaN-NaN` key
- * rather than crashing.
+ * form publisher feeds use, with or without seconds, as well as a bare
+ * `yyyy-mm-dd` date with no time component (read as Institution midnight of
+ * that day — `new Date('2026-07-27')` did the equivalent before this module
+ * existed, and losing that silently dropped date-only events from every
+ * scope rather than showing them on a possibly-wrong day).
+ *
+ * Parse-failure policy, pinned by tests rather than left to fall out of the
+ * regex by accident:
+ *  - A malformed offset (wrong digit grouping aside, an out-of-range one
+ *    like `+25:99`) fails the `Date` parse silently and falls through to the
+ *    naive path below, which reads the leading `yyyy-mm-ddThh:mm:ss` as
+ *    Institution wall time and ignores the bad offset entirely. This is a
+ *    quirk of the fallthrough, not a validated design — but it degrades
+ *    rather than throwing, which is the property that matters here.
+ *  - Anything that matches neither an offset-bearing instant nor either
+ *    naive shape yields an Invalid Date, which `groupEventsByDay` turns into
+ *    its `NaN-NaN-NaN` key rather than crashing.
  */
 export function parseEventDate(s: string): Date {
   // An explicit offset or `Z` means the string already names an absolute
@@ -140,11 +154,17 @@ export function parseEventDate(s: string): Date {
     if (!Number.isNaN(absolute.getTime())) return absolute;
   }
   const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s ?? '');
-  if (!m) return new Date(NaN);
-  return chqDateAt(
-    Number(m[1]), Number(m[2]), Number(m[3]),
-    Number(m[4]), Number(m[5]), Number(m[6] ?? 0),
-  );
+  if (m) {
+    return chqDateAt(
+      Number(m[1]), Number(m[2]), Number(m[3]),
+      Number(m[4]), Number(m[5]), Number(m[6] ?? 0),
+    );
+  }
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? '');
+  if (dateOnly) {
+    return chqDateAt(Number(dateOnly[1]), Number(dateOnly[2]), Number(dateOnly[3]));
+  }
+  return new Date(NaN);
 }
 
 /** `"7:00 PM"` at Chautauqua. Deliberately unlabelled — see the design doc. */

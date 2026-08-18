@@ -3,6 +3,7 @@ import {
   CHQ_ZONE, chqParts, chqDayKey, chqDateAt, parseEventDate,
   formatChqTime, formatChqDayLabel,
 } from '@/lib/utils/chqTime';
+import { startOfDay, dayAfter, windowContains } from '@/lib/utils/dayWindow';
 
 describe('CHQ_ZONE', () => {
   it('is the Institution zone, never a fixed offset', () => {
@@ -107,6 +108,29 @@ describe('parseEventDate', () => {
 
   it('still reads the feed\'s naive form as Institution wall time', () => {
     expect(parseEventDate('2026-07-27 12:45:00').toISOString()).toBe('2026-07-27T16:45:00.000Z');
+  });
+
+  it('reads a date-only string as Institution midnight of that day', () => {
+    expect(parseEventDate('2026-07-27').toISOString()).toBe('2026-07-27T04:00:00.000Z');
+  });
+
+  it('keeps a date-only event visible in a window covering that day', () => {
+    const d = parseEventDate('2026-07-27');
+    const window = {
+      startDay: '2026-07-27', endDay: '2026-07-27',
+      start: startOfDay('2026-07-27'), endExclusive: dayAfter('2026-07-27'),
+    };
+    expect(windowContains(window, d)).toBe(true);
+  });
+
+  it('falls through to the naive path on a malformed offset rather than throwing', () => {
+    // `+25:99` passes the trailing-offset shape check but is not a value
+    // `Date` can parse, so the offset parse silently fails and the string is
+    // re-read as naive Institution wall time, ignoring the bad suffix. This
+    // is documented behaviour, not a validated design — pinned here so a
+    // future change to the fallthrough is a deliberate decision.
+    expect(parseEventDate('2026-07-27T12:45:00+25:99').toISOString())
+      .toBe('2026-07-27T16:45:00.000Z');
   });
 });
 
