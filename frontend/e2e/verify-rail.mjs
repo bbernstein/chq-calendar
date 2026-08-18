@@ -259,37 +259,63 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
         > railBottom() + header.getBoundingClientRect().height + MARGIN * 2;
     });
 
-    const target = roomy();
-    if (!target) return null;
-    const key = target.dataset.dayKey;
+    // Search as the window grows, not once before it has.
+    //
+    // The day list is lazily windowed: the first render mounts only enough
+    // days to reach RENDER_BATCH_EVENTS, and more arrive as an
+    // IntersectionObserver on a bottom sentinel is tripped. Choosing the
+    // target from the initially-mounted set alone would make this check
+    // depend on whether the first batch happens to contain a tall day —
+    // a property of whatever the season is showing today, which is the exact
+    // class of data-dependence this whole change exists to remove. So the
+    // search is retried as the window grows, and only a genuine exhaustion
+    // of the list is reported as a failure.
+    let target = roomy();
+    for (let grow = 0; grow < 20 && !target; grow++) {
+      const before = document.querySelectorAll('[data-day-key]').length;
+      window.scrollBy(0, window.innerHeight);
+      await frame();
+      await frame();
+      target = roomy();
+      // The window stopped growing and still has nothing tall enough — more
+      // scrolling cannot help, so stop rather than spin out the loop.
+      if (!target && document.querySelectorAll('[data-day-key]').length === before) break;
+    }
+    if (!target) {
+      return { ok: false, why: 'no mounted day was tall enough to hold a stuck header, even after growing the render window' };
+    }
 
+    const key = target.dataset.dayKey;
     for (let i = 0; i < 25; i++) {
       const sec = document.querySelector(`[data-day-key="${key}"]`);
-      if (!sec) return null;
+      if (!sec) return { ok: false, why: `target day ${key} left the DOM while homing in on it` };
       // Aim to sit MARGIN pixels past the section's start, so the header has
       // stuck and the section has not yet begun pushing it back out.
       const delta = sec.getBoundingClientRect().top - railBottom() + MARGIN;
-      if (Math.abs(delta) <= 2) return key;
+      if (Math.abs(delta) <= 2) return { ok: true, key };
       window.scrollBy(0, delta);
       await frame();
     }
-    return null;
+    // Distinct from the search failure above: a day WAS found, the scroll just
+    // never settled on it. Worth telling apart — one is about the fixture, the
+    // other about the page moving under the scroll.
+    return { ok: false, why: `scroll did not settle on ${key} within 25 attempts` };
   });
   await page.waitForTimeout(300);
 
-  const geom = parked === null ? null : await page.evaluate((key) => {
+  const geom = !parked.ok ? null : await page.evaluate((key) => {
     const rail = document.querySelector('[data-day-rail]');
     const sec = document.querySelector(`[data-day-key="${key}"]`);
     const header = sec?.querySelector('.sticky');
     if (!rail || !header) return null;
     const r = rail.getBoundingClientRect(), h = header.getBoundingClientRect();
     return { day: key, railBottom: r.bottom, headerTop: h.top, headerText: header.textContent.trim().slice(0, 30) };
-  }, parked);
+  }, parked.key);
 
   if (!geom) {
     // Said out loud rather than skipped: "no day was tall enough to park in"
     // is a fact about the fixture the next reader needs, not a pass.
-    check(`12 sticky stack @ ${label}`, false, 'could not park inside a day with a stuck header');
+    check(`12 header clears the rail @ ${label}`, false, parked.why ?? 'rail or header missing');
     await page.close();
     continue;
   }
