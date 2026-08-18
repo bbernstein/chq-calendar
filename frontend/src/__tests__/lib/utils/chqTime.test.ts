@@ -96,6 +96,18 @@ describe('parseEventDate', () => {
     // groupEventsByDay relies on this to emit its NaN-NaN-NaN key.
     expect(Number.isNaN(parseEventDate('not a date').getTime())).toBe(true);
   });
+
+  it('honours an explicit Z rather than re-reading it as Institution time', () => {
+    expect(parseEventDate('2026-07-27T12:45:00Z').toISOString()).toBe('2026-07-27T12:45:00.000Z');
+  });
+
+  it('honours an explicit offset', () => {
+    expect(parseEventDate('2026-07-27T12:45:00+09:00').toISOString()).toBe('2026-07-27T03:45:00.000Z');
+  });
+
+  it('still reads the feed\'s naive form as Institution wall time', () => {
+    expect(parseEventDate('2026-07-27 12:45:00').toISOString()).toBe('2026-07-27T16:45:00.000Z');
+  });
 });
 
 describe('formatChqTime', () => {

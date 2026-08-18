@@ -215,8 +215,12 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
       // in the difference — event times carry no sub-second component.
       let inclusiveEnd = o.adaptiveEndDate;
       if (!inclusiveEnd) {
-        inclusiveEnd = new Date(o.now.getTime() + 6 * 24 * 60 * 60 * 1000);
-        inclusiveEnd.setHours(23, 59, 59, 999);
+        const sixDaysOut = new Date(o.now.getTime() + 6 * 24 * 60 * 60 * 1000);
+        const p = chqParts(sixDaysOut);
+        // The inclusive end of that Institution day. `dayAfter(dayKeyOf(...))`
+        // below converts it to the half-open bound, so land inside the day
+        // rather than on the next midnight.
+        inclusiveEnd = chqDateAt(p.year, p.month, p.day, 23, 59, 59, 999);
       }
       const endExclusive = dayAfter(dayKeyOf(inclusiveEnd));
       return {

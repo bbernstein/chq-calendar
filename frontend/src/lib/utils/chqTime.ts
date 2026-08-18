@@ -116,6 +116,16 @@ export function chqDateAt(
  * rather than crashing.
  */
 export function parseEventDate(s: string): Date {
+  // An explicit offset or `Z` means the string already names an absolute
+  // instant, so honour it rather than re-reading the digits as Institution
+  // wall time. The CHQ feed has never emitted one — every event carries a
+  // naive `startDate` and a sibling `timezone` field — but publisher feeds
+  // are third-party, and silently shifting a correctly-offset timestamp by
+  // four hours is a worse failure than any loud one.
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(s ?? '')) {
+    const absolute = new Date(s);
+    if (!Number.isNaN(absolute.getTime())) return absolute;
+  }
   const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s ?? '');
   if (!m) return new Date(NaN);
   return chqDateAt(
