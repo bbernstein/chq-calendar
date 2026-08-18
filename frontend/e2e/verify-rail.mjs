@@ -325,7 +325,7 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     const header = sec?.querySelector('[data-day-header]');
     if (!rail || !header) return null;
     const r = rail.getBoundingClientRect(), h = header.getBoundingClientRect();
-    return { day: key, railBottom: r.bottom, headerTop: h.top, headerText: header.textContent.trim().slice(0, 30) };
+    return { day: key, railBottom: r.bottom, headerTop: h.top };
   }, parked.key);
 
   if (!geom) {
