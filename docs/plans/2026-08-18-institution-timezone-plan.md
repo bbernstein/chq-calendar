@@ -252,15 +252,24 @@ export function chqDateAt(
   h = 0, mi = 0, s = 0, ms = 0,
 ): Date {
   const asUTC = Date.UTC(y, mo - 1, d, h, mi, s, ms);
-  let guess = new Date(asUTC);
-  for (let pass = 0; pass < 2; pass++) {
+
+  const correct = (guess: Date): Date => {
     const p = chqParts(guess);
     const readBack = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second, ms);
-    const drift = readBack - asUTC;
-    if (drift === 0) break;
-    guess = new Date(guess.getTime() - drift);
-  }
-  return guess;
+    return new Date(guess.getTime() - (readBack - asUTC));
+  };
+
+  const firstPass = correct(new Date(asUTC));
+  const secondPass = correct(firstPass);
+
+  // The second pass settles a DST straddle, but in the spring-forward gap the
+  // requested wall time does not exist at all, so no instant can read it back
+  // and the second pass overshoots backward past the gap. The first pass lands
+  // on the instant just after the gap, which is the intended normalisation.
+  const p = chqParts(secondPass);
+  const matches = p.year === y && p.month === mo && p.day === d
+    && p.hour === h && p.minute === mi && p.second === s;
+  return matches ? secondPass : firstPass;
 }
 
 /**
