@@ -210,19 +210,16 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
     case 'next': {
       // One hour of grace so an event that has just begun is still "next".
       const start = new Date(o.now.getTime() - 60 * 60 * 1000);
-      // `adaptiveEndDate` is an inclusive end-of-day; the half-open
-      // equivalent is that day's exclusive end. No representable event falls
-      // in the difference — event times carry no sub-second component.
-      let inclusiveEnd = o.adaptiveEndDate;
-      if (!inclusiveEnd) {
+      // `getAdaptiveEndDate` returns an already-exclusive bound: the
+      // Institution midnight that ends the last day it decided to include.
+      // It is used directly. The fallback below is the only path that builds
+      // an inclusive instant, so it is the only one that needs converting.
+      let endExclusive = o.adaptiveEndDate;
+      if (!endExclusive) {
         const sixDaysOut = new Date(o.now.getTime() + 6 * 24 * 60 * 60 * 1000);
         const p = chqParts(sixDaysOut);
-        // The inclusive end of that Institution day. `dayAfter(dayKeyOf(...))`
-        // below converts it to the half-open bound, so land inside the day
-        // rather than on the next midnight.
-        inclusiveEnd = chqDateAt(p.year, p.month, p.day, 23, 59, 59, 999);
+        endExclusive = chqDateAt(p.year, p.month, p.day + 1, 0, 0, 0, 0);
       }
-      const endExclusive = dayAfter(dayKeyOf(inclusiveEnd));
       return {
         startDay: dayKeyOf(start),
         endDay: lastDayCovered(endExclusive),

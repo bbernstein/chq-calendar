@@ -17,8 +17,8 @@ import {
   dayChips,
   eventCountsByDay,
 } from '@/lib/utils/dayWindow';
-import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
-import { parseEventDate } from '@/lib/utils/chqTime';
+import { getAdaptiveEndDate, getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
+import { chqDateAt, parseEventDate } from '@/lib/utils/chqTime';
 import type { Event } from '@/lib/types';
 
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
@@ -181,13 +181,13 @@ describe('baseWindow', () => {
   });
 
   it("'next' starts one hour before now, not at midnight", () => {
-    const adaptiveEndDate = new Date(2026, 6, 17, 23, 59, 59, 999);
+    // Exclusive end of Jul 17 — what the real getAdaptiveEndDate now returns
+    // (Task 4). baseWindow uses a supplied adaptiveEndDate as-is.
+    const adaptiveEndDate = chqDateAt(2026, 7, 18, 0, 0, 0, 0);
     const w = baseWindow({
       dateFilter: 'next', seasonWeeks, currentWeekNumber, now: NOW, adaptiveEndDate, bounds,
     })!;
     expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 14, 0, 0, 0).getTime());
-    // adaptiveEndDate is an inclusive 23:59:59.999; the half-open bound is
-    // the following midnight. No representable event falls in the gap.
     expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 18, 0, 0, 0, 0).getTime());
     expect(w.startDay).toBe('2026-07-15');
     expect(w.endDay).toBe('2026-07-17');
@@ -202,10 +202,30 @@ describe('baseWindow', () => {
       seasonWeeks,
       currentWeekNumber,
       now: nearMidnight,
-      adaptiveEndDate: new Date(2026, 6, 17, 23, 59, 59, 999),
+      // Exclusive end of Jul 17.
+      adaptiveEndDate: chqDateAt(2026, 7, 18, 0, 0, 0, 0),
       bounds,
     })!;
     expect(w.startDay).toBe('2026-07-14');
+  });
+
+  it("'next' ends where getAdaptiveEndDate said, not a day later", () => {
+    // Regression for fix-round 1, task 4: getAdaptiveEndDate now returns an
+    // already-exclusive bound (Task 4), but this 'next' case used to
+    // re-derive an exclusive bound from it as if it were still inclusive —
+    // landing a full day past the real cutoff.
+    const events = [
+      { id: 'a', title: 'a', startDate: '2026-07-01 09:00:00' },
+      { id: 'b', title: 'b', startDate: '2026-07-01 19:00:00' },
+      { id: 'c', title: 'c', startDate: '2026-07-02 09:00:00' },
+    ] as Event[];
+    const now = new Date('2026-07-01T13:00:00Z');
+    const adaptiveEndDate = getAdaptiveEndDate(events, now, 2);
+    const w = baseWindow({
+      dateFilter: 'next', seasonWeeks, currentWeekNumber, now, adaptiveEndDate, bounds,
+    })!;
+    expect(w.endDay).toBe('2026-07-01');
+    expect(w.endExclusive.toISOString()).toBe('2026-07-02T04:00:00.000Z');
   });
 
   it("'this-week' carries the week's own exclusive noon bound through", () => {
@@ -365,7 +385,8 @@ describe('viewWindow expansion', () => {
       seasonWeeks,
       currentWeekNumber,
       now: NOW,
-      adaptiveEndDate: new Date(2026, 6, 17, 23, 59, 59, 999),
+      // Exclusive end of Jul 17.
+      adaptiveEndDate: chqDateAt(2026, 7, 18, 0, 0, 0, 0),
       bounds,
       expandedStartDay: '2026-07-13',
     })!;

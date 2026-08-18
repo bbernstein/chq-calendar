@@ -1,5 +1,5 @@
 import type { Event, SeasonWeek } from '@/lib/types';
-import { chqDateAt, chqParts, parseEventDate } from '@/lib/utils/chqTime';
+import { CHQ_ZONE, chqDateAt, chqParts, parseEventDate } from '@/lib/utils/chqTime';
 
 export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
   // The 4th Sunday of June, found by walking Institution calendar days.
@@ -13,7 +13,8 @@ export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
       if (sundayCount === 4) { fourthSundayDay = day; break; }
     }
   }
-  // June always contains four Sundays, so this cannot be null — but a
+  // The loop above always breaks once the 4th Sunday is found, and June is
+  // long enough to contain at least four — so this cannot be null. But a
   // silent NaN downstream would be far worse than an explicit throw.
   if (fourthSundayDay === null) {
     throw new Error(`no 4th Sunday of June ${year}`);
@@ -38,7 +39,7 @@ export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
 }
 
 const weekEdgeFormatter = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'America/New_York', month: 'short', day: 'numeric',
+  timeZone: CHQ_ZONE, month: 'short', day: 'numeric',
 });
 
 /** `"Jun 27"` at Chautauqua — the week label's edges. */
