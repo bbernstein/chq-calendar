@@ -1002,7 +1002,7 @@ async function readUnder(timezoneId) {
   await page.goto(URL, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-day-key]', { timeout: 30000 });
   const out = await page.evaluate(() => ({
-    days: [...document.querySelectorAll('[data-day-key)'.replace(')', ']'))].map(e => e.dataset.dayKey).slice(0, 6),
+    days: [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey).slice(0, 6),
     headers: [...document.querySelectorAll('[data-day-header]')].map(e => e.textContent.trim()).slice(0, 6),
     times: [...document.querySelectorAll('.event-card')].slice(0, 12)
       .map(e => (e.textContent.match(/\d{1,2}:\d{2}\s?[AP]M/) ?? [''])[0]),
@@ -1042,12 +1042,6 @@ if (failed.length) {
   for (const f of failed) console.log(`  - ${f.name}: ${f.detail}`);
   process.exit(1);
 }
-```
-
-Fix the deliberate obfuscation on the `days` selector line before running — it must read:
-
-```js
-    days: [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey).slice(0, 6),
 ```
 
 - [ ] **Step 2: Run it against the pre-change build to verify it fails**
@@ -1099,7 +1093,7 @@ git commit -m "test(web): prove the app shows Chautauqua's day from any device t
 
 **Spec coverage.** Every section of the design maps to a task: the module (1), day keys and boundaries (2), parsing/grouping/filtering (3), season weeks and now-comparisons (4), display/countdown/today/default-year (5), ICS (6), the browser safeguard (7). The "all-or-nothing" table in the spec is covered row by row — parsing (3), now-comparisons (4), `todayKey` (2, via `dayKeyOf`), day keys (2), week boundaries (4), display (5), ICS (6). The client-only constraint is enforced by an explicit check in Task 7 Step 5.
 
-**Placeholders.** None. Every code step carries the actual code; the one deliberate defect is the obfuscated selector in Task 7 Step 1, which Step 1 itself instructs the implementer to fix.
+**Placeholders.** None. Every code step carries the actual code, ready to run as written.
 
 **Type consistency.** `chqParts` returns `ChqParts` with `year/month/day/hour/minute/second/weekday`, used with those exact names in Tasks 2-6. `chqDateAt(y, mo, d, h?, mi?, s?, ms?)` is called with 1-based months throughout. `parseEventDate` returns `Date` and is the only parser used after Task 3. `dayKeyOf` keeps its signature; only its meaning changes.
 
