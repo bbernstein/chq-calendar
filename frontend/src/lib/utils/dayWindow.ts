@@ -1,7 +1,8 @@
 import type { Event, SeasonWeek } from '@/lib/types';
+import { CHQ_ZONE, chqDateAt, chqDayKey, chqParts, parseEventDate } from '@/lib/utils/chqTime';
 
 /**
- * A calendar day as `yyyy-mm-dd`, zero-padded, in local time.
+ * A calendar day as `yyyy-mm-dd`, zero-padded, in Institution time.
  *
  * Lexicographic order is chronological, which is what makes plain string
  * comparison a correct date comparison throughout this module. Matches
@@ -15,10 +16,7 @@ const MIN_INSTANT = new Date(-8640000000000000);
 const MAX_INSTANT = new Date(8640000000000000);
 
 export function dayKeyOf(d: Date): DayKey {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return chqDayKey(d);
 }
 
 function partsOf(key: DayKey): [number, number, number] {
@@ -28,7 +26,7 @@ function partsOf(key: DayKey): [number, number, number] {
 
 export function startOfDay(key: DayKey): Date {
   const [y, m, d] = partsOf(key);
-  return new Date(y, m - 1, d, 0, 0, 0, 0);
+  return chqDateAt(y, m, d, 0, 0, 0, 0);
 }
 
 /**
@@ -41,9 +39,9 @@ export function startOfDay(key: DayKey): Date {
  */
 export function dayAfter(key: DayKey): Date {
   const [y, m, d] = partsOf(key);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + 1);
-  return date;
+  // Built by adding a calendar day, never 86,400,000ms: a DST transition day
+  // is 23 or 25 hours long, and millisecond arithmetic lands an hour out.
+  return chqDateAt(y, m, d + 1, 0, 0, 0, 0);
 }
 
 /**
@@ -55,34 +53,36 @@ export function dayAfter(key: DayKey): Date {
  * Saturday morning has events).
  */
 export function lastDayCovered(endExclusive: Date): DayKey {
-  const isMidnight =
-    endExclusive.getHours() === 0 && endExclusive.getMinutes() === 0 &&
-    endExclusive.getSeconds() === 0 && endExclusive.getMilliseconds() === 0;
+  // Compared as instants, not via ChqParts fields: `ChqParts` has no
+  // milliseconds field, and hour/minute/second === 0 alone would misclassify
+  // an instant like `00:00:00.400` as midnight, silently dropping the final
+  // day. `endExclusive` is midnight exactly when it equals the start of its
+  // own day — an exact, ms-safe comparison that needs no new field.
   const key = dayKeyOf(endExclusive);
+  const isMidnight = endExclusive.getTime() === startOfDay(key).getTime();
   return isMidnight ? addDays(key, -1) : key;
 }
 
 /**
  * `key` shifted by `n` calendar days.
  *
- * Built from date parts and `setDate`, never from millisecond arithmetic:
+ * Built from date parts and `chqDateAt`, never from millisecond arithmetic:
  * adding 86,400,000 ms across a DST transition lands on the previous or
  * next day's 23:00/01:00 and produces the wrong key. Mirrors iOS's
  * `ChqTime.day(_:offsetBy:)`, which uses `Calendar` for the same reason.
  */
 export function addDays(key: DayKey, n: number): DayKey {
   const [y, m, d] = partsOf(key);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + n);
-  return dayKeyOf(date);
+  return dayKeyOf(chqDateAt(y, m, d + n, 12, 0, 0, 0));
 }
 
 /** A `yyyy-mm-dd` key with a real calendar date behind it. */
 function isDayKey(key: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
   const [y, m, d] = partsOf(key);
-  const date = new Date(y, m - 1, d);
-  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+  // Noon, not midnight: a date that does not exist rolls over, and noon is
+  // far enough from any DST edge that only a genuine rollover moves the day.
+  return dayKeyOf(chqDateAt(y, m, d, 12)) === key;
 }
 
 /**
@@ -156,7 +156,7 @@ export function navigableBounds(
   let endDay = dayKeyOf(seasonWeeks[seasonWeeks.length - 1].end);
 
   for (const event of events) {
-    const parsed = new Date(event.startDate);
+    const parsed = parseEventDate(event.startDate);
     // An unparseable date must not poison the global bound: 'NaN-NaN-NaN'
     // sorts above every real key, so a single bad row would otherwise widen
     // endDay for the whole app. Every other call site (filterHelpers,
@@ -214,15 +214,16 @@ export function baseWindow(o: WindowOptions): ViewWindow | null {
     case 'next': {
       // One hour of grace so an event that has just begun is still "next".
       const start = new Date(o.now.getTime() - 60 * 60 * 1000);
-      // `adaptiveEndDate` is an inclusive end-of-day; the half-open
-      // equivalent is that day's exclusive end. No representable event falls
-      // in the difference — event times carry no sub-second component.
-      let inclusiveEnd = o.adaptiveEndDate;
-      if (!inclusiveEnd) {
-        inclusiveEnd = new Date(o.now.getTime() + 6 * 24 * 60 * 60 * 1000);
-        inclusiveEnd.setHours(23, 59, 59, 999);
+      // `getAdaptiveEndDate` returns an already-exclusive bound: the
+      // Institution midnight that ends the last day it decided to include.
+      // It is used directly. The fallback below is the only path that builds
+      // an inclusive instant, so it is the only one that needs converting.
+      let endExclusive = o.adaptiveEndDate;
+      if (!endExclusive) {
+        const sixDaysOut = new Date(o.now.getTime() + 6 * 24 * 60 * 60 * 1000);
+        const p = chqParts(sixDaysOut);
+        endExclusive = chqDateAt(p.year, p.month, p.day + 1, 0, 0, 0, 0);
       }
-      const endExclusive = dayAfter(dayKeyOf(inclusiveEnd));
       return {
         startDay: dayKeyOf(start),
         endDay: lastDayCovered(endExclusive),
@@ -329,7 +330,7 @@ export function viewWindow(o: WindowOptions): ViewWindow | null {
 export function eventDayKeys(events: Event[]): DayKey[] {
   const keys = new Set<DayKey>();
   for (const event of events) {
-    const parsed = new Date(event.startDate);
+    const parsed = parseEventDate(event.startDate);
     if (Number.isNaN(parsed.getTime())) continue;
     keys.add(dayKeyOf(parsed));
   }
@@ -357,6 +358,7 @@ export function navigationTargets(
 /** `"Saturday, Aug 15"` — how a navigation control names its target. */
 export function formatDayLabel(key: DayKey): string {
   return startOfDay(key).toLocaleDateString('en-US', {
+    timeZone: CHQ_ZONE,
     weekday: 'long',
     month: 'short',
     day: 'numeric',
@@ -371,7 +373,7 @@ export function formatDayRange(from: DayKey, through: DayKey): string {
   // returns.
   if (from > through) return '';
   const fmt = (key: DayKey) =>
-    startOfDay(key).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    startOfDay(key).toLocaleDateString('en-US', { timeZone: CHQ_ZONE, weekday: 'short', month: 'short', day: 'numeric' });
   if (from === through) return fmt(from);
   return `${fmt(from)} – ${fmt(through)}`;
 }
@@ -416,7 +418,7 @@ export interface DayChip {
 export function eventCountsByDay(events: Event[]): Map<DayKey, number> {
   const counts = new Map<DayKey, number>();
   for (const event of events) {
-    const parsed = new Date(event.startDate);
+    const parsed = parseEventDate(event.startDate);
     if (Number.isNaN(parsed.getTime())) continue;
     const key = dayKeyOf(parsed);
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -428,19 +430,19 @@ export function dayChips(days: DayKey[], countsByDay: Map<DayKey, number>): DayC
   let lastMonth: string | null = null;
   return days.map((key) => {
     const date = startOfDay(key);
-    const month = date.toLocaleDateString('en-US', { month: 'short' });
+    const month = date.toLocaleDateString('en-US', { timeZone: CHQ_ZONE, month: 'short' });
     // The month rides the first chip and every change after it — without the
     // first-chip rule a rail scrolled to mid-July would show no month at all,
     // which is exactly the disorientation the rail exists to fix.
     const showMonth = month !== lastMonth;
     lastMonth = month;
     const count = countsByDay.get(key) ?? 0;
-    const spoken = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const spoken = date.toLocaleDateString('en-US', { timeZone: CHQ_ZONE, weekday: 'long', month: 'long', day: 'numeric' });
     const events = count === 0 ? 'no events' : count === 1 ? '1 event' : `${count} events`;
     return {
       key,
-      weekday: date.toLocaleDateString('en-US', { weekday: 'short' }),
-      dayOfMonth: String(date.getDate()),
+      weekday: date.toLocaleDateString('en-US', { timeZone: CHQ_ZONE, weekday: 'short' }),
+      dayOfMonth: String(chqParts(date).day),
       month: showMonth ? month : null,
       count,
       label: count === 0 ? `${spoken}, ${events}` : `Go to ${spoken}, ${events}`,

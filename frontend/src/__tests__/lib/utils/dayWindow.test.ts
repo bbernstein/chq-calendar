@@ -17,13 +17,23 @@ import {
   dayChips,
   eventCountsByDay,
 } from '@/lib/utils/dayWindow';
-import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
+import { getAdaptiveEndDate, getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
+import { chqDateAt, parseEventDate } from '@/lib/utils/chqTime';
 import type { Event } from '@/lib/types';
 
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
 
 function makeEvent(id: string, date: Date): Event {
-  return { id, title: id, startDate: date.toISOString() } as Event;
+  // The real feed sends naive Institution wall time ("2026-07-27 12:45:00"),
+  // never an absolute instant with a `Z`/offset suffix — see
+  // `parseEventDate`. Built from local getters, not `toISOString()`: under
+  // the pinned test TZ (`America/New_York`, equal to `CHQ_ZONE`) those
+  // getters already read Institution wall time, so this reproduces the
+  // feed shape exactly instead of a UTC instant `parseEventDate` would
+  // reinterpret as if it were local time.
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const startDate = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return { id, title: id, startDate } as Event;
 }
 
 describe('day key arithmetic', () => {
@@ -35,6 +45,12 @@ describe('day key arithmetic', () => {
   it('sorts lexicographically in chronological order', () => {
     const keys = ['2026-12-31', '2026-07-05', '2026-07-15'];
     expect([...keys].sort()).toEqual(['2026-07-05', '2026-07-15', '2026-12-31']);
+  });
+
+  it('does not throw on an Invalid Date, and yields the NaN-NaN-NaN key', () => {
+    const bad = parseEventDate('not a date');
+    expect(() => dayKeyOf(bad)).not.toThrow();
+    expect(dayKeyOf(bad)).toBe('NaN-NaN-NaN');
   });
 
   it('adds and subtracts days across month and year boundaries', () => {
@@ -165,13 +181,13 @@ describe('baseWindow', () => {
   });
 
   it("'next' starts one hour before now, not at midnight", () => {
-    const adaptiveEndDate = new Date(2026, 6, 17, 23, 59, 59, 999);
+    // Exclusive end of Jul 17 — what the real getAdaptiveEndDate now returns
+    // (Task 4). baseWindow uses a supplied adaptiveEndDate as-is.
+    const adaptiveEndDate = chqDateAt(2026, 7, 18, 0, 0, 0, 0);
     const w = baseWindow({
       dateFilter: 'next', seasonWeeks, currentWeekNumber, now: NOW, adaptiveEndDate, bounds,
     })!;
     expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 14, 0, 0, 0).getTime());
-    // adaptiveEndDate is an inclusive 23:59:59.999; the half-open bound is
-    // the following midnight. No representable event falls in the gap.
     expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 18, 0, 0, 0, 0).getTime());
     expect(w.startDay).toBe('2026-07-15');
     expect(w.endDay).toBe('2026-07-17');
@@ -186,10 +202,30 @@ describe('baseWindow', () => {
       seasonWeeks,
       currentWeekNumber,
       now: nearMidnight,
-      adaptiveEndDate: new Date(2026, 6, 17, 23, 59, 59, 999),
+      // Exclusive end of Jul 17.
+      adaptiveEndDate: chqDateAt(2026, 7, 18, 0, 0, 0, 0),
       bounds,
     })!;
     expect(w.startDay).toBe('2026-07-14');
+  });
+
+  it("'next' ends where getAdaptiveEndDate said, not a day later", () => {
+    // Regression for fix-round 1, task 4: getAdaptiveEndDate now returns an
+    // already-exclusive bound (Task 4), but this 'next' case used to
+    // re-derive an exclusive bound from it as if it were still inclusive —
+    // landing a full day past the real cutoff.
+    const events = [
+      { id: 'a', title: 'a', startDate: '2026-07-01 09:00:00' },
+      { id: 'b', title: 'b', startDate: '2026-07-01 19:00:00' },
+      { id: 'c', title: 'c', startDate: '2026-07-02 09:00:00' },
+    ] as Event[];
+    const now = new Date('2026-07-01T13:00:00Z');
+    const adaptiveEndDate = getAdaptiveEndDate(events, now, 2);
+    const w = baseWindow({
+      dateFilter: 'next', seasonWeeks, currentWeekNumber, now, adaptiveEndDate, bounds,
+    })!;
+    expect(w.endDay).toBe('2026-07-01');
+    expect(w.endExclusive.toISOString()).toBe('2026-07-02T04:00:00.000Z');
   });
 
   it("'this-week' carries the week's own exclusive noon bound through", () => {
@@ -349,7 +385,8 @@ describe('viewWindow expansion', () => {
       seasonWeeks,
       currentWeekNumber,
       now: NOW,
-      adaptiveEndDate: new Date(2026, 6, 17, 23, 59, 59, 999),
+      // Exclusive end of Jul 17.
+      adaptiveEndDate: chqDateAt(2026, 7, 18, 0, 0, 0, 0),
       bounds,
       expandedStartDay: '2026-07-13',
     })!;
@@ -647,5 +684,65 @@ describe('eventCountsByDay', () => {
     ]);
     expect(counts.size).toBe(1);
     expect(counts.get('2026-07-04')).toBe(1);
+  });
+});
+
+describe('Institution-anchored day boundaries', () => {
+  it('files an instant under the Institution day, not the device day', () => {
+    // 03:45Z on the 27th is 23:45 on the 26th at Chautauqua.
+    expect(dayKeyOf(new Date('2026-07-27T03:45:00Z'))).toBe('2026-07-26');
+  });
+
+  it('starts a day at Institution midnight', () => {
+    expect(startOfDay('2026-07-27').toISOString()).toBe('2026-07-27T04:00:00.000Z');
+  });
+
+  it('starts a winter day at Institution midnight', () => {
+    expect(startOfDay('2026-01-15').toISOString()).toBe('2026-01-15T05:00:00.000Z');
+  });
+
+  it('ends a day at the next Institution midnight', () => {
+    expect(dayAfter('2026-07-27').toISOString()).toBe('2026-07-28T04:00:00.000Z');
+  });
+
+  it('tiles exactly: one day\'s end is the next day\'s start', () => {
+    expect(dayAfter('2026-03-07').getTime()).toBe(startOfDay('2026-03-08').getTime());
+    expect(dayAfter('2026-10-31').getTime()).toBe(startOfDay('2026-11-01').getTime());
+  });
+
+  it('treats Institution midnight as midnight for lastDayCovered', () => {
+    // 04:00Z is midnight EDT, so the window does not show that day.
+    expect(lastDayCovered(new Date('2026-07-28T04:00:00.000Z'))).toBe('2026-07-27');
+  });
+
+  it('keeps the final day when a window ends mid-day at Chautauqua', () => {
+    // Noon EDT Saturday — 'this-week' ends here and that morning has events.
+    expect(lastDayCovered(new Date('2026-07-25T16:00:00.000Z'))).toBe('2026-07-25');
+  });
+
+  it('keeps the final day when the bound is 400ms after midnight (regression: ChqParts has no ms field)', () => {
+    // 04:00:00.400Z is 400ms past Institution midnight on the 28th — not
+    // midnight itself, so the 28th must be kept, not dropped.
+    expect(lastDayCovered(new Date('2026-07-28T04:00:00.400Z'))).toBe('2026-07-28');
+  });
+});
+
+describe('day chips and labels read Institution time', () => {
+  it('names the chip after its own key', () => {
+    const chips = dayChips(['2026-07-27'], new Map([['2026-07-27', 3]]));
+    expect(chips[0].dayOfMonth).toBe('27');
+    expect(chips[0].weekday).toBe('Mon');
+    expect(chips[0].month).toBe('Jul');
+    expect(chips[0].label).toBe('Go to Monday, July 27, 3 events');
+  });
+
+  it('names a chip on the far side of a DST transition correctly', () => {
+    const chips = dayChips(['2026-11-01'], new Map());
+    expect(chips[0].dayOfMonth).toBe('1');
+    expect(chips[0].label).toBe('Sunday, November 1, no events');
+  });
+
+  it('labels a day by its Institution date', () => {
+    expect(formatDayLabel('2026-07-27')).toContain('Jul 27');
   });
 });

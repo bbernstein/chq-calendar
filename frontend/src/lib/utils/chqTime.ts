@@ -1,0 +1,201 @@
+/**
+ * Institution-anchored time.
+ *
+ * Every date the calendar reasons about belongs to the Chautauqua
+ * Institution, whose season runs on Eastern time, and the feed's timestamps
+ * carry no offset of their own (`"2026-07-27 12:45:00"`, with a sibling
+ * `timezone` field that has said `America/New_York` for all 3,246 events).
+ * Reading them in the device's zone made the app agree with a reader
+ * standing on the grounds and disagree with everyone else.
+ *
+ * Mirrors iOS's `ChqTime` deliberately: the two apps should not hold
+ * different opinions about which day an event is on.
+ */
+
+/** Never a fixed offset — the season spans a DST transition in most years. */
+export const CHQ_ZONE = 'America/New_York';
+
+export interface ChqParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  /** 0 = Sunday, matching `Date.prototype.getDay`. */
+  weekday: number;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const partsFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: CHQ_ZONE,
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+  weekday: 'short', hour12: false,
+});
+
+const timeFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: CHQ_ZONE, hour: 'numeric', minute: '2-digit', hour12: true,
+});
+
+const dayLabelFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: CHQ_ZONE,
+  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+});
+
+/** An instant's calendar fields as they read at Chautauqua. */
+export function chqParts(d: Date): ChqParts {
+  // An unparseable `startDate` reaches here as an Invalid Date. The
+  // device-local accessors this replaced (getFullYear/getMonth/...) returned
+  // NaN for every field, and `daySections.ts` documents the `NaN-NaN-NaN` day
+  // key that falls out of that. `Intl.DateTimeFormat.formatToParts` throws
+  // instead of returning NaN, so that parity has to be restored explicitly —
+  // one bad row in a 3,246-event feed must not take the whole calendar down.
+  if (Number.isNaN(d.getTime())) {
+    return { year: NaN, month: NaN, day: NaN, hour: NaN, minute: NaN, second: NaN, weekday: NaN };
+  }
+  const found: Record<string, string> = {};
+  for (const { type, value } of partsFormatter.formatToParts(d)) {
+    found[type] = value;
+  }
+  // `partsFormatter`'s locale and options are fixed at module scope, so
+  // `found.weekday` can only ever be one of `WEEKDAYS` — this NaN path is
+  // defence in depth, not a reachable case today. Silently mapping an
+  // unrecognised abbreviation to Sunday (via `Math.max(0, indexOf(...))`)
+  // would be a wrong answer presented as a right one; NaN matches every
+  // other degradation path in this file (an Invalid Date already returns
+  // NaN for every field) and propagates as "no valid weekday" rather than
+  // masquerading as Sunday.
+  const weekdayIndex = WEEKDAYS.indexOf(found.weekday);
+  return {
+    year: Number(found.year),
+    month: Number(found.month),
+    day: Number(found.day),
+    // `hourCycle: h23` still renders midnight as "24" in some engines.
+    hour: Number(found.hour) % 24,
+    minute: Number(found.minute),
+    second: Number(found.second),
+    weekday: weekdayIndex === -1 ? NaN : weekdayIndex,
+  };
+}
+
+/**
+ * Zero-pads a number to (at least) two digits — `7` -> `'07'`, `12` -> `'12'`.
+ *
+ * `String(NaN).padStart(2, '0')` is `'NaN'` (already 3 chars, past the
+ * target length, so padStart is a no-op) — this degrades along with
+ * chqParts' NaN fields without a special case, matching the 'NaN-NaN-NaN'
+ * key the old device-local implementation produced.
+ */
+export function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** The Chautauqua calendar day an instant falls on, as `yyyy-mm-dd`. */
+export function chqDayKey(d: Date): string {
+  const { year, month, day } = chqParts(d);
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+/**
+ * The instant at which the Chautauqua clock reads the given wall time.
+ *
+ * Offset-lookup-and-correct, applied twice. A single correction is wrong
+ * when the guess and the answer straddle a DST boundary: the offset used to
+ * make the guess is not the offset in force at the result. The second pass
+ * re-reads the offset at the corrected instant and settles it. Ambiguous
+ * times (the repeated hour each autumn) resolve to the first occurrence —
+ * the second pass converges there directly, since the pre-transition offset
+ * is still in force at the first-pass guess.
+ *
+ * Nonexistent wall times (the skipped hour each spring) have no fixed
+ * point: no instant reads back as the requested time, so blindly applying
+ * a second correction overshoots *backwards*, past the gap, into the
+ * previous offset. When the second pass still doesn't read back what was
+ * asked for, prefer the first pass's guess instead — it lands on the
+ * instant immediately after the gap, matching `Calendar` on iOS.
+ */
+export function chqDateAt(
+  y: number, mo: number, d: number,
+  h = 0, mi = 0, s = 0, ms = 0,
+): Date {
+  const asUTC = Date.UTC(y, mo - 1, d, h, mi, s, ms);
+
+  const correct = (guess: Date): Date => {
+    const p = chqParts(guess);
+    const readBack = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second, ms);
+    return new Date(guess.getTime() - (readBack - asUTC));
+  };
+
+  const firstPass = correct(new Date(asUTC));
+  const secondPass = correct(firstPass);
+
+  const p = chqParts(secondPass);
+  const matches = p.year === y && p.month === mo && p.day === d
+    && p.hour === h && p.minute === mi && p.second === s;
+  return matches ? secondPass : firstPass;
+}
+
+/**
+ * A feed timestamp — naive Institution wall time — as an absolute instant.
+ *
+ * Accepts the space-separated form the CHQ feed emits and the T-separated
+ * form publisher feeds use, with or without seconds, as well as a bare
+ * `yyyy-mm-dd` date with no time component (read as Institution midnight of
+ * that day — `new Date('2026-07-27')` did the equivalent before this module
+ * existed, and losing that silently dropped date-only events from every
+ * scope rather than showing them on a possibly-wrong day).
+ *
+ * Parse-failure policy, pinned by tests rather than left to fall out of the
+ * regex by accident:
+ *  - A malformed offset (wrong digit grouping aside, an out-of-range one
+ *    like `+25:99`) fails the `Date` parse silently and falls through to the
+ *    naive path below, which reads the leading `yyyy-mm-ddThh:mm:ss` as
+ *    Institution wall time and ignores the bad offset entirely. This is a
+ *    quirk of the fallthrough, not a validated design — but it degrades
+ *    rather than throwing, which is the property that matters here.
+ *  - Anything that matches neither an offset-bearing instant nor either
+ *    naive shape yields an Invalid Date, which `groupEventsByDay` turns into
+ *    its `NaN-NaN-NaN` key rather than crashing.
+ */
+export function parseEventDate(s: string): Date {
+  // An explicit offset or `Z` means the string already names an absolute
+  // instant, so honour it rather than re-reading the digits as Institution
+  // wall time. The CHQ feed has never emitted one — every event carries a
+  // naive `startDate` and a sibling `timezone` field — but publisher feeds
+  // are third-party, and silently shifting a correctly-offset timestamp by
+  // four hours is a worse failure than any loud one.
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(s ?? '')) {
+    const absolute = new Date(s);
+    if (!Number.isNaN(absolute.getTime())) return absolute;
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s ?? '');
+  if (m) {
+    return chqDateAt(
+      Number(m[1]), Number(m[2]), Number(m[3]),
+      Number(m[4]), Number(m[5]), Number(m[6] ?? 0),
+    );
+  }
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? '');
+  if (dateOnly) {
+    return chqDateAt(Number(dateOnly[1]), Number(dateOnly[2]), Number(dateOnly[3]));
+  }
+  return new Date(NaN);
+}
+
+/** `"7:00 PM"` at Chautauqua. Deliberately unlabelled — see the design doc. */
+export function formatChqTime(d: Date): string {
+  // Matches native `Date.prototype.toLocaleTimeString`, which returns this
+  // string rather than throwing on an Invalid Date.
+  if (Number.isNaN(d.getTime())) return 'Invalid Date';
+  return timeFormatter.format(d);
+}
+
+/** `"Sunday, July 26, 2026"` at Chautauqua. */
+export function formatChqDayLabel(d: Date): string {
+  // Matches native `Date.prototype.toLocaleDateString`, which returns this
+  // string rather than throwing on an Invalid Date.
+  if (Number.isNaN(d.getTime())) return 'Invalid Date';
+  return dayLabelFormatter.format(d);
+}

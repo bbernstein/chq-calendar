@@ -220,3 +220,16 @@ describe('downloadICS', () => {
     expect(downloadAttr).toBe('my-event-title.ics');
   });
 });
+
+describe('ICS times are Institution wall time', () => {
+  it('emits the feed\'s wall clock verbatim under TZID America/New_York', () => {
+    const ics = generateICS({ id: 'x', title: 'T', startDate: '2026-07-27 12:45:00', endDate: '2026-07-27 13:45:00' } as Event);
+    expect(ics).toContain('DTSTART;TZID=America/New_York:20260727T124500');
+    expect(ics).toContain('DTEND;TZID=America/New_York:20260727T134500');
+  });
+
+  it('round-trips a winter date without shifting an hour', () => {
+    const ics = generateICS({ id: 'x', title: 'T', startDate: '2026-01-15 09:30:00', endDate: '2026-01-15 10:30:00' } as Event);
+    expect(ics).toContain('DTSTART;TZID=America/New_York:20260115T093000');
+  });
+});

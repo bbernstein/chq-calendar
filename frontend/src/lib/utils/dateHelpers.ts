@@ -1,56 +1,54 @@
 import type { Event, SeasonWeek } from '@/lib/types';
+import { CHQ_ZONE, chqDateAt, chqParts, parseEventDate } from '@/lib/utils/chqTime';
 
 export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
-  // Start from June 1st and find the 4th Sunday
-  const june1 = new Date(year, 5, 1); // June 1st
-  const current = new Date(june1);
+  // The 4th Sunday of June, found by walking Institution calendar days.
+  // Anchored at noon throughout: a DST transition never falls at midday, so
+  // the walk cannot be knocked onto a neighbouring day.
   let sundayCount = 0;
-  let fourthSunday = null;
-
-  // Find the 4th Sunday of June
-  while (current.getMonth() === 5) { // Still in June
-    if (current.getDay() === 0) { // Sunday
+  let fourthSundayDay: number | null = null;
+  for (let day = 1; day <= 30; day++) {
+    if (chqParts(chqDateAt(year, 6, day, 12)).weekday === 0) {
       sundayCount++;
-      if (sundayCount === 4) {
-        fourthSunday = new Date(current);
-        break;
-      }
+      if (sundayCount === 4) { fourthSundayDay = day; break; }
     }
-    current.setDate(current.getDate() + 1);
   }
-
-  if (!fourthSunday) {
-    // Fallback: if somehow we can't find 4th Sunday, use a reasonable date for the year
-    const fallbackDate = year === 2025 ? 22 : year === 2026 ? 28 : 27; // Approximate 4th Sunday
-    fourthSunday = new Date(year, 5, fallbackDate);
+  // The loop above always breaks once the 4th Sunday is found, and June is
+  // long enough to contain at least four — so this cannot be null. But a
+  // silent NaN downstream would be far worse than an explicit throw.
+  if (fourthSundayDay === null) {
+    throw new Error(`no 4th Sunday of June ${year}`);
   }
-
-  // Find the Saturday before the 4th Sunday, and set it to noon
-  // This will be the start of Week 1 at Saturday noon
-  const firstWeekStart = new Date(fourthSunday);
-  firstWeekStart.setDate(fourthSunday.getDate() - 1); // Go back to Saturday
-  firstWeekStart.setHours(12, 0, 0, 0); // Set to noon
 
   const weeks: SeasonWeek[] = [];
   for (let i = 0; i < 9; i++) {
-    const weekStart = new Date(firstWeekStart);
-    weekStart.setDate(firstWeekStart.getDate() + (i * 7));
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 7); // Next Saturday at noon
-
+    // Week 1 starts at noon on the Saturday before, i.e. the day before the
+    // 4th Sunday. `chqDateAt` normalises out-of-range days, so subtracting
+    // one and adding 7i needs no month arithmetic here.
+    const startDayOfJune = fourthSundayDay - 1 + i * 7;
+    const start = chqDateAt(year, 6, startDayOfJune, 12);
+    const end = chqDateAt(year, 6, startDayOfJune + 7, 12);
     weeks.push({
       number: i + 1,
-      start: weekStart,
-      end: weekEnd,
-      label: `Week ${i + 1} (${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} 12pm)`
+      start,
+      end,
+      label: `Week ${i + 1} (${formatWeekEdge(start)} 12pm - ${formatWeekEdge(end)} 12pm)`,
     });
   }
-
   return weeks;
 }
 
+const weekEdgeFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: CHQ_ZONE, month: 'short', day: 'numeric',
+});
+
+/** `"Jun 27"` at Chautauqua — the week label's edges. */
+function formatWeekEdge(d: Date): string {
+  return weekEdgeFormatter.format(d);
+}
+
 export function isInChautauquaWeek(dateString: string, weekNumber: number, seasonWeeks: SeasonWeek[]): boolean {
-  const eventDate = new Date(dateString);
+  const eventDate = parseEventDate(dateString);
   const week = seasonWeeks[weekNumber - 1];
   return eventDate >= week.start && eventDate < week.end;
 }
@@ -84,41 +82,39 @@ export function getCurrentWeekNumber(seasonWeeks: SeasonWeek[]): number | null {
 
 /**
  * Finds the end-of-day boundary needed to include at least `minEvents` events
- * starting from `startDate`. Always returns a full day boundary (23:59:59.999).
+ * starting from `startDate`. Returns an exclusive bound — the Institution
+ * midnight immediately after the last included day — matching the half-open
+ * `start <= x < end` convention used throughout.
  * Expands day-by-day until enough events are accumulated.
  */
 export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: number): Date {
+  // Parse each startDate exactly once, up front, and reuse it through the
+  // filter/sort/loop below — parseEventDate is far from free (a regex plus
+  // up to two Intl.DateTimeFormat round-trips per call).
   const futureEvents = events
-    .filter(e => new Date(e.startDate) >= startDate)
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    .map(e => ({ date: parseEventDate(e.startDate) }))
+    .filter(e => e.date >= startDate)
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   if (futureEvents.length === 0) {
-    const fallback = new Date(startDate);
-    fallback.setDate(fallback.getDate() + 90);
-    fallback.setHours(23, 59, 59, 999);
-    return fallback;
+    const p = chqParts(startDate);
+    return chqDateAt(p.year, p.month, p.day + 91, 0, 0, 0, 0);
   }
 
   let accumulated = 0;
   let lastCompleteDayEnd: Date | null = null;
   let currentDayDate: Date | null = null;
 
-  for (const event of futureEvents) {
-    const eventDate = new Date(event.startDate);
-    // Normalize event day to local midnight
-    const eventDay = new Date(
-      eventDate.getFullYear(),
-      eventDate.getMonth(),
-      eventDate.getDate()
-    );
+  for (const { date: eventDate } of futureEvents) {
+    const p = chqParts(eventDate);
+    const eventDay = chqDateAt(p.year, p.month, p.day, 0, 0, 0, 0);
 
     if (!currentDayDate || eventDay.getTime() !== currentDayDate.getTime()) {
       if (currentDayDate) {
-        // Mark end of previous day
-        const prevDayEnd = new Date(currentDayDate);
-        prevDayEnd.setHours(23, 59, 59, 999);
-        lastCompleteDayEnd = prevDayEnd;
-        // Finished a complete day - check if we have enough events
+        // Exclusive end-of-day: the next Institution midnight, so a 23- or
+        // 25-hour DST day needs no special case.
+        const c = chqParts(currentDayDate);
+        lastCompleteDayEnd = chqDateAt(c.year, c.month, c.day + 1, 0, 0, 0, 0);
         if (accumulated >= minEvents) {
           return lastCompleteDayEnd;
         }
@@ -128,8 +124,6 @@ export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: 
     accumulated++;
   }
 
-  // Handle the last day
-  const lastDayEnd = new Date(currentDayDate!);
-  lastDayEnd.setHours(23, 59, 59, 999);
-  return lastDayEnd;
+  const last = chqParts(currentDayDate!);
+  return chqDateAt(last.year, last.month, last.day + 1, 0, 0, 0, 0);
 }

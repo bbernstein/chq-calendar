@@ -1,4 +1,5 @@
 import type { Event, SeasonWeek } from '@/lib/types';
+import { parseEventDate } from '@/lib/utils/chqTime';
 import { isInChautauquaWeek } from './dateHelpers';
 import { windowContains, type ViewWindow } from './dayWindow';
 import { searchEvents } from './searchHelpers';
@@ -36,7 +37,7 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
   // inline 'next' arithmetic, and 'all' doing nothing) all reduce to this
   // once the scope has been turned into a window.
   const dateWindow = options.viewWindow;
-  filtered = filtered.filter((event) => windowContains(dateWindow, new Date(event.startDate)));
+  filtered = filtered.filter((event) => windowContains(dateWindow, parseEventDate(event.startDate)));
 
   // Week filter (independent of date filter)
   if (options.selectedWeeks.length > 0) {

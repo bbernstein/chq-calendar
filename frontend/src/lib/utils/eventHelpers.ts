@@ -1,5 +1,6 @@
 import type { Event, SeasonWeek } from '@/lib/types';
 import { dayKeyOf } from '@/lib/utils/dayWindow';
+import { chqDateAt, chqParts, formatChqDayLabel, parseEventDate } from '@/lib/utils/chqTime';
 
 // Lookup table for common HTML entities found in event data
 const HTML_ENTITY_MAP: Record<string, string> = {
@@ -83,7 +84,7 @@ export function decodeEventHtmlEntities(event: Event): Event {
 }
 
 export interface DayGroup {
-  /** Stable key per calendar date (YYYY-MM-DD in local time). */
+  /** Stable key per calendar date (YYYY-MM-DD in Institution time). */
   key: string;
   /** Display label without the week part, e.g. "Saturday, July 4, 2026". */
   baseLabel: string;
@@ -93,11 +94,14 @@ export interface DayGroup {
 }
 
 function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): number[] {
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  const { year, month, day } = chqParts(date);
+  const dayStart = chqDateAt(year, month, day, 0, 0, 0, 0);
+  // Half-open against the next Institution midnight, so a DST day of 23 or
+  // 25 hours needs no special case.
+  const dayEnd = chqDateAt(year, month, day + 1, 0, 0, 0, 0);
   const numbers: number[] = [];
   for (const w of seasonWeeks) {
-    if (w.start <= dayEnd && w.end > dayStart) {
+    if (w.start < dayEnd && w.end > dayStart) {
       numbers.push(w.number);
     }
   }
@@ -106,18 +110,19 @@ function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): numb
 
 export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): DayGroup[] {
   const grouped = new Map<string, DayGroup>();
+  // Each event's startDate is parsed exactly once, here, and reused for the
+  // per-day sort below — parseEventDate is far from free (a regex plus up to
+  // two Intl.DateTimeFormat round-trips), and this loop already needs the
+  // parsed instant for the day key and week numbers.
+  const startTimes = new Map<Event, number>();
 
   for (const event of events) {
-    const eventDate = new Date(event.startDate);
+    const eventDate = parseEventDate(event.startDate);
+    startTimes.set(event, eventDate.getTime());
     const key = dayKeyOf(eventDate);
     let group = grouped.get(key);
     if (!group) {
-      const baseLabel = eventDate.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
+      const baseLabel = formatChqDayLabel(eventDate);
       group = {
         key,
         baseLabel,
@@ -130,7 +135,7 @@ export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Da
   }
 
   for (const group of grouped.values()) {
-    group.events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    group.events.sort((a, b) => startTimes.get(a)! - startTimes.get(b)!);
   }
 
   return Array.from(grouped.values()).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));

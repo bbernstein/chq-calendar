@@ -140,3 +140,75 @@ describe('isDesktop', () => {
     expect(isDesktop()).toBe(false);
   });
 });
+
+// Institution-anchored dates (F1): both providers must read `startDate`
+// through `parseEventDate`/`chqParts` rather than device-local `Date`
+// accessors, so naive feed timestamps and offset-bearing publisher
+// timestamps (any zone) agree with each other and with the ICS export.
+function makeTzEvent(startDate: string, endDate: string): Event {
+  return { id: 'evt-tz', title: 'TZ Event', startDate, endDate };
+}
+
+function googleDatesParam(event: Event): string {
+  const url = new URL(getGoogleCalendarUrl(event));
+  return url.searchParams.get('dates') ?? '';
+}
+
+function outlookStartdt(event: Event): string {
+  const url = new URL(getOutlookCalendarUrl(event));
+  return url.searchParams.get('startdt') ?? '';
+}
+
+describe('getGoogleCalendarUrl institution-anchored dates', () => {
+  it('sets ctz=America/New_York', () => {
+    const url = new URL(getGoogleCalendarUrl(makeTzEvent('2026-07-27 12:45:00', '2026-07-27 13:45:00')));
+    expect(url.searchParams.get('ctz')).toBe('America/New_York');
+  });
+
+  it('renders a naive feed timestamp as Institution wall time', () => {
+    const dates = googleDatesParam(makeTzEvent('2026-07-27 12:45:00', '2026-07-27 13:45:00'));
+    expect(dates.split('/')[0]).toBe('20260727T124500');
+  });
+
+  it('renders an offset-bearing timestamp already in Eastern unchanged', () => {
+    const dates = googleDatesParam(makeTzEvent('2026-07-04T18:00:00-04:00', '2026-07-04T19:00:00-04:00'));
+    expect(dates.split('/')[0]).toBe('20260704T180000');
+  });
+
+  it('converts an offset-bearing timestamp from a different zone to the Institution equivalent', () => {
+    // 18:00+09:00 is 09:00Z, which is 05:00 EDT the same morning.
+    const dates = googleDatesParam(makeTzEvent('2026-07-04T18:00:00+09:00', '2026-07-04T19:00:00+09:00'));
+    expect(dates.split('/')[0]).toBe('20260704T050000');
+  });
+});
+
+describe('getOutlookCalendarUrl institution-anchored dates', () => {
+  it('appends the Institution EDT offset for a naive summer timestamp', () => {
+    expect(outlookStartdt(makeTzEvent('2026-07-27 12:45:00', '2026-07-27 13:45:00')))
+      .toBe('2026-07-27T12:45:00-04:00');
+  });
+
+  it('appends the Institution EST offset for a naive winter timestamp', () => {
+    expect(outlookStartdt(makeTzEvent('2026-01-15 09:30:00', '2026-01-15 10:30:00')))
+      .toBe('2026-01-15T09:30:00-05:00');
+  });
+
+  it('renders an offset-bearing timestamp already in Eastern as the same wall time it names, not shifted', () => {
+    expect(outlookStartdt(makeTzEvent('2026-07-04T18:00:00-04:00', '2026-07-04T19:00:00-04:00')))
+      .toBe('2026-07-04T18:00:00-04:00');
+  });
+
+  it('converts an offset-bearing timestamp from a different zone to the Institution equivalent', () => {
+    // 18:00+09:00 is 09:00Z, which is 05:00 EDT the same morning.
+    expect(outlookStartdt(makeTzEvent('2026-07-04T18:00:00+09:00', '2026-07-04T19:00:00+09:00')))
+      .toBe('2026-07-04T05:00:00-04:00');
+  });
+});
+
+describe('Google and Outlook agree with each other on the same event', () => {
+  it('both name the same Institution wall time for a naive timestamp', () => {
+    const event = makeTzEvent('2026-07-27 12:45:00', '2026-07-27 13:45:00');
+    expect(googleDatesParam(event).split('/')[0]).toBe('20260727T124500');
+    expect(outlookStartdt(event)).toBe('2026-07-27T12:45:00-04:00');
+  });
+});

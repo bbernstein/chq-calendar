@@ -85,3 +85,30 @@ describe('groupEventsByDay — week-number metadata on day headers', () => {
     ]);
   });
 });
+
+describe('groupEventsByDay in Institution time', () => {
+  const ev = evt; // the file's existing fixture builder
+
+  it('files a late-evening event under the Institution day it belongs to', () => {
+    const groups = groupEventsByDay([ev('a', '2026-07-26 23:45:00')], []);
+    expect(groups[0].key).toBe('2026-07-26');
+  });
+
+  it('labels the group with the Institution day', () => {
+    const groups = groupEventsByDay([ev('a', '2026-07-26 23:45:00')], []);
+    expect(groups[0].baseLabel).toBe('Sunday, July 26, 2026');
+  });
+
+  it('keeps an unparseable date out of the real days rather than crashing', () => {
+    const groups = groupEventsByDay([ev('bad', 'not a date')], []);
+    expect(groups[0].key).toBe('NaN-NaN-NaN');
+  });
+
+  it('sorts within a day by true instant', () => {
+    const groups = groupEventsByDay([
+      ev('late', '2026-07-27 19:00:00'),
+      ev('early', '2026-07-27 09:00:00'),
+    ], []);
+    expect(groups[0].events.map(e => e.id)).toEqual(['early', 'late']);
+  });
+});
