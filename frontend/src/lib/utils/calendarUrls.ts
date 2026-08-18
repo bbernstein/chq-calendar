@@ -1,56 +1,47 @@
 import type { Event } from '@/lib/types';
+import { CHQ_ZONE, chqParts, parseEventDate } from '@/lib/utils/chqTime';
+
+const p2 = (n: number) => String(n).padStart(2, '0');
 
 /**
- * Format a Date as YYYYMMDDTHHMMSS for Google Calendar.
- * Google Calendar requires dates in this format without timezone offset.
+ * Format a Date as YYYYMMDDTHHMMSS for Google Calendar, in Institution wall
+ * time. Google Calendar requires dates in this format without a timezone
+ * offset; the popup's `ctz=America/New_York` param (set below) is what tells
+ * Google how to interpret it.
  */
 function toGoogleDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const seconds = String(d.getSeconds()).padStart(2, '0');
-  return `${year}${month}${day}T${hours}${minutes}${seconds}`;
+  const { year, month, day, hour, minute, second } = chqParts(parseEventDate(dateStr));
+  return `${year}${p2(month)}${p2(day)}T${p2(hour)}${p2(minute)}${p2(second)}`;
 }
 
 /**
- * Determine Eastern timezone offset (EDT or EST) for a given date.
- * US DST: second Sunday of March through first Sunday of November.
+ * The Institution's UTC offset (e.g. `-04:00`) at the instant `d` names,
+ * derived from the instant itself rather than a hardcoded DST rule. The
+ * second-Sunday-of-March / first-Sunday-of-November calculation this
+ * replaced only ever encoded the *current* US rule and would go wrong
+ * silently the day that rule changes; comparing the Institution wall clock
+ * to the same instant's UTC components is correct on both sides of every
+ * transition without knowing the rule at all.
  */
-function getEasternOffset(d: Date): string {
-  const month = d.getMonth(); // 0-indexed
-  // April through October: always EDT
-  if (month >= 3 && month <= 9) return '-04:00';
-  // December through February: always EST
-  if (month <= 1 || month === 11) return '-05:00';
-  // March: DST starts second Sunday
-  if (month === 2) {
-    const dayOfWeek = new Date(d.getFullYear(), 2, 1).getDay();
-    const secondSunday = dayOfWeek === 0 ? 8 : 15 - dayOfWeek;
-    return d.getDate() >= secondSunday ? '-04:00' : '-05:00';
-  }
-  // November: DST ends first Sunday
-  const dayOfWeek = new Date(d.getFullYear(), 10, 1).getDay();
-  const firstSunday = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
-  return d.getDate() < firstSunday ? '-04:00' : '-05:00';
+function chqOffset(d: Date): string {
+  const p = chqParts(d);
+  const wallAsUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  const diffMinutes = Math.round((wallAsUTC - d.getTime()) / 60000);
+  const sign = diffMinutes < 0 ? '-' : '+';
+  const abs = Math.abs(diffMinutes);
+  return `${sign}${p2(Math.floor(abs / 60))}:${p2(abs % 60)}`;
 }
 
 /**
- * Format a Date as ISO 8601 string with Eastern offset for Outlook.
- * Outlook interprets naive times in the user's account timezone,
- * so we append the Eastern offset to ensure correct display.
+ * Format a Date as ISO 8601 string with the Institution's offset, for
+ * Outlook. Outlook interprets naive times in the user's account timezone,
+ * so the offset is appended to ensure correct display regardless of where
+ * the reader's Outlook account is set.
  */
 function toOutlookDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const seconds = String(d.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${getEasternOffset(d)}`;
+  const d = parseEventDate(dateStr);
+  const { year, month, day, hour, minute, second } = chqParts(d);
+  return `${year}-${p2(month)}-${p2(day)}T${p2(hour)}:${p2(minute)}:${p2(second)}${chqOffset(d)}`;
 }
 
 /**
@@ -63,7 +54,7 @@ export function getGoogleCalendarUrl(event: Event): string {
   params.set('action', 'TEMPLATE');
   params.set('text', event.title);
   params.set('dates', `${toGoogleDate(event.startDate)}/${toGoogleDate(event.endDate)}`);
-  params.set('ctz', 'America/New_York');
+  params.set('ctz', CHQ_ZONE);
   if (event.location) {
     params.set('location', event.location);
   }
