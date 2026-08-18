@@ -1,5 +1,5 @@
 import type { Event } from '@/lib/types';
-import { chqParts, chqDateAt, parseEventDate } from '@/lib/utils/chqTime';
+import { CHQ_ZONE, chqParts, chqDateAt, parseEventDate } from '@/lib/utils/chqTime';
 
 /**
  * Escape special characters in ICS text fields per RFC 5545.
@@ -111,7 +111,7 @@ export function generateICS(event: Event): string {
     'METHOD:PUBLISH',
     // VTIMEZONE for America/New_York (EDT/EST)
     'BEGIN:VTIMEZONE',
-    'TZID:America/New_York',
+    `TZID:${CHQ_ZONE}`,
     'BEGIN:DAYLIGHT',
     'TZOFFSETFROM:-0500',
     'TZOFFSETTO:-0400',
@@ -130,8 +130,8 @@ export function generateICS(event: Event): string {
     'BEGIN:VEVENT',
     `UID:${event.id}@chqcal.org`,
     `DTSTAMP:${formatICSTimestamp()}`,
-    `DTSTART;TZID=America/New_York:${dtStart}`,
-    `DTEND;TZID=America/New_York:${dtEnd}`,
+    `DTSTART;TZID=${CHQ_ZONE}:${dtStart}`,
+    `DTEND;TZID=${CHQ_ZONE}:${dtEnd}`,
     `SUMMARY:${escapeICSText(event.title)}`,
   ];
 
