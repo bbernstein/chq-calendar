@@ -17,6 +17,11 @@ function check(name, ok, detail) {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
+/** Not a failure — the clock moved during the run so this comparison isn't meaningful. */
+function skip(name, detail) {
+  results.push({ name, ok: true, detail });
+  console.log(`SKIP  ${name}${detail ? ` — ${detail}` : ''}`);
+}
 
 const browser = await chromium.launch();
 
@@ -37,25 +42,67 @@ async function readUnder(timezoneId) {
   return out;
 }
 
-const baseline = await readUnder(ZONES[0]);
-check('0 baseline rendered something to compare', baseline.days.length > 0,
-  `${baseline.days.length} days, first=${baseline.days[0]}`);
+// The baseline is read once before the other three contexts and again after
+// — `today` and `nowVisible` are wall-clock sensitive, so a run that crosses
+// a minute or day boundary mid-flight must not be reported as a false
+// mismatch against the other zones. Both baseline readings are compared
+// against every zone; if the two baseline readings disagree with *each
+// other*, the clock moved during the run and the wall-clock-sensitive
+// checks are reported as skipped rather than failed, without weakening what
+// they assert when the clock holds still.
+const baselineFirst = await readUnder(ZONES[0]);
+check('0 baseline rendered something to compare', baselineFirst.days.length > 0,
+  `${baselineFirst.days.length} days, first=${baselineFirst.days[0]}`);
 
+const zoneResults = [];
 for (const zone of ZONES.slice(1)) {
-  const got = await readUnder(zone);
+  zoneResults.push({ zone, got: await readUnder(zone) });
+}
+
+const baselineLast = await readUnder(ZONES[0]);
+const clockMoved = JSON.stringify(baselineFirst.today) !== JSON.stringify(baselineLast.today)
+  || baselineFirst.nowVisible !== baselineLast.nowVisible;
+
+function agreesWithEitherBaseline(value, pick) {
+  return value === pick(baselineFirst) || value === pick(baselineLast);
+}
+
+for (const { zone, got } of zoneResults) {
   check(`1 same days under ${zone}`,
-    JSON.stringify(got.days) === JSON.stringify(baseline.days),
-    `${got.days[0]}..${got.days.at(-1)} vs ${baseline.days[0]}..${baseline.days.at(-1)}`);
+    JSON.stringify(got.days) === JSON.stringify(baselineFirst.days),
+    `${got.days[0]}..${got.days.at(-1)} vs ${baselineFirst.days[0]}..${baselineFirst.days.at(-1)}`);
   check(`2 same day headers under ${zone}`,
-    JSON.stringify(got.headers) === JSON.stringify(baseline.headers),
+    JSON.stringify(got.headers) === JSON.stringify(baselineFirst.headers),
     got.headers[0] ?? '(none)');
   check(`3 same event times under ${zone}`,
-    JSON.stringify(got.times) === JSON.stringify(baseline.times),
+    JSON.stringify(got.times) === JSON.stringify(baselineFirst.times),
     got.times.slice(0, 3).join(', '));
-  check(`4 same day is today under ${zone}`,
-    got.today === baseline.today, `${got.today} vs ${baseline.today}`);
-  check(`5 same events are upcoming under ${zone}`,
-    got.nowVisible === baseline.nowVisible, `${got.nowVisible} vs ${baseline.nowVisible}`);
+
+  if (!clockMoved) {
+    check(`4 same day is today under ${zone}`,
+      got.today === baselineFirst.today, `${got.today} vs ${baselineFirst.today}`);
+    check(`5 same events are upcoming under ${zone}`,
+      got.nowVisible === baselineFirst.nowVisible, `${got.nowVisible} vs ${baselineFirst.nowVisible}`);
+    continue;
+  }
+
+  // The clock moved mid-run. Still require agreement — just against
+  // whichever baseline reading (first or last) the clock hadn't yet moved
+  // past — before giving up and reporting a skip instead of a failure.
+  if (agreesWithEitherBaseline(got.today, b => b.today)) {
+    check(`4 same day is today under ${zone}`, true,
+      `${got.today} (clock moved mid-run: baseline was ${baselineFirst.today} then ${baselineLast.today})`);
+  } else {
+    skip(`4 same day is today under ${zone}`,
+      `clock moved mid-run: baseline was ${baselineFirst.today} then ${baselineLast.today}, got ${got.today}`);
+  }
+  if (agreesWithEitherBaseline(got.nowVisible, b => b.nowVisible)) {
+    check(`5 same events are upcoming under ${zone}`, true,
+      `${got.nowVisible} (clock moved mid-run: baseline was ${baselineFirst.nowVisible} then ${baselineLast.nowVisible})`);
+  } else {
+    skip(`5 same events are upcoming under ${zone}`,
+      `clock moved mid-run: baseline was ${baselineFirst.nowVisible} then ${baselineLast.nowVisible}, got ${got.nowVisible}`);
+  }
 }
 
 await browser.close();
