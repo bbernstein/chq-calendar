@@ -511,7 +511,7 @@ describe('day chips and labels read Institution time', () => {
   });
 
   it('labels a day by its Institution date', () => {
-    expect(formatDayLabel('2026-07-27')).toContain('July 27');
+    expect(formatDayLabel('2026-07-27')).toContain('Jul 27');
   });
 });
 ```
