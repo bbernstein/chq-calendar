@@ -23,7 +23,16 @@ import type { Event } from '@/lib/types';
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
 
 function makeEvent(id: string, date: Date): Event {
-  return { id, title: id, startDate: date.toISOString() } as Event;
+  // The real feed sends naive Institution wall time ("2026-07-27 12:45:00"),
+  // never an absolute instant with a `Z`/offset suffix — see
+  // `parseEventDate`. Built from local getters, not `toISOString()`: under
+  // the pinned test TZ (`America/New_York`, equal to `CHQ_ZONE`) those
+  // getters already read Institution wall time, so this reproduces the
+  // feed shape exactly instead of a UTC instant `parseEventDate` would
+  // reinterpret as if it were local time.
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const startDate = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return { id, title: id, startDate } as Event;
 }
 
 describe('day key arithmetic', () => {
@@ -681,5 +690,25 @@ describe('Institution-anchored day boundaries', () => {
   it('keeps the final day when a window ends mid-day at Chautauqua', () => {
     // Noon EDT Saturday — 'this-week' ends here and that morning has events.
     expect(lastDayCovered(new Date('2026-07-25T16:00:00.000Z'))).toBe('2026-07-25');
+  });
+});
+
+describe('day chips and labels read Institution time', () => {
+  it('names the chip after its own key', () => {
+    const chips = dayChips(['2026-07-27'], new Map([['2026-07-27', 3]]));
+    expect(chips[0].dayOfMonth).toBe('27');
+    expect(chips[0].weekday).toBe('Mon');
+    expect(chips[0].month).toBe('Jul');
+    expect(chips[0].label).toBe('Go to Monday, July 27, 3 events');
+  });
+
+  it('names a chip on the far side of a DST transition correctly', () => {
+    const chips = dayChips(['2026-11-01'], new Map());
+    expect(chips[0].dayOfMonth).toBe('1');
+    expect(chips[0].label).toBe('Sunday, November 1, no events');
+  });
+
+  it('labels a day by its Institution date', () => {
+    expect(formatDayLabel('2026-07-27')).toContain('Jul 27');
   });
 });

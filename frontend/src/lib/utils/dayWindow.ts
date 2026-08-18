@@ -1,5 +1,5 @@
 import type { Event, SeasonWeek } from '@/lib/types';
-import { chqDateAt, chqDayKey, chqParts } from '@/lib/utils/chqTime';
+import { CHQ_ZONE, chqDateAt, chqDayKey, chqParts, parseEventDate } from '@/lib/utils/chqTime';
 
 /**
  * A calendar day as `yyyy-mm-dd`, zero-padded, in Institution time.
@@ -152,7 +152,7 @@ export function navigableBounds(
   let endDay = dayKeyOf(seasonWeeks[seasonWeeks.length - 1].end);
 
   for (const event of events) {
-    const parsed = new Date(event.startDate);
+    const parsed = parseEventDate(event.startDate);
     // An unparseable date must not poison the global bound: 'NaN-NaN-NaN'
     // sorts above every real key, so a single bad row would otherwise widen
     // endDay for the whole app. Every other call site (filterHelpers,
@@ -325,7 +325,7 @@ export function viewWindow(o: WindowOptions): ViewWindow | null {
 export function eventDayKeys(events: Event[]): DayKey[] {
   const keys = new Set<DayKey>();
   for (const event of events) {
-    const parsed = new Date(event.startDate);
+    const parsed = parseEventDate(event.startDate);
     if (Number.isNaN(parsed.getTime())) continue;
     keys.add(dayKeyOf(parsed));
   }
@@ -353,6 +353,7 @@ export function navigationTargets(
 /** `"Saturday, Aug 15"` — how a navigation control names its target. */
 export function formatDayLabel(key: DayKey): string {
   return startOfDay(key).toLocaleDateString('en-US', {
+    timeZone: CHQ_ZONE,
     weekday: 'long',
     month: 'short',
     day: 'numeric',
@@ -367,7 +368,7 @@ export function formatDayRange(from: DayKey, through: DayKey): string {
   // returns.
   if (from > through) return '';
   const fmt = (key: DayKey) =>
-    startOfDay(key).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    startOfDay(key).toLocaleDateString('en-US', { timeZone: CHQ_ZONE, weekday: 'short', month: 'short', day: 'numeric' });
   if (from === through) return fmt(from);
   return `${fmt(from)} – ${fmt(through)}`;
 }
@@ -412,7 +413,7 @@ export interface DayChip {
 export function eventCountsByDay(events: Event[]): Map<DayKey, number> {
   const counts = new Map<DayKey, number>();
   for (const event of events) {
-    const parsed = new Date(event.startDate);
+    const parsed = parseEventDate(event.startDate);
     if (Number.isNaN(parsed.getTime())) continue;
     const key = dayKeyOf(parsed);
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -424,19 +425,19 @@ export function dayChips(days: DayKey[], countsByDay: Map<DayKey, number>): DayC
   let lastMonth: string | null = null;
   return days.map((key) => {
     const date = startOfDay(key);
-    const month = date.toLocaleDateString('en-US', { month: 'short' });
+    const month = date.toLocaleDateString('en-US', { timeZone: CHQ_ZONE, month: 'short' });
     // The month rides the first chip and every change after it — without the
     // first-chip rule a rail scrolled to mid-July would show no month at all,
     // which is exactly the disorientation the rail exists to fix.
     const showMonth = month !== lastMonth;
     lastMonth = month;
     const count = countsByDay.get(key) ?? 0;
-    const spoken = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const spoken = date.toLocaleDateString('en-US', { timeZone: CHQ_ZONE, weekday: 'long', month: 'long', day: 'numeric' });
     const events = count === 0 ? 'no events' : count === 1 ? '1 event' : `${count} events`;
     return {
       key,
-      weekday: date.toLocaleDateString('en-US', { weekday: 'short' }),
-      dayOfMonth: String(date.getDate()),
+      weekday: date.toLocaleDateString('en-US', { timeZone: CHQ_ZONE, weekday: 'short' }),
+      dayOfMonth: String(chqParts(date).day),
       month: showMonth ? month : null,
       count,
       label: count === 0 ? `${spoken}, ${events}` : `Go to ${spoken}, ${events}`,
