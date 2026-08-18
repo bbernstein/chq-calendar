@@ -145,13 +145,29 @@ technique, which must be tested at both DST transitions
 
 ## Testing, and one corrected proposal
 
-**A second unit-test leg under `TZ=UTC` does not work.** `vitest.config.ts`
-already pins `env: { TZ: 'America/New_York' }` on purpose — without it the
-DST-transition tests in `dayWindow.test.ts` stop discriminating a DST-safe
-implementation from naive millisecond arithmetic, because GitHub runners are
-UTC where 2026-03-08 and 2026-11-01 are not transitions. The pin overrides
-the environment: the full suite passes unchanged under `UTC`,
+**Unit tests cannot prove device-independence here.** `vitest.config.ts` pins
+`env: { TZ: 'America/New_York' }` on purpose — without it the DST-transition
+tests in `dayWindow.test.ts` stop discriminating a DST-safe implementation
+from naive millisecond arithmetic, because GitHub runners are UTC where
+2026-03-08 and 2026-11-01 are not transitions. That pin overrides the `TZ`
+environment variable, so the suite passes unchanged under `UTC`,
 `America/Los_Angeles`, `Asia/Tokyo` and `Pacific/Kiritimati`. Verified.
+
+*Correction, found during execution:* a second vitest **config file** does
+replace the pin, where the env var could not. Running the suite that way under
+`Asia/Tokyo` fails widely — but the failures are overwhelmingly test **fixture**
+zone-dependence, not code defects: tests that build inputs with a device-local
+`new Date(y, m, d)` and assert an Institution-time answer are only valid while
+the device is Eastern. Making the whole suite zone-independent would mean
+rewriting dozens of fixtures across many files, so it is deliberately out of
+scope.
+
+The consequence is load-bearing and must not be forgotten: **with the pin in
+place, a unit test cannot distinguish correct Institution-anchored code from
+the device-local code it replaced.** Every unit test in this migration pins
+intended semantics and guards against regression; none of them proves the
+migration happened. The browser check below is the only automated proof, and
+is therefore not optional.
 
 The safeguard instead has two parts:
 
