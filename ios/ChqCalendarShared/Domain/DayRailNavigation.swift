@@ -6,9 +6,11 @@ import Foundation
 /// same refusals, same reasons. Where the two platforms must agree, the
 /// tests name it; a divergence here is a cross-platform behaviour bug.
 ///
-/// There is deliberately **no** "go to day" action on the model. Tapping a
-/// chip decomposes exactly into the window expansion that already exists
-/// plus a scroll, and a third action would be a synonym for the two.
+/// `AppModel.goToDay` is not a new piece of persisted state or a
+/// reducer-style action of its own: tapping a chip decomposes exactly into
+/// the window-expansion fields that already exist (`windowStartDayKey` /
+/// `windowEndDayKey`) plus a scroll, and `goToDay` is just that
+/// decomposition, computed here and applied in one assignment.
 nonisolated enum DayRailNavigation {
     /// What a tap resolves to: at most one edge to grow, and the day to
     /// scroll to once it has.

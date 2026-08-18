@@ -1262,20 +1262,71 @@ final class AppModel {
         }
     }
 
-    /// Widens the window by one calendar day from wherever it currently ends
-    /// — the same operation whether that end came from the scope or from a
-    /// previous widening.
-    func expandWindowEnd() {
-        let bounds = ViewWindow.navigableBounds(
-            year: selectedYear, events: snapshot?.events ?? [], starredDays: [])
-        guard
-            let window = ViewWindow.make(
-                selection: filter, events: snapshot?.events ?? [], now: now(),
-                year: selectedYear, isCurrentYear: isCurrentYear, bounds: bounds),
-            let next = ChqTime.day(window.endDay, offsetBy: 1),
-            next <= bounds.upperBound
+    /// Widens the window backward to the nearest earlier day that has
+    /// events under the current non-date filters.
+    func expandWindowStart() {
+        guard let earlier = DayRailNavigation.edgeTargets(
+            eventDays: navMatching?.eventDays ?? [], window: currentWindow).earlier
         else { return }
-        filter.windowEndDayKey = next
+        filter.windowStartDayKey = earlier
+    }
+
+    /// Widens the window forward to the nearest later day that has events
+    /// under the current non-date filters.
+    ///
+    /// **Not the next calendar day**, which is what this did before phase 3b.
+    /// With Favourites on, or any search or venue filter that leaves gaps,
+    /// the adjacent day usually has no matches: the edge moves, nothing new
+    /// mounts, and the control reads as dead. Pressing again recomputes the
+    /// same dead target. The web rail ships the corrected rule and
+    /// `DayRailNavigation.stepTargets` documents why.
+    func expandWindowEnd() {
+        guard let later = DayRailNavigation.edgeTargets(
+            eventDays: navMatching?.eventDays ?? [], window: currentWindow).later
+        else { return }
+        filter.windowEndDayKey = later
+    }
+
+    /// *Take me to that day.* Grows at most one edge of the window to include
+    /// `dayKey`, then leaves the scrolling to the view.
+    ///
+    /// Returns whether the target was accepted, so a caller can decide not to
+    /// queue a scroll for a day that will never arrive. A target outside the
+    /// navigable bounds, or any target at all while the scope resolves to no
+    /// window, is refused rather than clamped: clamping would move the window
+    /// to an edge and then scroll to a day that is not there.
+    ///
+    /// Unlike an empty *step*, an empty *day* is a legal target. The reader
+    /// asked for that day by name and the rail's own label already told them
+    /// it has nothing; landing there is honest, and it is how they get to the
+    /// days on either side.
+    ///
+    /// The window is assembled and assigned once. `filter`'s `didSet` rebuilds
+    /// every derived count, so two assignments would run the pipeline twice
+    /// for one tap.
+    @discardableResult
+    func goToDay(_ dayKey: String) -> Bool {
+        guard let plan = DayRailNavigation.plan(
+            target: dayKey, window: currentWindow, bounds: navigableBounds)
+        else { return false }
+
+        var next = filter
+        if let start = plan.expandStart { next.windowStartDayKey = start }
+        if let end = plan.expandEnd { next.windowEndDayKey = end }
+        filter = next
+        return true
+    }
+
+    /// Back to Now, from wherever navigation has wandered to.
+    ///
+    /// Deliberately not `selectScope(.next)`: that early-returns when the
+    /// scope is already `.next` with no weeks, which leaves every accumulated
+    /// expansion in place — precisely the state this control exists to undo.
+    func resetToNow() {
+        filter.dateScope = .next
+        filter.selectedWeeks = []
+        clearScopeLocalDateState()
+        persistFilter()
     }
 
     private func persistFilter() {

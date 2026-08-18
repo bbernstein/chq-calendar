@@ -55,15 +55,14 @@ struct NavMatchingTests {
         #expect(nav.eventDays == ["2026-07-20"])
     }
 
-    // Task 6
-    // @Test func windowExpansionDoesNotChangeIt() throws {
-    //     let model = try makeModel(defaults: makeDefaults())
-    //     let before = try #require(model.navMatching)
-    //
-    //     model.goToDay("2026-08-20")
-    //
-    //     #expect(model.navMatching == before)
-    // }
+    @Test func windowExpansionDoesNotChangeIt() throws {
+        let model = try makeModel(defaults: makeDefaults())
+        let before = try #require(model.navMatching)
+
+        model.goToDay("2026-08-20")
+
+        #expect(model.navMatching == before)
+    }
 
     /// Two derivations of the same fact must not drift: the cached array and
     /// the pure rule that Task 4 tests in isolation.
