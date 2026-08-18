@@ -228,24 +228,79 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     await page.evaluate(z => { document.documentElement.style.fontSize = `${16 * z}px`; }, zoom);
     await page.waitForTimeout(600);
   }
-  await page.mouse.wheel(0, 1800);
-  await page.waitForTimeout(600);
-  const geom = await page.evaluate(() => {
+
+  // Park deliberately inside a day whose header is genuinely stuck, rather
+  // than scrolling a fixed distance and measuring whatever is there.
+  //
+  // `mouse.wheel(0, 1800)` used to do the latter, and where 1800px lands
+  // depends on how many events the current scope is showing — so it depended
+  // on the wall-clock hour. At 200% zoom it landed in the gap between two
+  // days: the outgoing header was being pushed up by the end of its own
+  // section (correct `position: sticky` behaviour, bounded by its containing
+  // block) while the next day's header had not reached the rail yet. Nothing
+  // was stuck, so there was nothing for the assertion below to be about, and
+  // it failed on `main` as well as on every branch.
+  //
+  // Iterated rather than scrolled once: the render window mounts more days as
+  // the reader descends, which moves the target out from under a single
+  // computed delta. Loop until the section is actually in position, then stop.
+  const parked = await page.evaluate(async () => {
+    const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const railBottom = () => document.querySelector('[data-day-rail]').getBoundingClientRect().bottom;
+    const headerOf = (sec) => sec.querySelector('.sticky');
+
+    // A day tall enough that its header is still stuck once we are inside it:
+    // it must outlast the rail, its own header, and the margin we park at.
+    const MARGIN = 120;
+    const roomy = () => [...document.querySelectorAll('[data-day-key]')].find((e) => {
+      const header = headerOf(e);
+      if (!header) return false;
+      return e.getBoundingClientRect().height
+        > railBottom() + header.getBoundingClientRect().height + MARGIN * 2;
+    });
+
+    const target = roomy();
+    if (!target) return null;
+    const key = target.dataset.dayKey;
+
+    for (let i = 0; i < 25; i++) {
+      const sec = document.querySelector(`[data-day-key="${key}"]`);
+      if (!sec) return null;
+      // Aim to sit MARGIN pixels past the section's start, so the header has
+      // stuck and the section has not yet begun pushing it back out.
+      const delta = sec.getBoundingClientRect().top - railBottom() + MARGIN;
+      if (Math.abs(delta) <= 2) return key;
+      window.scrollBy(0, delta);
+      await frame();
+    }
+    return null;
+  });
+  await page.waitForTimeout(300);
+
+  const geom = parked === null ? null : await page.evaluate((key) => {
     const rail = document.querySelector('[data-day-rail]');
-    const railH = rail.getBoundingClientRect().bottom;
-    // The stuck header belongs to the section spanning the viewport top. The
-    // FIRST section's header legitimately scrolls away once you are past it,
-    // so measuring that one tests nothing.
-    const sec = [...document.querySelectorAll('[data-day-key]')]
-      .find(e => { const r = e.getBoundingClientRect(); return r.top <= railH + 1 && r.bottom > railH + 1; });
+    const sec = document.querySelector(`[data-day-key="${key}"]`);
     const header = sec?.querySelector('.sticky');
     if (!rail || !header) return null;
     const r = rail.getBoundingClientRect(), h = header.getBoundingClientRect();
-    return { railBottom: r.bottom, headerTop: h.top, headerText: header.textContent.trim().slice(0, 30) };
-  });
-  if (!geom) { check(`12 sticky stack @ ${label}`, false, 'rail or header missing'); await page.close(); continue; }
-  check(`12 header clears the rail @ ${label}`, geom.headerTop >= geom.railBottom - 2,
-    `railBottom=${geom.railBottom.toFixed(1)} headerTop=${geom.headerTop.toFixed(1)}`);
+    return { day: key, railBottom: r.bottom, headerTop: h.top, headerText: header.textContent.trim().slice(0, 30) };
+  }, parked);
+
+  if (!geom) {
+    // Said out loud rather than skipped: "no day was tall enough to park in"
+    // is a fact about the fixture the next reader needs, not a pass.
+    check(`12 sticky stack @ ${label}`, false, 'could not park inside a day with a stuck header');
+    await page.close();
+    continue;
+  }
+  // Stuck AT the rail's bottom edge, not merely somewhere below it.
+  // `headerTop >= railBottom - 2` was the old form and is satisfied by a
+  // header sitting a thousand pixels down the page, having never stuck at
+  // all — so it could pass while proving nothing. Equality is the property
+  // this check exists for: the day title comes to rest flush under the rail
+  // rather than sliding beneath it.
+  check(`12 header clears the rail @ ${label}`, Math.abs(geom.headerTop - geom.railBottom) <= 2,
+    `day=${geom.day} railBottom=${geom.railBottom.toFixed(1)} headerTop=${geom.headerTop.toFixed(1)}`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(`12 no horizontal page overflow @ ${label}`, overflow <= 1, `${overflow}px`);
   await page.close();
