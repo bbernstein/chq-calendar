@@ -251,15 +251,45 @@ struct EventListView: View {
     /// final row appears immediately, which would expand again — walking to
     /// the end of the season in one gesture. Recording the day we expanded
     /// *from* allows exactly one expansion per newly-reached last day, which
-    /// is the same cadence the button had, minus the tap.
+    /// is the same cadence the button had, minus the tap. The decision itself
+    /// lives in `DayRailAutoExpand.shouldFire`, pure and unit-tested; this
+    /// function is only the thin wrapper that consults it and performs the
+    /// two side effects below.
     ///
     /// Forward only. Backward stays explicit (the ⟨ chevron in Task 11): the
     /// reader scrolling down has asked for more; the reader arriving at the
     /// top has not asked for the past.
+    ///
+    /// **Order matters: the flag is set *before* `expandWindowEnd()` runs.**
+    /// At the season's actual last day, `expandWindowEnd()` finds no later
+    /// day and is a no-op — the window does not change, so the trigger
+    /// condition (`day == days.last`) stays true forever and this row can
+    /// legitimately appear again (e.g. a scroll away and back, or a list
+    /// re-layout). Setting `autoExpandedThrough` unconditionally first means
+    /// the guard latches on the *attempt*, not on whether anything actually
+    /// expanded, so a season-edge no-op still stops future re-fires for that
+    /// same day. Setting it after would leave a window — vanishingly small
+    /// in practice, since `expandWindowEnd()` has no suspension point, but
+    /// real in principle — where a second `onAppear` for the same row could
+    /// read the not-yet-updated flag and call in again.
+    ///
+    /// **A concurrent `.refreshable` pull cannot interleave with this.**
+    /// `expandWindowEnd()` is synchronous and has no `await` in it, so
+    /// between reading `autoExpandedThrough` and writing
+    /// `filter.windowEndDayKey` nothing else can run on the main actor —
+    /// there is no suspension point for a refresh's `Task` to land in. The
+    /// two mechanisms also touch disjoint state even if they did somehow
+    /// overlap: `refresh(force:)` replaces `snapshot`/`phase`,
+    /// `expandWindowEnd()` only ever narrows/widens `filter.windowEndDayKey`
+    /// — neither reads the field the other writes, so there is nothing to
+    /// race even without the synchronous-call guarantee above.
     private func autoExpandIfAtTheEnd(day: DayGroup, event: Event, days: [DayGroup]) {
-        guard day.id == days.last?.id,
-              event.id == day.events.last?.id,
-              autoExpandedThrough != day.id
+        guard DayRailAutoExpand.shouldFire(
+            day: day.id,
+            event: event.id,
+            lastDay: days.last?.id,
+            lastEventInDay: day.events.last?.id,
+            alreadyExpandedThrough: autoExpandedThrough)
         else { return }
         autoExpandedThrough = day.id
         model.expandWindowEnd()

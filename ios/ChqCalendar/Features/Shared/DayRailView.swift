@@ -53,6 +53,15 @@ struct DayRailView<Leading: View, Trailing: View>: View {
             .onChange(of: selectedDay) { _, day in scroll(proxy, to: day) }
             .onChange(of: reanchorOn) { _, _ in scroll(proxy, to: selectedDay) }
         }
+        // Chained off `ScrollViewReader`, not the `ScrollView` inside it.
+        // `ScrollViewReader` contributes no accessibility element of its
+        // own, so these three modifiers land on the `ScrollView` below it
+        // either way — confirmed by dumping `app.debugDescription` against
+        // a running build, which reports `ScrollView, ... identifier:
+        // 'day-rail'`. Do not "fix" this by moving the modifiers onto the
+        // inner `ScrollView` directly: it would compile and look tidier,
+        // but every UI test that queries `app.scrollViews["day-rail"]`
+        // depends on the identifier landing exactly here.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("day-rail")
