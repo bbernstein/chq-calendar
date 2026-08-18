@@ -1,4 +1,5 @@
 import type { Event } from '@/lib/types';
+import { chqParts, chqDateAt, parseEventDate } from '@/lib/utils/chqTime';
 
 /**
  * Escape special characters in ICS text fields per RFC 5545.
@@ -29,17 +30,26 @@ function foldLine(line: string): string {
 }
 
 /**
- * Format a date string as an ICS local datetime: YYYYMMDDTHHMMSS
+ * Format an instant as an ICS local datetime, `YYYYMMDDTHHMMSS`, in
+ * Institution time.
+ */
+function formatChqICSDate(d: Date): string {
+  const { year, month, day, hour, minute, second } = chqParts(d);
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${year}${p2(month)}${p2(day)}T${p2(hour)}${p2(minute)}${p2(second)}`;
+}
+
+/**
+ * An ICS local datetime, `YYYYMMDDTHHMMSS`, in Institution time.
+ *
+ * Paired with `DTSTART;TZID=America/New_York`, so the components written
+ * here must be Chautauqua's wall clock — which is exactly the wall clock the
+ * feed gave us. The round trip is therefore an identity, and this function
+ * existed in a device-local form that was correct only because parsing was
+ * device-local too.
  */
 function formatICSDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const seconds = String(d.getSeconds()).padStart(2, '0');
-  return `${year}${month}${day}T${hours}${minutes}${seconds}`;
+  return formatChqICSDate(parseEventDate(dateStr));
 }
 
 /**
@@ -76,10 +86,19 @@ export function generateICS(event: Event): string {
 
   let dtEnd: string;
   if (event.endDate === event.startDate) {
-    // Default to start + 1 hour when endDate equals startDate
-    const endDate = new Date(event.startDate);
-    endDate.setHours(endDate.getHours() + 1);
-    dtEnd = formatICSDate(endDate.toISOString());
+    // Default to start + 1 hour of Institution wall clock when endDate
+    // equals startDate. This must add an hour to the *Institution* clock,
+    // not to the absolute instant: on a DST transition day those disagree
+    // (a skipped or repeated hour), and `Date.prototype.setHours` only ever
+    // adds a device-local hour, which is exactly the device-dependence this
+    // migration removes. `chqDateAt` re-derives the instant for the
+    // adjusted wall-clock fields, so overflow (23:xx -> 24:xx) correctly
+    // carries into the next Institution day, and a nonexistent wall time
+    // (landing in a spring-forward gap) resolves the same way the rest of
+    // the app resolves one.
+    const p = chqParts(parseEventDate(event.startDate));
+    const endInstant = chqDateAt(p.year, p.month, p.day, p.hour + 1, p.minute, p.second);
+    dtEnd = formatChqICSDate(endInstant);
   } else {
     dtEnd = formatICSDate(event.endDate);
   }
