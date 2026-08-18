@@ -27,6 +27,15 @@ struct EventListView: View {
     /// Which pill's sheet is up, if any.
     @State private var activeSheet: FilterBarSheet?
 
+    /// Which day the rail highlights. View state: derived from what is on
+    /// screen, never persisted, and never part of the filter.
+    @State private var anchorDay: String?
+
+    /// The last day whose final row triggered `expandWindowEnd()`. Guards
+    /// `autoExpandIfAtTheEnd` against firing again the instant the newly
+    /// appended day's own final row appears — see that function's doc.
+    @State private var autoExpandedThrough: String?
+
     private enum FilterBarSheet: String, Identifiable {
         case date
         case filters
@@ -44,6 +53,11 @@ struct EventListView: View {
             // Only once there is a snapshot to filter against — during
             // launch or the offline/error states the pills would summarise
             // nothing.
+            .safeAreaInset(edge: .top) {
+                if model.snapshot != nil, let nav = model.navMatching {
+                    dayRail(nav)
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 if model.snapshot != nil {
                     filterPillBar
@@ -106,6 +120,34 @@ struct EventListView: View {
     }
     #endif
 
+    /// The day rail: every day navigation can reach, with how many events
+    /// each holds under the current non-date filters.
+    ///
+    /// Mounted on `content` via `.safeAreaInset(edge: .top)` — the mirror of
+    /// `filterPillBar` at the bottom — so it is chrome rather than content.
+    /// A `safeAreaInset` bar contributes its height to the scroll view's safe
+    /// area exactly as a toolbar would, so the list insets its own content
+    /// and its scroll indicator to clear it without any margin of ours.
+    ///
+    /// The span is `navigableBounds`, deliberately independent of the current
+    /// scope: in `Today` it still shows the week around you, because the rail
+    /// is a navigation surface, not a filter readout.
+    private func dayRail(_ nav: NavMatching) -> some View {
+        DayRailView(
+            entries: MyDayChipContent.makeAll(
+                days: ChqTime.dayKeys(from: nav.bounds.lowerBound, through: nav.bounds.upperBound),
+                todayKey: ChqTime.dayKey(for: model.now()),
+                counts: nav.countsByDay,
+                style: .events,
+                includingYear: !model.isCurrentYear),
+            selectedDay: anchorDay,
+            accessibilityLabel: "Days in the season",
+            onSelect: { _ in },   // Task 9
+            leading: { EmptyView() },
+            trailing: { EmptyView() })
+        .background(.bar)
+    }
+
     @ViewBuilder
     private var content: some View {
         if model.snapshot == nil {
@@ -167,6 +209,9 @@ struct EventListView: View {
                 Section {
                     ForEach(day.events) { event in
                         row(for: event)
+                            .onAppear {
+                                autoExpandIfAtTheEnd(day: day, event: event, days: days)
+                            }
                     }
                 } header: {
                     #if DEBUG
@@ -175,21 +220,7 @@ struct EventListView: View {
                     dayHeader(for: day)
                     #endif
                 }
-            }
-
-            // `EffectiveScope.resolve(_:isCurrentYear:) == .next` is exactly
-            // `model.isCurrentYear && model.filter.dateScope == .next`: for
-            // any scope other than `.day`, `resolve` returns the stored
-            // scope unchanged when `isCurrentYear` and `.all` otherwise, so
-            // it equals `.next` iff both halves of the old condition held.
-            // `.day` is never `.next`, so its branch never enters into the
-            // comparison. Same button in the same states — this is the
-            // fourth site that duplicated the downgrade rule, collapsed
-            // like the other three (#192, #197).
-            if EffectiveScope.resolve(model.filter, isCurrentYear: model.isCurrentYear) == .next {
-                Button("Show next day") {
-                    model.expandWindowEnd()
-                }
+                .id(day.id)
             }
         }
         .listStyle(.plain)
@@ -211,6 +242,27 @@ struct EventListView: View {
         .navigationDestination(for: Event.self) { event in
             EventDetailView(event: event, model: model)
         }
+    }
+
+    /// Auto-expand forward, replacing the "Show next day" button.
+    ///
+    /// Fires when the final row of the final day appears. `autoExpandedThrough`
+    /// is what stops it cascading: expansion appends a new final day, whose
+    /// final row appears immediately, which would expand again — walking to
+    /// the end of the season in one gesture. Recording the day we expanded
+    /// *from* allows exactly one expansion per newly-reached last day, which
+    /// is the same cadence the button had, minus the tap.
+    ///
+    /// Forward only. Backward stays explicit (the ⟨ chevron in Task 11): the
+    /// reader scrolling down has asked for more; the reader arriving at the
+    /// top has not asked for the past.
+    private func autoExpandIfAtTheEnd(day: DayGroup, event: Event, days: [DayGroup]) {
+        guard day.id == days.last?.id,
+              event.id == day.events.last?.id,
+              autoExpandedThrough != day.id
+        else { return }
+        autoExpandedThrough = day.id
+        model.expandWindowEnd()
     }
 
     @ViewBuilder
