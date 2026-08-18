@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Zero files outside `frontend/`.** `git diff --stat main...HEAD` must list only `frontend/` paths. The feed, the backend and `all-events.json` are untouched, so old web bundles and the shipped iOS app are unaffected by construction.
+- **Zero code outside `frontend/`.** The only non-`frontend/` paths this branch may touch are its own `docs/plans/*.md`. No backend, no `infrastructure/`, no `ios/`, nothing in the ingest path. `all-events.json` stays byte-identical, so old web bundles and the shipped iOS app are unaffected by construction. Task 7 Step 5 checks this rather than trusting it.
 - **Timezone identifier is exactly `America/New_York`.** Never a fixed offset, never `EST`/`EDT`.
 - **Times are unlabelled.** `7:00 PM` stays `7:00 PM`. No "ET" suffix anywhere, no per-viewer variation.
 - **Half-open windows.** `start <= x < endExclusive`. Never an inclusive bound with a subtracted epsilon.
@@ -1077,10 +1077,10 @@ Expected: PASS — all three suites, including every zone comparison.
 - [ ] **Step 5: Confirm the Global Constraint and commit**
 
 ```bash
-cd .. && git diff --stat main...HEAD -- . ':(exclude)frontend'
+cd .. && git diff --stat main...HEAD -- . ':(exclude)frontend' ':(exclude)docs/plans'
 ```
 
-Expected: empty output. If anything is listed, a file outside `frontend/` was touched and must be reverted.
+Expected: empty output. Anything listed is a file this change had no business touching — revert it. The exclusions are deliberate and narrow: `frontend/` is the change, `docs/plans/` is this branch's own design and plan.
 
 ```bash
 git add frontend/e2e/verify-timezone.mjs frontend/package.json
