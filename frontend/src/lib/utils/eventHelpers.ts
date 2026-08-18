@@ -1,5 +1,6 @@
 import type { Event, SeasonWeek } from '@/lib/types';
 import { dayKeyOf } from '@/lib/utils/dayWindow';
+import { chqDateAt, chqParts, formatChqDayLabel, parseEventDate } from '@/lib/utils/chqTime';
 
 // Lookup table for common HTML entities found in event data
 const HTML_ENTITY_MAP: Record<string, string> = {
@@ -83,7 +84,7 @@ export function decodeEventHtmlEntities(event: Event): Event {
 }
 
 export interface DayGroup {
-  /** Stable key per calendar date (YYYY-MM-DD in local time). */
+  /** Stable key per calendar date (YYYY-MM-DD in Institution time). */
   key: string;
   /** Display label without the week part, e.g. "Saturday, July 4, 2026". */
   baseLabel: string;
@@ -93,11 +94,14 @@ export interface DayGroup {
 }
 
 function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): number[] {
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  const { year, month, day } = chqParts(date);
+  const dayStart = chqDateAt(year, month, day, 0, 0, 0, 0);
+  // Half-open against the next Institution midnight, so a DST day of 23 or
+  // 25 hours needs no special case.
+  const dayEnd = chqDateAt(year, month, day + 1, 0, 0, 0, 0);
   const numbers: number[] = [];
   for (const w of seasonWeeks) {
-    if (w.start <= dayEnd && w.end > dayStart) {
+    if (w.start < dayEnd && w.end > dayStart) {
       numbers.push(w.number);
     }
   }
@@ -108,20 +112,23 @@ export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Da
   const grouped = new Map<string, DayGroup>();
 
   for (const event of events) {
-    const eventDate = new Date(event.startDate);
-    const key = dayKeyOf(eventDate);
+    const eventDate = parseEventDate(event.startDate);
+    // An unparseable startDate produces an Invalid Date. chqParts/chqDayKey
+    // format it through Intl.DateTimeFormat, which throws RangeError on an
+    // Invalid Date rather than returning NaN fields — so this branch must
+    // stay out of that path entirely and build the 'NaN-NaN-NaN' key by hand,
+    // matching every other call site's contract for a bad row (dayWindow's
+    // navigableBounds/eventDayKeys/eventCountsByDay all drop such rows;
+    // groupEventsByDay is the one place that must keep it, visibly, instead).
+    const isValidDate = !Number.isNaN(eventDate.getTime());
+    const key = isValidDate ? dayKeyOf(eventDate) : 'NaN-NaN-NaN';
     let group = grouped.get(key);
     if (!group) {
-      const baseLabel = eventDate.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
+      const baseLabel = isValidDate ? formatChqDayLabel(eventDate) : 'Invalid Date';
       group = {
         key,
         baseLabel,
-        weekNumbers: weekNumbersForCalendarDate(eventDate, seasonWeeks),
+        weekNumbers: isValidDate ? weekNumbersForCalendarDate(eventDate, seasonWeeks) : [],
         events: [],
       };
       grouped.set(key, group);
@@ -130,7 +137,9 @@ export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Da
   }
 
   for (const group of grouped.values()) {
-    group.events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    group.events.sort(
+      (a, b) => parseEventDate(a.startDate).getTime() - parseEventDate(b.startDate).getTime()
+    );
   }
 
   return Array.from(grouped.values()).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
