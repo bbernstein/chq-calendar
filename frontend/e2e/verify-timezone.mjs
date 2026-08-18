@@ -17,12 +17,6 @@ function check(name, ok, detail) {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
-/** Not a failure — the clock moved during the run so this comparison isn't meaningful. */
-function skip(name, detail) {
-  results.push({ name, ok: true, detail });
-  console.log(`SKIP  ${name}${detail ? ` — ${detail}` : ''}`);
-}
-
 const browser = await chromium.launch();
 
 async function readUnder(timezoneId) {
@@ -46,10 +40,8 @@ async function readUnder(timezoneId) {
 // — `today` and `nowVisible` are wall-clock sensitive, so a run that crosses
 // a minute or day boundary mid-flight must not be reported as a false
 // mismatch against the other zones. Both baseline readings are compared
-// against every zone; if the two baseline readings disagree with *each
-// other*, the clock moved during the run and the wall-clock-sensitive
-// checks are reported as skipped rather than failed, without weakening what
-// they assert when the clock holds still.
+// against every zone, and a value must match one of them — matching neither
+// is a real cross-zone disagreement, not clock skew, and still fails.
 const baselineFirst = await readUnder(ZONES[0]);
 check('0 baseline rendered something to compare', baselineFirst.days.length > 0,
   `${baselineFirst.days.length} days, first=${baselineFirst.days[0]}`);
@@ -78,31 +70,16 @@ for (const { zone, got } of zoneResults) {
     JSON.stringify(got.times) === JSON.stringify(baselineFirst.times),
     got.times.slice(0, 3).join(', '));
 
-  if (!clockMoved) {
-    check(`4 same day is today under ${zone}`,
-      got.today === baselineFirst.today, `${got.today} vs ${baselineFirst.today}`);
-    check(`5 same events are upcoming under ${zone}`,
-      got.nowVisible === baselineFirst.nowVisible, `${got.nowVisible} vs ${baselineFirst.nowVisible}`);
-    continue;
-  }
-
-  // The clock moved mid-run. Still require agreement — just against
-  // whichever baseline reading (first or last) the clock hadn't yet moved
-  // past — before giving up and reporting a skip instead of a failure.
-  if (agreesWithEitherBaseline(got.today, b => b.today)) {
-    check(`4 same day is today under ${zone}`, true,
-      `${got.today} (clock moved mid-run: baseline was ${baselineFirst.today} then ${baselineLast.today})`);
-  } else {
-    skip(`4 same day is today under ${zone}`,
-      `clock moved mid-run: baseline was ${baselineFirst.today} then ${baselineLast.today}, got ${got.today}`);
-  }
-  if (agreesWithEitherBaseline(got.nowVisible, b => b.nowVisible)) {
-    check(`5 same events are upcoming under ${zone}`, true,
-      `${got.nowVisible} (clock moved mid-run: baseline was ${baselineFirst.nowVisible} then ${baselineLast.nowVisible})`);
-  } else {
-    skip(`5 same events are upcoming under ${zone}`,
-      `clock moved mid-run: baseline was ${baselineFirst.nowVisible} then ${baselineLast.nowVisible}, got ${got.nowVisible}`);
-  }
+  // A moving clock explains a value drifting between the two baseline reads.
+  // It does not explain a value matching neither — that is a real cross-zone
+  // disagreement, and this file exists to catch exactly that, so it must
+  // still fail rather than being swallowed as clock skew.
+  check(`4 same day is today under ${zone}`,
+    agreesWithEitherBaseline(got.today, b => b.today),
+    `${got.today} vs ${baselineFirst.today}/${baselineLast.today}${clockMoved ? ' (clock moved mid-run)' : ''}`);
+  check(`5 same events are upcoming under ${zone}`,
+    agreesWithEitherBaseline(got.nowVisible, b => b.nowVisible),
+    `${got.nowVisible} vs ${baselineFirst.nowVisible}/${baselineLast.nowVisible}${clockMoved ? ' (clock moved mid-run)' : ''}`);
 }
 
 await browser.close();
