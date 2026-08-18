@@ -649,3 +649,37 @@ describe('eventCountsByDay', () => {
     expect(counts.get('2026-07-04')).toBe(1);
   });
 });
+
+describe('Institution-anchored day boundaries', () => {
+  it('files an instant under the Institution day, not the device day', () => {
+    // 03:45Z on the 27th is 23:45 on the 26th at Chautauqua.
+    expect(dayKeyOf(new Date('2026-07-27T03:45:00Z'))).toBe('2026-07-26');
+  });
+
+  it('starts a day at Institution midnight', () => {
+    expect(startOfDay('2026-07-27').toISOString()).toBe('2026-07-27T04:00:00.000Z');
+  });
+
+  it('starts a winter day at Institution midnight', () => {
+    expect(startOfDay('2026-01-15').toISOString()).toBe('2026-01-15T05:00:00.000Z');
+  });
+
+  it('ends a day at the next Institution midnight', () => {
+    expect(dayAfter('2026-07-27').toISOString()).toBe('2026-07-28T04:00:00.000Z');
+  });
+
+  it('tiles exactly: one day\'s end is the next day\'s start', () => {
+    expect(dayAfter('2026-03-07').getTime()).toBe(startOfDay('2026-03-08').getTime());
+    expect(dayAfter('2026-10-31').getTime()).toBe(startOfDay('2026-11-01').getTime());
+  });
+
+  it('treats Institution midnight as midnight for lastDayCovered', () => {
+    // 04:00Z is midnight EDT, so the window does not show that day.
+    expect(lastDayCovered(new Date('2026-07-28T04:00:00.000Z'))).toBe('2026-07-27');
+  });
+
+  it('keeps the final day when a window ends mid-day at Chautauqua', () => {
+    // Noon EDT Saturday — 'this-week' ends here and that morning has events.
+    expect(lastDayCovered(new Date('2026-07-25T16:00:00.000Z'))).toBe('2026-07-25');
+  });
+});

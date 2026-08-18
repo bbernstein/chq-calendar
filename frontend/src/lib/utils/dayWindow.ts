@@ -1,7 +1,8 @@
 import type { Event, SeasonWeek } from '@/lib/types';
+import { chqDateAt, chqDayKey, chqParts } from '@/lib/utils/chqTime';
 
 /**
- * A calendar day as `yyyy-mm-dd`, zero-padded, in local time.
+ * A calendar day as `yyyy-mm-dd`, zero-padded, in Institution time.
  *
  * Lexicographic order is chronological, which is what makes plain string
  * comparison a correct date comparison throughout this module. Matches
@@ -15,10 +16,7 @@ const MIN_INSTANT = new Date(-8640000000000000);
 const MAX_INSTANT = new Date(8640000000000000);
 
 export function dayKeyOf(d: Date): DayKey {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return chqDayKey(d);
 }
 
 function partsOf(key: DayKey): [number, number, number] {
@@ -28,7 +26,7 @@ function partsOf(key: DayKey): [number, number, number] {
 
 export function startOfDay(key: DayKey): Date {
   const [y, m, d] = partsOf(key);
-  return new Date(y, m - 1, d, 0, 0, 0, 0);
+  return chqDateAt(y, m, d, 0, 0, 0, 0);
 }
 
 /**
@@ -41,9 +39,9 @@ export function startOfDay(key: DayKey): Date {
  */
 export function dayAfter(key: DayKey): Date {
   const [y, m, d] = partsOf(key);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + 1);
-  return date;
+  // Built by adding a calendar day, never 86,400,000ms: a DST transition day
+  // is 23 or 25 hours long, and millisecond arithmetic lands an hour out.
+  return chqDateAt(y, m, d + 1, 0, 0, 0, 0);
 }
 
 /**
@@ -55,9 +53,8 @@ export function dayAfter(key: DayKey): Date {
  * Saturday morning has events).
  */
 export function lastDayCovered(endExclusive: Date): DayKey {
-  const isMidnight =
-    endExclusive.getHours() === 0 && endExclusive.getMinutes() === 0 &&
-    endExclusive.getSeconds() === 0 && endExclusive.getMilliseconds() === 0;
+  const p = chqParts(endExclusive);
+  const isMidnight = p.hour === 0 && p.minute === 0 && p.second === 0;
   const key = dayKeyOf(endExclusive);
   return isMidnight ? addDays(key, -1) : key;
 }
@@ -65,24 +62,23 @@ export function lastDayCovered(endExclusive: Date): DayKey {
 /**
  * `key` shifted by `n` calendar days.
  *
- * Built from date parts and `setDate`, never from millisecond arithmetic:
+ * Built from date parts and `chqDateAt`, never from millisecond arithmetic:
  * adding 86,400,000 ms across a DST transition lands on the previous or
  * next day's 23:00/01:00 and produces the wrong key. Mirrors iOS's
  * `ChqTime.day(_:offsetBy:)`, which uses `Calendar` for the same reason.
  */
 export function addDays(key: DayKey, n: number): DayKey {
   const [y, m, d] = partsOf(key);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + n);
-  return dayKeyOf(date);
+  return dayKeyOf(chqDateAt(y, m, d + n, 12, 0, 0, 0));
 }
 
 /** A `yyyy-mm-dd` key with a real calendar date behind it. */
 function isDayKey(key: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
   const [y, m, d] = partsOf(key);
-  const date = new Date(y, m - 1, d);
-  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+  // Noon, not midnight: a date that does not exist rolls over, and noon is
+  // far enough from any DST edge that only a genuine rollover moves the day.
+  return dayKeyOf(chqDateAt(y, m, d, 12)) === key;
 }
 
 /**
