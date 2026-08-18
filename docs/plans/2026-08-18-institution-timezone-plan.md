@@ -456,7 +456,7 @@ git commit -m "feat(web): anchor day keys and day boundaries to Institution time
 **Files:**
 - Modify: `frontend/src/lib/utils/eventHelpers.ts:95-136` — `weekNumbersForCalendarDate`, `groupEventsByDay`
 - Modify: `frontend/src/lib/utils/filterHelpers.ts:39`
-- Test: `frontend/src/__tests__/lib/utils/eventHelpers.test.ts` (existing — add to it)
+- Test: `frontend/src/__tests__/lib/utils/groupEventsByDay.test.ts` (existing — add to it)
 
 **Interfaces:**
 - Consumes: `parseEventDate`, `formatChqDayLabel`, `chqParts`, `chqDateAt` from Task 1; `dayKeyOf` from Task 2.
@@ -464,15 +464,11 @@ git commit -m "feat(web): anchor day keys and day boundaries to Institution time
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `frontend/src/__tests__/lib/utils/eventHelpers.test.ts`:
+Append to `frontend/src/__tests__/lib/utils/groupEventsByDay.test.ts`. It already imports `groupEventsByDay` and `Event` and defines a local `evt(id, startDate)` fixture builder — reuse them rather than redeclaring:
 
 ```ts
-import { groupEventsByDay } from '@/lib/utils/eventHelpers';
-import type { Event } from '@/lib/types';
-
 describe('groupEventsByDay in Institution time', () => {
-  const ev = (id: string, startDate: string): Event =>
-    ({ id, title: id, startDate } as Event);
+  const ev = evt; // the file's existing fixture builder
 
   it('files a late-evening event under the Institution day it belongs to', () => {
     const groups = groupEventsByDay([ev('a', '2026-07-26 23:45:00')], []);
@@ -501,7 +497,7 @@ describe('groupEventsByDay in Institution time', () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd frontend && npx vitest run src/__tests__/lib/utils/eventHelpers.test.ts -t "Institution time"`
+Run: `cd frontend && npx vitest run src/__tests__/lib/utils/groupEventsByDay.test.ts -t "Institution time"`
 Expected: FAIL — `baseLabel` renders in the device zone and, under the pinned test TZ, the key is right for the wrong reason.
 
 - [ ] **Step 3: Write the implementation**
@@ -561,14 +557,14 @@ import { parseEventDate } from '@/lib/utils/chqTime';
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd frontend && npx vitest run src/__tests__/lib/utils/eventHelpers.test.ts src/__tests__/lib/utils/filterHelpers.test.ts`
+Run: `cd frontend && npx vitest run src/__tests__/lib/utils/groupEventsByDay.test.ts src/__tests__/lib/utils/filterHelpers.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Validate and commit**
 
 ```bash
 cd frontend && npm run validate
-cd .. && git add frontend/src/lib/utils/eventHelpers.ts frontend/src/lib/utils/filterHelpers.ts frontend/src/__tests__/lib/utils/eventHelpers.test.ts
+cd .. && git add frontend/src/lib/utils/eventHelpers.ts frontend/src/lib/utils/filterHelpers.ts frontend/src/__tests__/lib/utils/groupEventsByDay.test.ts
 git commit -m "feat(web): parse, group and filter events in Institution time"
 ```
 
@@ -758,7 +754,7 @@ git commit -m "feat(web): build season weeks on Institution noon boundaries"
 - Modify: `frontend/src/components/layout/CountdownBanner.tsx:12,21-25`
 - Modify: `frontend/src/lib/constants.ts:19-23` — `getDefaultYear`
 - Modify: `frontend/src/app/page.tsx:312` — `todayKey`
-- Test: `frontend/src/__tests__/lib/constants.test.ts` (create if absent), `frontend/src/__tests__/components/calendar/EventCard.test.tsx` (existing)
+- Test: `frontend/src/__tests__/lib/constants.test.ts` (existing — add to it), `frontend/src/__tests__/components/calendar/EventCard.time.test.tsx` (create — EventCard suites are split per concern: `EventCard.articleLinks`, `EventCard.programLinks`, `EventCard.publisherSource`)
 
 **Interfaces:**
 - Consumes: `formatChqTime`, `chqParts`, `parseEventDate` from Task 1; `dayKeyOf` from Task 2.
@@ -766,32 +762,35 @@ git commit -m "feat(web): build season weeks on Institution noon boundaries"
 
 - [ ] **Step 1: Write the failing test**
 
-Create or append to `frontend/src/__tests__/lib/constants.test.ts`:
+Append two cases to the existing `describe('getDefaultYear', ...)` in
+`frontend/src/__tests__/lib/constants.test.ts`. **Use `await import(...)`, not a
+static import** — every existing case in that file does, because fake timers
+must be set before the module evaluates (`constants.ts` computes `ACTIVE_YEAR`
+at load time):
 
 ```ts
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getDefaultYear } from '@/lib/constants';
-
-afterEach(() => { vi.useRealTimers(); });
-
-describe('getDefaultYear', () => {
-  it('turns over on October 1 at Chautauqua, not on the device', () => {
+  it('turns over on October 1 at Chautauqua, not on the device', async () => {
     // 2026-10-01T03:00:00Z is still 23:00 on September 30 at Chautauqua,
     // so the season year must not have turned over yet.
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-01T03:00:00Z'));
+    const { getDefaultYear } = await import('@/lib/constants');
     expect(getDefaultYear()).toBe(2026);
   });
 
-  it('turns over once Chautauqua reaches October', () => {
+  it('turns over once Chautauqua reaches October', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-01T05:00:00Z')); // 01:00 EDT, Oct 1
+    const { getDefaultYear } = await import('@/lib/constants');
     expect(getDefaultYear()).toBe(2027);
   });
-});
 ```
 
-Append to `frontend/src/__tests__/components/calendar/EventCard.test.tsx`:
+The file's existing cases build instants with `new Date(2026, 5, 15)`, a
+device-local constructor. Under the pinned test TZ that already *is*
+Institution time, so they keep passing unchanged — leave them alone.
+
+Create `frontend/src/__tests__/components/calendar/EventCard.time.test.tsx`, following the render/props setup used by `EventCard.articleLinks.test.tsx` in the same directory:
 
 ```ts
 describe('event time display', () => {
@@ -859,14 +858,14 @@ The two `now: new Date()` sites (`page.tsx:114,156`) also need no edit: they pas
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd frontend && npx vitest run src/__tests__/lib/constants.test.ts src/__tests__/components/calendar/EventCard.test.tsx`
+Run: `cd frontend && npx vitest run src/__tests__/lib/constants.test.ts src/__tests__/components/calendar/EventCard.time.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Validate and commit**
 
 ```bash
 cd frontend && npm run validate
-cd .. && git add frontend/src/lib/constants.ts frontend/src/components/calendar/EventCard.tsx frontend/src/components/layout/CountdownBanner.tsx frontend/src/__tests__/lib/constants.test.ts frontend/src/__tests__/components/calendar/EventCard.test.tsx
+cd .. && git add frontend/src/lib/constants.ts frontend/src/components/calendar/EventCard.tsx frontend/src/components/layout/CountdownBanner.tsx frontend/src/__tests__/lib/constants.test.ts frontend/src/__tests__/components/calendar/EventCard.time.test.tsx
 git commit -m "feat(web): render times and the season turnover in Institution time"
 ```
 
@@ -959,7 +958,6 @@ git commit -m "fix(web): keep the ICS export on Institution wall time"
 ### Task 7: Prove it in a browser, from a non-Eastern device
 
 **Files:**
-- Modify: `frontend/e2e/verify-rail.mjs` — parameterise the context timezone
 - Create: `frontend/e2e/verify-timezone.mjs`
 - Modify: `frontend/package.json` — the `test:browser` script
 
