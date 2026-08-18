@@ -1070,10 +1070,22 @@ function formatICSDate(dateStr: string): string {
 
 Leave `formatICSTimestamp` unchanged — `DTSTAMP` is correctly UTC per RFC 5545.
 
-Find the "+1 hour" default (`const endDate = new Date(event.startDate);` near line 80) and replace its parse:
+Find the "+1 hour" default (`const endDate = new Date(event.startDate);` near
+line 80). Replacing only the parse is **not enough** and would reintroduce the
+bug this task exists to remove: the following `setHours` mutates in the
+*device's* zone whatever instant the `Date` holds, so a naive swap relocates
+the device dependence rather than removing it.
+
+Add the hour in Institution wall-clock terms instead — read the parts,
+increment, rebuild:
 
 ```ts
-    const endDate = parseEventDate(event.startDate);
+    const p = chqParts(parseEventDate(event.startDate));
+    // One hour of Chautauqua wall clock, not 3,600,000ms. `chqDateAt`
+    // normalises both the 24-hour overflow and the spring-forward gap, so an
+    // event at 01:30 on a transition day ends at 03:30 — a one-hour block in
+    // any calendar client, which is what "default to an hour" means.
+    const endDate = chqDateAt(p.year, p.month, p.day, p.hour + 1, p.minute, p.second);
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
