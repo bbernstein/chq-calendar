@@ -460,6 +460,133 @@ git commit -m "feat(web): anchor day keys and day boundaries to Institution time
 
 ---
 
+### Task 2b: The rest of `dayWindow.ts`
+
+**Files:**
+- Modify: `frontend/src/lib/utils/dayWindow.ts` — `navigableBounds`, `eventDayKeys`, `eventCountsByDay`, `formatDayLabel`, `formatDayRange`, `dayChips`
+- Test: `frontend/src/__tests__/lib/utils/dayWindow.test.ts` (existing — add to it)
+
+**Interfaces:**
+- Consumes: `parseEventDate`, `chqParts`, `CHQ_ZONE` from Task 1; `startOfDay`, `dayKeyOf` from Task 2.
+- Produces: unchanged signatures throughout.
+
+**Why this task exists.** Task 2 changed `startOfDay(key)` from returning
+device-local midnight to returning *Institution* midnight. Six functions in
+the same file still read that instant with device-zone accessors, and they
+were correct before only because the two coincided. They now disagree on any
+device west of Eastern.
+
+Measured on the instant `startOfDay('2026-07-27')` returns
+(`2026-07-27T04:00:00.000Z`):
+
+| Device zone | chip label | `dayOfMonth` |
+|---|---|---|
+| `America/New_York` | Mon, Jul 27 | 27 |
+| `America/Chicago` | Sun, Jul 26 | **26** |
+| `America/Los_Angeles` | Sun, Jul 26 | **26** |
+| `Pacific/Honolulu` | Sun, Jul 26 | **26** |
+
+A rail chip would render "26" while its own `key` is `2026-07-27`, so tapping
+it navigates to a day the chip does not name. This is the day rail shipped in
+#241.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `frontend/src/__tests__/lib/utils/dayWindow.test.ts`:
+
+```ts
+describe('day chips and labels read Institution time', () => {
+  it('names the chip after its own key', () => {
+    const chips = dayChips(['2026-07-27'], new Map([['2026-07-27', 3]]));
+    expect(chips[0].dayOfMonth).toBe('27');
+    expect(chips[0].weekday).toBe('Mon');
+    expect(chips[0].month).toBe('Jul');
+    expect(chips[0].label).toBe('Go to Monday, July 27, 3 events');
+  });
+
+  it('names a chip on the far side of a DST transition correctly', () => {
+    const chips = dayChips(['2026-11-01'], new Map());
+    expect(chips[0].dayOfMonth).toBe('1');
+    expect(chips[0].label).toBe('Sunday, November 1, no events');
+  });
+
+  it('labels a day by its Institution date', () => {
+    expect(formatDayLabel('2026-07-27')).toContain('July 27');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `cd frontend && npx vitest run src/__tests__/lib/utils/dayWindow.test.ts -t "Institution time"`
+
+Expected: PASS, not FAIL — the pinned test timezone (`America/New_York`) makes
+the device zone equal the Institution zone, so these cannot discriminate here.
+That is known and ruled; write them anyway as regression pins. Prove the fix
+instead in Step 4 with the explicit-zone check, which does discriminate.
+
+- [ ] **Step 3: Write the implementation**
+
+Add to the existing import from `@/lib/utils/chqTime`: `CHQ_ZONE`, `chqParts`,
+`parseEventDate`.
+
+Replace all three bare event parses (in `navigableBounds`, `eventDayKeys`, and
+`eventCountsByDay`) — each currently reads `const parsed = new Date(event.startDate);`:
+
+```ts
+    const parsed = parseEventDate(event.startDate);
+```
+
+In `formatDayLabel` and `formatDayRange`, add the zone to every
+`startOfDay(key).toLocaleDateString('en-US', { ... })` call — the option
+object gains one entry, nothing else changes:
+
+```ts
+    timeZone: CHQ_ZONE,
+```
+
+In `dayChips`, add `timeZone: CHQ_ZONE` to all three `toLocaleDateString`
+option objects (`month`, `spoken`, `weekday`), and replace the day-of-month:
+
+```ts
+      dayOfMonth: String(chqParts(date).day),
+```
+
+- [ ] **Step 4: Prove the fix under a non-Eastern device zone**
+
+The unit tests cannot discriminate, so verify directly. Run this and paste the
+output into your report:
+
+```bash
+cd frontend && cat > /tmp/chip-probe.mjs <<'EOF'
+const inst = new Date('2026-07-27T04:00:00.000Z'); // what startOfDay('2026-07-27') returns
+for (const tz of ['America/New_York', 'America/Los_Angeles', 'Pacific/Honolulu']) {
+  const withZone = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', day: 'numeric' }).format(inst);
+  const withoutZone = new Intl.DateTimeFormat('en-US', { timeZone: tz, day: 'numeric' }).format(inst);
+  console.log(tz.padEnd(22), 'pinned:', withZone, ' device-zone:', withoutZone);
+}
+EOF
+node /tmp/chip-probe.mjs; rm -f /tmp/chip-probe.mjs
+```
+
+Expected: the pinned column reads `27` for every row; the device-zone column
+reads `26` for the two western zones. That difference is exactly what adding
+`timeZone: CHQ_ZONE` removes.
+
+- [ ] **Step 5: Run the full file and validate**
+
+Run: `cd frontend && npx vitest run src/__tests__/lib/utils/dayWindow.test.ts && npm run validate`
+Expected: PASS, all cases.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add frontend/src/lib/utils/dayWindow.ts frontend/src/__tests__/lib/utils/dayWindow.test.ts
+git commit -m "fix(web): read day chips and labels in Institution time"
+```
+
+---
+
 ### Task 3: Event parsing, grouping, and filtering
 
 **Files:**
