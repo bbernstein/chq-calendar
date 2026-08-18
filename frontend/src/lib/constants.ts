@@ -1,3 +1,5 @@
+import { chqParts } from '@/lib/utils/chqTime';
+
 export const CACHE_EXPIRY_MS = 3600000; // 1 hour in milliseconds
 export const USER_STATE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
 export const LONG_PRESS_MS = 500;
@@ -14,12 +16,14 @@ export const IOS_MIN_VERSION = 18;
 export const APP_STORE_URL = 'https://apps.apple.com/us/app/chqcalendar/id6797027562';
 export const YEARS_MANIFEST_PATH = '/cache/calendar-cache/years.json';
 /**
- * Compute the default season year based on October 1 turnover.
- * Before Oct 1: current year. On/after Oct 1: next year.
+ * The default season year, turning over on October 1 — at Chautauqua.
+ *
+ * Read in Institution time so a reader east of Eastern does not see next
+ * season a few hours early on September 30.
  */
 export function getDefaultYear(): number {
-  const now = new Date();
-  return now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+  const { year, month } = chqParts(new Date());
+  return month >= 10 ? year + 1 : year;
 }
 
 // Backward-compatible constant — will be removed once all consumers use getDefaultYear()

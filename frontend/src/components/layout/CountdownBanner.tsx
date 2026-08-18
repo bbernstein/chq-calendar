@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { SeasonWeek } from '@/lib/types';
+import { CHQ_ZONE } from '@/lib/utils/chqTime';
 
 interface CountdownBannerProps {
   seasonWeeks: SeasonWeek[];
@@ -19,6 +20,7 @@ export function CountdownBanner({ seasonWeeks }: CountdownBannerProps) {
 
   const seasonStart = seasonWeeks[0].start;
   const dateStr = seasonStart.toLocaleDateString('en-US', {
+    timeZone: CHQ_ZONE,
     weekday: 'long',
     month: 'long',
     day: 'numeric',

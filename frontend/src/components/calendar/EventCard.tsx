@@ -4,6 +4,7 @@ import type { ArticleLink } from '@/hooks/useArticleLinks';
 import type { ProgramLink } from '@/hooks/useProgramLinks';
 import { getCategoryDisplayName } from '@/lib/constants';
 import { isDesktop } from '@/lib/utils/calendarUrls';
+import { formatChqTime, parseEventDate } from '@/lib/utils/chqTime';
 import { CalendarPopup } from './CalendarPopup';
 
 /**
@@ -49,11 +50,7 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
           {/* Time and location above title */}
           <div className="flex items-center justify-between text-xs sm:text-sm text-gray-500 dark:text-gray-400 mb-1">
             <span>
-              🕐 {new Date(event.startDate).toLocaleTimeString([], {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-              })}
+              🕐 {formatChqTime(parseEventDate(event.startDate))}
               {event.location && <span className="ml-2">📍 {event.location}</span>}
             </span>
             <span className="flex items-center flex-shrink-0 ml-2">

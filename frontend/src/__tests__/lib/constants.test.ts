@@ -48,4 +48,20 @@ describe('getDefaultYear', () => {
     const { getDefaultYear } = await import('@/lib/constants');
     expect(getDefaultYear()).toBe(2027);
   });
+
+  it('turns over on October 1 at Chautauqua, not on the device', async () => {
+    // 2026-10-01T03:00:00Z is still 23:00 on September 30 at Chautauqua,
+    // so the season year must not have turned over yet.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-01T03:00:00Z'));
+    const { getDefaultYear } = await import('@/lib/constants');
+    expect(getDefaultYear()).toBe(2026);
+  });
+
+  it('turns over once Chautauqua reaches October', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-01T05:00:00Z')); // 01:00 EDT, Oct 1
+    const { getDefaultYear } = await import('@/lib/constants');
+    expect(getDefaultYear()).toBe(2027);
+  });
 });
