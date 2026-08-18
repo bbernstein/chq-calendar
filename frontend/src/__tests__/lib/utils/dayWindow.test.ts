@@ -18,6 +18,7 @@ import {
   eventCountsByDay,
 } from '@/lib/utils/dayWindow';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
+import { parseEventDate } from '@/lib/utils/chqTime';
 import type { Event } from '@/lib/types';
 
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
@@ -44,6 +45,12 @@ describe('day key arithmetic', () => {
   it('sorts lexicographically in chronological order', () => {
     const keys = ['2026-12-31', '2026-07-05', '2026-07-15'];
     expect([...keys].sort()).toEqual(['2026-07-05', '2026-07-15', '2026-12-31']);
+  });
+
+  it('does not throw on an Invalid Date, and yields the NaN-NaN-NaN key', () => {
+    const bad = parseEventDate('not a date');
+    expect(() => dayKeyOf(bad)).not.toThrow();
+    expect(dayKeyOf(bad)).toBe('NaN-NaN-NaN');
   });
 
   it('adds and subtracts days across month and year boundaries', () => {

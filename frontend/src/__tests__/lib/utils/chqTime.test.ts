@@ -127,3 +127,21 @@ describe('formatChqDayLabel', () => {
       .toBe('Sunday, July 26, 2026');
   });
 });
+
+describe('unparseable dates degrade rather than throw', () => {
+  const bad = parseEventDate('not a date');
+
+  it('yields NaN parts instead of throwing', () => {
+    expect(() => chqParts(bad)).not.toThrow();
+    expect(Number.isNaN(chqParts(bad).year)).toBe(true);
+  });
+
+  it('produces the documented NaN-NaN-NaN day key', () => {
+    expect(chqDayKey(bad)).toBe('NaN-NaN-NaN');
+  });
+
+  it('formats as Invalid Date rather than throwing', () => {
+    expect(formatChqTime(bad)).toBe('Invalid Date');
+    expect(formatChqDayLabel(bad)).toBe('Invalid Date');
+  });
+});

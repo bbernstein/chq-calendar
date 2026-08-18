@@ -46,6 +46,15 @@ const dayLabelFormatter = new Intl.DateTimeFormat('en-US', {
 
 /** An instant's calendar fields as they read at Chautauqua. */
 export function chqParts(d: Date): ChqParts {
+  // An unparseable `startDate` reaches here as an Invalid Date. The
+  // device-local accessors this replaced (getFullYear/getMonth/...) returned
+  // NaN for every field, and `daySections.ts` documents the `NaN-NaN-NaN` day
+  // key that falls out of that. `Intl.DateTimeFormat.formatToParts` throws
+  // instead of returning NaN, so that parity has to be restored explicitly —
+  // one bad row in a 3,246-event feed must not take the whole calendar down.
+  if (Number.isNaN(d.getTime())) {
+    return { year: NaN, month: NaN, day: NaN, hour: NaN, minute: NaN, second: NaN, weekday: NaN };
+  }
   const found: Record<string, string> = {};
   for (const { type, value } of partsFormatter.formatToParts(d)) {
     found[type] = value;
@@ -65,6 +74,10 @@ export function chqParts(d: Date): ChqParts {
 /** The Chautauqua calendar day an instant falls on, as `yyyy-mm-dd`. */
 export function chqDayKey(d: Date): string {
   const { year, month, day } = chqParts(d);
+  // `String(NaN).padStart(2, '0')` is `'NaN'` (already 3 chars, past the
+  // target length, so padStart is a no-op) — this falls out of chqParts'
+  // NaN fields without a special case, and is byte-identical to the
+  // 'NaN-NaN-NaN' key the old device-local implementation produced.
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
@@ -136,10 +149,16 @@ export function parseEventDate(s: string): Date {
 
 /** `"7:00 PM"` at Chautauqua. Deliberately unlabelled — see the design doc. */
 export function formatChqTime(d: Date): string {
+  // Matches native `Date.prototype.toLocaleTimeString`, which returns this
+  // string rather than throwing on an Invalid Date.
+  if (Number.isNaN(d.getTime())) return 'Invalid Date';
   return timeFormatter.format(d);
 }
 
 /** `"Sunday, July 26, 2026"` at Chautauqua. */
 export function formatChqDayLabel(d: Date): string {
+  // Matches native `Date.prototype.toLocaleDateString`, which returns this
+  // string rather than throwing on an Invalid Date.
+  if (Number.isNaN(d.getTime())) return 'Invalid Date';
   return dayLabelFormatter.format(d);
 }

@@ -113,22 +113,14 @@ export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Da
 
   for (const event of events) {
     const eventDate = parseEventDate(event.startDate);
-    // An unparseable startDate produces an Invalid Date. chqParts/chqDayKey
-    // format it through Intl.DateTimeFormat, which throws RangeError on an
-    // Invalid Date rather than returning NaN fields — so this branch must
-    // stay out of that path entirely and build the 'NaN-NaN-NaN' key by hand,
-    // matching every other call site's contract for a bad row (dayWindow's
-    // navigableBounds/eventDayKeys/eventCountsByDay all drop such rows;
-    // groupEventsByDay is the one place that must keep it, visibly, instead).
-    const isValidDate = !Number.isNaN(eventDate.getTime());
-    const key = isValidDate ? dayKeyOf(eventDate) : 'NaN-NaN-NaN';
+    const key = dayKeyOf(eventDate);
     let group = grouped.get(key);
     if (!group) {
-      const baseLabel = isValidDate ? formatChqDayLabel(eventDate) : 'Invalid Date';
+      const baseLabel = formatChqDayLabel(eventDate);
       group = {
         key,
         baseLabel,
-        weekNumbers: isValidDate ? weekNumbersForCalendarDate(eventDate, seasonWeeks) : [],
+        weekNumbers: weekNumbersForCalendarDate(eventDate, seasonWeeks),
         events: [],
       };
       grouped.set(key, group);
