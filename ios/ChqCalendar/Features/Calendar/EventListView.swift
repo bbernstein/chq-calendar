@@ -42,24 +42,46 @@ struct EventListView: View {
     /// `onAppear`/`onDisappear` on the section *header* uses `List`'s own
     /// lifecycle instead and adds no per-frame geometry work.
     ///
-    /// Measured on iPhone 17 Pro, iOS 26.1 simulator, 2026-08-18, via a
-    /// throwaway XCUITest that drove the `-uitest-fixture` list with 20 small
-    /// (~0.15-screen) drags and logged, after each one, which chip was
-    /// selected and which day-title header was topmost on screen:
-    /// - **Moves at all**: yes — the selected day advanced from 2026-07-01 to
-    ///   2026-08-05 over the 20 drags.
-    /// - **Never backwards**: the logged sequence of selected days was
-    ///   strictly non-decreasing across all 20 steps — no recycling
-    ///   signature (a recycled header would have inserted a stale earlier
-    ///   key at some point in a 20-sample run).
-    /// - **Right time, not early**: 16 of 21 samples had the selected chip
-    ///   matching the topmost header exactly; the handful of misses (a drag
-    ///   sampled mid-momentum) all had the header slightly *ahead* of the
-    ///   selection, never behind — i.e. any lag this produces is
-    ///   conservative (the highlight is never ahead of where the reader
-    ///   actually is), not the "two days early" failure mode the brief warns
-    ///   about. Kept as-is; approach B (`.onScrollGeometryChange`) was not
-    ///   needed.
+    /// Measured on iPhone 17 Pro, iOS 26.1 simulator, 2026-08-18, via two
+    /// throwaway XCUITests against the `-uitest-fixture` list (neither
+    /// committed):
+    ///
+    /// **Slow drags** (20 steps, ~0.15-screen `press(forDuration:thenDragTo:)`
+    /// each) — logged which chip was selected and which day-title header was
+    /// topmost on screen after each step. Selected day advanced from
+    /// 2026-07-01 to 2026-08-05, strictly non-decreasing across all 20
+    /// steps.
+    ///
+    /// **Fast swipes** (8 steps of `swipeUp(velocity: .fast)` — the same
+    /// gesture the committed `testTheHighlightFollowsTheReaderDownTheList`
+    /// uses, and what real readers actually do; `List` view recycling, the
+    /// thing this whole approach exists to avoid, misfires far more readily
+    /// under large fast deltas than small controlled ones, so this is the
+    /// gesture that actually stresses it) — same logging, plus the raw
+    /// `visibleDays` set contents at each step (via a temporary debug
+    /// accessibility element). Selected day advanced from 2026-07-01 to
+    /// 2026-08-06 over the 8 swipes (each covering ~4-6 days, several times
+    /// the slow-drag step size), strictly non-decreasing across all 8.
+    /// **In every one of the 9 samples, `selected == visibleDays.min()`
+    /// exactly**, and each step's set was small (3-4 entries) and tightly
+    /// clustered around the current position — never an orphaned low key
+    /// held over from several swipes back, which is what a stuck
+    /// `onDisappear` would look like (a set that either grows unboundedly or
+    /// keeps a stale minimum no longer near the rest of the entries). That
+    /// directly rules out a stuck `onDisappear` under the gesture that would
+    /// actually expose one.
+    ///
+    /// Both runs also showed the selected chip occasionally *not* matching
+    /// the independently-measured "topmost header" — always with the header
+    /// slightly ahead, never behind. The fast-swipe run's `visibleDays` logs
+    /// show why: on every one of those misses, the header measurement's own
+    /// query (`frame.minY > rail.frame.maxY`, a simple boundary check) had
+    /// skipped a section header that was still legitimately in
+    /// `visibleDays` but sitting pinned behind/under the rail rather than
+    /// fully clear of it — a limitation of that ad hoc measurement query,
+    /// not of the anchor. The anchor itself was correct in every sample.
+    ///
+    /// Kept as-is; approach B (`.onScrollGeometryChange`) was not needed.
     @State private var visibleDays: Set<String> = []
 
     /// The last day whose final row triggered `expandWindowEnd()`. Guards

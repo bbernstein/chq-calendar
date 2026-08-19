@@ -287,5 +287,4 @@ final class DayRailUITests: XCTestCase {
                 .allElementsBoundByIndex.contains { $0.isSelected },
             "Nothing is highlighted at all — the anchor was cleared rather than moved")
     }
-
 }

@@ -63,15 +63,35 @@ struct DayRailView<Leading: View, Trailing: View>: View {
     /// changes.
     @State private var isDragging = false
 
-    /// The day `scroll(_:to:)` last actually centered on. Distinct from
-    /// `selectedDay` itself so the drag-end catch-up below can tell "the
-    /// anchor moved while I was suppressing" from "the anchor never
-    /// changed, the reader was just dragging" — the first must re-sync, the
-    /// second must not, or every manual drag would immediately snap back to
-    /// wherever `selectedDay` already pointed the instant the finger lifts
-    /// (found by `DayRailUITests.revealByScrolling`'s drag loop timing out
-    /// with the target chip's frame never moving at all).
-    @State private var lastCenteredDay: String?
+    /// The day, and the `reanchorOn` value, that `scroll(_:to:)` last
+    /// actually centered under. Distinct from `selectedDay`/`reanchorOn`
+    /// themselves so the drag-end catch-up below can tell "what the rail
+    /// should show has diverged from what it's actually centered on" from
+    /// "the reader was just dragging and nothing net changed" — only the
+    /// first must re-sync.
+    ///
+    /// **Why a value comparison, not a "something changed while dragging"
+    /// flag.** A flag set by `onChange` and cleared on drag-end was tried
+    /// first: it over-triggers on a `selectedDay` value that changes away
+    /// and back to the same thing *during* a single drag (found live —
+    /// `testChangingScopeAfterADistantTapDoesNotLaterHijackTheList`, which
+    /// opens a sheet immediately before `revealByScrolling`'s drag loop,
+    /// started failing with the flag version: the sheet's presentation
+    /// nudges the list's layout enough to blip `visibleDays` once while a
+    /// drag is in flight, arming the flag on a change that had already
+    /// self-corrected by the time dragging ended — and the catch-up then
+    /// fired anyway, re-centering the rail back onto the untouched
+    /// `selectedDay` and undoing the manual reveal). Comparing against what
+    /// is actually centered doesn't have that failure mode: a value that
+    /// blips and returns during a drag never differs from what was already
+    /// centered before the drag started, so no catch-up fires for it.
+    ///
+    /// **Why not compare `selectedDay` alone (an even earlier version).**
+    /// `reanchorOn` firing needs the identical catch-up but does *not*
+    /// change `selectedDay` at all — My Day's expand toggle re-anchors the
+    /// strip on the *same* day, whose chip has simply moved under a resize.
+    /// Tracking both lets the same comparison serve both triggers.
+    @State private var lastCentered: (day: String, reanchorOn: [AnyHashable])?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -101,14 +121,27 @@ struct DayRailView<Leading: View, Trailing: View>: View {
                 guard !isDragging else { return }
                 scroll(proxy, to: day)
             }
-            .onChange(of: reanchorOn) { _, _ in scroll(proxy, to: selectedDay) }
-            // Catches up anything that changed *while* suppressed above: the
-            // drag ending is not itself a `selectedDay` change, so without
-            // this an anchor move that landed mid-drag would otherwise never
-            // get applied.
-            .onChange(of: isDragging) { _, dragging in
-                guard !dragging, selectedDay != lastCenteredDay else { return }
+            // Gated the same as `selectedDay` above — this re-centre is
+            // exactly as capable of fighting a manual drag (My Day's expand
+            // toggle can fire while the reader has a finger on the rail),
+            // so it must not bypass the guard just because its trigger
+            // isn't `selectedDay` itself.
+            .onChange(of: reanchorOn) { _, _ in
+                guard !isDragging else { return }
                 scroll(proxy, to: selectedDay)
+            }
+            // Catches up anything that changed *while* suppressed above: the
+            // drag ending is not itself a `selectedDay`/`reanchorOn` change,
+            // so without this a re-centre that landed mid-drag would
+            // otherwise never get applied. Only fires when the target
+            // actually diverged from what's centered now — see
+            // `lastCentered`'s doc for why a plain "something changed" flag
+            // was tried and reverted.
+            .onChange(of: isDragging) { _, dragging in
+                guard !dragging, let day = selectedDay,
+                    lastCentered?.day != day || lastCentered?.reanchorOn != reanchorOn
+                else { return }
+                scroll(proxy, to: day)
             }
         }
         // Chained off `ScrollViewReader`, not the `ScrollView` inside it.
@@ -127,7 +160,7 @@ struct DayRailView<Leading: View, Trailing: View>: View {
 
     private func scroll(_ proxy: ScrollViewProxy, to day: String?) {
         guard let day else { return }
-        lastCenteredDay = day
+        lastCentered = (day, reanchorOn)
         withAnimation(.easeInOut(duration: 0.2)) {
             proxy.scrollTo(day, anchor: .center)
         }
