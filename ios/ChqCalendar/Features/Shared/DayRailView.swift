@@ -124,69 +124,85 @@ struct DayRailView<Leading: View, Trailing: View>: View {
     /// Tracking both lets the same comparison serve both triggers.
     @State private var lastCentered: (day: String, reanchorOn: [AnyHashable])?
 
+    /// `leading()`/`trailing()` are fixed furniture at the rail's two ends —
+    /// outside the horizontal `ScrollView` entirely — and only the chips
+    /// scroll between them. Before this shape (#245), both were part of the
+    /// same scrolling `HStack` as the chips: swiping the strip a few days
+    /// along scrolled `⟳ Now` and both step chevrons away with it, leaving
+    /// no way back to today except swiping back to find them. Pulling them
+    /// out of the scrollable content is what keeps them reachable no matter
+    /// how far the chips have scrolled.
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    leading()
-                    ForEach(entries) { entry in
-                        DayChip(
-                            dayKey: entry.day,
-                            content: entry.content,
-                            isSelected: entry.day == selectedDay,
-                            isDisabled: disablesEmptyDays && entry.content.isEmpty
-                        ) {
-                            onSelect(entry.day)
+        HStack(spacing: 8) {
+            leading()
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(entries) { entry in
+                            DayChip(
+                                dayKey: entry.day,
+                                content: entry.content,
+                                isSelected: entry.day == selectedDay,
+                                isDisabled: disablesEmptyDays && entry.content.isEmpty
+                            ) {
+                                onSelect(entry.day)
+                            }
+                            .id(entry.day)
                         }
-                        .id(entry.day)
                     }
-                    trailing()
+                    .padding(.horizontal, 8)
                 }
-                .padding(.horizontal)
+                .onScrollPhaseChange { _, newPhase in
+                    isDragging = newPhase == .tracking || newPhase == .interacting
+                }
+                .onAppear { scroll(proxy, to: selectedDay) }
+                .onChange(of: selectedDay) { _, day in
+                    guard !isDragging else { return }
+                    scroll(proxy, to: day)
+                }
+                // Gated the same as `selectedDay` above — this re-centre is
+                // exactly as capable of fighting a manual drag (My Day's expand
+                // toggle can fire while the reader has a finger on the rail),
+                // so it must not bypass the guard just because its trigger
+                // isn't `selectedDay` itself.
+                .onChange(of: reanchorOn) { _, _ in
+                    guard !isDragging else { return }
+                    scroll(proxy, to: selectedDay)
+                }
+                // Catches up anything that changed *while* suppressed above: the
+                // drag ending is not itself a `selectedDay`/`reanchorOn` change,
+                // so without this a re-centre that landed mid-drag would
+                // otherwise never get applied. Only fires when the target
+                // actually diverged from what's centered now — see
+                // `lastCentered`'s doc for why a plain "something changed" flag
+                // was tried and reverted.
+                .onChange(of: isDragging) { _, dragging in
+                    guard !dragging, let day = selectedDay,
+                        lastCentered?.day != day || lastCentered?.reanchorOn != reanchorOn
+                    else { return }
+                    scroll(proxy, to: day)
+                }
+                // Every UI test that queries the rail resolves it as
+                // `app.scrollViews["day-rail"]`, and `revealByScrolling`
+                // derives its drag coordinates from that element's frame —
+                // both depend on the identifier landing on exactly this
+                // `ScrollView`, not the outer `HStack` that now also holds
+                // `leading()`/`trailing()`. That's also the more correct
+                // frame for those drag coordinates now: it no longer
+                // includes the two fixed controls at the ends.
+                .accessibilityIdentifier("day-rail")
             }
-            .onScrollPhaseChange { _, newPhase in
-                isDragging = newPhase == .tracking || newPhase == .interacting
-            }
-            .onAppear { scroll(proxy, to: selectedDay) }
-            .onChange(of: selectedDay) { _, day in
-                guard !isDragging else { return }
-                scroll(proxy, to: day)
-            }
-            // Gated the same as `selectedDay` above — this re-centre is
-            // exactly as capable of fighting a manual drag (My Day's expand
-            // toggle can fire while the reader has a finger on the rail),
-            // so it must not bypass the guard just because its trigger
-            // isn't `selectedDay` itself.
-            .onChange(of: reanchorOn) { _, _ in
-                guard !isDragging else { return }
-                scroll(proxy, to: selectedDay)
-            }
-            // Catches up anything that changed *while* suppressed above: the
-            // drag ending is not itself a `selectedDay`/`reanchorOn` change,
-            // so without this a re-centre that landed mid-drag would
-            // otherwise never get applied. Only fires when the target
-            // actually diverged from what's centered now — see
-            // `lastCentered`'s doc for why a plain "something changed" flag
-            // was tried and reverted.
-            .onChange(of: isDragging) { _, dragging in
-                guard !dragging, let day = selectedDay,
-                    lastCentered?.day != day || lastCentered?.reanchorOn != reanchorOn
-                else { return }
-                scroll(proxy, to: day)
-            }
+            trailing()
         }
-        // Chained off `ScrollViewReader`, not the `ScrollView` inside it.
-        // `ScrollViewReader` contributes no accessibility element of its
-        // own, so these three modifiers land on the `ScrollView` below it
-        // either way — confirmed by dumping `app.debugDescription` against
-        // a running build, which reports `ScrollView, ... identifier:
-        // 'day-rail'`. Do not "fix" this by moving the modifiers onto the
-        // inner `ScrollView` directly: it would compile and look tidier,
-        // but every UI test that queries `app.scrollViews["day-rail"]`
-        // depends on the identifier landing exactly here.
+        // On the outer `HStack` now that `leading()`/`trailing()` live
+        // beside the `ScrollView` rather than inside it — a group of
+        // controls still needs one group role and one label covering the
+        // whole strip (the lesson from the web header menu, PR #228/#219).
+        // `.contain` keeps every descendant (the two end controls, each
+        // chip) individually accessible; only the container-level role and
+        // label move here.
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityIdentifier("day-rail")
     }
 
     private func scroll(_ proxy: ScrollViewProxy, to day: String?) {

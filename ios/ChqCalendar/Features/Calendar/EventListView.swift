@@ -102,6 +102,29 @@ struct EventListView: View {
     /// the window *away* from the target without ever covering it).
     @State private var pendingScroll: PendingDayScroll.Target?
 
+    /// A day the reader explicitly chose — by tapping a chip or a step
+    /// control — that outranks `scrollAnchor` until the reader actually
+    /// scrolls the list themselves.
+    ///
+    /// Fixes the report that the rail loses its highlight after a tap: once
+    /// `pendingScroll` resolves (synchronously, for a target already inside
+    /// the window — see `resolvePendingScroll`), authority used to fall
+    /// straight back to `scrollAnchor`, whose `visibleDays.min()` — per the
+    /// long finding on `visibleDays` above — lands a day or two short of
+    /// where a `.top`-anchored `scrollTo` actually put the reader, because
+    /// `List` keeps an off-screen earlier header's `onAppear` counted after
+    /// a programmatic jump. That pointed the rail at a chip the reader
+    /// hadn't chosen and wasn't looking at. Pinning the tapped day here,
+    /// ranked above `scrollAnchor`, keeps the rail on the day the reader
+    /// actually asked for regardless of that imprecision.
+    ///
+    /// Reuses `PendingDayScroll.Target`/`Key` rather than a second staleness
+    /// notion: the same "everything but the window-expansion fields"
+    /// identity that makes a pending scroll stale after a scope change makes
+    /// a pinned selection stale for exactly the same reason, so
+    /// `PendingDayScroll.isStale` answers both.
+    @State private var pinnedSelection: PendingDayScroll.Target?
+
     #if DEBUG
     /// The wall-clock moment the current `pendingScroll` is allowed to
     /// resolve, stamped from `model.uiTestPendingScrollDelay` — see that
@@ -126,6 +149,18 @@ struct EventListView: View {
     /// because `DayGroup.id` sorts lexicographically the same as
     /// chronologically (`yyyy-MM-dd`).
     private var scrollAnchor: String? { visibleDays.min() }
+
+    /// `pinnedSelection`, if it is still current: neither stale under the
+    /// filter identity it was chosen under, nor a day navigation can no
+    /// longer reach (a filter change can narrow `nav.bounds` out from under
+    /// a day that was in range when it was tapped).
+    private func pinnedSelectionDay(in nav: NavMatching) -> String? {
+        guard let pinnedSelection else { return nil }
+        let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
+        guard !PendingDayScroll.isStale(pinnedSelection, currentKey: currentKey) else { return nil }
+        guard nav.bounds.contains(pinnedSelection.day) else { return nil }
+        return pinnedSelection.day
+    }
 
     private enum FilterBarSheet: String, Identifiable {
         case date
@@ -225,11 +260,14 @@ struct EventListView: View {
     /// is a navigation surface, not a filter readout.
     private func dayRail(_ nav: NavMatching) -> some View {
         let todayKey = ChqTime.dayKey(for: model.now())
-        // A pending tap outranks the scroll anchor until it lands, so a tap
-        // does not flicker back to where the reader was; the scroll anchor
-        // outranks the stale `anchorDay` fallback, which only still matters
-        // before any section header has appeared at all.
-        let anchor = pendingScroll?.day ?? scrollAnchor ?? anchorDay
+        // A pending tap outranks everything else until it lands, so a tap
+        // does not flicker back to where the reader was; the pinned
+        // selection then outranks the scroll anchor, so the rail stays on
+        // the day the reader chose rather than the imprecise scroll-derived
+        // one — see `pinnedSelection`'s doc; the scroll anchor outranks the
+        // stale `anchorDay` fallback, which only still matters before any
+        // section header has appeared at all.
+        let anchor = pendingScroll?.day ?? pinnedSelectionDay(in: nav) ?? scrollAnchor ?? anchorDay
         let step = DayRailNavigation.stepTargets(anchor: anchor, eventDays: nav.eventDays)
         let reachableToday = DayRailNavigation.reachableTodayKey(
             model.isCurrentYear ? todayKey : nil, bounds: nav.bounds)
@@ -337,9 +375,11 @@ struct EventListView: View {
     private func selectDay(_ dayKey: String) {
         guard model.goToDay(dayKey) else { return }
         anchorDay = dayKey
-        pendingScroll = PendingDayScroll.Target(
+        let target = PendingDayScroll.Target(
             day: dayKey,
             key: PendingDayScroll.key(for: model.filter, year: model.selectedYear))
+        pendingScroll = target
+        pinnedSelection = target
         #if DEBUG
         // `model.uiTestPendingScrollDelay` is still consumed once, here —
         // reset to `0` so only this one arm is delayed, not every tap after
@@ -488,6 +528,21 @@ struct EventListView: View {
             }
             .listStyle(.plain)
             .scrollDismissesKeyboard(.immediately)
+            // A reader who grabs the list themselves has moved on from
+            // whatever they last tapped — clear the pin so the highlight
+            // goes back to tracking where they scroll to. Same API the rail
+            // itself already uses for the mirror-image guard (see
+            // `DayRailView.isDragging`'s doc): `.tracking`/`.interacting` is
+            // a finger actually on the list, never the programmatic
+            // `scrollTo` that lands a tap. Gating on those two phases only —
+            // not `.decelerating`/`.animating`/`.idle` — matters here for
+            // the same reason it matters there: the programmatic scroll that
+            // follows a tap must not clear the pin it just set.
+            .onScrollPhaseChange { _, newPhase in
+                if newPhase == .tracking || newPhase == .interacting {
+                    pinnedSelection = nil
+                }
+            }
             // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
             // the date/filter pills are no longer a toolbar item — they're this
             // view's own hand-rolled `filterPillBar`, applied to `content` via

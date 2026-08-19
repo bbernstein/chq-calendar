@@ -447,6 +447,20 @@ final class DayRailUITests: XCTestCase {
         XCTAssertFalse(app.buttons["day-step-previous"].isEnabled)
     }
 
+    /// Defect 2 (user report, #245): `⟳ Now` and both step chevrons used to
+    /// live *inside* the rail's scrolling `HStack` alongside the chips, so a
+    /// reader who swiped a few days along lost all three controls — getting
+    /// back to today meant swiping until Now scrolled back into view, which
+    /// across a whole season is a lot of swiping. The fix pins `leading()`/
+    /// `trailing()` outside the horizontal `ScrollView` entirely
+    /// (`DayRailView.body`), so Now must now be reachable with **no**
+    /// reveal-scrolling at all, no matter how far the chips have scrolled —
+    /// that's the guarantee this test exists to pin. It deliberately does
+    /// NOT call `revealByScrolling` on `now`: doing so would silently paper
+    /// over a regression back to the old scrolls-away behavior (a `now`
+    /// that's actually off-screen would simply get dragged back on-screen
+    /// by the same helper that reveals chips, masking the exact defect this
+    /// test is meant to catch).
     func testNowReturnsToTodayAfterNavigatingAway() {
         let app = launchFixtureApp(now: "2026-07-01 10:00:00")
         let rail = app.scrollViews["day-rail"]
@@ -461,17 +475,50 @@ final class DayRailUITests: XCTestCase {
         chip.tap()
         XCTAssertTrue(app.staticTexts["Friday, August 21"].waitForExistence(timeout: 10))
 
-        // `Now` sits at the leading end of the rail's own scrollable content
-        // (not pinned to the screen edge), and the rail just re-centered on
-        // 2026-08-21 — so `Now` is off-screen to the left and needs the same
-        // reveal as any other distant control.
         let now = app.buttons["day-rail-now"]
-        revealByScrolling(now, in: app, rail: rail, rowMidY: rowMidY)
+        XCTAssertTrue(
+            now.isHittable,
+            "⟳ Now was not reachable without scrolling after the rail moved far away — "
+                + "it must be pinned outside the scrolling chip strip, not part of it")
         now.tap()
 
         XCTAssertTrue(
             app.staticTexts["Wednesday, July 1"].waitForExistence(timeout: 10),
             "⟳ Now did not return the reader to today")
+    }
+
+    /// Defect 1 (user report, #245): swipe the rail to another part of the
+    /// season, tap a chip — the event list jumps to that day correctly, but
+    /// the rail never re-centres and nothing is highlighted. Root cause: the
+    /// tapped day's `pendingScroll` resolves synchronously once the target
+    /// is already inside the window (`EventListView.resolvePendingScroll`),
+    /// and authority used to fall straight back to `scrollAnchor` —
+    /// `visibleDays.min()` — which the long finding on `EventListView.
+    /// visibleDays` documents landing a day or two short of a
+    /// `.top`-anchored `scrollTo`'s actual destination (2026-07-09 measured
+    /// landing on 2026-07-07). The fix adds `pinnedSelection`, set by a tap
+    /// and ranked above `scrollAnchor`, so the rail stays on the day the
+    /// reader actually chose.
+    ///
+    /// Reveals by dragging the RAIL itself (`revealByScrolling`), not the
+    /// list — the reported scenario has no list scroll or window expansion
+    /// involved before the tap, only the rail moving.
+    func testTappingAChipAfterSwipingTheRailAwaySelectsAndCentersIt() {
+        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        let chip = app.buttons["day-chip-2026-07-09"]
+        let rowMidY = app.buttons["day-chip-2026-07-01"].frame.midY
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
+        chip.tap()
+
+        XCTAssertTrue(
+            chip.isSelected,
+            "The tapped chip was not highlighted — the rail fell back to the imprecise scroll-derived anchor")
+        XCTAssertTrue(
+            chip.isHittable,
+            "The tapped chip is not visible in the rail without further scrolling — the rail did not re-centre on it")
     }
 
     /// Off-season, today is outside the navigable bounds, and a target
