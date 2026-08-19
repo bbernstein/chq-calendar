@@ -212,24 +212,93 @@ struct EventListView: View {
     /// scope: in `Today` it still shows the week around you, because the rail
     /// is a navigation surface, not a filter readout.
     private func dayRail(_ nav: NavMatching) -> some View {
-        DayRailView(
+        let todayKey = ChqTime.dayKey(for: model.now())
+        // A pending tap outranks the scroll anchor until it lands, so a tap
+        // does not flicker back to where the reader was; the scroll anchor
+        // outranks the stale `anchorDay` fallback, which only still matters
+        // before any section header has appeared at all.
+        let anchor = pendingScroll?.day ?? scrollAnchor ?? anchorDay
+        let step = DayRailNavigation.stepTargets(anchor: anchor, eventDays: nav.eventDays)
+        let reachableToday = DayRailNavigation.reachableTodayKey(
+            model.isCurrentYear ? todayKey : nil, bounds: nav.bounds)
+
+        return DayRailView(
             entries: MyDayChipContent.makeAll(
                 days: ChqTime.dayKeys(from: nav.bounds.lowerBound, through: nav.bounds.upperBound),
-                todayKey: ChqTime.dayKey(for: model.now()),
+                todayKey: todayKey,
                 counts: nav.countsByDay,
                 style: .events,
                 includingYear: !model.isCurrentYear),
-            // A pending tap outranks the scroll anchor until it lands, so a
-            // tap does not flicker back to where the reader was; the scroll
-            // anchor outranks the stale `anchorDay` fallback, which only
-            // still matters before any section header has appeared at all.
-            selectedDay: pendingScroll?.day ?? scrollAnchor ?? anchorDay,
+            selectedDay: anchor,
             accessibilityLabel: "Days in the season",
             disablesEmptyDays: true,
             onSelect: selectDay,
-            leading: { EmptyView() },
-            trailing: { EmptyView() })
+            leading: {
+                if let reachableToday {
+                    nowButton(reachableToday, nav: nav)
+                }
+                DayStepControl(
+                    symbol: "chevron.left",
+                    identifier: "day-step-previous",
+                    destinationLabel: step.previous.map { stepLabel(for: $0, nav: nav) }
+                ) {
+                    if let previous = step.previous { selectDay(previous) }
+                }
+            },
+            trailing: {
+                DayStepControl(
+                    symbol: "chevron.right",
+                    identifier: "day-step-next",
+                    destinationLabel: step.next.map { stepLabel(for: $0, nav: nav) }
+                ) {
+                    if let next = step.next { selectDay(next) }
+                }
+            })
         .background(.bar)
+    }
+
+    /// `⟳ Now`: resets the scope — dropping every expansion the reader has
+    /// accumulated — and scrolls to today in the same action. Resetting
+    /// alone would leave the reader wherever they were in a freshly narrowed
+    /// list; the scroll is what actually returns them.
+    ///
+    /// Rendered only when `reachableToday` is non-`nil` (in-season, current
+    /// year): `DayRailNavigation.reachableTodayKey` returns `nil` for most of
+    /// the year, and a control whose target is refused by `selectDay` would
+    /// be visible, enabled, and do nothing — disabled-not-hidden is for a
+    /// control with *no* destination, not one whose destination is invalid.
+    private func nowButton(_ todayKey: String, nav: NavMatching) -> some View {
+        Button {
+            model.resetToNow()
+            selectDay(todayKey)
+        } label: {
+            Label("Now", systemImage: "arrow.clockwise")
+                .labelStyle(.iconOnly)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 44, height: 62)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(stepLabel(for: todayKey, nav: nav))
+        .accessibilityIdentifier("day-rail-now")
+    }
+
+    /// A day's spoken name, built from the same `MyDayChipContent` the
+    /// rail's own chips use — so a control and the chip it points at can
+    /// never describe the same day differently.
+    ///
+    /// Also what `⟳ Now`'s label uses: its target is always today, so
+    /// `content.accessibilityLabel` already says so on its own ("Go to
+    /// Wednesday, July 1, today, 3 events") — no bespoke "Go to today"
+    /// prefix is needed, and adding one would say "today" twice.
+    private func stepLabel(for dayKey: String, nav: NavMatching) -> String {
+        let content = MyDayChipContent.make(
+            dayKey: dayKey,
+            todayKey: ChqTime.dayKey(for: model.now()),
+            count: nav.countsByDay[dayKey] ?? 0,
+            style: .events,
+            includingYear: !model.isCurrentYear)
+        return content?.accessibilityLabel ?? dayKey
     }
 
     /// A day rail chip was tapped. Grows at most one edge of the window if

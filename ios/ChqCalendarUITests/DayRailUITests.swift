@@ -287,4 +287,73 @@ final class DayRailUITests: XCTestCase {
                 .allElementsBoundByIndex.contains { $0.isSelected },
             "Nothing is highlighted at all — the anchor was cleared rather than moved")
     }
+
+    /// Named by target, never by direction — and the target is the nearest
+    /// day that HAS events, so pressing it always changes what is on screen.
+    /// UITestFixture leaves 2026-07-02 empty (day-index 5, `5 % 3 == 2`), so
+    /// a correct control skips it and lands on 2026-07-03 instead — a Friday
+    /// carrying the fixture's usual three events, per `MyDayChipContentTests`'
+    /// "Go to Sunday, August 16, 4 events" wording.
+    func testTheForwardStepIsNamedForTheDayItGoesTo() {
+        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
+        XCTAssertTrue(app.scrollViews["day-rail"].waitForExistence(timeout: 20))
+
+        let step = app.buttons["day-step-next"]
+        XCTAssertTrue(step.exists)
+        XCTAssertEqual(step.label, "Go to Friday, July 3, 3 events")
+    }
+
+    /// The 2026 season starts 2026-06-27 at *noon*, so launching that
+    /// morning can render `OffSeasonLandingView` with no rail at all.
+    /// Launching at the standard time and tapping the earliest chip instead
+    /// puts the anchor on the earliest reachable day without racing the
+    /// season's own start.
+    func testTheBackwardStepIsDisabledAtTheEarliestReachableDay() {
+        let app = launchFixtureApp(now: "2026-07-15 10:00:00")
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        let chip = app.buttons["day-chip-2026-06-27"]
+        let rowMidY = app.buttons["day-chip-2026-07-15"].frame.midY
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
+        chip.tap()
+
+        XCTAssertFalse(app.buttons["day-step-previous"].isEnabled)
+    }
+
+    func testNowReturnsToTodayAfterNavigatingAway() {
+        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        // Genuinely off-screen at launch (rail centers on 2026-07-01), same
+        // as every other distant-chip tap in this file — see
+        // `revealByScrolling`'s doc for why a plain `.tap()` fails here.
+        let chip = app.buttons["day-chip-2026-08-21"]
+        let rowMidY = app.buttons["day-chip-2026-07-01"].frame.midY
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
+        chip.tap()
+        XCTAssertTrue(app.staticTexts["Friday, August 21"].waitForExistence(timeout: 10))
+
+        // `Now` sits at the leading end of the rail's own scrollable content
+        // (not pinned to the screen edge), and the rail just re-centered on
+        // 2026-08-21 — so `Now` is off-screen to the left and needs the same
+        // reveal as any other distant control.
+        let now = app.buttons["day-rail-now"]
+        revealByScrolling(now, in: app, rail: rail, rowMidY: rowMidY)
+        now.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Wednesday, July 1"].waitForExistence(timeout: 10),
+            "⟳ Now did not return the reader to today")
+    }
+
+    /// Off-season, today is outside the navigable bounds, and a target
+    /// outside them is refused — so a Now button there would be visible,
+    /// enabled, and inert.
+    func testNowIsAbsentOutsideTheSeason() {
+        let app = launchFixtureApp(now: "2026-02-01 10:00:00")
+        // The rail may not exist at all off-season; either way, no Now button.
+        XCTAssertFalse(app.buttons["day-rail-now"].waitForExistence(timeout: 10))
+    }
 }
