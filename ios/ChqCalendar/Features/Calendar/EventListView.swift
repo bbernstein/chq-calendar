@@ -36,6 +36,14 @@ struct EventListView: View {
     /// appended day's own final row appears — see that function's doc.
     @State private var autoExpandedThrough: String?
 
+    /// A day the reader has asked for that has not mounted yet.
+    ///
+    /// Set by a tap, cleared when the day arrives — or when waiting becomes
+    /// pointless. A target that is never cleared survives every later commit
+    /// and hijacks one of them, scrolling the reader to a day they tapped
+    /// under a different scope, minutes ago.
+    @State private var pendingScrollDay: String?
+
     private enum FilterBarSheet: String, Identifiable {
         case date
         case filters
@@ -142,10 +150,44 @@ struct EventListView: View {
                 includingYear: !model.isCurrentYear),
             selectedDay: anchorDay,
             accessibilityLabel: "Days in the season",
-            onSelect: { _ in },   // Task 9
+            disablesEmptyDays: true,
+            onSelect: selectDay,
             leading: { EmptyView() },
             trailing: { EmptyView() })
         .background(.bar)
+    }
+
+    /// A day rail chip was tapped. Grows at most one edge of the window if
+    /// the day lies past it, then queues a scroll for `list(days:)` to land
+    /// once the day mounts. Refused targets (outside the navigable bounds)
+    /// leave `pendingScrollDay` untouched, so no scroll is queued for a day
+    /// that will never arrive.
+    private func selectDay(_ dayKey: String) {
+        guard model.goToDay(dayKey) else { return }
+        anchorDay = dayKey
+        pendingScrollDay = dayKey
+    }
+
+    /// Land a pending target if its day has mounted; give up if it never
+    /// will.
+    ///
+    /// **Deliberately unanimated.** A smooth scroll does not re-target
+    /// mid-flight: on the web the equivalent animation ran ~2s while the
+    /// document grew 1020px beneath it, and the tap landed ~1058px short of
+    /// its target. Growing content plus a smooth scroll is a race the scroll
+    /// loses.
+    private func landPendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
+        guard let target = pendingScrollDay else { return }
+
+        if days.contains(where: { $0.id == target }) {
+            proxy.scrollTo(target, anchor: .top)
+            pendingScrollDay = nil
+            return
+        }
+
+        if DayRailNavigation.shouldAbandonScroll(target: target, window: model.currentWindow) {
+            pendingScrollDay = nil
+        }
     }
 
     @ViewBuilder
@@ -190,57 +232,70 @@ struct EventListView: View {
         let uiTestThemeTarget = model.uiTestFirstThemedWeek(in: days)
         #endif
 
-        return List(selection: selection) {
-            if let countdownDays = model.countdownDays {
-                CountdownBanner(days: countdownDays)
-            }
-            if model.lastRefreshFailed {
-                OfflineBanner()
-            }
-
-            if model.filter.hasFilters, let total = model.snapshot?.events.count {
-                Text("\(filtered.formatted()) of \(total.formatted()) events")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .listRowSeparator(.hidden)
-            }
-
-            ForEach(days) { day in
-                Section {
-                    ForEach(day.events) { event in
-                        row(for: event)
-                            .onAppear {
-                                autoExpandIfAtTheEnd(day: day, event: event, days: days)
-                            }
-                    }
-                } header: {
-                    #if DEBUG
-                    dayHeader(for: day, uiTestThemeTarget: uiTestThemeTarget)
-                    #else
-                    dayHeader(for: day)
-                    #endif
+        return ScrollViewReader { proxy in
+            List(selection: selection) {
+                if let countdownDays = model.countdownDays {
+                    CountdownBanner(days: countdownDays)
                 }
-                .id(day.id)
+                if model.lastRefreshFailed {
+                    OfflineBanner()
+                }
+
+                if model.filter.hasFilters, let total = model.snapshot?.events.count {
+                    Text("\(filtered.formatted()) of \(total.formatted()) events")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .listRowSeparator(.hidden)
+                }
+
+                ForEach(days) { day in
+                    Section {
+                        ForEach(day.events) { event in
+                            row(for: event)
+                                .onAppear {
+                                    autoExpandIfAtTheEnd(day: day, event: event, days: days)
+                                }
+                        }
+                    } header: {
+                        #if DEBUG
+                        dayHeader(for: day, uiTestThemeTarget: uiTestThemeTarget)
+                        #else
+                        dayHeader(for: day)
+                        #endif
+                    }
+                    .id(day.id)
+                }
             }
-        }
-        .listStyle(.plain)
-        .scrollDismissesKeyboard(.immediately)
-        // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
-        // the date/filter pills are no longer a toolbar item — they're this
-        // view's own hand-rolled `filterPillBar`, applied to `content` via
-        // `.safeAreaInset(edge: .bottom)` in `body` above. A
-        // `.safeAreaInset` bar contributes its height to the scroll view's
-        // safe area the same way a real toolbar would, so the list already
-        // insets its content (and its scroll indicator) to clear the pills
-        // without any margin of ours. The inset is owned by the
-        // `.safeAreaInset` modifier itself, not by any state of ours, so
-        // nothing we render can shift the list vertically. Adding a margin
-        // back would double-count it.
-        .refreshable {
-            await model.refresh(force: true)
-        }
-        .navigationDestination(for: Event.self) { event in
-            EventDetailView(event: event, model: model)
+            .listStyle(.plain)
+            .scrollDismissesKeyboard(.immediately)
+            // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
+            // the date/filter pills are no longer a toolbar item — they're this
+            // view's own hand-rolled `filterPillBar`, applied to `content` via
+            // `.safeAreaInset(edge: .bottom)` in `body` above. A
+            // `.safeAreaInset` bar contributes its height to the scroll view's
+            // safe area the same way a real toolbar would, so the list already
+            // insets its content (and its scroll indicator) to clear the pills
+            // without any margin of ours. The inset is owned by the
+            // `.safeAreaInset` modifier itself, not by any state of ours, so
+            // nothing we render can shift the list vertically. Adding a margin
+            // back would double-count it.
+            .refreshable {
+                await model.refresh(force: true)
+            }
+            .navigationDestination(for: Event.self) { event in
+                EventDetailView(event: event, model: model)
+            }
+            // Retried on each commit that brings new days: `days.map(\.id)`
+            // is ~30 strings and already in hand from this render, so
+            // comparing it — rather than reading `model.dayGroups` again —
+            // is what tells the retry a commit actually landed without
+            // paying for a second filter+group pass.
+            .onChange(of: days.map(\.id)) { _, _ in
+                landPendingScroll(proxy, days: days)
+            }
+            .onAppear {
+                landPendingScroll(proxy, days: days)
+            }
         }
     }
 

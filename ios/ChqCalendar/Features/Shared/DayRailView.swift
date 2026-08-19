@@ -20,6 +20,13 @@ struct DayRailView<Leading: View, Trailing: View>: View {
     /// needs a group role and a label; a bare container's label is dropped
     /// (the lesson from the web header menu, PR #228/#219).
     let accessibilityLabel: String
+
+    /// My Day's empty chips stay tappable — selecting an empty day is how the
+    /// reader reaches its "Browse …" action (#192). The Events rail's do not:
+    /// there is no section to land on. Same chip, two answers, so the screen
+    /// decides rather than the chip.
+    var disablesEmptyDays: Bool = false
+
     let onSelect: (String) -> Void
     @ViewBuilder let leading: () -> Leading
     @ViewBuilder let trailing: () -> Trailing
@@ -39,7 +46,8 @@ struct DayRailView<Leading: View, Trailing: View>: View {
                         DayChip(
                             dayKey: entry.day,
                             content: entry.content,
-                            isSelected: entry.day == selectedDay
+                            isSelected: entry.day == selectedDay,
+                            isDisabled: disablesEmptyDays && entry.content.isEmpty
                         ) {
                             onSelect(entry.day)
                         }
@@ -101,6 +109,7 @@ struct DayChip: View {
     let dayKey: String
     let content: MyDayChipContent
     let isSelected: Bool
+    var isDisabled: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -130,6 +139,16 @@ struct DayChip: View {
             .foregroundStyle(foreground)
         }
         .buttonStyle(.plain)
+        // An empty day is not a destination: there is nothing to go to, and
+        // its accessibility label already says so as a fact rather than an
+        // invitation. Disabling it and labelling it honestly are the same
+        // decision, made in two places — `DayChipCountStyle.actionPrefix`
+        // owns the wording, this owns the affordance. My Day passes
+        // `isDisabled: false` always (its empty chips stay tappable —
+        // selecting an empty day is how the reader reaches its "Browse …"
+        // action, #192); the Events rail passes `disablesEmptyDays: true`
+        // through `DayRailView`, so only its empty chips land here `true`.
+        .disabled(isDisabled)
         .accessibilityLabel(content.accessibilityLabel)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityIdentifier("day-chip-\(dayKey)")
