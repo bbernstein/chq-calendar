@@ -43,6 +43,24 @@ final class DayRailUITests: XCTestCase {
     /// to the ~402pt-wide simulator this was written against. `margin`
     /// insets both ends slightly so the touch points land inside the rail's
     /// own bounds rather than exactly on its edge.
+    ///
+    /// **`withVelocity: .slow, thenHoldForDuration: 0.1` matters.** A plain
+    /// `press(forDuration:thenDragTo:)` releases with a fling: the scroll
+    /// view keeps decelerating well past the touch's own endpoints, and that
+    /// extra momentum is *larger* than the visible target zone
+    /// (`visibleMaxX - visibleMinX`). Confirmed empirically for a target
+    /// only ~1.6 screens away (`day-chip-2026-07-09` from a launch centered
+    /// on `2026-07-01`): every fling landed on one of exactly two fixed
+    /// absolute x-positions, one on each side of the zone, and reversing
+    /// direction from either one flings straight back to the other — a
+    /// stable two-state cycle that revisits the same two points forever and
+    /// never lands inside the zone, exhausting `maxSwipes` while `chip.tap()`
+    /// or `header.isHittable` later fails with "Activation point invalid".
+    /// Holding at the end of the drag before lifting kills the fling, so
+    /// each swipe's effect is close to the literal touch distance — smaller
+    /// than the target zone — which forecloses that resonance and still
+    /// clears the distant targets (~10 swipes for `2026-08-21`, previously
+    /// ~9 flinging swipes) well inside the existing budget.
     private func revealByScrolling(
         _ element: XCUIElement, in app: XCUIApplication, rail: XCUIElement, rowMidY: CGFloat,
         margin: CGFloat = 40, maxSwipes: Int = 40
@@ -56,9 +74,13 @@ final class DayRailUITests: XCTestCase {
         while attempts < maxSwipes {
             let x = element.frame.origin.x
             if x > visibleMaxX {
-                leftward.press(forDuration: 0.05, thenDragTo: rightward)
+                leftward.press(
+                    forDuration: 0.05, thenDragTo: rightward,
+                    withVelocity: .slow, thenHoldForDuration: 0.1)
             } else if x < visibleMinX {
-                rightward.press(forDuration: 0.05, thenDragTo: leftward)
+                rightward.press(
+                    forDuration: 0.05, thenDragTo: leftward,
+                    withVelocity: .slow, thenHoldForDuration: 0.1)
             } else {
                 break
             }
@@ -131,6 +153,93 @@ final class DayRailUITests: XCTestCase {
         XCTAssertTrue(
             header.isHittable,
             "The day mounted but the list never scrolled to it — check that the scroll is retried after the expansion commits")
+    }
+
+    /// Finding 1 (final whole-branch review of phase 3b). Every positive-path
+    /// tap test above targets 2026-08-21, which lies *outside* the initial
+    /// `.next` window and so grows it — that growth is what changes `days`
+    /// and fires `list(days:)`'s `.onChange(of: days.map(\.id))`. A tap for a
+    /// day already *inside* the window changes nothing that either trigger
+    /// watches, so before the fix the list never moved at all.
+    ///
+    /// 2026-07-09 is eight days out from `now`; the fixture's 3-events/day
+    /// rate means `.next`'s adaptive window (`minCount: 50`) already reaches
+    /// past it without any expansion — unlike 2026-08-21, fifty-one days out.
+    /// It's still off-screen on the *rail* at launch (the rail centers on
+    /// 07-01), so it needs the same reveal-by-scrolling every distant chip
+    /// in this file does; what's different is the *list* never has to grow
+    /// to show it.
+    func testTappingADayAlreadyInsideTheWindowScrollsToIt() {
+        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        let chip = app.buttons["day-chip-2026-07-09"]
+        let rowMidY = app.buttons["day-chip-2026-07-01"].frame.midY
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
+        chip.tap()
+
+        let header = app.staticTexts["Thursday, July 9"]
+        XCTAssertTrue(
+            header.waitForExistence(timeout: 10),
+            "Tapping a day already inside the window never scrolled the list to it — "
+                + "check that list(days:) resolves pendingScroll even when days.map(\\.id) doesn't change")
+        XCTAssertTrue(
+            header.isHittable,
+            "The day's section exists but was never actually scrolled into view")
+    }
+
+    /// Finding 1's second consequence: `selectDay` unconditionally sets
+    /// `anchorDay = dayKey`, so the tapped chip is highlighted immediately
+    /// regardless of whether the fix above landed — that much always worked.
+    /// What the bug broke is what happens *next*: with `pendingScroll` left
+    /// permanently armed, `pendingScroll?.day ?? scrollAnchor ?? anchorDay`
+    /// keeps reading the stale target forever, so the highlight never goes
+    /// back to tracking scroll position the way `testTheHighlightFollowsThe-
+    /// ReaderDownTheList` proves it normally does.
+    ///
+    /// This does **not** assert "the tapped chip is the highlight right
+    /// after the tap" (or once the scroll settles) — measured directly (a
+    /// throwaway `Logger` probe on `anchor`/`scrollAnchor`/`visibleDays`,
+    /// not committed), `scrollAnchor` never becomes `2026-07-09` at all: the
+    /// List's row buffer keeps an off-screen *earlier* header's `onAppear`
+    /// counted in `visibleDays` after a `.top`-anchored `scrollTo`, so
+    /// `visibleDays.min()` lands one day short (`2026-07-07` in that trace)
+    /// and stays there indefinitely — a real, pre-existing precision limit
+    /// of `visibleDays` under a programmatic jump (only ever validated
+    /// against drag gestures, per the doc above that property), not
+    /// something this fix wave touches or should paper over with a wait.
+    ///
+    /// What the fix wave *does* change, and what this test exists to pin,
+    /// is that `pendingScroll` actually clears for an in-window tap instead
+    /// of hijacking every later `anchor` read forever. Proof this still
+    /// catches that: revert `EventListView.list(days:)`'s `.onChange(of:
+    /// pendingScroll)` and `pendingScroll` never clears for an in-window tap
+    /// at all (`days` itself never changes, so the other trigger never fires
+    /// either) — `anchor` reads `pendingScroll?.day` (the tapped chip)
+    /// forever, so `chip.isSelected` would still read true after the swipes
+    /// below and the first assertion fails.
+    func testHighlightResumesTrackingAfterTappingADayAlreadyInsideTheWindow() {
+        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        let chip = app.buttons["day-chip-2026-07-09"]
+        let rowMidY = app.buttons["day-chip-2026-07-01"].frame.midY
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
+        chip.tap()
+        XCTAssertTrue(app.staticTexts["Thursday, July 9"].waitForExistence(timeout: 10))
+
+        for _ in 0..<4 { app.swipeUp(velocity: .fast) }
+
+        XCTAssertFalse(
+            chip.isSelected,
+            "The highlight stayed frozen on the tapped chip after scrolling — pendingScroll was "
+                + "never cleared, so it kept outranking the scroll-derived anchor")
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'day-chip-'"))
+                .allElementsBoundByIndex.contains { $0.isSelected },
+            "Nothing is highlighted at all — the anchor was cleared rather than moved")
     }
 
     /// The pending-scroll retry must not outlive its usefulness: a target set

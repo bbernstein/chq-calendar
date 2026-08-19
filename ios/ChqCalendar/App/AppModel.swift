@@ -1262,15 +1262,6 @@ final class AppModel {
         }
     }
 
-    /// Widens the window backward to the nearest earlier day that has
-    /// events under the current non-date filters.
-    func expandWindowStart() {
-        guard let earlier = DayRailNavigation.edgeTargets(
-            eventDays: navMatching?.eventDays ?? [], window: currentWindow).earlier
-        else { return }
-        filter.windowStartDayKey = earlier
-    }
-
     /// Widens the window forward to the nearest later day that has events
     /// under the current non-date filters.
     ///
@@ -1315,18 +1306,6 @@ final class AppModel {
         if let end = plan.expandEnd { next.windowEndDayKey = end }
         filter = next
         return true
-    }
-
-    /// Back to Now, from wherever navigation has wandered to.
-    ///
-    /// Deliberately not `selectScope(.next)`: that early-returns when the
-    /// scope is already `.next` with no weeks, which leaves every accumulated
-    /// expansion in place — precisely the state this control exists to undo.
-    func resetToNow() {
-        filter.dateScope = .next
-        filter.selectedWeeks = []
-        clearScopeLocalDateState()
-        persistFilter()
     }
 
     private func persistFilter() {

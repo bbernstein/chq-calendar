@@ -1469,26 +1469,6 @@ struct AppModelTests {
         #expect(model.filter.windowEndDayKey == nil)
     }
 
-    // MARK: - expandWindowStart
-
-    @Test func expandWindowStartStepsBackToTheNearestEarlierEventDay() throws {
-        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
-        model.browseDay("2026-08-06")
-
-        model.expandWindowStart()
-
-        #expect(model.filter.windowStartDayKey == "2026-08-03")
-    }
-
-    @Test func expandWindowStartIsANoOpAtTheEarliestEventDay() throws {
-        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
-        model.browseDay("2026-08-03")
-
-        model.expandWindowStart()
-
-        #expect(model.filter.windowStartDayKey == nil)
-    }
-
     // MARK: - goToDay
 
     @Test func goToDayInsideTheWindowChangesNoState() throws {
@@ -1532,37 +1512,60 @@ struct AppModelTests {
         #expect(model.filter.windowStartDayKey == nil)
     }
 
-    // MARK: - resetToNow
+    // MARK: - ⟳ Now
+    //
+    // There is no `AppModel.resetToNow()` any more (finding 2 of the phase
+    // 3b review): the spec is explicit that ⟳ Now "does not touch scope,
+    // weeks, categories, or search," and `resetToNow()`'s old body — forcing
+    // `.next`, clearing weeks, clearing the browsed day — was exactly that
+    // kind of filter change. `EventListView.nowButton` now calls
+    // `selectDay(todayKey)` directly, i.e. plain `goToDay(todayKey)` on the
+    // model side, so these tests pin `goToDay`'s behavior against the
+    // property that motivated deleting `resetToNow()`, rather than testing
+    // a method that no longer exists.
 
-    /// `selectScope(.next)` cannot do this job: it early-returns when the
-    /// scope is already `.next`, leaving whatever expansion the reader
-    /// accumulated in place — which is exactly the state ⟳ Now exists to
-    /// undo.
-    @Test func resetToNowClearsExpansionEvenWhenAlreadyOnNow() throws {
+    /// The property that motivated the change: `resetToNow()` used to wipe
+    /// out `selectedWeeks`. `goToDay` — Now's actual implementation — is
+    /// pure navigation, so an active week selection survives the tap.
+    @Test func nowSurvivesAnActiveWeekSelection() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.setWeekSelection([3])
+
+        #expect(model.goToDay("2026-08-03"))
+
+        #expect(model.filter.selectedWeeks == [3])
+        #expect(model.filter.dateScope == .all)
+    }
+
+    /// `resetToNow()` used to collapse any forward expansion the reader had
+    /// accumulated back to nothing before scrolling. `goToDay` never resets
+    /// state that isn't in its way: today is already inside the expanded
+    /// window here, so the tap is pure navigation and the expansion the
+    /// reader made themselves is left exactly as they left it.
+    @Test func nowLeavesAnyAccumulatedExpansionInPlace() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         model.expandWindowEnd()
         #expect(model.filter.windowEndDayKey == "2026-08-06")
 
-        model.resetToNow()
+        #expect(model.goToDay("2026-08-03"))
 
         #expect(model.filter.dateScope == .next)
-        #expect(model.filter.windowEndDayKey == nil)
-        #expect(model.filter.windowStartDayKey == nil)
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
     }
 
-    @Test func resetToNowClearsWeeksAndAnyBrowsedDay() throws {
-        let defaults = makeDefaults()
-        let model = try makeInSeasonModelWithSeedEvents(defaults: defaults)
+    /// `resetToNow()` used to force `dateScope` back to `.next` and clear a
+    /// browsed day. Under the new contract, tapping Now from a browsed day
+    /// grows the window to reach today without ever leaving `.day` scope or
+    /// touching `selectedDayKey` — exactly like any other `goToDay` call.
+    @Test func nowFromABrowsedDayGrowsTheWindowWithoutChangingScopeOrDay() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         model.browseDay("2026-08-09")
-        model.setWeekSelection([3])
 
-        model.resetToNow()
+        #expect(model.goToDay("2026-08-03"))
 
-        #expect(model.filter.dateScope == .next)
-        #expect(model.filter.selectedWeeks.isEmpty)
-        #expect(model.filter.selectedDayKey == nil)
-        let reloaded = UserStateStore(defaults: defaults, now: { Date() }).loadFilters()
-        #expect(reloaded?.dateScope == .next)
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+        #expect(model.filter.windowStartDayKey == "2026-08-03")
     }
 
     // MARK: - Recents

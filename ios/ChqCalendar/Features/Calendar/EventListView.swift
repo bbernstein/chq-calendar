@@ -103,10 +103,22 @@ struct EventListView: View {
     @State private var pendingScroll: PendingDayScroll.Target?
 
     #if DEBUG
-    /// Captured once per tap from `model.uiTestPendingScrollDelay` — see
-    /// that property's doc. `0` in every real launch, so this whole path is
-    /// inert outside `-uitest-delay-pending-scroll`.
-    @State private var pendingScrollLandingDelay: TimeInterval = 0
+    /// The wall-clock moment the current `pendingScroll` is allowed to
+    /// resolve, stamped from `model.uiTestPendingScrollDelay` — see that
+    /// property's doc. `nil` whenever the hook is inactive (every real
+    /// launch, and any tap not covered by `-uitest-delay-pending-scroll`),
+    /// which keeps this whole path inert.
+    ///
+    /// A *deadline* rather than a countdown consumed by the first caller:
+    /// `list(days:)` wires two independent triggers onto `landPendingScroll`
+    /// (`days.map(\.id)` and `pendingScroll` itself), and a distant tap can
+    /// fire both in the same SwiftUI commit. A one-shot delay let whichever
+    /// trigger ran second see it already spent and resolve synchronously —
+    /// defeating the hold entirely. Stamping a deadline once, at arm time,
+    /// means every later call — no matter how many, or from which trigger —
+    /// re-checks the same clock and keeps deferring until it has actually
+    /// passed.
+    @State private var pendingScrollDeadline: Date?
     #endif
 
     /// The earliest visible day section — the day whose header is at (or
@@ -257,10 +269,17 @@ struct EventListView: View {
         .background(.bar)
     }
 
-    /// `⟳ Now`: resets the scope — dropping every expansion the reader has
-    /// accumulated — and scrolls to today in the same action. Resetting
-    /// alone would leave the reader wherever they were in a freshly narrowed
-    /// list; the scroll is what actually returns them.
+    /// `⟳ Now`: navigation, never a filter change — the spec is explicit
+    /// that ⟳ Now "does not touch scope, weeks, categories, or search," the
+    /// same premise the web's `goToToday` (`page.tsx`) is built on. This is
+    /// exactly `selectDay(todayKey)`: whatever edge needs to grow to reach
+    /// today grows, a scroll is queued, and nothing else about the filter
+    /// moves. A reader with a week filter active keeps it after tapping Now.
+    ///
+    /// There used to be an `AppModel.resetToNow()` here too, which collapsed
+    /// accumulated expansion and cleared weeks/scope before this scrolled —
+    /// exactly the filter-touching behavior the spec rules out. It had no
+    /// other caller, so it was deleted rather than left vestigial.
     ///
     /// Rendered only when `reachableToday` is non-`nil` (in-season, current
     /// year): `DayRailNavigation.reachableTodayKey` returns `nil` for most of
@@ -269,7 +288,6 @@ struct EventListView: View {
     /// control with *no* destination, not one whose destination is invalid.
     private func nowButton(_ todayKey: String, nav: NavMatching) -> some View {
         Button {
-            model.resetToNow()
             selectDay(todayKey)
         } label: {
             Label("Now", systemImage: "arrow.clockwise")
@@ -318,10 +336,13 @@ struct EventListView: View {
             day: dayKey,
             key: PendingDayScroll.key(for: model.filter, year: model.selectedYear))
         #if DEBUG
-        // Consumed once, here — the very next `landPendingScroll` call holds
-        // off; every one after that (including the one the reader's own
-        // scope change triggers) resolves immediately, same as production.
-        pendingScrollLandingDelay = model.uiTestPendingScrollDelay
+        // `model.uiTestPendingScrollDelay` is still consumed once, here —
+        // reset to `0` so only this one arm is delayed, not every tap after
+        // it. What changes is what the delay becomes: a deadline stamped
+        // against this arm, not a countdown the first `landPendingScroll`
+        // call burns for every trigger that follows in the same commit.
+        let delay = model.uiTestPendingScrollDelay
+        pendingScrollDeadline = delay > 0 ? Date().addingTimeInterval(delay) : nil
         model.uiTestPendingScrollDelay = 0
         #endif
     }
@@ -341,13 +362,21 @@ struct EventListView: View {
         guard pendingScroll != nil else { return }
 
         #if DEBUG
-        if pendingScrollLandingDelay > 0 {
-            let delay = pendingScrollLandingDelay
-            pendingScrollLandingDelay = 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
-                resolvePendingScroll(proxy, days: days)
+        if let deadline = pendingScrollDeadline {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining > 0 {
+                // Re-enter this same function once the deadline is actually
+                // up, rather than resolving unconditionally — any number of
+                // calls landing here before then (the two triggers on
+                // `list(days:)` can both fire from one commit) just
+                // re-schedule against the same still-future deadline and
+                // return, so none of them can jump the line.
+                DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [self] in
+                    landPendingScroll(proxy, days: days)
+                }
+                return
             }
-            return
+            pendingScrollDeadline = nil
         }
         #endif
         resolvePendingScroll(proxy, days: days)
@@ -477,6 +506,18 @@ struct EventListView: View {
             // is what tells the retry a commit actually landed without
             // paying for a second filter+group pass.
             .onChange(of: days.map(\.id)) { _, _ in
+                landPendingScroll(proxy, days: days)
+            }
+            // A tap that lands inside the window already (no expansion
+            // needed) never changes `days`, so the trigger above never
+            // fires — `selectDay` arms `pendingScroll` and nothing else
+            // would ever resolve it. Triggering on the target itself closes
+            // that gap. `PendingDayScroll.Target` is `Equatable`, so this
+            // fires once per arm and once more when `resolvePendingScroll`
+            // clears it back to `nil` — `landPendingScroll`'s own
+            // `pendingScroll != nil` guard makes that second call a no-op,
+            // so this cannot re-arm itself in a loop.
+            .onChange(of: pendingScroll) { _, _ in
                 landPendingScroll(proxy, days: days)
             }
             .onAppear {
