@@ -37,12 +37,17 @@ was adjacent to the mechanism:
   text size the `Filters` pill's label visibly truncates to `…` — pre-existing
   `pillButton` code, untouched by this branch's diff, but only surfaced by an
   actual on-device render at that size.
-- **The rail's `⟳ Now` and step chevrons live inside the same horizontally
-  scrolling content as the day chips, not pinned to the viewport edge** — by
-  design, matching `DayRailUITests.testNowReturnsToTodayAfterNavigatingAway`'s
-  own comment — so for most of the season they are genuinely off-screen and
-  need a manual scroll to reach. Confirmed working as built, but easy to
-  mistake for a bug from a single screenshot.
+- **The rail's `⟳ Now` and step chevrons started out inside the same
+  horizontally scrolling content as the day chips, and that was a real defect
+  — since fixed.** The device pass recorded it as working-as-built and merely
+  "easy to mistake for a bug from a single screenshot". That reading was
+  wrong: for most of the season the controls are genuinely off-screen, so
+  returning to today means swiping until you find it, which across a whole
+  season is a lot of swiping. A reader reported exactly that. They are now
+  pinned outside the horizontal `ScrollView` — `leading()`/`trailing()` are
+  siblings of it in `DayRailView`, with only the chips scrolling between —
+  so all three controls are always reachable. **Do not "restore" them into
+  the scrolling content on the strength of an older note.**
 - **The App Store screenshot pipeline itself was timing-fragile against live
   production data.** Shot `03-search`'s fixed 6-second settle, adequate when
   it was written, twice produced a broken capture against today's 1,686-event
