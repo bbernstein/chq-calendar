@@ -16,6 +16,14 @@ struct DayStepControl: View {
     let identifier: String
     /// The full spoken name of the destination, or `nil` when there is none.
     let destinationLabel: String?
+    /// What this control announces when it has no destination.
+    ///
+    /// Direction-specific on purpose. A shared "No further days in this
+    /// direction" leaves both controls announcing the same thing at a season
+    /// edge — and at the far edges of the season that is exactly when both
+    /// are disabled at once — so a VoiceOver user swiping between them
+    /// cannot tell which is earlier and which is later.
+    let emptyLabel: String
     let action: () -> Void
 
     var body: some View {
@@ -43,7 +51,7 @@ struct DayStepControl: View {
         }
         .buttonStyle(.plain)
         .disabled(destinationLabel == nil)
-        .accessibilityLabel(destinationLabel ?? "No further days in this direction")
+        .accessibilityLabel(destinationLabel ?? emptyLabel)
         .accessibilityIdentifier(identifier)
     }
 }

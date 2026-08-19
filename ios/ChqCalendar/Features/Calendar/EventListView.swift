@@ -290,7 +290,8 @@ struct EventListView: View {
                 DayStepControl(
                     symbol: "chevron.left",
                     identifier: "day-step-previous",
-                    destinationLabel: step.previous.map { stepLabel(for: $0, nav: nav) }
+                    destinationLabel: step.previous.map { stepLabel(for: $0, nav: nav) },
+                    emptyLabel: "No earlier days with events"
                 ) {
                     if let previous = step.previous { selectDay(previous) }
                 }
@@ -299,7 +300,8 @@ struct EventListView: View {
                 DayStepControl(
                     symbol: "chevron.right",
                     identifier: "day-step-next",
-                    destinationLabel: step.next.map { stepLabel(for: $0, nav: nav) }
+                    destinationLabel: step.next.map { stepLabel(for: $0, nav: nav) },
+                    emptyLabel: "No later days with events"
                 ) {
                     if let next = step.next { selectDay(next) }
                 }
