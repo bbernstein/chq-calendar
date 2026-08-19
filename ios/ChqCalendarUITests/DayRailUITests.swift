@@ -29,16 +29,39 @@ final class DayRailUITests: XCTestCase {
     /// the drag at the chip row's own vertical midpoint — read once, before
     /// scrolling starts, since every chip shares one row and stays at that
     /// same height throughout — is what actually reaches it.
+    ///
+    /// Reveals a chip that is off to the right (`frame.origin.x` beyond the
+    /// rail's own visible span) *or* off to the left (negative
+    /// `frame.origin.x` — the case a `selectedDay` centered on a *later*
+    /// day than the target produces, since `DayRailView` auto-scrolls to
+    /// center on selection). Each direction just swaps which coordinate is
+    /// the drag's start vs. end.
+    ///
+    /// The drag's X coordinates and the "is it visible yet" threshold are
+    /// both derived from `rail.frame` — never a hardcoded pixel offset, so
+    /// this survives a differently-sized device rather than staying pinned
+    /// to the ~402pt-wide simulator this was written against. `margin`
+    /// insets both ends slightly so the touch points land inside the rail's
+    /// own bounds rather than exactly on its edge.
     private func revealByScrolling(
-        _ element: XCUIElement, in app: XCUIApplication, rowMidY: CGFloat,
-        visibleMaxX: CGFloat = 350, maxSwipes: Int = 40
+        _ element: XCUIElement, in app: XCUIApplication, rail: XCUIElement, rowMidY: CGFloat,
+        margin: CGFloat = 40, maxSwipes: Int = 40
     ) {
+        let visibleMinX = rail.frame.minX + margin
+        let visibleMaxX = rail.frame.maxX - margin
         let origin = app.coordinate(withNormalizedOffset: .zero)
-        let start = origin.withOffset(CGVector(dx: 360, dy: rowMidY))
-        let end = origin.withOffset(CGVector(dx: 40, dy: rowMidY))
+        let leftward = origin.withOffset(CGVector(dx: visibleMaxX, dy: rowMidY))
+        let rightward = origin.withOffset(CGVector(dx: visibleMinX, dy: rowMidY))
         var attempts = 0
-        while element.frame.origin.x > visibleMaxX, attempts < maxSwipes {
-            start.press(forDuration: 0.05, thenDragTo: end)
+        while attempts < maxSwipes {
+            let x = element.frame.origin.x
+            if x > visibleMaxX {
+                leftward.press(forDuration: 0.05, thenDragTo: rightward)
+            } else if x < visibleMinX {
+                rightward.press(forDuration: 0.05, thenDragTo: leftward)
+            } else {
+                break
+            }
             attempts += 1
         }
     }
@@ -94,7 +117,7 @@ final class DayRailUITests: XCTestCase {
         // `revealByScrolling`'s doc for why this isn't `tap()`'s job.
         let chip = app.buttons["day-chip-2026-08-21"]
         let rowMidY = app.buttons["day-chip-2026-06-27"].frame.midY
-        revealByScrolling(chip, in: app, rowMidY: rowMidY)
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
         chip.tap()
 
         // The fixture titles every day header through ChqTime.dayTitle, so
@@ -130,6 +153,69 @@ final class DayRailUITests: XCTestCase {
             "Something scrolled the reader back to a day they tapped before scrolling away")
     }
 
+    /// Important 1 (task 9 review): a pending scroll can survive a scope
+    /// change and hijack a later commit. `DayRailNavigation.shouldAbandonScroll`
+    /// only ends the wait once the window *covers* the target — a scope
+    /// change can move the window *away* from it without ever covering it,
+    /// leaving the target armed. `PendingDayScroll.isStale` closes that by
+    /// stamping the tap with the filter identity it was made under.
+    ///
+    /// **Why the delay hook.** A real device resolves a pending scroll
+    /// within the same commit that arms it, so no ordinary sequence of
+    /// `XCUIElement` actions can act "before it lands": every action first
+    /// waits for the app to go idle, and by the time a second one is even
+    /// sent, the first commit has always already resolved — confirmed
+    /// empirically while building this test, where the tapped day was
+    /// already `isHittable` behind a still-presenting sheet, before any
+    /// second action could run at all. `-uitest-delay-pending-scroll` defers
+    /// *when* the very next pending scroll resolves (via
+    /// `DispatchQueue.main.asyncAfter`, which registers no app activity, so
+    /// XCUITest still sees the app as idle) without changing *what* it
+    /// decides — see `AppModel.uiTestPendingScrollDelay`.
+    ///
+    /// **Why "All Year", not another distant tap or more scrolling.** `.all`
+    /// is the one scope whose window is the *entire* navigable range
+    /// unconditionally (`ViewWindow.allWindow`) — switching to it makes
+    /// `2026-08-21` a member of `days` on the very commit that applies the
+    /// scope change, with no auto-expand swiping needed to reach it. (An
+    /// earlier attempt used "Today", which turned out to ignore window-
+    /// expansion fields entirely — it is always exactly one day by
+    /// construction — so auto-expand could never grow it back toward the
+    /// target at all, and the scenario never arose.)
+    func testChangingScopeAfterADistantTapDoesNotLaterHijackTheList() {
+        let app = launchFixtureApp(
+            now: "2026-07-01 10:00:00", extraArgs: ["-uitest-delay-pending-scroll"])
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        // Open the date sheet first — `.presentationBackgroundInteraction`
+        // keeps the rail reachable behind it — so the distant tap below and
+        // the scope change that follows are only one `.tap()`'s worth of
+        // settle apart, the fastest sequencing two discrete UI actions can
+        // achieve here.
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Date range:'")).firstMatch.tap()
+
+        let chip = app.buttons["day-chip-2026-08-21"]
+        let rowMidY = app.buttons["day-chip-2026-06-27"].frame.midY
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
+        chip.tap()
+
+        // Still under `.next` (the scope the tap armed its target under),
+        // and the delay hook is holding the scroll off — the target has not
+        // landed yet.
+        XCTAssertFalse(
+            app.staticTexts["Friday, August 21"].exists,
+            "Test setup assumption broken: the tap already landed before the scope change below, so this run cannot prove anything")
+
+        app.buttons["All Year"].tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show '")).firstMatch.tap()
+
+        let header = app.staticTexts["Friday, August 21"]
+        XCTAssertFalse(
+            header.exists && header.isHittable,
+            "The reader was scrolled to a day they tapped under a scope they have since left")
+    }
+
     /// An empty day is named as a fact, not offered as a destination — the
     /// rule the web rail arrived at after three review findings. A control
     /// that says 'Go to' while going nowhere is what this prevents.
@@ -139,5 +225,46 @@ final class DayRailUITests: XCTestCase {
 
         // UITestFixture leaves every third day empty; 2026-06-29 is index 2.
         XCTAssertFalse(app.buttons["day-chip-2026-06-29"].isEnabled)
+    }
+
+    /// Important 2 (task 9 review): the asymmetry — Events disables empty
+    /// chips, My Day does not — is deliberate (#192: selecting an empty day
+    /// is how the reader reaches its "Browse …" action) but was, before this
+    /// test, protected only by the absence of a `disablesEmptyDays: true`
+    /// argument at `MyDayView`'s call site. One leaked argument would
+    /// silently remove the feature with nothing to catch it.
+    ///
+    /// `-uitest-seed-favorites` on 2026-07-15 (a non-empty fixture day, per
+    /// the task-7 visual-check convention) is what gets My Day past its
+    /// empty state at all; `DayWindow.make`'s default `today-7...today+14`
+    /// slice then includes 2026-07-08, which is empty (fixture day-index 11,
+    /// `11 % 3 == 2`) and sits right at that slice's lower edge — visible
+    /// without needing the "earlier" chevron.
+    func testMyDaysEmptyChipIsTappable() {
+        let app = launchFixtureApp(
+            now: "2026-07-15 10:00:00",
+            extraArgs: [
+                "-uitest-seed-favorites", "2026-07-15-0,2026-07-15-1,2026-07-15-2",
+                "-uitest-tab", "my-day",
+            ])
+
+        let rail = app.scrollViews["day-rail"]
+        let chip = app.buttons["day-chip-2026-07-08"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 20))
+        XCTAssertTrue(chip.isEnabled, "My Day's empty chips must stay tappable — selecting one is how the reader reaches Browse")
+
+        // The rail auto-scrolls to center on the seeded favorite's day
+        // (2026-07-15), so the target — 7 days earlier — starts off-screen
+        // to the left.
+        let rowMidY = app.buttons["day-chip-2026-07-15"].frame.midY
+        revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
+        chip.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Wednesday, July 8"].waitForExistence(timeout: 10),
+            "Tapping the empty chip never selected its day")
+        XCTAssertTrue(
+            app.buttons["Browse Jul 8 events"].exists,
+            "The empty-day Browse action never appeared — selecting an empty day must still reach it")
     }
 }

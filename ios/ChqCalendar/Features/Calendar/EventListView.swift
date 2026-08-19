@@ -36,13 +36,25 @@ struct EventListView: View {
     /// appended day's own final row appears — see that function's doc.
     @State private var autoExpandedThrough: String?
 
-    /// A day the reader has asked for that has not mounted yet.
+    /// A day the reader has asked for that has not mounted yet, stamped with
+    /// the filter identity it was tapped under.
     ///
     /// Set by a tap, cleared when the day arrives — or when waiting becomes
     /// pointless. A target that is never cleared survives every later commit
     /// and hijacks one of them, scrolling the reader to a day they tapped
-    /// under a different scope, minutes ago.
-    @State private var pendingScrollDay: String?
+    /// under a different scope, minutes ago — the `PendingDayScroll.Key`
+    /// stamp is what `landPendingScroll` checks to catch a scope change that
+    /// `DayRailNavigation.shouldAbandonScroll` alone cannot see (that check
+    /// only fires once the window covers the target; a scope change can move
+    /// the window *away* from the target without ever covering it).
+    @State private var pendingScroll: PendingDayScroll.Target?
+
+    #if DEBUG
+    /// Captured once per tap from `model.uiTestPendingScrollDelay` — see
+    /// that property's doc. `0` in every real launch, so this whole path is
+    /// inert outside `-uitest-delay-pending-scroll`.
+    @State private var pendingScrollLandingDelay: TimeInterval = 0
+    #endif
 
     private enum FilterBarSheet: String, Identifiable {
         case date
@@ -160,16 +172,33 @@ struct EventListView: View {
     /// A day rail chip was tapped. Grows at most one edge of the window if
     /// the day lies past it, then queues a scroll for `list(days:)` to land
     /// once the day mounts. Refused targets (outside the navigable bounds)
-    /// leave `pendingScrollDay` untouched, so no scroll is queued for a day
+    /// leave `pendingScroll` untouched, so no scroll is queued for a day
     /// that will never arrive.
+    ///
+    /// `model.goToDay` has already applied the window expansion by the time
+    /// `PendingDayScroll.key` reads `model.filter` below, but that's fine:
+    /// the key deliberately excludes the window fields, so the expansion it
+    /// just performed can never itself be read as a mismatch.
     private func selectDay(_ dayKey: String) {
         guard model.goToDay(dayKey) else { return }
         anchorDay = dayKey
-        pendingScrollDay = dayKey
+        pendingScroll = PendingDayScroll.Target(
+            day: dayKey,
+            key: PendingDayScroll.key(for: model.filter, year: model.selectedYear))
+        #if DEBUG
+        // Consumed once, here — the very next `landPendingScroll` call holds
+        // off; every one after that (including the one the reader's own
+        // scope change triggers) resolves immediately, same as production.
+        pendingScrollLandingDelay = model.uiTestPendingScrollDelay
+        model.uiTestPendingScrollDelay = 0
+        #endif
     }
 
     /// Land a pending target if its day has mounted; give up if it never
-    /// will.
+    /// will, or if the reader has since left the scope/filters it was
+    /// tapped under (`PendingDayScroll.isStale`) — a scope change can move
+    /// the window away from the target without ever covering it, which
+    /// `DayRailNavigation.shouldAbandonScroll` alone cannot see.
     ///
     /// **Deliberately unanimated.** A smooth scroll does not re-target
     /// mid-flight: on the web the equivalent animation ran ~2s while the
@@ -177,16 +206,41 @@ struct EventListView: View {
     /// its target. Growing content plus a smooth scroll is a race the scroll
     /// loses.
     private func landPendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
-        guard let target = pendingScrollDay else { return }
+        guard pendingScroll != nil else { return }
 
-        if days.contains(where: { $0.id == target }) {
-            proxy.scrollTo(target, anchor: .top)
-            pendingScrollDay = nil
+        #if DEBUG
+        if pendingScrollLandingDelay > 0 {
+            let delay = pendingScrollLandingDelay
+            pendingScrollLandingDelay = 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+                resolvePendingScroll(proxy, days: days)
+            }
+            return
+        }
+        #endif
+        resolvePendingScroll(proxy, days: days)
+    }
+
+    /// The actual staleness/mount decision, factored out of `landPendingScroll`
+    /// so `-uitest-delay-pending-scroll` can defer *when* this runs without
+    /// duplicating *what* it does.
+    private func resolvePendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
+        guard let pending = pendingScroll else { return }
+
+        let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
+        if PendingDayScroll.isStale(pending, currentKey: currentKey) {
+            pendingScroll = nil
             return
         }
 
-        if DayRailNavigation.shouldAbandonScroll(target: target, window: model.currentWindow) {
-            pendingScrollDay = nil
+        if days.contains(where: { $0.id == pending.day }) {
+            proxy.scrollTo(pending.day, anchor: .top)
+            pendingScroll = nil
+            return
+        }
+
+        if DayRailNavigation.shouldAbandonScroll(target: pending.day, window: model.currentWindow) {
+            pendingScroll = nil
         }
     }
 

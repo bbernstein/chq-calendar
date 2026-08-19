@@ -1514,6 +1514,29 @@ final class AppModel {
     /// `uiTestFirstThemedWeek` below (see `EventListView.dayHeader`).
     var uiTestShowWeekTheme = false
 
+    /// Seconds `EventListView.landPendingScroll` should hold off resolving
+    /// the *very next* pending scroll it sees, set by `CalendarView` from
+    /// `-uitest-delay-pending-scroll` and consumed (reset to `0`) by
+    /// `EventListView.selectDay` the moment a tap arms a target.
+    ///
+    /// Exists because a real device resolves a pending scroll within the
+    /// same SwiftUI commit that arms it — `PendingDayScroll`'s staleness
+    /// check (Important 1, task 9 review) exists for exactly the case where
+    /// the reader changes scope *before* that commit lands, but no UI test
+    /// can reliably win that race: every `XCUIElement` action first waits
+    /// for the app to go idle, and idle-detection tracks in-flight
+    /// animations/layout, not this view's own `pendingScroll` state — so by
+    /// the time a second synthesized tap is even sent, the first commit has
+    /// always already resolved (confirmed empirically: the tapped day was
+    /// already `isHittable` while a *sheet was still presenting* over it,
+    /// before any second action could run). The delay is scheduled via
+    /// `DispatchQueue.main.asyncAfter`, which — unlike a `CADisplayLink` or
+    /// animation — does not register as app activity, so XCUITest sees the
+    /// app as idle and hands control back to the test immediately after the
+    /// tap, giving it a real window to act in. `0` (the default, and the
+    /// value in every real launch) keeps this path fully inert.
+    var uiTestPendingScrollDelay: TimeInterval = 0
+
     /// The first `(day, week)` pairing — in `days` display order — whose
     /// badge actually has a theme. The deterministic target for
     /// `-uitest-show-week-theme`: not every week has one (a partial sidecar
