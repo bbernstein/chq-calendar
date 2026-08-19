@@ -27,9 +27,40 @@ struct EventListView: View {
     /// Which pill's sheet is up, if any.
     @State private var activeSheet: FilterBarSheet?
 
-    /// Which day the rail highlights. View state: derived from what is on
-    /// screen, never persisted, and never part of the filter.
+    /// Which day the rail highlights when nothing else claims it (no
+    /// scroll-derived anchor yet, no pending tap). View state: derived from
+    /// what is on screen, never persisted, and never part of the filter.
     @State private var anchorDay: String?
+
+    /// Day sections currently on screen, maintained from section-header
+    /// appearance rather than a per-section geometry probe.
+    ///
+    /// `List` recycles views, and a recycled `GeometryReader` sentinel is
+    /// what made this project raise its deployment target to iOS 18 — so a
+    /// geometry read per section (`onScrollGeometryChange` + a preference
+    /// key per row) is the approach with a known failure mode here.
+    /// `onAppear`/`onDisappear` on the section *header* uses `List`'s own
+    /// lifecycle instead and adds no per-frame geometry work.
+    ///
+    /// Measured on iPhone 17 Pro, iOS 26.1 simulator, 2026-08-18, via a
+    /// throwaway XCUITest that drove the `-uitest-fixture` list with 20 small
+    /// (~0.15-screen) drags and logged, after each one, which chip was
+    /// selected and which day-title header was topmost on screen:
+    /// - **Moves at all**: yes — the selected day advanced from 2026-07-01 to
+    ///   2026-08-05 over the 20 drags.
+    /// - **Never backwards**: the logged sequence of selected days was
+    ///   strictly non-decreasing across all 20 steps — no recycling
+    ///   signature (a recycled header would have inserted a stale earlier
+    ///   key at some point in a 20-sample run).
+    /// - **Right time, not early**: 16 of 21 samples had the selected chip
+    ///   matching the topmost header exactly; the handful of misses (a drag
+    ///   sampled mid-momentum) all had the header slightly *ahead* of the
+    ///   selection, never behind — i.e. any lag this produces is
+    ///   conservative (the highlight is never ahead of where the reader
+    ///   actually is), not the "two days early" failure mode the brief warns
+    ///   about. Kept as-is; approach B (`.onScrollGeometryChange`) was not
+    ///   needed.
+    @State private var visibleDays: Set<String> = []
 
     /// The last day whose final row triggered `expandWindowEnd()`. Guards
     /// `autoExpandIfAtTheEnd` against firing again the instant the newly
@@ -55,6 +86,12 @@ struct EventListView: View {
     /// inert outside `-uitest-delay-pending-scroll`.
     @State private var pendingScrollLandingDelay: TimeInterval = 0
     #endif
+
+    /// The earliest visible day section — the day whose header is at (or
+    /// just above) the top of the viewport. `min()` on day-key strings works
+    /// because `DayGroup.id` sorts lexicographically the same as
+    /// chronologically (`yyyy-MM-dd`).
+    private var scrollAnchor: String? { visibleDays.min() }
 
     private enum FilterBarSheet: String, Identifiable {
         case date
@@ -160,7 +197,11 @@ struct EventListView: View {
                 counts: nav.countsByDay,
                 style: .events,
                 includingYear: !model.isCurrentYear),
-            selectedDay: anchorDay,
+            // A pending tap outranks the scroll anchor until it lands, so a
+            // tap does not flicker back to where the reader was; the scroll
+            // anchor outranks the stale `anchorDay` fallback, which only
+            // still matters before any section header has appeared at all.
+            selectedDay: pendingScroll?.day ?? scrollAnchor ?? anchorDay,
             accessibilityLabel: "Days in the season",
             disablesEmptyDays: true,
             onSelect: selectDay,
@@ -428,6 +469,8 @@ struct EventListView: View {
                     uiTestAutoShow: uiTestAutoShowThemeBinding(day: day, week: number, target: uiTestThemeTarget))
             }
         }
+        .onAppear { visibleDays.insert(day.id) }
+        .onDisappear { visibleDays.remove(day.id) }
     }
     #else
     private func dayHeader(for day: DayGroup) -> some View {
@@ -438,6 +481,8 @@ struct EventListView: View {
                 WeekThemeBadge(weekNumber: number, themes: model.themes)
             }
         }
+        .onAppear { visibleDays.insert(day.id) }
+        .onDisappear { visibleDays.remove(day.id) }
     }
     #endif
 

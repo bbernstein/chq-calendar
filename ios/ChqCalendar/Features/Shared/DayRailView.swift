@@ -37,6 +37,42 @@ struct DayRailView<Leading: View, Trailing: View>: View {
     /// does not have to invent them.
     var reanchorOn: [AnyHashable] = []
 
+    /// True while a finger is actively dragging the strip itself (SwiftUI's
+    /// `.tracking`/`.interacting` scroll phases — `.decelerating` and
+    /// `.animating` do not count, since those cover momentum after the
+    /// finger lifts and our *own* programmatic `scrollTo`, neither of which
+    /// is a reader fighting the rail).
+    ///
+    /// Once `selectedDay` tracked scroll (task 10), it can change many times
+    /// a second while the reader scrolls the list — re-centering on every
+    /// one of those changes would fight a reader who has, at the same
+    /// moment, grabbed the rail to drag it themselves (e.g. mid-fling
+    /// momentum from the list while reaching for a distant chip).
+    ///
+    /// **Not a `DragGesture`.** A `simultaneousGesture(DragGesture(...))`
+    /// was tried first and reverted: even non-exclusive, adding a second
+    /// recognizer changed the touch-arbitration timing enough that
+    /// `DayRailUITests`' synthetic `press(forDuration:thenDragTo:)` drags
+    /// stopped moving the horizontal `ScrollView` at all (confirmed by
+    /// three tests failing — `testADistantChipTapLandsOnThatDay`,
+    /// `testChangingScopeAfterADistantTapDoesNotLaterHijackTheList`,
+    /// `testMyDaysEmptyChipIsTappable` — all via `revealByScrolling`, all
+    /// with the same "chip frame never moved" signature). `onScrollPhaseChange`
+    /// (iOS 18) reads the `ScrollView`'s own native phase instead of adding
+    /// a competing recognizer, so nothing about its gesture handling
+    /// changes.
+    @State private var isDragging = false
+
+    /// The day `scroll(_:to:)` last actually centered on. Distinct from
+    /// `selectedDay` itself so the drag-end catch-up below can tell "the
+    /// anchor moved while I was suppressing" from "the anchor never
+    /// changed, the reader was just dragging" — the first must re-sync, the
+    /// second must not, or every manual drag would immediately snap back to
+    /// wherever `selectedDay` already pointed the instant the finger lifts
+    /// (found by `DayRailUITests.revealByScrolling`'s drag loop timing out
+    /// with the target chip's frame never moving at all).
+    @State private var lastCenteredDay: String?
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
@@ -57,9 +93,23 @@ struct DayRailView<Leading: View, Trailing: View>: View {
                 }
                 .padding(.horizontal)
             }
+            .onScrollPhaseChange { _, newPhase in
+                isDragging = newPhase == .tracking || newPhase == .interacting
+            }
             .onAppear { scroll(proxy, to: selectedDay) }
-            .onChange(of: selectedDay) { _, day in scroll(proxy, to: day) }
+            .onChange(of: selectedDay) { _, day in
+                guard !isDragging else { return }
+                scroll(proxy, to: day)
+            }
             .onChange(of: reanchorOn) { _, _ in scroll(proxy, to: selectedDay) }
+            // Catches up anything that changed *while* suppressed above: the
+            // drag ending is not itself a `selectedDay` change, so without
+            // this an anchor move that landed mid-drag would otherwise never
+            // get applied.
+            .onChange(of: isDragging) { _, dragging in
+                guard !dragging, selectedDay != lastCenteredDay else { return }
+                scroll(proxy, to: selectedDay)
+            }
         }
         // Chained off `ScrollViewReader`, not the `ScrollView` inside it.
         // `ScrollViewReader` contributes no accessibility element of its
@@ -77,6 +127,7 @@ struct DayRailView<Leading: View, Trailing: View>: View {
 
     private func scroll(_ proxy: ScrollViewProxy, to day: String?) {
         guard let day else { return }
+        lastCenteredDay = day
         withAnimation(.easeInOut(duration: 0.2)) {
             proxy.scrollTo(day, anchor: .center)
         }

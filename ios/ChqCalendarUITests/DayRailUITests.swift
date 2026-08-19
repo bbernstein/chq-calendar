@@ -267,4 +267,25 @@ final class DayRailUITests: XCTestCase {
             app.buttons["Browse Jul 8 events"].exists,
             "The empty-day Browse action never appeared — selecting an empty day must still reach it")
     }
+
+    /// The highlight answers "where am I?", so scrolling must move it. A
+    /// highlight that only follows taps is a highlight that lies as soon as
+    /// the reader uses the list.
+    func testTheHighlightFollowsTheReaderDownTheList() {
+        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
+        let firstChip = app.buttons["day-chip-2026-07-01"]
+        XCTAssertTrue(firstChip.waitForExistence(timeout: 20))
+        XCTAssertTrue(firstChip.isSelected, "The rail did not start on the day at the top of the list")
+
+        for _ in 0..<4 { app.swipeUp(velocity: .fast) }
+
+        XCTAssertFalse(
+            firstChip.isSelected,
+            "The highlight stayed on the first day while the reader scrolled past it")
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'day-chip-'"))
+                .allElementsBoundByIndex.contains { $0.isSelected },
+            "Nothing is highlighted at all — the anchor was cleared rather than moved")
+    }
+
 }
