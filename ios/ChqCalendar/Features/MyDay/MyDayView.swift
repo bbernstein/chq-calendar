@@ -465,17 +465,28 @@ private struct MyDayExpandControl: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
-                // Width is 44pt to meet the HIG minimum tap target. The
-                // horizontal axis is the mis-tap-prone one here — this chip
-                // sits at the end of a horizontally-scrolling strip flanked
-                // by 8pt spacing and other chips, and is tapped side-to-side,
-                // not top-to-bottom. Height stays 62 to match `DayChip`.
-                // The neighbouring chips (`minWidth: 58`) already clear 44pt.
-                .frame(width: 44, height: 62)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                // `.primary`, not the default accent tint — see
+                // `DayStepControl`'s matching comment for why.
+                .foregroundStyle(.primary)
+                // Width's minimum is 44pt to meet the HIG minimum tap
+                // target. The horizontal axis is the mis-tap-prone one
+                // here — this chip sits at the end of a
+                // horizontally-scrolling strip flanked by 8pt spacing and
+                // other chips, and is tapped side-to-side, not
+                // top-to-bottom. Height's minimum stays 62 to match
+                // `DayChip`. The neighbouring chips (`minWidth: 58`)
+                // already clear 44pt. Both are minimums, not fixed sizes
+                // (accessibility follow-up to #245): a fixed frame clipped
+                // the chevron at large Dynamic Type sizes, caught by an
+                // on-device audit. At the default text size the icon is
+                // far smaller than either minimum, so nothing changes
+                // there.
+                .frame(minWidth: 44, minHeight: 62)
+                .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier("day-rail-expand-\(direction)")
     }
 
     private var symbol: String {

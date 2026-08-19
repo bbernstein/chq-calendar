@@ -14,8 +14,10 @@ import Foundation
 ///   lives in the text, it survives being selected, being empty, or both. A
 ///   ring or accent border would be swallowed by the selected fill in
 ///   exactly the case where it matters most.
-/// - **Empty** is `isEmpty`, which the view renders as a dashed stroke plus
-///   secondary content.
+/// - **Empty** is `isEmpty`, which the view renders as a dashed stroke.
+///   Rendered at ordinary (not dimmed) text weight — a translucent chip
+///   background compounded with dimmed text into an on-device contrast
+///   audit failure, so the stroke alone now carries the signal.
 /// - **Count** is `count`, on its own line.
 nonisolated struct MyDayChipContent: Equatable, Sendable {
     /// `"Today"` for today's chip, otherwise the weekday (`"Sun"`).

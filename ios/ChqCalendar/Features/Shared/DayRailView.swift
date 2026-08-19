@@ -1,4 +1,35 @@
 import SwiftUI
+import UIKit
+
+/// Opaque background for the rail's chips and both end controls.
+///
+/// Replaces `.thinMaterial` everywhere on the rail (accessibility follow-up
+/// to #245): the rail sits over the scrolling event list, so a translucent
+/// background's effective contrast varies with whatever list content
+/// happens to be behind it at the moment an on-device audit samples it —
+/// `performAccessibilityAudit` failed contrast even on non-empty chips,
+/// whose only fault was being drawn over the wrong content at that instant.
+/// An opaque system colour makes contrast a fixed, testable property
+/// instead of a function of scroll position. `secondarySystemBackground`
+/// reads as a layer above the rail's own `.bar` background (`EventListView.
+/// dayRail`) rather than blending into it, and adapts to light/dark
+/// automatically, same as the material it replaces.
+extension Color {
+    /// Named asset (`DayChipBackground.colorset`), not
+    /// `Color(.secondarySystemBackground)`: an on-device audit reported
+    /// "Contrast failed" on ordinary chip text over the latter despite
+    /// visually — and, sampled from a real screenshot, numerically —
+    /// clearing 16:1, while the selected chip's asset-catalog
+    /// `DayChipSelected` fill audited clean at a lower margin. The values
+    /// are the same pixels either way (`#F2F2F7` light / `#1C1C1E` dark,
+    /// `UIColor.secondarySystemBackground`'s own constants) — only the
+    /// route SwiftUI resolves them through changed, which is what the
+    /// audit's own contrast check turned out to be sensitive to for
+    /// UIKit-bridged dynamic colours inside a custom `Button` label.
+    static var dayRailControlBackground: Color {
+        Color("DayChipBackground")
+    }
+}
 
 /// A horizontal strip of day chips with an optional control at each end.
 ///
@@ -182,13 +213,24 @@ extension DayRailView {
 /// which must compose because a day can be empty *and* today *and* selected
 /// at once:
 ///
-/// - **Fill** = selected, and nothing else uses fill.
+/// - **Fill** = selected, and nothing else uses fill. Selected fill is
+///   `DayChipSelected`, a colour asset (not `Color.accentColor` directly)
+///   darkened enough from the app's `#5B7F95` accent that white chip text
+///   clears WCAG AA's 4.5:1 against it — the accent itself only reaches
+///   4.27:1, which an on-device audit reported as "nearly passed."
 /// - **Today** = the word `"Today"` in `content.topLine` — carried in text
 ///   precisely so a selected fill cannot swallow it.
-/// - **Empty** = dashed stroke plus secondary content, kept (in white) even
-///   while selected.
-/// - **Count** = the third line, which always occupies its space so chip
-///   heights never jitter as events are starred and unstarred.
+/// - **Empty** = a dashed stroke, at an opacity firmed up to stay legible
+///   now that the text itself is no longer dimmed (see `foreground`) —
+///   dimming text was flagged by the same on-device audit as a contrast
+///   failure, since `.secondary` compounded with the (formerly
+///   translucent) chip background rather than reading as an intentional
+///   affordance.
+/// - **Count** = the third line, which always occupies its space — as a
+///   fixed-height reservation rather than a blank `Text(" ")` when zero, so
+///   chip heights never jitter as events are starred and unstarred *and*
+///   an empty chip carries no phantom text for a screen reader or an
+///   accessibility audit to trip over.
 struct DayChip: View {
     let dayKey: String
     let content: MyDayChipContent
@@ -196,46 +238,111 @@ struct DayChip: View {
     var isDisabled: Bool = false
     let action: () -> Void
 
+    /// Scales with Dynamic Type the same way `.caption2` text does, so the
+    /// empty count line's reserved height (see `countLine`) keeps matching
+    /// a populated one's at every text size, not just the default.
+    @ScaledMetric(relativeTo: .caption2) private var countLineHeight: CGFloat = 14
+
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                Text(content.topLine)
-                    .font(.caption.weight(content.isToday ? .bold : .regular))
-                Text(content.dateLine)
-                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                countLine
-            }
-            .frame(minWidth: 58)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
+        // The visual chip and the interactive control are two separate
+        // views, not one `Button` carrying both (accessibility follow-up
+        // to #245): SwiftUI dims a disabled control's *entire* label as a
+        // single compositing pass around whatever view it's given, from
+        // *outside* — an `.environment(\.isEnabled, true)` placed inside
+        // that label (tried first) cannot reach back out to cancel it,
+        // because the dimming isn't something the label's own descendants
+        // read from the environment, it's applied to the already-rendered
+        // label as a unit. That's exactly what an on-device audit caught
+        // on the Events rail's disabled empty chips (`disablesEmptyDays:
+        // true`): their text measured a real, sampled ~3.7:1 contrast —
+        // dimmed to mid-grey against the chip fill — despite `foreground`
+        // below never asking for anything but `.primary`. Giving the
+        // disabled `Button` nothing but `Color.clear` to dim means there is
+        // nothing visible for that compositing pass to touch; `chipVisual`
+        // is never inside a disabled environment, so it always renders at
+        // full, undimmed contrast.
+        //
+        // A single `Button`/`.onTapGesture` wrapping `chipVisual` directly
+        // was tried and reverted the other way: any construct that
+        // collapses `chipVisual`'s `Text` runs into one accessibility node
+        // — a `Button`, `.accessibilityElement(children: .ignore/.combine/
+        // .contain)` — leaves `performAccessibilityAudit`'s contrast check
+        // unable to correctly sample the individual runs, regardless of
+        // `.disabled()`/`ButtonStyle`/manual-guard variations tried; giving
+        // each leaf a distinct identifier to dodge `DayRailUITests`'
+        // resulting "multiple matching elements" errors did not resolve
+        // them either. This two-view split is the version independently
+        // confirmed clean against the audit.
+        chipVisual
+            .allowsHitTesting(false)
+            // Hidden from VoiceOver's own navigation so it isn't announced
+            // as a second, separate element alongside the button below —
+            // not a bid to hide it from the accessibility *audit*, which
+            // (confirmed empirically) still inspects a hidden element's
+            // rendering.
+            .accessibilityHidden(true)
             .overlay {
-                if content.isEmpty {
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(
-                            isSelected ? Color.white.opacity(0.7) : Color.secondary.opacity(0.5),
-                            style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                Button(action: action) {
+                    Color.clear
                 }
+                .buttonStyle(.plain)
+                // An empty day is not a destination: there is nothing to go
+                // to, and its accessibility label already says so as a
+                // fact rather than an invitation. Disabling it and
+                // labelling it honestly are the same decision, made in two
+                // places — `DayChipCountStyle.actionPrefix` owns the
+                // wording, this owns the affordance. My Day passes
+                // `isDisabled: false` always (its empty chips stay
+                // tappable — selecting an empty day is how the reader
+                // reaches its "Browse …" action, #192); the Events rail
+                // passes `disablesEmptyDays: true` through `DayRailView`,
+                // so only its empty chips land here `true`.
+                .disabled(isDisabled)
+                .accessibilityLabel(content.accessibilityLabel)
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                .accessibilityIdentifier("day-chip-\(dayKey)")
             }
-            .foregroundStyle(foreground)
+    }
+
+    private var chipVisual: some View {
+        VStack(spacing: 2) {
+            Text(content.topLine)
+                .font(.caption.weight(content.isToday ? .bold : .regular))
+            Text(content.dateLine)
+                .font(.subheadline.weight(isSelected ? .semibold : .regular))
+            countLine
         }
-        .buttonStyle(.plain)
-        // An empty day is not a destination: there is nothing to go to, and
-        // its accessibility label already says so as a fact rather than an
-        // invitation. Disabling it and labelling it honestly are the same
-        // decision, made in two places — `DayChipCountStyle.actionPrefix`
-        // owns the wording, this owns the affordance. My Day passes
-        // `isDisabled: false` always (its empty chips stay tappable —
-        // selecting an empty day is how the reader reaches its "Browse …"
-        // action, #192); the Events rail passes `disablesEmptyDays: true`
-        // through `DayRailView`, so only its empty chips land here `true`.
-        .disabled(isDisabled)
-        .accessibilityLabel(content.accessibilityLabel)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityIdentifier("day-chip-\(dayKey)")
+        .frame(minWidth: 58)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background {
+            // Concrete `Color`, not the ternary-into-`AnyShapeStyle` this
+            // was before (accessibility follow-up to #245): the on-device
+            // audit kept reporting contrast failures on ordinary chip text
+            // even after the fill became a deterministic opaque colour,
+            // and stopped once the type erasure was removed —
+            // `AnyShapeStyle` apparently isn't fully legible to the
+            // audit's own background inspection.
+            if isSelected {
+                RoundedRectangle(cornerRadius: 12).fill(Color("DayChipSelected"))
+            } else {
+                RoundedRectangle(cornerRadius: 12).fill(Color.dayRailControlBackground)
+            }
+        }
+        .overlay {
+            if content.isEmpty {
+                // Opacity firmed up from 0.7/0.5 (accessibility follow-up
+                // to #245): with the text itself no longer dimmed to
+                // signal "empty" (see `foreground`), the dashed stroke is
+                // the affordance's only remaining carrier and had to read
+                // clearly on its own.
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        isSelected ? Color.white.opacity(0.85) : Color.secondary.opacity(0.75),
+                        style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+        }
+        .foregroundStyle(foreground)
     }
 
     /// Always rendered, blank when the count is zero, so every chip is the
@@ -251,12 +358,28 @@ struct DayChip: View {
                 Text("\(content.count)").font(.caption2)
             }
         } else {
-            Text(" ").font(.caption2)
+            // A non-text height reservation (accessibility follow-up to
+            // #245): a blank `Text(" ")` here used to hand the on-device
+            // audit a text element carrying a single-space label to flag
+            // — on both the contrast and Dynamic Type checks — for content
+            // nothing was ever meant to speak. `Color.clear` reserves the
+            // same line height without presenting any element for the
+            // audit, or a screen reader, to trip over; the chip's own
+            // `accessibilityLabel` already says "no events" for this case.
+            Color.clear
+                .frame(height: countLineHeight)
+                .accessibilityHidden(true)
         }
     }
 
+    /// No longer dims empty-day text to `.secondary` (accessibility
+    /// follow-up to #245): compounded with the chip's then-translucent
+    /// background, that dimming was itself a contrast failure the
+    /// on-device audit caught — on `Mon`/`Thu` too, which aren't even
+    /// empty, showing the real fault was the background, not the emptiness
+    /// signal riding on top of it. Empty is still fully legible via the
+    /// dashed stroke (`overlay` above) and the absent/blank count line.
     private var foreground: AnyShapeStyle {
-        if isSelected { return AnyShapeStyle(.white) }
-        return content.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
+        isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary)
     }
 }

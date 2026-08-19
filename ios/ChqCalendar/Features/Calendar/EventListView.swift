@@ -293,8 +293,13 @@ struct EventListView: View {
             Label("Now", systemImage: "arrow.clockwise")
                 .labelStyle(.iconOnly)
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 44, height: 62)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                // `.primary`, not the default accent tint — see
+                // `DayStepControl`'s matching comment for why.
+                .foregroundStyle(.primary)
+                // Minimum, not fixed (accessibility follow-up to #245) —
+                // see `DayStepControl`'s matching comment for why.
+                .frame(minWidth: 44, minHeight: 62)
+                .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(stepLabel(for: todayKey, nav: nav))
