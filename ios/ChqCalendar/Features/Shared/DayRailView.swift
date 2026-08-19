@@ -244,64 +244,54 @@ struct DayChip: View {
     @ScaledMetric(relativeTo: .caption2) private var countLineHeight: CGFloat = 14
 
     var body: some View {
-        // The visual chip and the interactive control are two separate
-        // views, not one `Button` carrying both (accessibility follow-up
-        // to #245): SwiftUI dims a disabled control's *entire* label as a
-        // single compositing pass around whatever view it's given, from
-        // *outside* — an `.environment(\.isEnabled, true)` placed inside
-        // that label (tried first) cannot reach back out to cancel it,
-        // because the dimming isn't something the label's own descendants
-        // read from the environment, it's applied to the already-rendered
-        // label as a unit. That's exactly what an on-device audit caught
-        // on the Events rail's disabled empty chips (`disablesEmptyDays:
-        // true`): their text measured a real, sampled ~3.7:1 contrast —
-        // dimmed to mid-grey against the chip fill — despite `foreground`
-        // below never asking for anything but `.primary`. Giving the
-        // disabled `Button` nothing but `Color.clear` to dim means there is
-        // nothing visible for that compositing pass to touch; `chipVisual`
-        // is never inside a disabled environment, so it always renders at
-        // full, undimmed contrast.
+        // No `.disabled()` anywhere in this chip's ancestry (accessibility
+        // follow-up to #245, second pass). SwiftUI dims a disabled
+        // control's *entire* label as a single compositing pass applied
+        // from *outside* it — an `.environment(\.isEnabled, true)` placed
+        // inside the label cannot cancel that, because the dimming isn't
+        // something the label's descendants read from the environment,
+        // it's applied to the already-rendered label as a unit. That's
+        // what an on-device audit caught on the Events rail's disabled
+        // empty chips (`disablesEmptyDays: true`): their text measured a
+        // real, sampled ~3.7:1 contrast — dimmed to mid-grey against the
+        // chip fill — despite `foreground` below never asking for anything
+        // but `.primary`.
         //
-        // A single `Button`/`.onTapGesture` wrapping `chipVisual` directly
-        // was tried and reverted the other way: any construct that
-        // collapses `chipVisual`'s `Text` runs into one accessibility node
-        // — a `Button`, `.accessibilityElement(children: .ignore/.combine/
-        // .contain)` — leaves `performAccessibilityAudit`'s contrast check
-        // unable to correctly sample the individual runs, regardless of
-        // `.disabled()`/`ButtonStyle`/manual-guard variations tried; giving
-        // each leaf a distinct identifier to dodge `DayRailUITests`'
-        // resulting "multiple matching elements" errors did not resolve
-        // them either. This two-view split is the version independently
-        // confirmed clean against the audit.
-        chipVisual
-            .allowsHitTesting(false)
-            // Hidden from VoiceOver's own navigation so it isn't announced
-            // as a second, separate element alongside the button below —
-            // not a bid to hide it from the accessibility *audit*, which
-            // (confirmed empirically) still inspects a hidden element's
-            // rendering.
-            .accessibilityHidden(true)
-            .overlay {
-                Button(action: action) {
-                    Color.clear
-                }
-                .buttonStyle(.plain)
-                // An empty day is not a destination: there is nothing to go
-                // to, and its accessibility label already says so as a
-                // fact rather than an invitation. Disabling it and
-                // labelling it honestly are the same decision, made in two
-                // places — `DayChipCountStyle.actionPrefix` owns the
-                // wording, this owns the affordance. My Day passes
-                // `isDisabled: false` always (its empty chips stay
-                // tappable — selecting an empty day is how the reader
-                // reaches its "Browse …" action, #192); the Events rail
-                // passes `disablesEmptyDays: true` through `DayRailView`,
-                // so only its empty chips land here `true`.
-                .disabled(isDisabled)
+        // A first fix kept `.disabled()` but split the chip into a hidden
+        // visual plus a `Color.clear`-labelled `Button` carrying the
+        // disabled state, so there was nothing visible left for the
+        // dimming pass to touch. That was audit-clean, but a `Color.clear`
+        // overlay is a poor hit target: it broke tap delivery after a
+        // synthetic drag (6 of 15 `DayRailUITests`). The actual fix is
+        // narrower — an empty chip on the Events rail was never a control
+        // that happened to be disabled, it's not a control at all, since
+        // there is no section for it to go to. So the two states aren't
+        // "enabled `Button`" vs. "disabled `Button`", they're "`Button`" vs.
+        // "plain view": with no `.disabled()` in play there is no dimming
+        // pass, and `chipVisual` renders at full, undimmed contrast through
+        // one ordinary view hierarchy either way — nothing to split.
+        if isDisabled {
+            // An empty day on the Events rail: named as a fact
+            // (`content.accessibilityLabel` already reads as one — e.g.
+            // "Sunday, August 16, no events" — never "Go to"), not offered
+            // as a destination, and carrying no button trait. My Day always
+            // passes `isDisabled: false` (its empty chips stay tappable —
+            // selecting one is how the reader reaches its "Browse …"
+            // action, #192); only the Events rail's `disablesEmptyDays:
+            // true` ever reaches this branch.
+            chipVisual
                 .accessibilityLabel(content.accessibilityLabel)
                 .accessibilityAddTraits(isSelected ? [.isSelected] : [])
                 .accessibilityIdentifier("day-chip-\(dayKey)")
+        } else {
+            Button(action: action) {
+                chipVisual
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(content.accessibilityLabel)
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            .accessibilityIdentifier("day-chip-\(dayKey)")
+        }
     }
 
     private var chipVisual: some View {

@@ -328,12 +328,29 @@ final class DayRailUITests: XCTestCase {
     /// An empty day is named as a fact, not offered as a destination — the
     /// rule the web rail arrived at after three review findings. A control
     /// that says 'Go to' while going nowhere is what this prevents.
+    ///
+    /// Pins the *current* contract: `DayChip` no longer renders an empty
+    /// Events-rail day as a disabled `Button` (that shape dimmed its own
+    /// text via SwiftUI's outside-in `.disabled()` compositing, and the
+    /// workaround for that broke tap delivery — see `DayChip.body`'s
+    /// comment). It is now a plain, non-interactive view instead: still on
+    /// screen and still labelled — so `exists` must stay true, or this test
+    /// would also pass for a chip that silently vanished — but it is not a
+    /// button at all. If this ever starts matching `app.buttons[...]`
+    /// again, that means the chip regained button/tap affordance, which is
+    /// exactly what "not tappable" must keep failing.
     func testAnEmptyDaysChipIsNotTappable() {
         let app = launchFixtureApp(now: "2026-07-01 10:00:00")
         XCTAssertTrue(app.scrollViews["day-rail"].waitForExistence(timeout: 20))
 
         // UITestFixture leaves every third day empty; 2026-06-29 is index 2.
-        XCTAssertFalse(app.buttons["day-chip-2026-06-29"].isEnabled)
+        let identifier = "day-chip-2026-06-29"
+        XCTAssertFalse(
+            app.buttons[identifier].exists,
+            "An empty Events-rail chip must not be exposed as a button at all")
+        XCTAssertTrue(
+            app.descendants(matching: .any)[identifier].exists,
+            "The empty chip must still exist on screen, just not as a control")
     }
 
     /// Important 2 (task 9 review): the asymmetry — Events disables empty

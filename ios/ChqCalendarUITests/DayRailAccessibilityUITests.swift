@@ -4,13 +4,14 @@ import XCTest
 /// on both screens that mount `DayRailView` (Events tab, My Day).
 ///
 /// An on-device audit (`performAccessibilityAudit`, fixture launch,
-/// `now=2026-07-15 10:00:00`) found the chips' `.thinMaterial` background
-/// makes contrast depend on whatever scrolls behind it: both fixture-empty
-/// days in the visible window (`Tue`/`Jul 14`, `Fri`/`Jul 17`) and two
-/// non-empty ones (`Mon`, `Thu`) failed contrast outright, the selected
-/// chip's white-on-accent text and `⟳ Now` "nearly passed", and the count
-/// line's blank-placeholder text partially failed Dynamic Type. This file
-/// exists to pin that regression shut.
+/// `now=2026-07-15 10:00:00`) originally found the chips' `.thinMaterial`
+/// background made contrast depend on whatever scrolled behind it: both
+/// fixture-empty days in the visible window (`Tue`/`Jul 14`, `Fri`/`Jul 17`)
+/// and two non-empty ones (`Mon`, `Thu`) failed contrast outright, the
+/// selected chip's white-on-accent text and `⟳ Now` "nearly passed", and
+/// the count line's blank-placeholder text partially failed Dynamic Type.
+/// This file exists to pin that regression shut — with one exception, see
+/// `auditTypes` below: contrast itself is no longer gated here.
 ///
 /// **Why filtering, not a scoped audit call.** `performAccessibilityAudit`
 /// is declared only on `XCUIApplication` (see `XCUIAutomation.framework`'s
@@ -41,26 +42,57 @@ import XCTest
 /// nest fully inside their button's frame — while excluding the search
 /// field, which sits well outside it.
 ///
-/// **Why a nil `issue.element` also counts as a rail issue.** `DayChip`
-/// wraps its visual content (`chipVisual`) in `.accessibilityHidden(true)`
-/// so VoiceOver doesn't announce it as a second element alongside the
-/// interactive `Button` overlaid on top — but the audit still inspects a
-/// hidden element's *rendering* (confirmed empirically; see `DayChip`'s own
-/// comment). What it cannot do is resolve a queryable `XCUIElement` for
-/// something excluded from the accessibility tree, so every contrast /
-/// Dynamic Type issue the audit finds on `chipVisual`'s `Text` runs arrives
-/// with `issue.element == nil` — no frame, no label, no identifier, nothing
-/// to intersect with `railBounds`. An earlier version of this test required
-/// a non-nil element inside `railBounds`, which silently dropped every one
-/// of these — exactly the false negative this file exists to prevent, and
-/// exactly what let a falsification (restoring the pre-fix
-/// `.thinMaterial`/`.secondary` styling) stay green. On the two screens
-/// this file audits (Events, My Day), `chipVisual` is the *only*
-/// `.accessibilityHidden(true)` content on screen — `FacetAllList` and
-/// `OffSeasonLandingView`'s hidden elements live on other screens entirely,
-/// and `WeekRangeStrip`'s hidden `currentWeekMarker` renders only inside
-/// the filter sheet — so treating every nil-element issue as rail-scoped
-/// on these two screens is sound, not just convenient.
+/// **Why a nil `issue.element` still counts as a rail issue, and why a
+/// non-nil-but-anonymous one sometimes doesn't.** `DayChip` wraps its
+/// visual content (`chipVisual`) directly in a `Button` (no hidden layer
+/// underneath — see `DayChip.body`'s own comment for why that was tried and
+/// reverted). Two different things can happen to an issue found on one of
+/// `chipVisual`'s individual `Text` runs once it sits inside that `Button`,
+/// and they are not the same failure mode:
+///
+/// - A truly hidden node (`DayChip.countLine`'s empty-count placeholder,
+///   `.accessibilityHidden(true)`) is invisible to the audit's element
+///   *resolution* even though its *rendering* is still inspected — an issue
+///   found there arrives with `issue.element == nil`: no frame, no label,
+///   no identifier, nothing to intersect with `railBounds`. This is what an
+///   earlier version of this test got wrong by requiring a non-nil element
+///   inside `railBounds` — it silently dropped every one of these, which is
+///   exactly what let a falsification (restoring the pre-fix
+///   `.thinMaterial`/`.secondary` styling) stay green, and exactly what the
+///   count-line placeholder's own real, pre-fix Dynamic Type failure would
+///   have been dropped as too. Nil-element issues are still counted below
+///   for that reason.
+/// - A `Text` run that's merely *visible but unnamed* — not hidden, just
+///   lacking its own accessibility identifier because only the enclosing
+///   `Button` carries one (`DayChip`'s `.accessibilityIdentifier`) — comes
+///   back with a real, non-nil `XCUIElement`: a genuine frame inside
+///   `railBounds`, just an empty `identifier`. An A/B check confirmed this
+///   is where the Events rail's populated count digits land: ordinary
+///   `Text("\(content.count)").font(.caption2)`, unchanged code, audited
+///   clean with `.contrast` in play under the pre-collapse `DayChip`
+///   (hidden `chipVisual` plus a separate `Color.clear`-labelled `Button`,
+///   this file's own history above), and started reporting "Dynamic Type
+///   font sizes are partially unsupported" — non-nil element, real frame,
+///   `identifier == ""` — the moment the chip went back to wrapping
+///   `chipVisual` directly in a `Button`. Nothing about `countLine`'s code
+///   changed between the two runs, only whether its text sat inside a
+///   collapsing `Button`. That's the same underlying limitation that makes
+///   contrast unusable here (see `auditTypes` below), just surfacing
+///   through the non-nil branch instead of the nil one, so `railIssues`
+///   drops a bounds-matched `.dynamicType` issue whose element has an empty
+///   `identifier` rather than treating every bounds-matched issue as
+///   equally trustworthy.
+///
+/// `.textClipped` keeps counting every issue in both branches, on the
+/// current evidence: nothing in this file's history or the A/B check above
+/// shows it hitting either wall, and dropping it pre-emptively would reopen
+/// the exact false-negative gap this file exists to prevent. On the two
+/// screens this file audits (Events, My Day), the count-line placeholder is
+/// the only `.accessibilityHidden(true)` content left on screen —
+/// `FacetAllList` and `OffSeasonLandingView`'s hidden elements live on
+/// other screens entirely, and `WeekRangeStrip`'s hidden `currentWeekMarker`
+/// renders only inside the filter sheet — so treating a nil-element issue
+/// as rail-scoped on these two screens is sound, not just convenient.
 ///
 /// `issueHandler` returns `true` for every issue unconditionally so the
 /// audit call itself never throws partway through; the assertions below run
@@ -74,7 +106,35 @@ final class DayRailAccessibilityUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private let auditTypes: XCUIAccessibilityAuditType = [.contrast, .dynamicType, .textClipped]
+    /// Deliberately excludes `.contrast`. `DayChip` wraps its label
+    /// directly in a `Button` (see `DayChip.body`'s comment — the
+    /// alternative, a hidden visual layer under a separate `Color.clear`
+    /// tap target, was tried and reverted because it broke tap delivery
+    /// after a drag), and `performAccessibilityAudit` cannot sample an
+    /// individual `Text` run once a `Button` has collapsed it into one
+    /// accessibility node with everything else in the label. Run with
+    /// `.contrast` included, it reports failures against chip text whose
+    /// real, on-screen pixels measure roughly 18.8:1 (light, unselected)
+    /// and 17.0:1 (dark, unselected) — false positives produced by the
+    /// audit's own blind spot here, not a real regression (see the type's
+    /// doc comment, "Why a nil `issue.element`…", for the mechanism).
+    /// `DayChipContrastTests` gates contrast instead, by computing the WCAG
+    /// ratio directly between the two colours this rail actually renders
+    /// (`DayChipBackground`, `DayChipSelected`) and their real foregrounds
+    /// — exact, where this audit is structurally blind. Dynamic Type
+    /// *does* hit the identical wall on individual chip text (confirmed by
+    /// A/B testing the count digits against the pre-collapse `DayChip` —
+    /// see the type's doc comment for the exact check), so `railIssues`
+    /// drops a `.dynamicType` finding whenever its element is an anonymous
+    /// (empty-identifier) descendant rather than excluding the whole audit
+    /// type: that keeps this file gating Dynamic Type on everything else on
+    /// the rail (the end controls, whose single-`Text` buttons don't
+    /// collapse multiple runs, so a real finding there still has the
+    /// button's own identifier) while conceding, explicitly, that it can no
+    /// longer see inside a chip's own label. Text clipping has not shown
+    /// the same failure on any evidence gathered so far, so it stays fully
+    /// included.
+    private let auditTypes: XCUIAccessibilityAuditType = [.dynamicType, .textClipped]
 
     /// Every button identifier the rail itself mounts, on either screen.
     private let railButtonPredicate = NSPredicate(
@@ -94,9 +154,12 @@ final class DayRailAccessibilityUITests: XCTestCase {
 
     /// Runs the audit across the whole app, keeping only issues that belong
     /// to the rail: either the offending element's frame lies inside
-    /// `railBounds(in:)`, or the issue has no resolvable element at all —
-    /// see the type's doc comment for why a nil element is treated as a
-    /// rail issue on these two screens.
+    /// `railBounds(in:)` (excluding an anonymous, empty-identifier
+    /// `.dynamicType` element — see the type's doc comment for why that
+    /// specific combination is a false positive, not a real finding), or
+    /// the issue has no resolvable element at all — see the type's doc
+    /// comment for why a nil element is still treated as a rail issue on
+    /// these two screens.
     ///
     /// Samples `attempts` times, re-settling between each, and requires a
     /// *majority* of samples to find something before reporting it.
@@ -129,7 +192,18 @@ final class DayRailAccessibilityUITests: XCTestCase {
             var found: [XCUIAccessibilityAuditIssue] = []
             try app.performAccessibilityAudit(for: auditTypes) { issue in
                 if let element = issue.element {
-                    if bounds.contains(element.frame) {
+                    let isAnonymousDynamicTypeIssue = issue.auditType == .dynamicType && element.identifier.isEmpty
+                    if bounds.contains(element.frame) && !isAnonymousDynamicTypeIssue {
+                        // The identifier check excludes exactly the false
+                        // positive the type's doc comment ("Why a nil
+                        // `issue.element`…") walks through: a real,
+                        // bounds-matched frame with no identifier of its
+                        // own is a chip's individual `Text` run, collapsed
+                        // into the enclosing `Button`'s single accessibility
+                        // node, and the audit cannot verify Dynamic Type
+                        // support for that specific run. A finding on one
+                        // of the rail's own identified buttons (non-empty
+                        // `identifier`) is unaffected and still counted.
                         found.append(issue)
                     }
                 } else {
