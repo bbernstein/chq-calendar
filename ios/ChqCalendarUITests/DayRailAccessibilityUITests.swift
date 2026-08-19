@@ -21,26 +21,38 @@ import XCTest
 /// app and keeping only issues whose offending element's frame falls inside
 /// a bounding box built from the rail's own elements.
 ///
-/// **Why a bounding box built from buttons, not `rail.frame` itself, and
-/// not the offending element's own identifier.** `day-rail`'s own reported
-/// accessibility frame is taller than the chip row actually occupies (the
-/// same quirk `DayRailUITests` documents driving its drags by the chip
-/// row's own midpoint rather than the rail's) — tall enough here to also
-/// contain the search field sitting above it, so a first version built on
-/// `rail.frame` let the pre-existing, out-of-scope `Search events`
+/// **Why a bounding box built from identified elements, not `rail.frame`
+/// itself, and not the offending element's own identifier.** `day-rail`'s
+/// own reported accessibility frame is taller than the chip row actually
+/// occupies (the same quirk `DayRailUITests` documents driving its drags by
+/// the chip row's own midpoint rather than the rail's) — tall enough here to
+/// also contain the search field sitting above it, so a first version built
+/// on `rail.frame` let the pre-existing, out-of-scope `Search events`
 /// clipped-text finding leak in as a rail issue. Matching on the offending
 /// element's own `identifier` instead was tried and rejected before that:
 /// the contrast/Dynamic Type audits report per-text-run `SwiftUI.
 /// AccessibilityNode`s that carry no identifier of their own (only the
-/// enclosing `Button` does, via `DayChip`'s `.accessibilityIdentifier`), so
+/// enclosing `Button` — or, for a disabled chip, the enclosing plain view,
+/// see below — does, via `DayChip`'s `.accessibilityIdentifier`), so
 /// identifier matching silently dropped every genuine chip-text issue —
 /// exactly the false negative this file exists to prevent. Unioning the
-/// frames of the rail's own identified buttons (`day-chip-*`,
+/// frames of the rail's own identified elements (`day-chip-*`,
 /// `day-step-previous`/`day-step-next`, `day-rail-now`,
 /// `day-rail-expand-earlier`/`day-rail-expand-later`) gives a tight box
-/// that still contains every one of their descendant text runs — those
-/// nest fully inside their button's frame — while excluding the search
-/// field, which sits well outside it.
+/// that still contains every one of their descendant text runs — those nest
+/// fully inside their element's frame — while excluding the search field,
+/// which sits well outside it.
+///
+/// **Why `descendants(matching: .any)`, not `app.buttons`.** A chip is a
+/// `Button` when tappable, but `DayChip`'s `isDisabled` branch (an empty day
+/// on the Events rail, `disablesEmptyDays: true`) mounts the identical
+/// `day-chip-*` identifier on a plain, non-button view instead — see
+/// `DayChip.body`. A `railBounds(in:)` built from `app.buttons` alone
+/// silently excludes every disabled chip from the audit's scope, which is
+/// exactly backwards: an empty chip is where the original, real defect
+/// lived (`.disabled()` dimming text to ~3.7:1, see `DayChip.body`'s own
+/// comment on why there is no `.disabled()` left to do that now). Matching
+/// by identifier against every element type closes that gap.
 ///
 /// **Why a nil `issue.element` still counts as a rail issue, and why a
 /// non-nil-but-anonymous one sometimes doesn't.** `DayChip` wraps its
@@ -136,19 +148,30 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// included.
     private let auditTypes: XCUIAccessibilityAuditType = [.dynamicType, .textClipped]
 
-    /// Every button identifier the rail itself mounts, on either screen.
-    private let railButtonPredicate = NSPredicate(
+    /// Every element identifier the rail itself mounts, on either screen.
+    /// A chip (`day-chip-*`) is a `Button` when tappable, but `DayChip`'s
+    /// `isDisabled` branch (an empty day on the Events rail) mounts the same
+    /// identifier on a plain, non-button view instead — see `DayChip.body`.
+    /// Matching by identifier alone, not `app.buttons`, is what keeps a
+    /// disabled chip inside `railBounds(in:)`'s scope; a buttons-only query
+    /// silently excluded it, and empty chips are exactly where the original,
+    /// real defect lived (`.disabled()` dimming text to ~3.7:1, see
+    /// `DayChip.body`'s own comment on why there is no `.disabled()` left to
+    /// do that).
+    private let railElementPredicate = NSPredicate(
         format: """
             identifier BEGINSWITH 'day-chip-' OR identifier BEGINSWITH 'day-rail-expand-' \
             OR identifier IN {'day-step-previous', 'day-step-next', 'day-rail-now'}
             """)
 
-    /// The union of every rail button's own frame — see the type's doc
-    /// comment for why this, and not `rail.frame` or an issue's own
-    /// element identifier, is what scopes the audit.
+    /// The union of every rail element's own frame — see the type's doc
+    /// comment for why this, and not `rail.frame` or an issue's own element
+    /// identifier, is what scopes the audit. `descendants(matching: .any)`,
+    /// not `app.buttons`, so a disabled (non-button) empty chip is included
+    /// — see `railElementPredicate`.
     @MainActor
     private func railBounds(in app: XCUIApplication) -> CGRect {
-        app.buttons.matching(railButtonPredicate).allElementsBoundByIndex
+        app.descendants(matching: .any).matching(railElementPredicate).allElementsBoundByIndex
             .reduce(CGRect.null) { $0.union($1.frame) }
     }
 
@@ -247,7 +270,7 @@ final class DayRailAccessibilityUITests: XCTestCase {
         }.joined(separator: "\n")
     }
 
-    func testEventsDayRailPassesContrastDynamicTypeAndClippingAudit() throws {
+    func testEventsDayRailPassesDynamicTypeAndClippingAudit() throws {
         let app = launchFixtureApp()
         let rail = app.scrollViews["day-rail"]
         XCTAssertTrue(rail.waitForExistence(timeout: 20))
@@ -264,7 +287,7 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// seeds three on 2026-07-15 (a non-empty fixture day) to reach the
     /// rail at all — same convention `DayRailUITests.testMyDaysEmptyChipIsTappable`
     /// uses.
-    func testMyDayRailPassesContrastDynamicTypeAndClippingAudit() throws {
+    func testMyDayRailPassesDynamicTypeAndClippingAudit() throws {
         let app = launchFixtureApp(extraArgs: [
             "-uitest-seed-favorites", "2026-07-15-0,2026-07-15-1,2026-07-15-2",
             "-uitest-tab", "my-day",

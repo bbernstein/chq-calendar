@@ -1316,13 +1316,13 @@ final class AppModel {
     /// year): the facet counts behind the filter sheet, and the navigation
     /// data behind the day rail.
     ///
-    /// Both are rebuilt only when an input actually changes — never on
-    /// render. Together they are three `EventFilter.apply` passes over the
-    /// snapshot, which is affordable at that cadence and would not be
-    /// per-render.
+    /// `facetCounts` is rebuilt on every call — it depends on the window,
+    /// via the date scope, so there is no cheaper answer for it.
+    /// `navMatching` does not: `rebuildNavMatchingIfNeeded()` below skips its
+    /// own pass whenever nothing that could change the result has changed.
     private func rebuildDerivedCounts() {
         rebuildFacetCounts()
-        rebuildNavMatching()
+        rebuildNavMatchingIfNeeded()
     }
 
     /// Recomputes `facetCounts` against the current selection.
@@ -1346,6 +1346,63 @@ final class AppModel {
             isCurrentYear: isCurrentYear)
     }
 
+    /// Everything that can change what `rebuildNavMatching()` computes:
+    /// the snapshot's identity (`fetchedAt` stands in for `CalendarSnapshot`
+    /// itself, which isn't `Equatable` — the same convention
+    /// `resolvePendingEventDeepLinkIfPossible`'s doc comment explains),
+    /// favourites, and the *non-window* filter identity. `PendingDayScroll.Key`
+    /// already models exactly that — it exists to say "the reader left the
+    /// context a tap was made under", which is the identical question this
+    /// needs answered, just for a rebuild instead of a stale-scroll check —
+    /// so this reuses it (including its `year`) rather than inventing a
+    /// second, parallel notion of "the filter identity that isn't the
+    /// window." `windowStartDayKey`/`windowEndDayKey` are excluded by that
+    /// same `Key`, which is exactly right here too: `rebuildNavMatching()`
+    /// clears both before calling `EventFilter.apply`, so they never affect
+    /// its result.
+    private struct NavMatchingInputs: Equatable {
+        let snapshotFetchedAt: Date?
+        let favorites: Set<String>
+        let filterKey: PendingDayScroll.Key
+    }
+
+    /// The inputs `navMatching` was last computed from — `nil` until the
+    /// first rebuild (mirroring `navMatching` itself being `nil` before a
+    /// snapshot exists).
+    private var lastNavMatchingInputs: NavMatchingInputs?
+
+    #if DEBUG
+    /// Counts every completed `rebuildNavMatching()` pass — test-only
+    /// instrumentation (`AppModelTests`/`NavMatchingTests`) for pinning that
+    /// a window-only filter mutation is skipped here, not just that it
+    /// leaves `navMatching` unchanged (which an identical recompute would
+    /// also do).
+    private(set) var navMatchingRebuildCount = 0
+    #endif
+
+    /// Recomputes `navMatching` only when one of its actual inputs changed —
+    /// see `NavMatchingInputs`. `goToDay` and `expandWindowEnd` (the latter
+    /// fired repeatedly by scroll-driven auto-expansion) only ever write
+    /// `windowStartDayKey`/`windowEndDayKey`, which `NavMatchingInputs`
+    /// excludes by construction, so every window-only tick lands on the
+    /// `guard` below and skips the `EventFilter.apply` pass over ~1,686
+    /// events that a full `rebuildNavMatching()` would otherwise repeat for
+    /// a provably identical result.
+    private func rebuildNavMatchingIfNeeded() {
+        guard let snapshot else {
+            navMatching = nil
+            lastNavMatchingInputs = nil
+            return
+        }
+        let inputs = NavMatchingInputs(
+            snapshotFetchedAt: snapshot.fetchedAt,
+            favorites: favorites,
+            filterKey: PendingDayScroll.key(for: filter, year: selectedYear))
+        guard inputs != lastNavMatchingInputs else { return }
+        lastNavMatchingInputs = inputs
+        rebuildNavMatching()
+    }
+
     /// The filter pipeline re-run with the date stage wide open.
     ///
     /// `.all` rather than "skip the stage": there is one date stage and it is
@@ -1357,7 +1414,14 @@ final class AppModel {
     /// `selectedWeeks` deliberately stays. Weeks are a filter the reader
     /// chose, not a scope edge to escape, and the web's `nonDateFilterOpts`
     /// keeps them for the same reason.
+    ///
+    /// Called only from `rebuildNavMatchingIfNeeded()`, which is what
+    /// decides whether a rebuild is actually owed — never call this
+    /// directly from a `didSet` or action method.
     private func rebuildNavMatching() {
+        #if DEBUG
+        navMatchingRebuildCount += 1
+        #endif
         guard let snapshot else {
             navMatching = nil
             return

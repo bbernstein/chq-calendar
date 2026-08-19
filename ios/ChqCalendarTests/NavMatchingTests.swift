@@ -64,6 +64,24 @@ struct NavMatchingTests {
         #expect(model.navMatching == before)
     }
 
+    /// `windowExpansionDoesNotChangeIt` above pins the *result*, but an
+    /// identical recompute would pass that assertion too and still waste a
+    /// full `EventFilter.apply` pass over every event on each of
+    /// `goToDay`/`expandWindowEnd`'s window-only writes (the latter fires
+    /// repeatedly during scroll-driven auto-expansion). This pins the
+    /// *rebuild itself* being skipped, via the `#if DEBUG` counter
+    /// `rebuildNavMatchingIfNeeded()` increments only on an actual
+    /// `rebuildNavMatching()` pass.
+    @Test func windowExpansionDoesNotRecomputeIt() throws {
+        let model = try makeModel(defaults: makeDefaults())
+        _ = try #require(model.navMatching)
+        let countBefore = model.navMatchingRebuildCount
+
+        model.goToDay("2026-08-20")
+
+        #expect(model.navMatchingRebuildCount == countBefore)
+    }
+
     /// Two derivations of the same fact must not drift: the cached array and
     /// the pure rule that Task 4 tests in isolation.
     @Test func theCachedDayListAgreesWithThePureRule() throws {

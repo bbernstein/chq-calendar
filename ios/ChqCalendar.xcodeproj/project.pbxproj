@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		918773CD9E6D8A37ACEBF9B5 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69490D350A0441F5696BB6B4 /* Foundation.framework */; };
 		C0FFEE00000000000000004E /* ChqCalendarWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C0FFEE000000000000000044 /* ChqCalendarWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -50,7 +49,6 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		69490D350A0441F5696BB6B4 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		C0058FD07FEF2CFF917FF7B9 /* ChqCalendarUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChqCalendarUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0FFEE000000000000000011 /* ChqCalendar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChqCalendar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0FFEE000000000000000021 /* ChqCalendarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChqCalendarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -139,7 +137,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				918773CD9E6D8A37ACEBF9B5 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -167,22 +164,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		1B67F587C63C509E423A1209 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				BEFFB91DD567CB79BFA02796 /* iOS */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		BEFFB91DD567CB79BFA02796 /* iOS */ = {
-			isa = PBXGroup;
-			children = (
-				69490D350A0441F5696BB6B4 /* Foundation.framework */,
-			);
-			name = iOS;
-			sourceTree = "<group>";
-		};
 		C0FFEE000000000000000002 = {
 			isa = PBXGroup;
 			children = (
@@ -191,7 +172,6 @@
 				C0FFEE000000000000000033 /* ChqCalendarShared */,
 				C0FFEE000000000000000041 /* ChqCalendarWidgets */,
 				C0FFEE000000000000000003 /* Products */,
-				1B67F587C63C509E423A1209 /* Frameworks */,
 				A7F898B273D99F5160405DD0 /* ChqCalendarUITests */,
 			);
 			sourceTree = "<group>";
