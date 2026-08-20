@@ -10,7 +10,13 @@ import Foundation
 /// out-of-bounds day, but it refuses silently — the user would watch the app
 /// open and do nothing. Both sides ask
 /// `ViewWindow.navigableBounds(year:events:starredDays: [])`, so the two
-/// answers cannot drift.
+/// agree *within a year* — but only within one: this intent resolves `year`
+/// from `IntentDataSource.defaultYear()`, while `AppModel.goToDay` bounds
+/// against `AppModel.selectedYear`. A reader parked on an archived year who
+/// asks Siri for "tomorrow" gets a dialog resolved against the current
+/// season, not the year on screen — a known gap, not a guarantee this type
+/// closes. Fixing that is a design change (year-switching) outside this
+/// intent's scope.
 nonisolated enum OpenDayTarget: Equatable, Sendable {
     case navigate(dayKey: String)
     case refuse(dialog: String)

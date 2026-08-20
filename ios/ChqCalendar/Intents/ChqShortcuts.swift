@@ -79,6 +79,12 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             shortTitle: "Open Event",
             systemImageName: "arrow.up.right.circle"
         )
+        // The first phrase in each array below is the one SiriTipView and
+        // the Shortcuts gallery display verbatim (phraseTemplates[0]) —
+        // `\(.applicationName)` resolves there, but a parameter slot like
+        // `\(\.$week)` does not, so it must lead with a plain phrase. The
+        // parameterized variants stay in the list (just not first) because
+        // they're what makes the slots fillable by voice.
         AppShortcut(
             intent: OpenDayIntent(),
             phrases: [
@@ -94,12 +100,6 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             shortTitle: "Show a Day",
             systemImageName: "calendar.day.timeline.left"
         )
-        // The first phrase in each array below is the one SiriTipView and
-        // the Shortcuts gallery display verbatim (phraseTemplates[0]) —
-        // `\(.applicationName)` resolves there, but a parameter slot like
-        // `\(\.$week)` does not, so it must lead with a plain phrase. The
-        // parameterized variants stay in the list (just not first) because
-        // they're what makes the slots fillable by voice.
         AppShortcut(
             intent: WeekThemeIntent(),
             phrases: [

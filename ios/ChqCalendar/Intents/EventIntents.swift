@@ -80,14 +80,15 @@ struct OpenDayIntent: AppIntent {
         let now = Date()
         let events = await IntentDataSource.events(now: now)
         let year = await IntentDataSource.defaultYear()
+        let resolvedTimeframe = timeframe ?? .today
 
         switch OpenDayTarget.resolve(
-            timeframe: timeframe, now: now, year: year, events: events) {
+            timeframe: resolvedTimeframe, now: now, year: year, events: events) {
         case .refuse(let dialog):
             return .result(dialog: "\(dialog)")
         case .navigate(let dayKey):
             PendingIntentLink.write(.day(key: dayKey), to: AppGroup.userDefaults())
-            return .result(dialog: "\((timeframe ?? .today).spokenLabel.capitalized).")
+            return .result(dialog: "Opening \(resolvedTimeframe.spokenLabel).")
         }
     }
 }

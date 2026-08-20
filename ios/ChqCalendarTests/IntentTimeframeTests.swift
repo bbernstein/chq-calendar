@@ -131,10 +131,15 @@ struct IntentTimeframeTests {
     }
 
     /// Week 9's "next week" is past the season: `interval` returns a
-    /// zero-length window at the season's end. A day key still comes out — it
-    /// is `OpenDayIntent`'s bounds check, not this function, that refuses it.
-    /// Pinned so a later "return nil when empty" refactor has to argue with a
-    /// test rather than silently change where the refusal lives.
+    /// zero-length window at the season's end. A day key still comes out —
+    /// and it lands exactly on `weeks[8].end`'s day, which is the season's
+    /// last day and therefore inside `ViewWindow.navigableBounds`, so
+    /// `OpenDayIntent` navigates there rather than refusing (pinned in
+    /// `OpenDayTargetTests.weekNineNextWeekNavigatesToTheSeasonsLastDay`).
+    /// Landing on the last day is more useful than a refusal for a day that
+    /// genuinely is reachable. Pinned here so a later "return nil when
+    /// empty" refactor has to argue with a test rather than silently change
+    /// what key comes out.
     @Test func targetDayKeyForNextWeekInWeekNineStillProducesAKey() throws {
         let weeks = SeasonCalendar.weeks(forYear: 2026)
         let inWeekNine = weeks[8].start.addingTimeInterval(3600)
