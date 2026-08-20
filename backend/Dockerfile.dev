@@ -33,4 +33,12 @@ EXPOSE 3001
 # an anonymous volume over tools/publisher-format/dist so this output stays
 # inside the container: writing it into the bind-mounted host tree as root is
 # what left host-side `npm install` failing with EPERM.
-CMD ["sh", "-c", "cd /app && npm run build --workspace=tools/publisher-format && cd /app/backend && npm run dev"]
+#
+# init-tables runs before the dev server on every start, not just the first:
+# DynamoDB Local runs with -inMemory, so tables (and data) vanish whenever
+# that container restarts. The script is idempotent and waits internally for
+# DynamoDB to accept connections (depends_on orders start, not readiness).
+# Chaining with && means the dev server never comes up against a missing
+# schema — and setup-local.sh's backend health check therefore also implies
+# the tables exist.
+CMD ["sh", "-c", "cd /app && npm run build --workspace=tools/publisher-format && cd /app/backend && npm run init-tables && npm run dev"]

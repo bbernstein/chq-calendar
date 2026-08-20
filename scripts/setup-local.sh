@@ -54,6 +54,7 @@ port_owner() {
         3001) echo "chq-calendar-backend" ;;
         8000) echo "chq-calendar-dynamodb" ;;
         8001) echo "chq-calendar-dynamodb-admin" ;;
+        4566) echo "chq-calendar-localstack" ;;
         *)    echo "" ;;
     esac
 }
@@ -87,6 +88,7 @@ check_port 3000
 check_port 3001
 check_port 8000
 check_port 8001
+check_port 4566
 
 # No manual `docker network create` here: docker-compose.yml declares the
 # network without a `name:`, so Compose creates and owns its own network named
@@ -139,6 +141,10 @@ wait_for "DynamoDB Local" 8000 http://localhost:8000        || all_ready=false
 wait_for "Backend API"    3001 http://localhost:3001/health || all_ready=false
 wait_for "Frontend"       3000 http://localhost:3000        || all_ready=false
 wait_for "DynamoDB Admin" 8001 http://localhost:8001        || all_ready=false
+# /_localstack/health rather than /: LocalStack's root path 404s. This check
+# exists because a license-gated or otherwise broken LocalStack exits shortly
+# after start, which every check above is blind to (issue #247 item 1).
+wait_for "LocalStack (S3)" 4566 http://localhost:4566/_localstack/health || all_ready=false
 
 # Fail loudly rather than printing the success banner over a broken stack.
 # `npm run setup` runs this script, so a zero exit here is a health claim that
@@ -163,6 +169,7 @@ echo "   • Frontend:        http://localhost:3000"
 echo "   • Backend API:     http://localhost:3001"
 echo "   • DynamoDB Local:  http://localhost:8000"
 echo "   • DynamoDB Admin:  http://localhost:8001"
+echo "   • LocalStack (S3): http://localhost:4566"
 echo ""
 echo "🔧 Useful commands:"
 echo "   • View logs:       docker compose logs -f"
@@ -173,7 +180,8 @@ echo "                      (--renew-anon-volumes is required after any"
 echo "                       package.json / package-lock.json change)"
 echo ""
 echo "🗄️  Database:"
-echo "   • DynamoDB tables will be created automatically"
+echo "   • DynamoDB tables are created by the backend container on every"
+echo "     start (see backend/Dockerfile.dev; npm run init-tables is idempotent)"
 echo "   • DynamoDB Local runs with -inMemory: data is discarded whenever"
 echo "     the container restarts"
 echo "   • Use DynamoDB Admin UI to view/edit data"
