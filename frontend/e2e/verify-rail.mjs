@@ -36,15 +36,19 @@ const FIXED_NOW = new Date(
 async function newPage({ width = 900, height = 900, storage } = {}) {
   // Chautauqua's own timezone, pinned rather than inherited from the runner.
   //
-  // Event `startDate`s are Institution-local and carry no offset, so the app
-  // effectively treats the browser's clock as event-time. CI runs UTC, which
-  // in the afternoon Eastern means the app believes the day's programming has
-  // already ended — under the default `Now` scope today then has no upcoming
-  // events, and `11c ⟳ Now hides once back on today` fails because the anchor
-  // cannot land on today. Reproduced by A/B: this suite passes in Eastern and
-  // fails in UTC on `main` as well as on any branch, so `browser-checks` was
-  // failing for everyone after roughly 20:00 UTC and passing earlier in the
-  // day.
+  // **Kept for belt-and-braces only — it is no longer load-bearing, and the
+  // paragraph that used to be here was wrong.** It claimed the app "treats the
+  // browser's clock as event-time" because `startDate`s are Institution-local
+  // and carry no offset. That was true when it was written and #243 ("resolve
+  // every date in the Institution's timezone") made it false: `parseEventDate`
+  // now reads a naive `startDate` as Institution wall time, `dayKeyOf` resolves
+  // the day key in `CHQ_ZONE`, and `chqDateAt` builds instants from
+  // Institution parts. Verified by running this whole suite under
+  // `Asia/Tokyo`: 36/36, identical to Eastern.
+  //
+  // The stale claim outlived its truth long enough to mislead a later reader
+  // of this file into believing there was an unfixed product bug, so it is
+  // recorded here as wrong rather than quietly deleted.
   //
   // **The timezone pin alone was not enough**, and the original version of
   // this comment claimed otherwise. It fixed the afternoon-*UTC* case and left
@@ -72,11 +76,14 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
   // So the clock is pinned too, below, and that is what actually makes these
   // checks independent of the hour.
   //
-  // This pins the TEST's clock, not the app's. Whether `now` ought to be
-  // evaluated in the Institution's timezone rather than the device's is a real
-  // product question — a visitor on a non-Eastern device late in their local
-  // day sees today's events as already past — and is deliberately left alone
-  // here rather than answered by a test harness.
+  // This pins the TEST's clock, not the app's, and it fixes a test-harness
+  // problem rather than a product one. The product question this used to raise
+  // — should `now` be evaluated in the Institution's timezone rather than the
+  // device's — is already answered in the app: it is. `verify-timezone.mjs`
+  // holds the standing proof, asserting that `America/New_York`, `UTC`,
+  // `America/Los_Angeles` and `Asia/Tokyo` all agree on the days shown, the
+  // day headers, the event times, which day is today, and which events are
+  // upcoming.
   const ctx = await browser.newContext({
     viewport: { width, height },
     timezoneId: 'America/New_York',
