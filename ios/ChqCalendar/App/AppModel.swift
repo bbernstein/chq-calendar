@@ -2,6 +2,27 @@ import Foundation
 import Observation
 import UserNotifications
 
+/// Everything the **non-date** filters admit, anywhere navigation can reach —
+/// the day rail's source of truth.
+///
+/// The rail spans the navigable bounds, not the current window, so counting
+/// from `dayGroups` would mark every day outside the current scope "no events"
+/// and make the rail a readout of the filter it exists to navigate past.
+///
+/// Cached rather than computed on access: building it is a full
+/// `EventFilter.apply` pass, and the rail reads it once per chip.
+nonisolated struct NavMatching: Equatable, Sendable {
+    /// Days with at least one matching event, sorted. Navigation steps
+    /// through exactly this set, so a step always lands somewhere that will
+    /// render.
+    let eventDays: [String]
+    /// How many matching events each of `eventDays` holds. A day absent from
+    /// this map has none.
+    let countsByDay: [String: Int]
+    /// The outer limit of everything navigation can reach.
+    let bounds: ClosedRange<String>
+}
+
 /// The app's single source of truth: owns the currently-loaded calendar
 /// snapshot, the user's filter/favorite state, and every action a view can
 /// trigger. `@MainActor` because it's read and mutated directly by SwiftUI
@@ -36,7 +57,7 @@ final class AppModel {
     var snapshot: CalendarSnapshot? {
         didSet {
             normalizePersistedFilterCasing()
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -45,9 +66,14 @@ final class AppModel {
     /// Rebuilt only when an input actually changes — the snapshot, the
     /// filter, the favorites set, or the year — never on render. Each
     /// rebuild is two `EventFilter.apply` passes over the snapshot (see
-    /// `FacetCounts`), which is affordable at that cadence and would not be
-    /// per-render.
+    /// `FacetCounts`), plus a third for `navMatching` alongside it (see
+    /// `rebuildDerivedCounts`), which together are affordable at that
+    /// cadence and would not be per-render.
     private(set) var facetCounts: FacetCounts = .empty
+
+    /// See `NavMatching`. `nil` until a snapshot exists — there is no rail to
+    /// draw before then.
+    private(set) var navMatching: NavMatching?
 
     /// The user's most-recently-used venue and category filters.
     private(set) var recents: RecentFilters
@@ -57,14 +83,14 @@ final class AppModel {
     var filter: FilterSelection {
         didSet {
             guard filter != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
     var favorites: Set<String> {
         didSet {
             guard favorites != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -99,7 +125,7 @@ final class AppModel {
     var selectedYear: Int {
         didSet {
             guard selectedYear != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -108,7 +134,7 @@ final class AppModel {
     var defaultYear: Int {
         didSet {
             guard defaultYear != oldValue else { return }
-            rebuildFacetCounts()
+            rebuildDerivedCounts()
         }
     }
 
@@ -1236,24 +1262,67 @@ final class AppModel {
         }
     }
 
-    /// Widens the window by one calendar day from wherever it currently ends
-    /// — the same operation whether that end came from the scope or from a
-    /// previous widening.
+    /// Widens the window forward to the nearest later day that has events
+    /// under the current non-date filters.
+    ///
+    /// **Not the next calendar day**, which is what this did before phase 3b.
+    /// With Favourites on, or any search or venue filter that leaves gaps,
+    /// the adjacent day usually has no matches: the edge moves, nothing new
+    /// mounts, and the control reads as dead. Pressing again recomputes the
+    /// same dead target. The web rail ships the corrected rule and
+    /// `DayRailNavigation.stepTargets` documents why.
     func expandWindowEnd() {
-        let bounds = ViewWindow.navigableBounds(
-            year: selectedYear, events: snapshot?.events ?? [], starredDays: [])
-        guard
-            let window = ViewWindow.make(
-                selection: filter, events: snapshot?.events ?? [], now: now(),
-                year: selectedYear, isCurrentYear: isCurrentYear, bounds: bounds),
-            let next = ChqTime.day(window.endDay, offsetBy: 1),
-            next <= bounds.upperBound
+        guard let later = DayRailNavigation.edgeTargets(
+            eventDays: navMatching?.eventDays ?? [], window: currentWindow).later
         else { return }
-        filter.windowEndDayKey = next
+        filter.windowEndDayKey = later
+    }
+
+    /// *Take me to that day.* Grows at most one edge of the window to include
+    /// `dayKey`, then leaves the scrolling to the view.
+    ///
+    /// Returns whether the target was accepted, so a caller can decide not to
+    /// queue a scroll for a day that will never arrive. A target outside the
+    /// navigable bounds, or any target at all while the scope resolves to no
+    /// window, is refused rather than clamped: clamping would move the window
+    /// to an edge and then scroll to a day that is not there.
+    ///
+    /// Unlike an empty *step*, an empty *day* is a legal target. The reader
+    /// asked for that day by name and the rail's own label already told them
+    /// it has nothing; landing there is honest, and it is how they get to the
+    /// days on either side.
+    ///
+    /// The window is assembled and assigned once. `filter`'s `didSet` rebuilds
+    /// every derived count, so two assignments would run the pipeline twice
+    /// for one tap.
+    @discardableResult
+    func goToDay(_ dayKey: String) -> Bool {
+        guard let plan = DayRailNavigation.plan(
+            target: dayKey, window: currentWindow, bounds: navigableBounds)
+        else { return false }
+
+        var next = filter
+        if let start = plan.expandStart { next.windowStartDayKey = start }
+        if let end = plan.expandEnd { next.windowEndDayKey = end }
+        filter = next
+        return true
     }
 
     private func persistFilter() {
         store.saveFilters(filter)
+    }
+
+    /// Recomputes everything derived from (snapshot × filter × favorites ×
+    /// year): the facet counts behind the filter sheet, and the navigation
+    /// data behind the day rail.
+    ///
+    /// `facetCounts` is rebuilt on every call — it depends on the window,
+    /// via the date scope, so there is no cheaper answer for it.
+    /// `navMatching` does not: `rebuildNavMatchingIfNeeded()` below skips its
+    /// own pass whenever nothing that could change the result has changed.
+    private func rebuildDerivedCounts() {
+        rebuildFacetCounts()
+        rebuildNavMatchingIfNeeded()
     }
 
     /// Recomputes `facetCounts` against the current selection.
@@ -1275,6 +1344,143 @@ final class AppModel {
             now: now(),
             year: selectedYear,
             isCurrentYear: isCurrentYear)
+    }
+
+    /// Everything that can change what `rebuildNavMatching()` computes:
+    /// the snapshot's identity (`fetchedAt` stands in for `CalendarSnapshot`
+    /// itself, which isn't `Equatable` — the same convention
+    /// `resolvePendingEventDeepLinkIfPossible`'s doc comment explains),
+    /// favourites, and the *non-window* filter identity. `PendingDayScroll.Key`
+    /// already models exactly that — it exists to say "the reader left the
+    /// context a tap was made under", which is the identical question this
+    /// needs answered, just for a rebuild instead of a stale-scroll check —
+    /// so this reuses it (including its `year`) rather than inventing a
+    /// second, parallel notion of "the filter identity that isn't the
+    /// window." `windowStartDayKey`/`windowEndDayKey` are excluded by that
+    /// same `Key`, which is exactly right here too: `rebuildNavMatching()`
+    /// clears both before calling `EventFilter.apply`, so they never affect
+    /// its result.
+    private struct NavMatchingInputs: Equatable {
+        let snapshotFetchedAt: Date?
+        let favorites: Set<String>
+        let filterKey: PendingDayScroll.Key
+    }
+
+    /// The inputs `navMatching` was last computed from — `nil` until the
+    /// first rebuild (mirroring `navMatching` itself being `nil` before a
+    /// snapshot exists).
+    private var lastNavMatchingInputs: NavMatchingInputs?
+
+    #if DEBUG
+    /// Counts every completed `rebuildNavMatching()` pass — test-only
+    /// instrumentation (`AppModelTests`/`NavMatchingTests`) for pinning that
+    /// a window-only filter mutation is skipped here, not just that it
+    /// leaves `navMatching` unchanged (which an identical recompute would
+    /// also do).
+    private(set) var navMatchingRebuildCount = 0
+    #endif
+
+    /// Recomputes `navMatching` only when one of its actual inputs changed —
+    /// see `NavMatchingInputs`. `goToDay` and `expandWindowEnd` (the latter
+    /// fired repeatedly by scroll-driven auto-expansion) only ever write
+    /// `windowStartDayKey`/`windowEndDayKey`, which `NavMatchingInputs`
+    /// excludes by construction, so every window-only tick lands on the
+    /// `guard` below and skips the `EventFilter.apply` pass over ~1,686
+    /// events that a full `rebuildNavMatching()` would otherwise repeat for
+    /// a provably identical result.
+    private func rebuildNavMatchingIfNeeded() {
+        guard let snapshot else {
+            navMatching = nil
+            lastNavMatchingInputs = nil
+            return
+        }
+        // `PendingDayScroll.key` is deliberately *wider* than this cache
+        // strictly needs: it carries `dateScope` and `selectedDayKey`, which
+        // `rebuildNavMatching()` immediately overwrites with `.all`/`nil`, so
+        // a pure scope change or a browse-day change re-runs a pass whose
+        // result cannot differ. That waste is accepted on purpose.
+        //
+        // The expensive case this guard exists for is `expandWindowEnd()`
+        // firing repeatedly as the reader scrolls — window-only changes, which
+        // the key excludes and which are therefore correctly skipped. What
+        // remains is one redundant pass per deliberate scope tap, which no
+        // reader can perceive. A narrower, purpose-built fingerprint would
+        // save that pass and introduce a far worse failure mode: omit one
+        // input that does matter (weeks, venues, categories, favourites-only,
+        // search) and `navMatching` goes silently stale, which shows up as a
+        // rail quietly disagreeing with the list rather than as a test
+        // failure. Reusing one key that is known-complete beats hand-tuning a
+        // second one that has to stay complete forever.
+        let inputs = NavMatchingInputs(
+            snapshotFetchedAt: snapshot.fetchedAt,
+            favorites: favorites,
+            filterKey: PendingDayScroll.key(for: filter, year: selectedYear))
+        guard inputs != lastNavMatchingInputs else { return }
+        lastNavMatchingInputs = inputs
+        rebuildNavMatching()
+    }
+
+    /// The filter pipeline re-run with the date stage wide open.
+    ///
+    /// `.all` rather than "skip the stage": there is one date stage and it is
+    /// driven by the scope, so opening it is expressed the same way the user
+    /// would. `selectedDayKey` and both window keys are cleared with it —
+    /// leaving them set would let a `.day` selection or a previous expansion
+    /// narrow the very set that decides how far navigation may go.
+    ///
+    /// `selectedWeeks` deliberately stays. Weeks are a filter the reader
+    /// chose, not a scope edge to escape, and the web's `nonDateFilterOpts`
+    /// keeps them for the same reason.
+    ///
+    /// Called only from `rebuildNavMatchingIfNeeded()`, which is what
+    /// decides whether a rebuild is actually owed — never call this
+    /// directly from a `didSet` or action method.
+    private func rebuildNavMatching() {
+        #if DEBUG
+        navMatchingRebuildCount += 1
+        #endif
+        guard let snapshot else {
+            navMatching = nil
+            return
+        }
+
+        var open = filter
+        open.dateScope = .all
+        open.selectedDayKey = nil
+        open.windowStartDayKey = nil
+        open.windowEndDayKey = nil
+
+        let matching = EventFilter.apply(
+            open, to: snapshot.events, favorites: favorites,
+            now: now(), year: selectedYear, isCurrentYear: isCurrentYear)
+
+        var counts: [String: Int] = [:]
+        for event in matching {
+            counts[ChqTime.dayKey(for: event.start), default: 0] += 1
+        }
+
+        navMatching = NavMatching(
+            eventDays: counts.keys.sorted(),
+            countsByDay: counts,
+            bounds: ViewWindow.navigableBounds(
+                year: selectedYear, events: snapshot.events, starredDays: []))
+    }
+
+    /// Everything navigation can reach. Falls back to the season-only range
+    /// before a snapshot exists, so a control asking "is this day reachable"
+    /// never has to handle a missing answer.
+    var navigableBounds: ClosedRange<String> {
+        navMatching?.bounds ?? DayWindow.bounds(year: selectedYear, starredDays: [])
+    }
+
+    /// The window the list is currently showing, or `nil` when the scope
+    /// resolves to no window at all. The rail's controls all key off this:
+    /// a nil window refuses every tap, because expansion cannot rescue it.
+    var currentWindow: ViewWindow? {
+        guard let snapshot else { return nil }
+        return ViewWindow.make(
+            selection: filter, events: snapshot.events, now: now(),
+            year: selectedYear, isCurrentYear: isCurrentYear, bounds: navigableBounds)
     }
 
     /// Persisted `selectedLocations`/`selectedCategories` may carry different
@@ -1367,6 +1573,29 @@ final class AppModel {
     /// present; consumed (and reset) by whichever `WeekThemeBadge` matches
     /// `uiTestFirstThemedWeek` below (see `EventListView.dayHeader`).
     var uiTestShowWeekTheme = false
+
+    /// Seconds `EventListView.landPendingScroll` should hold off resolving
+    /// the *very next* pending scroll it sees, set by `CalendarView` from
+    /// `-uitest-delay-pending-scroll` and consumed (reset to `0`) by
+    /// `EventListView.selectDay` the moment a tap arms a target.
+    ///
+    /// Exists because a real device resolves a pending scroll within the
+    /// same SwiftUI commit that arms it — `PendingDayScroll`'s staleness
+    /// check (Important 1, task 9 review) exists for exactly the case where
+    /// the reader changes scope *before* that commit lands, but no UI test
+    /// can reliably win that race: every `XCUIElement` action first waits
+    /// for the app to go idle, and idle-detection tracks in-flight
+    /// animations/layout, not this view's own `pendingScroll` state — so by
+    /// the time a second synthesized tap is even sent, the first commit has
+    /// always already resolved (confirmed empirically: the tapped day was
+    /// already `isHittable` while a *sheet was still presenting* over it,
+    /// before any second action could run). The delay is scheduled via
+    /// `DispatchQueue.main.asyncAfter`, which — unlike a `CADisplayLink` or
+    /// animation — does not register as app activity, so XCUITest sees the
+    /// app as idle and hands control back to the test immediately after the
+    /// tap, giving it a real window to act in. `0` (the default, and the
+    /// value in every real launch) keeps this path fully inert.
+    var uiTestPendingScrollDelay: TimeInterval = 0
 
     /// The first `(day, week)` pairing — in `days` display order — whose
     /// badge actually has a theme. The deterministic target for

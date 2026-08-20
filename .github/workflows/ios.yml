@@ -37,7 +37,7 @@ jobs:
     # duplicate. Fork PRs get no `push` event on this repo, so they are the
     # one case that must run on `pull_request`.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == true
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v7
@@ -154,6 +154,14 @@ jobs:
         # masks a real latent fragility in the suite rather than fixing it —
         # tracked separately; see the follow-up issue referenced in the PR.
         # Do not drop this flag without re-measuring on a 3-core runner.
+        #
+        # ChqCalendarUITests (added in phase 3b) runs in this same invocation.
+        # UI tests are slow — each one boots the app — so the timeout above is
+        # 60 rather than 45. They are also the reason
+        # -parallel-testing-enabled NO matters twice over: two XCUITest
+        # classes running concurrently on a 3-core runner contend for the
+        # single booted simulator, which fails as "Application is not
+        # running" rather than as anything resembling the real cause.
         run: |
           set -euo pipefail
           cd ios

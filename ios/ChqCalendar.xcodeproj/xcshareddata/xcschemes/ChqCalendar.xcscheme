@@ -39,6 +39,16 @@
                ReferencedContainer = "container:ChqCalendar.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "37F7F511D77FE81B29343572"
+               BuildableName = "ChqCalendarUITests.xctest"
+               BlueprintName = "ChqCalendarUITests"
+               ReferencedContainer = "container:ChqCalendar.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

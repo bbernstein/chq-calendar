@@ -27,6 +27,141 @@ struct EventListView: View {
     /// Which pill's sheet is up, if any.
     @State private var activeSheet: FilterBarSheet?
 
+    /// Which day the rail highlights when nothing else claims it (no
+    /// scroll-derived anchor yet, no pending tap). View state: derived from
+    /// what is on screen, never persisted, and never part of the filter.
+    @State private var anchorDay: String?
+
+    /// Day sections currently on screen, maintained from section-header
+    /// appearance rather than a per-section geometry probe.
+    ///
+    /// `List` recycles views, and a recycled `GeometryReader` sentinel is
+    /// what made this project raise its deployment target to iOS 18 — so a
+    /// geometry read per section (`onScrollGeometryChange` + a preference
+    /// key per row) is the approach with a known failure mode here.
+    /// `onAppear`/`onDisappear` on the section *header* uses `List`'s own
+    /// lifecycle instead and adds no per-frame geometry work.
+    ///
+    /// Measured on iPhone 17 Pro, iOS 26.1 simulator, 2026-08-18, via two
+    /// throwaway XCUITests against the `-uitest-fixture` list (neither
+    /// committed):
+    ///
+    /// **Slow drags** (20 steps, ~0.15-screen `press(forDuration:thenDragTo:)`
+    /// each) — logged which chip was selected and which day-title header was
+    /// topmost on screen after each step. Selected day advanced from
+    /// 2026-07-01 to 2026-08-05, strictly non-decreasing across all 20
+    /// steps.
+    ///
+    /// **Fast swipes** (8 steps of `swipeUp(velocity: .fast)` — the same
+    /// gesture the committed `testTheHighlightFollowsTheReaderDownTheList`
+    /// uses, and what real readers actually do; `List` view recycling, the
+    /// thing this whole approach exists to avoid, misfires far more readily
+    /// under large fast deltas than small controlled ones, so this is the
+    /// gesture that actually stresses it) — same logging, plus the raw
+    /// `visibleDays` set contents at each step (via a temporary debug
+    /// accessibility element). Selected day advanced from 2026-07-01 to
+    /// 2026-08-06 over the 8 swipes (each covering ~4-6 days, several times
+    /// the slow-drag step size), strictly non-decreasing across all 8.
+    /// **In every one of the 9 samples, `selected == visibleDays.min()`
+    /// exactly**, and each step's set was small (3-4 entries) and tightly
+    /// clustered around the current position — never an orphaned low key
+    /// held over from several swipes back, which is what a stuck
+    /// `onDisappear` would look like (a set that either grows unboundedly or
+    /// keeps a stale minimum no longer near the rest of the entries). That
+    /// directly rules out a stuck `onDisappear` under the gesture that would
+    /// actually expose one.
+    ///
+    /// Both runs also showed the selected chip occasionally *not* matching
+    /// the independently-measured "topmost header" — always with the header
+    /// slightly ahead, never behind. The fast-swipe run's `visibleDays` logs
+    /// show why: on every one of those misses, the header measurement's own
+    /// query (`frame.minY > rail.frame.maxY`, a simple boundary check) had
+    /// skipped a section header that was still legitimately in
+    /// `visibleDays` but sitting pinned behind/under the rail rather than
+    /// fully clear of it — a limitation of that ad hoc measurement query,
+    /// not of the anchor. The anchor itself was correct in every sample.
+    ///
+    /// Kept as-is; approach B (`.onScrollGeometryChange`) was not needed.
+    @State private var visibleDays: Set<String> = []
+
+    /// The last day whose final row triggered `expandWindowEnd()`. Guards
+    /// `autoExpandIfAtTheEnd` against firing again the instant the newly
+    /// appended day's own final row appears — see that function's doc.
+    @State private var autoExpandedThrough: String?
+
+    /// A day the reader has asked for that has not mounted yet, stamped with
+    /// the filter identity it was tapped under.
+    ///
+    /// Set by a tap, cleared when the day arrives — or when waiting becomes
+    /// pointless. A target that is never cleared survives every later commit
+    /// and hijacks one of them, scrolling the reader to a day they tapped
+    /// under a different scope, minutes ago — the `PendingDayScroll.Key`
+    /// stamp is what `landPendingScroll` checks to catch a scope change that
+    /// `DayRailNavigation.shouldAbandonScroll` alone cannot see (that check
+    /// only fires once the window covers the target; a scope change can move
+    /// the window *away* from the target without ever covering it).
+    @State private var pendingScroll: PendingDayScroll.Target?
+
+    /// A day the reader explicitly chose — by tapping a chip or a step
+    /// control — that outranks `scrollAnchor` until the reader actually
+    /// scrolls the list themselves.
+    ///
+    /// Fixes the report that the rail loses its highlight after a tap: once
+    /// `pendingScroll` resolves (synchronously, for a target already inside
+    /// the window — see `resolvePendingScroll`), authority used to fall
+    /// straight back to `scrollAnchor`, whose `visibleDays.min()` — per the
+    /// long finding on `visibleDays` above — lands a day or two short of
+    /// where a `.top`-anchored `scrollTo` actually put the reader, because
+    /// `List` keeps an off-screen earlier header's `onAppear` counted after
+    /// a programmatic jump. That pointed the rail at a chip the reader
+    /// hadn't chosen and wasn't looking at. Pinning the tapped day here,
+    /// ranked above `scrollAnchor`, keeps the rail on the day the reader
+    /// actually asked for regardless of that imprecision.
+    ///
+    /// Reuses `PendingDayScroll.Target`/`Key` rather than a second staleness
+    /// notion: the same "everything but the window-expansion fields"
+    /// identity that makes a pending scroll stale after a scope change makes
+    /// a pinned selection stale for exactly the same reason, so
+    /// `PendingDayScroll.isStale` answers both.
+    @State private var pinnedSelection: PendingDayScroll.Target?
+
+    #if DEBUG
+    /// The wall-clock moment the current `pendingScroll` is allowed to
+    /// resolve, stamped from `model.uiTestPendingScrollDelay` — see that
+    /// property's doc. `nil` whenever the hook is inactive (every real
+    /// launch, and any tap not covered by `-uitest-delay-pending-scroll`),
+    /// which keeps this whole path inert.
+    ///
+    /// A *deadline* rather than a countdown consumed by the first caller:
+    /// `list(days:)` wires two independent triggers onto `landPendingScroll`
+    /// (`days.map(\.id)` and `pendingScroll` itself), and a distant tap can
+    /// fire both in the same SwiftUI commit. A one-shot delay let whichever
+    /// trigger ran second see it already spent and resolve synchronously —
+    /// defeating the hold entirely. Stamping a deadline once, at arm time,
+    /// means every later call — no matter how many, or from which trigger —
+    /// re-checks the same clock and keeps deferring until it has actually
+    /// passed.
+    @State private var pendingScrollDeadline: Date?
+    #endif
+
+    /// The earliest visible day section — the day whose header is at (or
+    /// just above) the top of the viewport. `min()` on day-key strings works
+    /// because `DayGroup.id` sorts lexicographically the same as
+    /// chronologically (`yyyy-MM-dd`).
+    private var scrollAnchor: String? { visibleDays.min() }
+
+    /// `pinnedSelection`, if it is still current: neither stale under the
+    /// filter identity it was chosen under, nor a day navigation can no
+    /// longer reach (a filter change can narrow `nav.bounds` out from under
+    /// a day that was in range when it was tapped).
+    private func pinnedSelectionDay(in nav: NavMatching) -> String? {
+        guard let pinnedSelection else { return nil }
+        let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
+        guard !PendingDayScroll.isStale(pinnedSelection, currentKey: currentKey) else { return nil }
+        guard nav.bounds.contains(pinnedSelection.day) else { return nil }
+        return pinnedSelection.day
+    }
+
     private enum FilterBarSheet: String, Identifiable {
         case date
         case filters
@@ -44,6 +179,11 @@ struct EventListView: View {
             // Only once there is a snapshot to filter against — during
             // launch or the offline/error states the pills would summarise
             // nothing.
+            .safeAreaInset(edge: .top) {
+                if model.snapshot != nil, let nav = model.navMatching {
+                    dayRail(nav)
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 if model.snapshot != nil {
                     filterPillBar
@@ -106,6 +246,212 @@ struct EventListView: View {
     }
     #endif
 
+    /// The day rail: every day navigation can reach, with how many events
+    /// each holds under the current non-date filters.
+    ///
+    /// Mounted on `content` via `.safeAreaInset(edge: .top)` — the mirror of
+    /// `filterPillBar` at the bottom — so it is chrome rather than content.
+    /// A `safeAreaInset` bar contributes its height to the scroll view's safe
+    /// area exactly as a toolbar would, so the list insets its own content
+    /// and its scroll indicator to clear it without any margin of ours.
+    ///
+    /// The span is `navigableBounds`, deliberately independent of the current
+    /// scope: in `Today` it still shows the week around you, because the rail
+    /// is a navigation surface, not a filter readout.
+    private func dayRail(_ nav: NavMatching) -> some View {
+        let todayKey = ChqTime.dayKey(for: model.now())
+        // A pending tap outranks everything else until it lands, so a tap
+        // does not flicker back to where the reader was; the pinned
+        // selection then outranks the scroll anchor, so the rail stays on
+        // the day the reader chose rather than the imprecise scroll-derived
+        // one — see `pinnedSelection`'s doc; the scroll anchor outranks the
+        // stale `anchorDay` fallback, which only still matters before any
+        // section header has appeared at all.
+        let anchor = pendingScroll?.day ?? pinnedSelectionDay(in: nav) ?? scrollAnchor ?? anchorDay
+        let step = DayRailNavigation.stepTargets(anchor: anchor, eventDays: nav.eventDays)
+        let reachableToday = DayRailNavigation.reachableTodayKey(
+            model.isCurrentYear ? todayKey : nil, bounds: nav.bounds)
+
+        return DayRailView(
+            entries: MyDayChipContent.makeAll(
+                days: ChqTime.dayKeys(from: nav.bounds.lowerBound, through: nav.bounds.upperBound),
+                todayKey: todayKey,
+                counts: nav.countsByDay,
+                style: .events,
+                includingYear: !model.isCurrentYear),
+            selectedDay: anchor,
+            accessibilityLabel: "Days in the season",
+            disablesEmptyDays: true,
+            onSelect: selectDay,
+            leading: {
+                if let reachableToday {
+                    nowButton(reachableToday, nav: nav)
+                }
+                DayStepControl(
+                    symbol: "chevron.left",
+                    identifier: "day-step-previous",
+                    destinationLabel: step.previous.map { stepLabel(for: $0, nav: nav) },
+                    emptyLabel: "No earlier days with events"
+                ) {
+                    if let previous = step.previous { selectDay(previous) }
+                }
+            },
+            trailing: {
+                DayStepControl(
+                    symbol: "chevron.right",
+                    identifier: "day-step-next",
+                    destinationLabel: step.next.map { stepLabel(for: $0, nav: nav) },
+                    emptyLabel: "No later days with events"
+                ) {
+                    if let next = step.next { selectDay(next) }
+                }
+            })
+        .background(.bar)
+    }
+
+    /// `⟳ Now`: navigation, never a filter change — the spec is explicit
+    /// that ⟳ Now "does not touch scope, weeks, categories, or search," the
+    /// same premise the web's `goToToday` (`page.tsx`) is built on. This is
+    /// exactly `selectDay(todayKey)`: whatever edge needs to grow to reach
+    /// today grows, a scroll is queued, and nothing else about the filter
+    /// moves. A reader with a week filter active keeps it after tapping Now.
+    ///
+    /// There used to be an `AppModel.resetToNow()` here too, which collapsed
+    /// accumulated expansion and cleared weeks/scope before this scrolled —
+    /// exactly the filter-touching behavior the spec rules out. It had no
+    /// other caller, so it was deleted rather than left vestigial.
+    ///
+    /// Rendered only when `reachableToday` is non-`nil` (in-season, current
+    /// year): `DayRailNavigation.reachableTodayKey` returns `nil` for most of
+    /// the year, and a control whose target is refused by `selectDay` would
+    /// be visible, enabled, and do nothing — disabled-not-hidden is for a
+    /// control with *no* destination, not one whose destination is invalid.
+    private func nowButton(_ todayKey: String, nav: NavMatching) -> some View {
+        Button {
+            selectDay(todayKey)
+        } label: {
+            Label("Now", systemImage: "arrow.clockwise")
+                .labelStyle(.iconOnly)
+                .font(.subheadline.weight(.semibold))
+                // `.primary`, not the default accent tint — see
+                // `DayStepControl`'s matching comment for why.
+                .foregroundStyle(.primary)
+                // Minimum, not fixed (accessibility follow-up to #245) —
+                // see `DayStepControl`'s matching comment for why.
+                .frame(minWidth: 44, minHeight: 62)
+                .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(stepLabel(for: todayKey, nav: nav))
+        .accessibilityIdentifier("day-rail-now")
+    }
+
+    /// A day's spoken name, built from the same `MyDayChipContent` the
+    /// rail's own chips use — so a control and the chip it points at can
+    /// never describe the same day differently.
+    ///
+    /// Also what `⟳ Now`'s label uses: its target is always today, so
+    /// `content.accessibilityLabel` already says so on its own ("Go to
+    /// Wednesday, July 1, today, 3 events") — no bespoke "Go to today"
+    /// prefix is needed, and adding one would say "today" twice.
+    private func stepLabel(for dayKey: String, nav: NavMatching) -> String {
+        let content = MyDayChipContent.make(
+            dayKey: dayKey,
+            todayKey: ChqTime.dayKey(for: model.now()),
+            count: nav.countsByDay[dayKey] ?? 0,
+            style: .events,
+            includingYear: !model.isCurrentYear)
+        return content?.accessibilityLabel ?? dayKey
+    }
+
+    /// A day rail chip was tapped. Grows at most one edge of the window if
+    /// the day lies past it, then queues a scroll for `list(days:)` to land
+    /// once the day mounts. Refused targets (outside the navigable bounds)
+    /// leave `pendingScroll` untouched, so no scroll is queued for a day
+    /// that will never arrive.
+    ///
+    /// `model.goToDay` has already applied the window expansion by the time
+    /// `PendingDayScroll.key` reads `model.filter` below, but that's fine:
+    /// the key deliberately excludes the window fields, so the expansion it
+    /// just performed can never itself be read as a mismatch.
+    private func selectDay(_ dayKey: String) {
+        guard model.goToDay(dayKey) else { return }
+        anchorDay = dayKey
+        let target = PendingDayScroll.Target(
+            day: dayKey,
+            key: PendingDayScroll.key(for: model.filter, year: model.selectedYear))
+        pendingScroll = target
+        pinnedSelection = target
+        #if DEBUG
+        // `model.uiTestPendingScrollDelay` is still consumed once, here —
+        // reset to `0` so only this one arm is delayed, not every tap after
+        // it. What changes is what the delay becomes: a deadline stamped
+        // against this arm, not a countdown the first `landPendingScroll`
+        // call burns for every trigger that follows in the same commit.
+        let delay = model.uiTestPendingScrollDelay
+        pendingScrollDeadline = delay > 0 ? Date().addingTimeInterval(delay) : nil
+        model.uiTestPendingScrollDelay = 0
+        #endif
+    }
+
+    /// Land a pending target if its day has mounted; give up if it never
+    /// will, or if the reader has since left the scope/filters it was
+    /// tapped under (`PendingDayScroll.isStale`) — a scope change can move
+    /// the window away from the target without ever covering it, which
+    /// `DayRailNavigation.shouldAbandonScroll` alone cannot see.
+    ///
+    /// **Deliberately unanimated.** A smooth scroll does not re-target
+    /// mid-flight: on the web the equivalent animation ran ~2s while the
+    /// document grew 1020px beneath it, and the tap landed ~1058px short of
+    /// its target. Growing content plus a smooth scroll is a race the scroll
+    /// loses.
+    private func landPendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
+        guard pendingScroll != nil else { return }
+
+        #if DEBUG
+        if let deadline = pendingScrollDeadline {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining > 0 {
+                // Re-enter this same function once the deadline is actually
+                // up, rather than resolving unconditionally — any number of
+                // calls landing here before then (the two triggers on
+                // `list(days:)` can both fire from one commit) just
+                // re-schedule against the same still-future deadline and
+                // return, so none of them can jump the line.
+                DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [self] in
+                    landPendingScroll(proxy, days: days)
+                }
+                return
+            }
+            pendingScrollDeadline = nil
+        }
+        #endif
+        resolvePendingScroll(proxy, days: days)
+    }
+
+    /// The actual staleness/mount decision, factored out of `landPendingScroll`
+    /// so `-uitest-delay-pending-scroll` can defer *when* this runs without
+    /// duplicating *what* it does.
+    private func resolvePendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
+        guard let pending = pendingScroll else { return }
+
+        let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
+        if PendingDayScroll.isStale(pending, currentKey: currentKey) {
+            pendingScroll = nil
+            return
+        }
+
+        if days.contains(where: { $0.id == pending.day }) {
+            proxy.scrollTo(pending.day, anchor: .top)
+            pendingScroll = nil
+            return
+        }
+
+        if DayRailNavigation.shouldAbandonScroll(target: pending.day, window: model.currentWindow) {
+            pendingScroll = nil
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         if model.snapshot == nil {
@@ -148,69 +494,149 @@ struct EventListView: View {
         let uiTestThemeTarget = model.uiTestFirstThemedWeek(in: days)
         #endif
 
-        return List(selection: selection) {
-            if let countdownDays = model.countdownDays {
-                CountdownBanner(days: countdownDays)
-            }
-            if model.lastRefreshFailed {
-                OfflineBanner()
-            }
+        return ScrollViewReader { proxy in
+            List(selection: selection) {
+                if let countdownDays = model.countdownDays {
+                    CountdownBanner(days: countdownDays)
+                }
+                if model.lastRefreshFailed {
+                    OfflineBanner()
+                }
 
-            if model.filter.hasFilters, let total = model.snapshot?.events.count {
-                Text("\(filtered.formatted()) of \(total.formatted()) events")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .listRowSeparator(.hidden)
-            }
+                if model.filter.hasFilters, let total = model.snapshot?.events.count {
+                    Text("\(filtered.formatted()) of \(total.formatted()) events")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .listRowSeparator(.hidden)
+                }
 
-            ForEach(days) { day in
-                Section {
-                    ForEach(day.events) { event in
-                        row(for: event)
+                ForEach(days) { day in
+                    Section {
+                        ForEach(day.events) { event in
+                            row(for: event)
+                                .onAppear {
+                                    autoExpandIfAtTheEnd(day: day, event: event, days: days)
+                                }
+                        }
+                    } header: {
+                        #if DEBUG
+                        dayHeader(for: day, uiTestThemeTarget: uiTestThemeTarget)
+                        #else
+                        dayHeader(for: day)
+                        #endif
                     }
-                } header: {
-                    #if DEBUG
-                    dayHeader(for: day, uiTestThemeTarget: uiTestThemeTarget)
-                    #else
-                    dayHeader(for: day)
-                    #endif
+                    .id(day.id)
                 }
             }
+            .listStyle(.plain)
+            .scrollDismissesKeyboard(.immediately)
+            // A reader who grabs the list themselves has moved on from
+            // whatever they last tapped — clear the pin so the highlight
+            // goes back to tracking where they scroll to. Same API the rail
+            // itself already uses for the mirror-image guard (see
+            // `DayRailView.isDragging`'s doc): `.tracking`/`.interacting` is
+            // a finger actually on the list, never the programmatic
+            // `scrollTo` that lands a tap. Gating on those two phases only —
+            // not `.decelerating`/`.animating`/`.idle` — matters here for
+            // the same reason it matters there: the programmatic scroll that
+            // follows a tap must not clear the pin it just set.
+            .onScrollPhaseChange { _, newPhase in
+                if newPhase == .tracking || newPhase == .interacting {
+                    pinnedSelection = nil
+                }
+            }
+            // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
+            // the date/filter pills are no longer a toolbar item — they're this
+            // view's own hand-rolled `filterPillBar`, applied to `content` via
+            // `.safeAreaInset(edge: .bottom)` in `body` above. A
+            // `.safeAreaInset` bar contributes its height to the scroll view's
+            // safe area the same way a real toolbar would, so the list already
+            // insets its content (and its scroll indicator) to clear the pills
+            // without any margin of ours. The inset is owned by the
+            // `.safeAreaInset` modifier itself, not by any state of ours, so
+            // nothing we render can shift the list vertically. Adding a margin
+            // back would double-count it.
+            .refreshable {
+                await model.refresh(force: true)
+            }
+            .navigationDestination(for: Event.self) { event in
+                EventDetailView(event: event, model: model)
+            }
+            // Retried on each commit that brings new days: `days.map(\.id)`
+            // is ~30 strings and already in hand from this render, so
+            // comparing it — rather than reading `model.dayGroups` again —
+            // is what tells the retry a commit actually landed without
+            // paying for a second filter+group pass.
+            .onChange(of: days.map(\.id)) { _, _ in
+                landPendingScroll(proxy, days: days)
+            }
+            // A tap that lands inside the window already (no expansion
+            // needed) never changes `days`, so the trigger above never
+            // fires — `selectDay` arms `pendingScroll` and nothing else
+            // would ever resolve it. Triggering on the target itself closes
+            // that gap. `PendingDayScroll.Target` is `Equatable`, so this
+            // fires once per arm and once more when `resolvePendingScroll`
+            // clears it back to `nil` — `landPendingScroll`'s own
+            // `pendingScroll != nil` guard makes that second call a no-op,
+            // so this cannot re-arm itself in a loop.
+            .onChange(of: pendingScroll) { _, _ in
+                landPendingScroll(proxy, days: days)
+            }
+            .onAppear {
+                landPendingScroll(proxy, days: days)
+            }
+        }
+    }
 
-            // `EffectiveScope.resolve(_:isCurrentYear:) == .next` is exactly
-            // `model.isCurrentYear && model.filter.dateScope == .next`: for
-            // any scope other than `.day`, `resolve` returns the stored
-            // scope unchanged when `isCurrentYear` and `.all` otherwise, so
-            // it equals `.next` iff both halves of the old condition held.
-            // `.day` is never `.next`, so its branch never enters into the
-            // comparison. Same button in the same states — this is the
-            // fourth site that duplicated the downgrade rule, collapsed
-            // like the other three (#192, #197).
-            if EffectiveScope.resolve(model.filter, isCurrentYear: model.isCurrentYear) == .next {
-                Button("Show next day") {
-                    model.expandWindowEnd()
-                }
-            }
-        }
-        .listStyle(.plain)
-        .scrollDismissesKeyboard(.immediately)
-        // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
-        // the date/filter pills are no longer a toolbar item — they're this
-        // view's own hand-rolled `filterPillBar`, applied to `content` via
-        // `.safeAreaInset(edge: .bottom)` in `body` above. A
-        // `.safeAreaInset` bar contributes its height to the scroll view's
-        // safe area the same way a real toolbar would, so the list already
-        // insets its content (and its scroll indicator) to clear the pills
-        // without any margin of ours. The inset is owned by the
-        // `.safeAreaInset` modifier itself, not by any state of ours, so
-        // nothing we render can shift the list vertically. Adding a margin
-        // back would double-count it.
-        .refreshable {
-            await model.refresh(force: true)
-        }
-        .navigationDestination(for: Event.self) { event in
-            EventDetailView(event: event, model: model)
-        }
+    /// Auto-expand forward, replacing the "Show next day" button.
+    ///
+    /// Fires when the final row of the final day appears. `autoExpandedThrough`
+    /// is what stops it cascading: expansion appends a new final day, whose
+    /// final row appears immediately, which would expand again — walking to
+    /// the end of the season in one gesture. Recording the day we expanded
+    /// *from* allows exactly one expansion per newly-reached last day, which
+    /// is the same cadence the button had, minus the tap. The decision itself
+    /// lives in `DayRailAutoExpand.shouldFire`, pure and unit-tested; this
+    /// function is only the thin wrapper that consults it and performs the
+    /// two side effects below.
+    ///
+    /// Forward only. Backward stays explicit (the ⟨ chevron in Task 11): the
+    /// reader scrolling down has asked for more; the reader arriving at the
+    /// top has not asked for the past.
+    ///
+    /// **Order matters: the flag is set *before* `expandWindowEnd()` runs.**
+    /// At the season's actual last day, `expandWindowEnd()` finds no later
+    /// day and is a no-op — the window does not change, so the trigger
+    /// condition (`day == days.last`) stays true forever and this row can
+    /// legitimately appear again (e.g. a scroll away and back, or a list
+    /// re-layout). Setting `autoExpandedThrough` unconditionally first means
+    /// the guard latches on the *attempt*, not on whether anything actually
+    /// expanded, so a season-edge no-op still stops future re-fires for that
+    /// same day. Setting it after would leave a window — vanishingly small
+    /// in practice, since `expandWindowEnd()` has no suspension point, but
+    /// real in principle — where a second `onAppear` for the same row could
+    /// read the not-yet-updated flag and call in again.
+    ///
+    /// **A concurrent `.refreshable` pull cannot interleave with this.**
+    /// `expandWindowEnd()` is synchronous and has no `await` in it, so
+    /// between reading `autoExpandedThrough` and writing
+    /// `filter.windowEndDayKey` nothing else can run on the main actor —
+    /// there is no suspension point for a refresh's `Task` to land in. The
+    /// two mechanisms also touch disjoint state even if they did somehow
+    /// overlap: `refresh(force:)` replaces `snapshot`/`phase`,
+    /// `expandWindowEnd()` only ever narrows/widens `filter.windowEndDayKey`
+    /// — neither reads the field the other writes, so there is nothing to
+    /// race even without the synchronous-call guarantee above.
+    private func autoExpandIfAtTheEnd(day: DayGroup, event: Event, days: [DayGroup]) {
+        guard DayRailAutoExpand.shouldFire(
+            day: day.id,
+            event: event.id,
+            lastDay: days.last?.id,
+            lastEventInDay: day.events.last?.id,
+            alreadyExpandedThrough: autoExpandedThrough)
+        else { return }
+        autoExpandedThrough = day.id
+        model.expandWindowEnd()
     }
 
     @ViewBuilder
@@ -237,6 +663,8 @@ struct EventListView: View {
                     uiTestAutoShow: uiTestAutoShowThemeBinding(day: day, week: number, target: uiTestThemeTarget))
             }
         }
+        .onAppear { visibleDays.insert(day.id) }
+        .onDisappear { visibleDays.remove(day.id) }
     }
     #else
     private func dayHeader(for day: DayGroup) -> some View {
@@ -247,6 +675,8 @@ struct EventListView: View {
                 WeekThemeBadge(weekNumber: number, themes: model.themes)
             }
         }
+        .onAppear { visibleDays.insert(day.id) }
+        .onDisappear { visibleDays.remove(day.id) }
     }
     #endif
 

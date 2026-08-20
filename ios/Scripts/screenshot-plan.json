@@ -23,7 +23,7 @@
       "id": "03-search",
       "caption": "Search by name, venue, or presenter.",
       "launchArgs": ["-uitest-search", "meditation"],
-      "settleSeconds": 6,
+      "settleSeconds": 12,
       "deviceLaunchArgs": { "ipad-13": ["-uitest-select-linked-event"] }
     },
     { "id": "04-detail", "caption": "Every detail, in one place.", "launchArgs": ["-uitest-select-linked-event"], "settleSeconds": 6 },

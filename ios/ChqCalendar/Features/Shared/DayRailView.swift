@@ -1,0 +1,391 @@
+import SwiftUI
+import UIKit
+
+/// Opaque background for the rail's chips and both end controls.
+///
+/// Replaces `.thinMaterial` everywhere on the rail (accessibility follow-up
+/// to #245): the rail sits over the scrolling event list, so a translucent
+/// background's effective contrast varies with whatever list content
+/// happens to be behind it at the moment an on-device audit samples it —
+/// `performAccessibilityAudit` failed contrast even on non-empty chips,
+/// whose only fault was being drawn over the wrong content at that instant.
+/// An opaque system colour makes contrast a fixed, testable property
+/// instead of a function of scroll position. `secondarySystemBackground`
+/// reads as a layer above the rail's own `.bar` background (`EventListView.
+/// dayRail`) rather than blending into it, and adapts to light/dark
+/// automatically, same as the material it replaces.
+extension Color {
+    /// Named asset (`DayChipBackground.colorset`), not
+    /// `Color(.secondarySystemBackground)`: an on-device audit reported
+    /// "Contrast failed" on ordinary chip text over the latter despite
+    /// visually — and, sampled from a real screenshot, numerically —
+    /// clearing 16:1, while the selected chip's asset-catalog
+    /// `DayChipSelected` fill audited clean at a lower margin. The values
+    /// are the same pixels either way (`#F2F2F7` light / `#1C1C1E` dark,
+    /// `UIColor.secondarySystemBackground`'s own constants) — only the
+    /// route SwiftUI resolves them through changed, which is what the
+    /// audit's own contrast check turned out to be sensitive to for
+    /// UIKit-bridged dynamic colours inside a custom `Button` label.
+    static var dayRailControlBackground: Color {
+        Color("DayChipBackground")
+    }
+}
+
+/// A horizontal strip of day chips with an optional control at each end.
+///
+/// Extracted from My Day (#192), which had it first, so the Events tab's day
+/// rail is the same surface rather than a lookalike. The two screens differ
+/// only in what the chips count (`DayChipCountStyle`) and what sits at the
+/// ends: My Day's chevrons reveal the rest of the season, the Events rail's
+/// step one day at a time. Both, not one replacing the other — "go far" and
+/// "go one" are different questions.
+///
+/// **Scroll-to-selection lives here**, because getting it wrong is invisible
+/// until a real device: expanding an end prepends or appends chips, which
+/// shifts the content under the reader, and re-anchoring on the same day is
+/// what holds the selection still so that revealing the past never moves you.
+struct DayRailView<Leading: View, Trailing: View>: View {
+    let entries: [MyDayChipContent.Entry]
+    let selectedDay: String?
+    /// Names the strip as a whole for VoiceOver. A group of links or buttons
+    /// needs a group role and a label; a bare container's label is dropped
+    /// (the lesson from the web header menu, PR #228/#219).
+    let accessibilityLabel: String
+
+    /// My Day's empty chips stay tappable — selecting an empty day is how the
+    /// reader reaches its "Browse …" action (#192). The Events rail's do not:
+    /// there is no section to land on. Same chip, two answers, so the screen
+    /// decides rather than the chip.
+    var disablesEmptyDays: Bool = false
+
+    let onSelect: (String) -> Void
+    @ViewBuilder let leading: () -> Leading
+    @ViewBuilder let trailing: () -> Trailing
+
+    /// Extra values that must re-anchor the strip when they change — the
+    /// expand toggles on My Day. Passed as an opaque list rather than the
+    /// booleans themselves so the Events rail, which has no such toggles,
+    /// does not have to invent them.
+    var reanchorOn: [AnyHashable] = []
+
+    /// True while a finger is actively dragging the strip itself (SwiftUI's
+    /// `.tracking`/`.interacting` scroll phases — `.decelerating` and
+    /// `.animating` do not count, since those cover momentum after the
+    /// finger lifts and our *own* programmatic `scrollTo`, neither of which
+    /// is a reader fighting the rail).
+    ///
+    /// Once `selectedDay` tracked scroll (task 10), it can change many times
+    /// a second while the reader scrolls the list — re-centering on every
+    /// one of those changes would fight a reader who has, at the same
+    /// moment, grabbed the rail to drag it themselves (e.g. mid-fling
+    /// momentum from the list while reaching for a distant chip).
+    ///
+    /// **Not a `DragGesture`.** A `simultaneousGesture(DragGesture(...))`
+    /// was tried first and reverted: even non-exclusive, adding a second
+    /// recognizer changed the touch-arbitration timing enough that
+    /// `DayRailUITests`' synthetic `press(forDuration:thenDragTo:)` drags
+    /// stopped moving the horizontal `ScrollView` at all (confirmed by
+    /// three tests failing — `testADistantChipTapLandsOnThatDay`,
+    /// `testChangingScopeAfterADistantTapDoesNotLaterHijackTheList`,
+    /// `testMyDaysEmptyChipIsTappable` — all via `revealByScrolling`, all
+    /// with the same "chip frame never moved" signature). `onScrollPhaseChange`
+    /// (iOS 18) reads the `ScrollView`'s own native phase instead of adding
+    /// a competing recognizer, so nothing about its gesture handling
+    /// changes.
+    @State private var isDragging = false
+
+    /// The day, and the `reanchorOn` value, that `scroll(_:to:)` last
+    /// actually centered under. Distinct from `selectedDay`/`reanchorOn`
+    /// themselves so the drag-end catch-up below can tell "what the rail
+    /// should show has diverged from what it's actually centered on" from
+    /// "the reader was just dragging and nothing net changed" — only the
+    /// first must re-sync.
+    ///
+    /// **Why a value comparison, not a "something changed while dragging"
+    /// flag.** A flag set by `onChange` and cleared on drag-end was tried
+    /// first: it over-triggers on a `selectedDay` value that changes away
+    /// and back to the same thing *during* a single drag (found live —
+    /// `testChangingScopeAfterADistantTapDoesNotLaterHijackTheList`, which
+    /// opens a sheet immediately before `revealByScrolling`'s drag loop,
+    /// started failing with the flag version: the sheet's presentation
+    /// nudges the list's layout enough to blip `visibleDays` once while a
+    /// drag is in flight, arming the flag on a change that had already
+    /// self-corrected by the time dragging ended — and the catch-up then
+    /// fired anyway, re-centering the rail back onto the untouched
+    /// `selectedDay` and undoing the manual reveal). Comparing against what
+    /// is actually centered doesn't have that failure mode: a value that
+    /// blips and returns during a drag never differs from what was already
+    /// centered before the drag started, so no catch-up fires for it.
+    ///
+    /// **Why not compare `selectedDay` alone (an even earlier version).**
+    /// `reanchorOn` firing needs the identical catch-up but does *not*
+    /// change `selectedDay` at all — My Day's expand toggle re-anchors the
+    /// strip on the *same* day, whose chip has simply moved under a resize.
+    /// Tracking both lets the same comparison serve both triggers.
+    @State private var lastCentered: (day: String, reanchorOn: [AnyHashable])?
+
+    /// `leading()`/`trailing()` are fixed furniture at the rail's two ends —
+    /// outside the horizontal `ScrollView` entirely — and only the chips
+    /// scroll between them. Before this shape (#245), both were part of the
+    /// same scrolling `HStack` as the chips: swiping the strip a few days
+    /// along scrolled `⟳ Now` and both step chevrons away with it, leaving
+    /// no way back to today except swiping back to find them. Pulling them
+    /// out of the scrollable content is what keeps them reachable no matter
+    /// how far the chips have scrolled.
+    var body: some View {
+        HStack(spacing: 8) {
+            leading()
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(entries) { entry in
+                            DayChip(
+                                dayKey: entry.day,
+                                content: entry.content,
+                                isSelected: entry.day == selectedDay,
+                                isDisabled: disablesEmptyDays && entry.content.isEmpty
+                            ) {
+                                onSelect(entry.day)
+                            }
+                            .id(entry.day)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
+                .onScrollPhaseChange { _, newPhase in
+                    isDragging = newPhase == .tracking || newPhase == .interacting
+                }
+                .onAppear { scroll(proxy, to: selectedDay) }
+                .onChange(of: selectedDay) { _, day in
+                    guard !isDragging else { return }
+                    scroll(proxy, to: day)
+                }
+                // Gated the same as `selectedDay` above — this re-centre is
+                // exactly as capable of fighting a manual drag (My Day's expand
+                // toggle can fire while the reader has a finger on the rail),
+                // so it must not bypass the guard just because its trigger
+                // isn't `selectedDay` itself.
+                .onChange(of: reanchorOn) { _, _ in
+                    guard !isDragging else { return }
+                    scroll(proxy, to: selectedDay)
+                }
+                // Catches up anything that changed *while* suppressed above: the
+                // drag ending is not itself a `selectedDay`/`reanchorOn` change,
+                // so without this a re-centre that landed mid-drag would
+                // otherwise never get applied. Only fires when the target
+                // actually diverged from what's centered now — see
+                // `lastCentered`'s doc for why a plain "something changed" flag
+                // was tried and reverted.
+                .onChange(of: isDragging) { _, dragging in
+                    guard !dragging, let day = selectedDay,
+                        lastCentered?.day != day || lastCentered?.reanchorOn != reanchorOn
+                    else { return }
+                    scroll(proxy, to: day)
+                }
+                // Every UI test that queries the rail resolves it as
+                // `app.scrollViews["day-rail"]`, and `revealByScrolling`
+                // derives its drag coordinates from that element's frame —
+                // both depend on the identifier landing on exactly this
+                // `ScrollView`, not the outer `HStack` that now also holds
+                // `leading()`/`trailing()`. That's also the more correct
+                // frame for those drag coordinates now: it no longer
+                // includes the two fixed controls at the ends.
+                .accessibilityIdentifier("day-rail")
+            }
+            trailing()
+        }
+        // On the outer `HStack` now that `leading()`/`trailing()` live
+        // beside the `ScrollView` rather than inside it — a group of
+        // controls still needs one group role and one label covering the
+        // whole strip (the lesson from the web header menu, PR #228/#219).
+        // `.contain` keeps every descendant (the two end controls, each
+        // chip) individually accessible; only the container-level role and
+        // label move here.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy, to day: String?) {
+        guard let day else { return }
+        lastCentered = (day, reanchorOn)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            proxy.scrollTo(day, anchor: .center)
+        }
+    }
+}
+
+extension DayRailView {
+    func reanchoring(on values: [AnyHashable]) -> Self {
+        var copy = self
+        copy.reanchorOn = values
+        return copy
+    }
+}
+
+/// One selectable day chip in `MyDayView`'s strip (#192).
+///
+/// All labelling lives in `MyDayChipContent` so it can be tested without a
+/// view host; this type owns only the visual encoding of the four states,
+/// which must compose because a day can be empty *and* today *and* selected
+/// at once:
+///
+/// - **Fill** = selected, and nothing else uses fill. Selected fill is
+///   `DayChipSelected`, a colour asset (not `Color.accentColor` directly)
+///   darkened enough from the app's `#5B7F95` accent that white chip text
+///   clears WCAG AA's 4.5:1 against it — the accent itself only reaches
+///   4.27:1, which an on-device audit reported as "nearly passed."
+/// - **Today** = the word `"Today"` in `content.topLine` — carried in text
+///   precisely so a selected fill cannot swallow it.
+/// - **Empty** = a dashed stroke, at an opacity firmed up to stay legible
+///   now that the text itself is no longer dimmed (see `foreground`) —
+///   dimming text was flagged by the same on-device audit as a contrast
+///   failure, since `.secondary` compounded with the (formerly
+///   translucent) chip background rather than reading as an intentional
+///   affordance.
+/// - **Count** = the third line, which always occupies its space — as a
+///   fixed-height reservation rather than a blank `Text(" ")` when zero, so
+///   chip heights never jitter as events are starred and unstarred *and*
+///   an empty chip carries no phantom text for a screen reader or an
+///   accessibility audit to trip over.
+struct DayChip: View {
+    let dayKey: String
+    let content: MyDayChipContent
+    let isSelected: Bool
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    /// Scales with Dynamic Type the same way `.caption2` text does, so the
+    /// empty count line's reserved height (see `countLine`) keeps matching
+    /// a populated one's at every text size, not just the default.
+    @ScaledMetric(relativeTo: .caption2) private var countLineHeight: CGFloat = 14
+
+    var body: some View {
+        // No `.disabled()` anywhere in this chip's ancestry (accessibility
+        // follow-up to #245, second pass). SwiftUI dims a disabled
+        // control's *entire* label as a single compositing pass applied
+        // from *outside* it — an `.environment(\.isEnabled, true)` placed
+        // inside the label cannot cancel that, because the dimming isn't
+        // something the label's descendants read from the environment,
+        // it's applied to the already-rendered label as a unit. That's
+        // what an on-device audit caught on the Events rail's disabled
+        // empty chips (`disablesEmptyDays: true`): their text measured a
+        // real, sampled ~3.7:1 contrast — dimmed to mid-grey against the
+        // chip fill — despite `foreground` below never asking for anything
+        // but `.primary`.
+        //
+        // A first fix kept `.disabled()` but split the chip into a hidden
+        // visual plus a `Color.clear`-labelled `Button` carrying the
+        // disabled state, so there was nothing visible left for the
+        // dimming pass to touch. That was audit-clean, but a `Color.clear`
+        // overlay is a poor hit target: it broke tap delivery after a
+        // synthetic drag (6 of 15 `DayRailUITests`). The actual fix is
+        // narrower — an empty chip on the Events rail was never a control
+        // that happened to be disabled, it's not a control at all, since
+        // there is no section for it to go to. So the two states aren't
+        // "enabled `Button`" vs. "disabled `Button`", they're "`Button`" vs.
+        // "plain view": with no `.disabled()` in play there is no dimming
+        // pass, and `chipVisual` renders at full, undimmed contrast through
+        // one ordinary view hierarchy either way — nothing to split.
+        if isDisabled {
+            // An empty day on the Events rail: named as a fact
+            // (`content.accessibilityLabel` already reads as one — e.g.
+            // "Sunday, August 16, no events" — never "Go to"), not offered
+            // as a destination, and carrying no button trait. My Day always
+            // passes `isDisabled: false` (its empty chips stay tappable —
+            // selecting one is how the reader reaches its "Browse …"
+            // action, #192); only the Events rail's `disablesEmptyDays:
+            // true` ever reaches this branch.
+            chipVisual
+                .accessibilityLabel(content.accessibilityLabel)
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                .accessibilityIdentifier("day-chip-\(dayKey)")
+        } else {
+            Button(action: action) {
+                chipVisual
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(content.accessibilityLabel)
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+            .accessibilityIdentifier("day-chip-\(dayKey)")
+        }
+    }
+
+    private var chipVisual: some View {
+        VStack(spacing: 2) {
+            Text(content.topLine)
+                .font(.caption.weight(content.isToday ? .bold : .regular))
+            Text(content.dateLine)
+                .font(.subheadline.weight(isSelected ? .semibold : .regular))
+            countLine
+        }
+        .frame(minWidth: 58)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background {
+            // Concrete `Color`, not the ternary-into-`AnyShapeStyle` this
+            // was before (accessibility follow-up to #245): the on-device
+            // audit kept reporting contrast failures on ordinary chip text
+            // even after the fill became a deterministic opaque colour,
+            // and stopped once the type erasure was removed —
+            // `AnyShapeStyle` apparently isn't fully legible to the
+            // audit's own background inspection.
+            if isSelected {
+                RoundedRectangle(cornerRadius: 12).fill(Color("DayChipSelected"))
+            } else {
+                RoundedRectangle(cornerRadius: 12).fill(Color.dayRailControlBackground)
+            }
+        }
+        .overlay {
+            if content.isEmpty {
+                // Opacity firmed up from 0.7/0.5 (accessibility follow-up
+                // to #245): with the text itself no longer dimmed to
+                // signal "empty" (see `foreground`), the dashed stroke is
+                // the affordance's only remaining carrier and had to read
+                // clearly on its own.
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        isSelected ? Color.white.opacity(0.85) : Color.secondary.opacity(0.75),
+                        style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+        }
+        .foregroundStyle(foreground)
+    }
+
+    /// Always rendered, blank when the count is zero, so every chip is the
+    /// same height whether or not anything is starred on it.
+    @ViewBuilder
+    private var countLine: some View {
+        if content.count > 0 {
+            if let symbol = content.symbol {
+                Label("\(content.count)", systemImage: symbol)
+                    .font(.caption2)
+                    .labelStyle(.titleAndIcon)
+            } else {
+                Text("\(content.count)").font(.caption2)
+            }
+        } else {
+            // A non-text height reservation (accessibility follow-up to
+            // #245): a blank `Text(" ")` here used to hand the on-device
+            // audit a text element carrying a single-space label to flag
+            // — on both the contrast and Dynamic Type checks — for content
+            // nothing was ever meant to speak. `Color.clear` reserves the
+            // same line height without presenting any element for the
+            // audit, or a screen reader, to trip over; the chip's own
+            // `accessibilityLabel` already says "no events" for this case.
+            Color.clear
+                .frame(height: countLineHeight)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// No longer dims empty-day text to `.secondary` (accessibility
+    /// follow-up to #245): compounded with the chip's then-translucent
+    /// background, that dimming was itself a contrast failure the
+    /// on-device audit caught — on `Mon`/`Thu` too, which aren't even
+    /// empty, showing the real fault was the background, not the emptiness
+    /// signal riding on top of it. Empty is still fully legible via the
+    /// dashed stroke (`overlay` above) and the absent/blank count line.
+    private var foreground: AnyShapeStyle {
+        isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary)
+    }
+}

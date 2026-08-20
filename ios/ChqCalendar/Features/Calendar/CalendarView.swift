@@ -221,6 +221,14 @@ struct CalendarView: View {
             model.uiTestShowWeekTheme = true
         }
 
+        // `-uitest-delay-pending-scroll` — see `AppModel.uiTestPendingScrollDelay`
+        // for why a UI test needs this to exercise the day rail's pending-
+        // scroll staleness check at all. 3 seconds is comfortably longer
+        // than opening the date sheet and tapping a scope chip takes.
+        if arguments.contains("-uitest-delay-pending-scroll") {
+            model.uiTestPendingScrollDelay = 3
+        }
+
         if arguments.contains("-uitest-show-about") {
             model.uiTestShowAbout = true
         }

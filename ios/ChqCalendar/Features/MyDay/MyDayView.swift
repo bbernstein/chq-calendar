@@ -167,61 +167,42 @@ struct MyDayView: View {
     private func dayChipsRow(
         window: DayWindow, selectedDay: String, todayKey: String, starredCounts: [String: Int]
     ) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    if window.canExpandEarlier {
-                        MyDayExpandControl(
-                            direction: .earlier,
-                            isExpanded: showsEarlier,
-                            hiddenCount: window.hiddenEarlierCount
-                        ) {
-                            showsEarlier.toggle()
-                        }
-                    }
-
-                    // `makeAll` rather than `make` per chip: it keeps the
-                    // nil-swallowing in one place and DEBUG-traps a
-                    // non-canonical day key instead of silently dropping the
-                    // chip and its `.id` (#197 item 6).
-                    ForEach(MyDayChipContent.makeAll(
-                        days: window.days,
-                        todayKey: todayKey,
-                        starredCounts: starredCounts,
-                        includingYear: !model.isCurrentYear
-                    )) { entry in
-                        MyDayChip(content: entry.content, isSelected: entry.day == selectedDay) {
-                            self.selectedDay = entry.day
-                        }
-                        .id(entry.day)
-                    }
-
-                    if window.canExpandLater {
-                        MyDayExpandControl(
-                            direction: .later,
-                            isExpanded: showsLater,
-                            hiddenCount: window.hiddenLaterCount
-                        ) {
-                            showsLater.toggle()
-                        }
+        DayRailView(
+            entries: MyDayChipContent.makeAll(
+                days: window.days,
+                todayKey: todayKey,
+                counts: starredCounts,
+                style: .starred,
+                includingYear: !model.isCurrentYear),
+            selectedDay: selectedDay,
+            accessibilityLabel: "Days",
+            onSelect: { self.selectedDay = $0 },
+            leading: {
+                if window.canExpandEarlier {
+                    MyDayExpandControl(
+                        direction: .earlier,
+                        isExpanded: showsEarlier,
+                        hiddenCount: window.hiddenEarlierCount
+                    ) {
+                        showsEarlier.toggle()
                     }
                 }
-                .padding(.horizontal)
-            }
-            .onAppear { scroll(proxy, to: selectedDay) }
-            .onChange(of: selectedDay) { _, day in scroll(proxy, to: day) }
-            // Expanding an end prepends or appends chips, which shifts the
-            // content under the user. Re-anchoring on the same day holds the
-            // selection still, so revealing the past never moves you.
-            .onChange(of: showsEarlier) { _, _ in scroll(proxy, to: selectedDay) }
-            .onChange(of: showsLater) { _, _ in scroll(proxy, to: selectedDay) }
-        }
-    }
-
-    private func scroll(_ proxy: ScrollViewProxy, to day: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            proxy.scrollTo(day, anchor: .center)
-        }
+            },
+            trailing: {
+                if window.canExpandLater {
+                    MyDayExpandControl(
+                        direction: .later,
+                        isExpanded: showsLater,
+                        hiddenCount: window.hiddenLaterCount
+                    ) {
+                        showsLater.toggle()
+                    }
+                }
+            })
+        // Expanding an end prepends or appends chips, which shifts the
+        // content under the user. Re-anchoring on the same day holds the
+        // selection still, so revealing the past never moves you.
+        .reanchoring(on: [showsEarlier, showsLater])
     }
 
     // MARK: - Day header
@@ -467,75 +448,6 @@ struct MyDayView: View {
     }
 }
 
-/// One selectable day chip in `MyDayView`'s strip (#192).
-///
-/// All labelling lives in `MyDayChipContent` so it can be tested without a
-/// view host; this type owns only the visual encoding of the four states,
-/// which must compose because a day can be empty *and* today *and* selected
-/// at once:
-///
-/// - **Fill** = selected, and nothing else uses fill.
-/// - **Today** = the word `"Today"` in `content.topLine` — carried in text
-///   precisely so a selected fill cannot swallow it.
-/// - **Empty** = dashed stroke plus secondary content, kept (in white) even
-///   while selected.
-/// - **Count** = the third line, which always occupies its space so chip
-///   heights never jitter as events are starred and unstarred.
-private struct MyDayChip: View {
-    let content: MyDayChipContent
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                Text(content.topLine)
-                    .font(.caption.weight(content.isToday ? .bold : .regular))
-                Text(content.dateLine)
-                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                countLine
-            }
-            .frame(minWidth: 58)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.thinMaterial),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .overlay {
-                if content.isEmpty {
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(
-                            isSelected ? Color.white.opacity(0.7) : Color.secondary.opacity(0.5),
-                            style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                }
-            }
-            .foregroundStyle(foreground)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(content.accessibilityLabel)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-    }
-
-    /// Always rendered, blank when the count is zero, so every chip is the
-    /// same height whether or not anything is starred on it.
-    @ViewBuilder
-    private var countLine: some View {
-        if content.starCount > 0 {
-            Label("\(content.starCount)", systemImage: "star.fill")
-                .font(.caption2)
-                .labelStyle(.titleAndIcon)
-        } else {
-            Text(" ").font(.caption2)
-        }
-    }
-
-    private var foreground: AnyShapeStyle {
-        if isSelected { return AnyShapeStyle(.white) }
-        return content.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
-    }
-}
-
 /// The chevron chip at each end of `MyDayView`'s strip, revealing the rest of
 /// the season in that direction (#192).
 ///
@@ -553,17 +465,28 @@ private struct MyDayExpandControl: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
-                // Width is 44pt to meet the HIG minimum tap target. The
-                // horizontal axis is the mis-tap-prone one here — this chip
-                // sits at the end of a horizontally-scrolling strip flanked
-                // by 8pt spacing and other chips, and is tapped side-to-side,
-                // not top-to-bottom. Height stays 62 to match `MyDayChip`.
-                // The neighbouring chips (`minWidth: 58`) already clear 44pt.
-                .frame(width: 44, height: 62)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                // `.primary`, not the default accent tint — see
+                // `DayStepControl`'s matching comment for why.
+                .foregroundStyle(.primary)
+                // Width's minimum is 44pt to meet the HIG minimum tap
+                // target. The horizontal axis is the mis-tap-prone one
+                // here — this chip sits at the end of a
+                // horizontally-scrolling strip flanked by 8pt spacing and
+                // other chips, and is tapped side-to-side, not
+                // top-to-bottom. Height's minimum stays 62 to match
+                // `DayChip`. The neighbouring chips (`minWidth: 58`)
+                // already clear 44pt. Both are minimums, not fixed sizes
+                // (accessibility follow-up to #245): a fixed frame clipped
+                // the chevron at large Dynamic Type sizes, caught by an
+                // on-device audit. At the default text size the icon is
+                // far smaller than either minimum, so nothing changes
+                // there.
+                .frame(minWidth: 44, minHeight: 62)
+                .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier("day-rail-expand-\(direction)")
     }
 
     private var symbol: String {

@@ -1,15 +1,61 @@
 # Cross-platform date navigation — design
 
-**Status:** Phases 0, 1a, 1b, 2 and **3a (web)** are complete. Phase 3a is on
-`feat/date-nav-phase-3a-web-day-rail`: it deletes `VITE_NAV_V2` and the legacy
-list container, converges the scope set on Now · Today · All Season · All Year,
-and ships the sticky day rail. **`VITE_NAV_V2` was deleted rather than set** —
-a `VITE_*` flag is build-time, so flipping it still requires a redeploy and buys
-no rollback that `git revert` does not, while keeping it would have forced the
-rail to be gated too and two list containers to keep working. That commit is the
-real release of phase 2, which had been dark in production.
+**Status:** Phases 0, 1a, 1b, 2, **3a (web)** and **3b (iOS)** are complete.
+Phase 3a is on `feat/date-nav-phase-3a-web-day-rail`: it deletes `VITE_NAV_V2`
+and the legacy list container, converges the scope set on Now · Today · All
+Season · All Year, and ships the sticky day rail. **`VITE_NAV_V2` was deleted
+rather than set** — a `VITE_*` flag is build-time, so flipping it still
+requires a redeploy and buys no rollback that `git revert` does not, while
+keeping it would have forced the rail to be gated too and two list containers
+to keep working. That commit is the real release of phase 2, which had been
+dark in production. Phase 3b is on
+`feat/date-nav-phase-3b-ios-day-rail`: the same rail on the Events tab and
+My Day, sharing `DayRailView` between them.
 
-Remaining: **3b (iOS rail)**, folded into phase 4.
+Remaining: Siri routing, screenshots beyond the mandatory regeneration, the
+1.1.3 version sweep, and listing copy — deferred to phase 4 by decision on
+2026-08-18 (see this doc's iOS surface section).
+
+### What the iOS device pass caught that the task reviews did not
+
+Unlike phase 3a's rail, the mechanism itself held up under the device
+matrix — in-season, both season edges, off-season, a search narrowed to
+zero matches, an archived year, iPad split view and the smallest supported
+iPhone all rendered correctly on a running app: the rail present iff there
+was something to navigate, chevrons and `⟳ Now` disabled or absent exactly
+at the bounds, no overlap with the day headers. What the pass caught instead
+was adjacent to the mechanism:
+
+- **`performAccessibilityAudit()` against the in-season rail, at the OS's own
+  default text size** (not even the largest accessibility size), returned 18
+  contrast failures and 17 near-fails across every day-chip variant —
+  selected/accent-fill and unselected/`.thinMaterial` alike — plus 21 "Dynamic
+  Type font sizes are partially unsupported" warnings spanning the rail and
+  the list, and 2 clipped-text findings (the search field's placeholder and
+  the bottom `Filters` pill). No unit test renders real system materials or
+  fonts, so none of this was previously visible. At the largest accessibility
+  text size the `Filters` pill's label visibly truncates to `…` — pre-existing
+  `pillButton` code, untouched by this branch's diff, but only surfaced by an
+  actual on-device render at that size.
+- **The rail's `⟳ Now` and step chevrons started out inside the same
+  horizontally scrolling content as the day chips, and that was a real defect
+  — since fixed.** The device pass recorded it as working-as-built and merely
+  "easy to mistake for a bug from a single screenshot". That reading was
+  wrong: for most of the season the controls are genuinely off-screen, so
+  returning to today means swiping until you find it, which across a whole
+  season is a lot of swiping. A reader reported exactly that. They are now
+  pinned outside the horizontal `ScrollView` — `leading()`/`trailing()` are
+  siblings of it in `DayRailView`, with only the chips scrolling between —
+  so all three controls are always reachable. **Do not "restore" them into
+  the scrolling content on the strength of an older note.**
+- **The App Store screenshot pipeline itself was timing-fragile against live
+  production data.** Shot `03-search`'s fixed 6-second settle, adequate when
+  it was written, twice produced a broken capture against today's 1,686-event
+  production feed — once fully blank, once showing the unfiltered list with
+  the search field still empty. `model.start()` had finished both times;
+  `applyUITestHooks()`, which runs after it, simply hadn't landed yet.
+  Raised to 12 seconds (matching the map shot) in `screenshot-plan.json`;
+  reproduced twice before the fix, clean on the next two runs after it.
 
 ### The ~55–59px residual is fixed, and the fix below was not sufficient on its own
 

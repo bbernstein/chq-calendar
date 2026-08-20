@@ -985,15 +985,25 @@ struct AppModelTests {
     /// fallback (the 90-day cap, which sits past the season's `bounds` and
     /// would make `expandWindowEnd()` a no-op — see `expandWindowEnd`'s test
     /// coverage below for that edge case in isolation).
+    ///
+    /// Plus one event each on `2026-08-06` and `2026-08-09`, with `08-04`,
+    /// `08-05`, `08-07` and `08-08` deliberately empty. `expandWindowEnd()`
+    /// steps to the next day that HAS events, so a fixture with no later
+    /// event days at all could not tell a working implementation from a
+    /// no-op one.
     private func makeInSeasonModelWithSeedEvents(defaults: UserDefaults) throws -> AppModel {
         let model = try makeInSeasonModel(defaults: defaults)
         let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
         let from = now.addingTimeInterval(-3600)
-        let events: [Event] = try (0..<50).map { i in
+        var events: [Event] = try (0..<50).map { i in
             makeEvent(
                 id: "seed\(i)",
                 start: try #require(ChqTime.calendar.date(byAdding: .minute, value: i, to: from)))
         }
+        events.append(makeEvent(
+            id: "later-06", start: try #require(ChqTime.parse("2026-08-06 10:00:00"))))
+        events.append(makeEvent(
+            id: "later-09", start: try #require(ChqTime.parse("2026-08-09 10:00:00"))))
         model.snapshot = CalendarSnapshot(
             year: 2026, events: events, articleLinks: [:], programLinks: [:],
             themes: [], fetchedAt: now)
@@ -1029,7 +1039,12 @@ struct AppModelTests {
         #expect(model.filter.dateScope == .next)
         model.expandWindowEnd()
         model.expandWindowEnd()
-        #expect(model.filter.windowEndDayKey == "2026-08-05")
+        // Two steps of expandWindowEnd()'s "next day with events" rule
+        // against the fixture's 08-06/08-09 event days — not a hardcoded
+        // calendar step. What this test is actually pinning is unaffected
+        // by which day that lands on: only that selectScope(.thisWeek)
+        // clears it below.
+        #expect(model.filter.windowEndDayKey == "2026-08-09")
         model.filter.windowStartDayKey = "2026-08-01"
 
         model.selectScope(.thisWeek)
@@ -1047,7 +1062,11 @@ struct AppModelTests {
     @Test func returningToNowAfterAScopeChangeStartsFromAFreshWindow() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         model.expandWindowEnd()
-        #expect(model.filter.windowEndDayKey == "2026-08-04")
+        // The next day with events in the fixture, per expandWindowEnd's
+        // step rule — not a hardcoded calendar step. The point below is
+        // that this is thrown away by the scope round-trip, regardless of
+        // which day it landed on.
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
         model.selectScope(.thisWeek)
 
         model.selectScope(.next)
@@ -1091,7 +1110,10 @@ struct AppModelTests {
     @Test func setWeekSelectionResetsWindowExpansion() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         model.expandWindowEnd()
-        #expect(model.filter.windowEndDayKey == "2026-08-04")
+        // The next day with events in the fixture, per expandWindowEnd's
+        // step rule — not a hardcoded calendar step. What matters below is
+        // that setWeekSelection clears it, not which day it was.
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
 
         model.setWeekSelection([3])
 
@@ -1396,24 +1418,48 @@ struct AppModelTests {
 
     // MARK: - expandWindowEnd
 
-    @Test func expandWindowEndSetsWindowEndDayKeyOneDayAtATime() throws {
+    /// The correction phase 2 learned, applied to the model: a step lands on
+    /// a day that will actually render. `2026-08-04` and `2026-08-05` are
+    /// empty in this fixture and are skipped — widening onto them would move
+    /// the edge, add nothing to the list, and read as a broken control.
+    @Test func expandWindowEndStepsToTheNextDayThatHasEvents() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
 
         #expect(model.filter.windowEndDayKey == nil)
         model.expandWindowEnd()
-        #expect(model.filter.windowEndDayKey == "2026-08-04")
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
         model.expandWindowEnd()
-        #expect(model.filter.windowEndDayKey == "2026-08-05")
+        #expect(model.filter.windowEndDayKey == "2026-08-09")
     }
 
-    /// With no snapshot loaded, `.next`'s `adaptiveEndDate` never reaches its
-    /// `minCount` and falls back to its 90-day cap — which lands past the
-    /// season's `bounds.upperBound` (`navigableBounds` has no event days to
-    /// widen it with). `expandWindowEnd()`'s own clamp then has nothing
-    /// forward of the base window to grant, so it's a no-op. That's a real
-    /// behavior delta from the old `extraDays` counter, which had no bounds
-    /// to respect at all — deliberate per the Phase 1b design: navigation
-    /// cannot go past the last day that could ever have an event.
+    @Test func expandWindowEndStopsWhenNothingIsLeftBeyondTheEdge() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.expandWindowEnd()
+        model.expandWindowEnd()
+
+        model.expandWindowEnd()
+
+        #expect(model.filter.windowEndDayKey == "2026-08-09")
+    }
+
+    /// The non-date filters constrain where expansion can go, because they
+    /// constrain what could possibly render there.
+    @Test func expandWindowEndRespectsTheOtherFilters() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.filter.searchText = "nothing matches this"
+
+        model.expandWindowEnd()
+
+        #expect(model.filter.windowEndDayKey == nil)
+    }
+
+    /// With no snapshot loaded there are no event days at all, so
+    /// `edgeTargets` has nothing forward of the base window to grant — a
+    /// no-op for the same reason `expandWindowEndRespectsTheOtherFilters`
+    /// is, and *also* because `.next`'s `adaptiveEndDate` never reaches its
+    /// `minCount` and falls back to its 90-day cap, which lands past the
+    /// season's `bounds.upperBound` besides. Either reason alone would make
+    /// this a no-op; both apply here.
     @Test func expandWindowEndIsANoOpWhenTheBaseWindowAlreadyExceedsBounds() throws {
         let model = try makeInSeasonModel(defaults: makeDefaults())
         #expect(model.filter.windowEndDayKey == nil)
@@ -1421,6 +1467,105 @@ struct AppModelTests {
         model.expandWindowEnd()
 
         #expect(model.filter.windowEndDayKey == nil)
+    }
+
+    // MARK: - goToDay
+
+    @Test func goToDayInsideTheWindowChangesNoState() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        let before = model.filter
+
+        #expect(model.goToDay("2026-08-03"))
+
+        #expect(model.filter == before)
+    }
+
+    @Test func goToDayBeyondTheEndGrowsTheEndEdgeToIt() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+
+        #expect(model.goToDay("2026-08-09"))
+
+        #expect(model.filter.windowEndDayKey == "2026-08-09")
+        #expect(model.filter.windowStartDayKey == nil)
+    }
+
+    /// An empty day is a legal target at the *rule* layer even though Task 9
+    /// disables its chip: the rail decides what to offer, `goToDay` decides
+    /// what is representable, and phase 4's Siri routing will name days the
+    /// rail does not offer. Keeping the rule permissive and the affordance
+    /// strict is deliberate — the reverse (a rule that refuses) would make
+    /// "go to tomorrow" fail silently on a quiet Tuesday.
+    @Test func goToDayAcceptsAnEmptyDayEvenThoughTheRailDisablesItsChip() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+
+        #expect(model.goToDay("2026-08-05"))
+
+        #expect(model.filter.windowEndDayKey == "2026-08-05")
+    }
+
+    @Test func goToDayOutsideTheNavigableBoundsIsRefused() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+
+        #expect(!model.goToDay("2027-01-01"))
+
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(model.filter.windowStartDayKey == nil)
+    }
+
+    // MARK: - ⟳ Now
+    //
+    // There is no `AppModel.resetToNow()` any more (finding 2 of the phase
+    // 3b review): the spec is explicit that ⟳ Now "does not touch scope,
+    // weeks, categories, or search," and `resetToNow()`'s old body — forcing
+    // `.next`, clearing weeks, clearing the browsed day — was exactly that
+    // kind of filter change. `EventListView.nowButton` now calls
+    // `selectDay(todayKey)` directly, i.e. plain `goToDay(todayKey)` on the
+    // model side, so these tests pin `goToDay`'s behavior against the
+    // property that motivated deleting `resetToNow()`, rather than testing
+    // a method that no longer exists.
+
+    /// The property that motivated the change: `resetToNow()` used to wipe
+    /// out `selectedWeeks`. `goToDay` — Now's actual implementation — is
+    /// pure navigation, so an active week selection survives the tap.
+    @Test func nowSurvivesAnActiveWeekSelection() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.setWeekSelection([3])
+
+        #expect(model.goToDay("2026-08-03"))
+
+        #expect(model.filter.selectedWeeks == [3])
+        #expect(model.filter.dateScope == .all)
+    }
+
+    /// `resetToNow()` used to collapse any forward expansion the reader had
+    /// accumulated back to nothing before scrolling. `goToDay` never resets
+    /// state that isn't in its way: today is already inside the expanded
+    /// window here, so the tap is pure navigation and the expansion the
+    /// reader made themselves is left exactly as they left it.
+    @Test func nowLeavesAnyAccumulatedExpansionInPlace() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.expandWindowEnd()
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
+
+        #expect(model.goToDay("2026-08-03"))
+
+        #expect(model.filter.dateScope == .next)
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
+    }
+
+    /// `resetToNow()` used to force `dateScope` back to `.next` and clear a
+    /// browsed day. Under the new contract, tapping Now from a browsed day
+    /// grows the window to reach today without ever leaving `.day` scope or
+    /// touching `selectedDayKey` — exactly like any other `goToDay` call.
+    @Test func nowFromABrowsedDayGrowsTheWindowWithoutChangingScopeOrDay() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.browseDay("2026-08-09")
+
+        #expect(model.goToDay("2026-08-03"))
+
+        #expect(model.filter.dateScope == .day)
+        #expect(model.filter.selectedDayKey == "2026-08-09")
+        #expect(model.filter.windowStartDayKey == "2026-08-03")
     }
 
     // MARK: - Recents

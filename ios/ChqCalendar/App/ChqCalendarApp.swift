@@ -26,9 +26,27 @@ struct ChqCalendarApp: App {
     init() {
         let now = AppModel.launchNow()
         let reminderCenter = ReminderCenter(scheduler: UNUserNotificationCenter.current(), now: now)
+
+        // A `-uitest-fixture` launch swaps the whole data layer: a generated
+        // payload instead of CloudFront, an in-memory cache instead of the
+        // real container (so a fixture launch cannot poison the next real
+        // one), and a throwaway `UserDefaults` suite so filters persisted by
+        // an earlier run cannot decide what a UI test sees.
+        #if DEBUG
+        let repository = UITestFixture.isActive
+            ? UITestFixture.makeRepository()
+            : EventRepository(api: LiveCalendarAPI(), cache: DiskCache.standard())
+        let store = UITestFixture.isActive
+            ? UserStateStore(defaults: UserDefaults(suiteName: "uitest-\(UUID().uuidString)")!, now: now)
+            : UserStateStore()
+        #else
+        let repository = EventRepository(api: LiveCalendarAPI(), cache: DiskCache.standard())
+        let store = UserStateStore()
+        #endif
+
         let model = AppModel(
-            repository: EventRepository(api: LiveCalendarAPI(), cache: DiskCache.standard()),
-            store: UserStateStore(),
+            repository: repository,
+            store: store,
             now: now,
             reminderCenter: reminderCenter,
             widgetReloader: LiveWidgetReloading(),
