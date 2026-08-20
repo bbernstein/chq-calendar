@@ -1394,6 +1394,23 @@ final class AppModel {
             lastNavMatchingInputs = nil
             return
         }
+        // `PendingDayScroll.key` is deliberately *wider* than this cache
+        // strictly needs: it carries `dateScope` and `selectedDayKey`, which
+        // `rebuildNavMatching()` immediately overwrites with `.all`/`nil`, so
+        // a pure scope change or a browse-day change re-runs a pass whose
+        // result cannot differ. That waste is accepted on purpose.
+        //
+        // The expensive case this guard exists for is `expandWindowEnd()`
+        // firing repeatedly as the reader scrolls — window-only changes, which
+        // the key excludes and which are therefore correctly skipped. What
+        // remains is one redundant pass per deliberate scope tap, which no
+        // reader can perceive. A narrower, purpose-built fingerprint would
+        // save that pass and introduce a far worse failure mode: omit one
+        // input that does matter (weeks, venues, categories, favourites-only,
+        // search) and `navMatching` goes silently stale, which shows up as a
+        // rail quietly disagreeing with the list rather than as a test
+        // failure. Reusing one key that is known-complete beats hand-tuning a
+        // second one that has to stay complete forever.
         let inputs = NavMatchingInputs(
             snapshotFetchedAt: snapshot.fetchedAt,
             favorites: favorites,
