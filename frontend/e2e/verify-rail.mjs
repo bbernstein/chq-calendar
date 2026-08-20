@@ -255,7 +255,11 @@ for (const scrolled of [false, true]) {
     const landedOn = await anchorChip(page);
     const [appToday, mountedNow] = await page.evaluate(() => [
       new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date()),
-      [...document.querySelectorAll('[data-day-key]')].slice(0, 3).map(e => e.dataset.dayKey),
+      // Not sliced. A capped list defeats the point: if the render window ever
+      // mounts more days, `today` lands past the cap and is truncated away in
+      // exactly the failure this exists to explain. It is a short array of day
+      // keys, so printing all of them costs nothing.
+      [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey),
     ]);
     check('11c ⟳ Now hides once back on today', stillThere === 0,
       `today=${appToday} anchor=${landedOn} mounted=${mountedNow.join(',')} button=${stillThere}`);
