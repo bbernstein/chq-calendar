@@ -125,4 +125,54 @@ struct PendingDayScrollTests {
             for: selection(dateScope: .day, selectedDayKey: "2026-07-05"), year: 2026)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
+
+    // MARK: hasLanded — issuing a scroll is not landing one
+
+    /// The confirmation that fixes #250. The target's header is on screen
+    /// (`visibleDays` is maintained from section-header `onAppear`), so the
+    /// scroll did what it was asked and the pending target is done.
+    @Test func aVisibleTargetHasLanded() {
+        #expect(PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: ["2026-08-20", "2026-08-21"],
+            retryDeadline: Date().addingTimeInterval(5),
+            now: Date()))
+    }
+
+    /// The CI failure, in one assertion: the day is nowhere on screen after
+    /// the `scrollTo`, so the scroll was dropped and is still owed. Before
+    /// this check existed the caller cleared `pendingScroll` here anyway and
+    /// no trigger ever fired again.
+    @Test func aTargetThatIsNotOnScreenHasNotLanded() {
+        let now = Date()
+        #expect(!PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: ["2026-07-01", "2026-07-03", "2026-07-04"],
+            retryDeadline: now.addingTimeInterval(5),
+            now: now))
+    }
+
+    /// Retrying is bounded: a target whose day can never become visible —
+    /// the list unmounted, or it vanished for a reason neither staleness nor
+    /// `shouldAbandonScroll` catches — stops being re-issued once its window
+    /// closes, rather than re-scrolling forever.
+    @Test func aTargetPastItsRetryDeadlineIsGivenUpOn() {
+        let now = Date()
+        #expect(PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: ["2026-07-01"],
+            retryDeadline: now.addingTimeInterval(-0.001),
+            now: now))
+    }
+
+    /// No deadline stamped means no retry — the behavior before this
+    /// existed, kept as the safe fallback for any path that arms a target
+    /// without going through `selectDay`.
+    @Test func noRetryDeadlineMeansASingleAttempt() {
+        #expect(PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: [],
+            retryDeadline: nil,
+            now: Date()))
+    }
 }

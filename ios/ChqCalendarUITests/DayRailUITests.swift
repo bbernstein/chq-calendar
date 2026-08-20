@@ -552,21 +552,66 @@ final class DayRailUITests: XCTestCase {
         // ChqTime.dayTitle ("EEEE, MMMM d", en_US_POSIX, no year), same as
         // testADistantChipTapLandsOnThatDay above.
         //
-        // 40s, not this file's usual 20, because this test has no warm-up.
-        // testADistantChipTapLandsOnThatDay targets the same 51-day-out day
-        // and makes the same assertions, but spends ~10 revealByScrolling
-        // swipes bringing the chip into view before it ever taps — seconds
-        // of wall clock during which cold start finishes on a real device,
-        // and only after that does its own 10s header wait begin. This test
-        // fires the deep link at launch, so its wait has to cover cold-start
-        // fixture load, first render, the window growth, and the list
-        // rebuild all at once — on the 3-core CI runner (see ios.yml) that
-        // raced past a 20s budget once already. Don't tidy this back down
-        // to match the sibling without re-adding an equivalent warm-up.
+        // Back to this file's usual 10s. This wait was briefly 40s on the
+        // theory that the CI failure was cold start racing a budget. It was
+        // not, and it was not CI-only either: on an unmodified build this
+        // test failed 3 runs in 8 on an iPhone 17 Pro / iOS 26.1 simulator,
+        // in 15s each — a coin flip, not a slow machine. The defect was
+        // `EventListView.resolvePendingScroll` abandoning the pending target
+        // on the one call whose `days` predates `goToDay`'s window growth;
+        // see its abandon guard. **This test is that fix's falsifier** —
+        // remove the guard and it goes back to failing about half the time,
+        // so do not weaken these assertions or stretch this budget to make a
+        // red run go away.
         let header = app.staticTexts["Friday, August 21"]
         XCTAssertTrue(
-            header.waitForExistence(timeout: 40),
+            header.waitForExistence(timeout: 10),
             "The linked day never mounted — the deep link never reached selectDay, or the window did not grow")
+        XCTAssertTrue(
+            header.isHittable,
+            "The day mounted but the list never scrolled to it")
+        XCTAssertTrue(
+            app.buttons["day-chip-2026-08-21"].isSelected,
+            "The linked day is not the rail's pinned selection")
+    }
+
+    /// The same link, with its first three `scrollTo` calls thrown away.
+    ///
+    /// The companion to the fix for #250, covering its *second* half. The
+    /// root cause there was `resolvePendingScroll` abandoning the target on a
+    /// stale `days` array (see its abandon guard); that is falsified by
+    /// `testADayDeepLinkLandsOnThatDay` above, which fails roughly one run in
+    /// three without the guard. What that test cannot reach is the other
+    /// assumption in the same function: that a `scrollTo`, once issued, has
+    /// landed. It may not have — `ScrollViewProxy` resolves an id against
+    /// already-resolved content — and before this branch, clearing
+    /// `pendingScroll` right after the call spent the only attempt anyone
+    /// would ever make.
+    ///
+    /// That race cannot be won on demand: CPU-saturating the host with 24
+    /// spinners and re-running this file's siblings never reproduced it. So
+    /// `-uitest-drop-scrolls 3` models the observable consequence instead —
+    /// the scroll is issued and goes nowhere — deterministically, on any
+    /// machine. Three, not one, so passing takes a genuine retry *chain*
+    /// rather than one spare trigger firing by luck.
+    ///
+    /// Falsified by reverting `resolvePendingScroll` to clear `pendingScroll`
+    /// unconditionally after `issueScroll`: this test then fails on the
+    /// header wait, in the same shape CI failed.
+    func testADayDeepLinkSurvivesADroppedScroll() {
+        let app = launchFixtureApp(
+            now: "2026-07-01 10:00:00",
+            extraArgs: [
+                "-uitest-go-to-day", "2026-08-21",
+                "-uitest-drop-scrolls", "3",
+            ])
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        let header = app.staticTexts["Friday, August 21"]
+        XCTAssertTrue(
+            header.waitForExistence(timeout: 10),
+            "A dropped scroll was never retried — the pending target was cleared as though it had landed")
         XCTAssertTrue(
             header.isHittable,
             "The day mounted but the list never scrolled to it")

@@ -1623,6 +1623,30 @@ final class AppModel {
     /// value in every real launch) keeps this path fully inert.
     var uiTestPendingScrollDelay: TimeInterval = 0
 
+    /// How many of the next `proxy.scrollTo` calls `EventListView.issueScroll`
+    /// should swallow instead of performing, set by `CalendarView` from
+    /// `-uitest-drop-scrolls <n>` and decremented once per swallowed call.
+    ///
+    /// Makes reachable, deterministically and on any machine, a state that
+    /// otherwise depends on winning a layout race: a `scrollTo` that is
+    /// issued and does nothing, because the section it names was not part of
+    /// the scroll view's resolved content yet (see
+    /// `PendingDayScroll.hasLanded`). Forcing that race directly did not work
+    /// — 24 CPU spinners on a 12-core host and a cold-booted simulator both
+    /// still landed the scroll — so the hook models the *observable
+    /// consequence* instead: the scroll goes nowhere. Before the retry chain,
+    /// one dropped call was fatal, since nothing fired again; with it, the
+    /// pending target survives and the next attempt lands it.
+    ///
+    /// Note this is not the #250 CI failure itself — that one never issued a
+    /// scroll at all (see `EventListView.resolvePendingScroll`'s abandon
+    /// guard, and `testADayDeepLinkLandsOnThatDay`, which falsifies it
+    /// directly). This covers the neighbouring assumption in the same
+    /// function.
+    ///
+    /// `0` (the default, and every real launch) keeps this fully inert.
+    var uiTestScrollsToDrop = 0
+
     /// The first `(day, week)` pairing — in `days` display order — whose
     /// badge actually has a theme. The deterministic target for
     /// `-uitest-show-week-theme`: not every week has one (a partial sidecar

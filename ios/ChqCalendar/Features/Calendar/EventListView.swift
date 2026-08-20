@@ -146,6 +146,46 @@ struct EventListView: View {
     @State private var pendingScrollDeadline: Date?
     #endif
 
+    /// How long after `selectDay` arms a target we keep re-issuing its
+    /// `scrollTo` until the day is actually on screen — see
+    /// `PendingDayScroll.hasLanded` for why issuing one is not landing one.
+    ///
+    /// Generous on purpose. It costs nothing when the scroll lands on the
+    /// first attempt (the common case: the confirmation reads `visibleDays`,
+    /// sees the target, and clears immediately). It is a ceiling on how long
+    /// an unlandable target stays armed, not a latency anyone waits out, and
+    /// picking a tight number here would be guessing at exactly the timing
+    /// that is not understood well enough to guess at.
+    private static let scrollRetryWindow: TimeInterval = 5
+
+    /// Gap between those re-issues. Short enough that a reader never sees the
+    /// list sitting still after asking for a day; long enough that each
+    /// attempt gets a layout pass to actually use.
+    private static let scrollRetryInterval: TimeInterval = 0.1
+
+    /// The wall-clock moment `pendingScroll` stops being re-issued and is
+    /// dropped whether or not its day ever appeared. Stamped by `selectDay`,
+    /// cleared alongside `pendingScroll`.
+    ///
+    /// A deadline rather than an attempt counter for the same reason
+    /// `pendingScrollDeadline` is one: `list(days:)` wires several
+    /// independent triggers onto `landPendingScroll`, more than one can fire
+    /// from a single commit, and two concurrent retry chains sharing a
+    /// counter would burn the budget at twice the rate. Sharing a wall-clock
+    /// deadline, they simply stop at the same moment.
+    @State private var scrollRetryDeadline: Date?
+
+    /// Bumped by a scheduled re-check so `list(days:)` re-runs
+    /// `landPendingScroll` — see its `.onChange(of: scrollRetryTick)`.
+    ///
+    /// The retry goes through view state rather than re-entering
+    /// `landPendingScroll` from the dispatched closure directly so that each
+    /// attempt reads the `days` array of the *current* render. A closure
+    /// capturing `days` would re-scroll against a snapshot that may since
+    /// have shrunk (a filter change) or grown, which is the class of bug
+    /// `PendingDayScroll.Key` exists to catch, not to reintroduce.
+    @State private var scrollRetryTick = 0
+
     /// The earliest visible day section — the day whose header is at (or
     /// just above) the top of the viewport. `min()` on day-key strings works
     /// because `DayGroup.id` sorts lexicographically the same as
@@ -419,6 +459,7 @@ struct EventListView: View {
             key: PendingDayScroll.key(for: model.filter, year: model.selectedYear))
         pendingScroll = target
         pinnedSelection = target
+        scrollRetryDeadline = Date().addingTimeInterval(Self.scrollRetryWindow)
         #if DEBUG
         // `model.uiTestPendingScrollDelay` is still consumed once, here —
         // reset to `0` so only this one arm is delayed, not every tap after
@@ -462,6 +503,9 @@ struct EventListView: View {
     /// the window away from the target without ever covering it, which
     /// `DayRailNavigation.shouldAbandonScroll` alone cannot see.
     ///
+    /// Landing is *confirmed*, not assumed: see `PendingDayScroll.hasLanded`
+    /// and `resolvePendingScroll`'s abandon guard below.
+    ///
     /// **Deliberately unanimated.** A smooth scroll does not re-target
     /// mid-flight: on the web the equivalent animation ran ~2s while the
     /// document grew 1020px beneath it, and the tap landed ~1058px short of
@@ -499,19 +543,89 @@ struct EventListView: View {
 
         let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
         if PendingDayScroll.isStale(pending, currentKey: currentKey) {
-            pendingScroll = nil
+            clearPendingScroll()
             return
         }
 
         if days.contains(where: { $0.id == pending.day }) {
-            proxy.scrollTo(pending.day, anchor: .top)
-            pendingScroll = nil
+            issueScroll(proxy, to: pending.day)
+        } else if !visibleDays.isEmpty,
+                  DayRailNavigation.shouldAbandonScroll(
+                    target: pending.day, window: model.currentWindow) {
+            // `!visibleDays.isEmpty` is the fix for #250, and it is load-
+            // bearing. `shouldAbandonScroll` reads `model.currentWindow` —
+            // live state — while `days` is whatever array the enclosing
+            // render captured. On a cold launch consuming a day deep link
+            // those two disagree exactly once, and fatally: `content` builds
+            // `list(days:)` the moment `snapshot` lands, then `body`'s
+            // `.onChange(of: model.pendingDeepLink)` runs `selectDay` in that
+            // same update, so `goToDay` has already grown the window by the
+            // time the freshly-mounted list's `.onAppear` fires — carrying
+            // the *pre-growth* `days`. The rule then reads "the window covers
+            // this day and it has no section", concludes it is an ordinary
+            // empty day, and drops the target. The two `.onChange` triggers
+            // arrive with correct data about two milliseconds later and are
+            // swallowed by `landPendingScroll`'s `pendingScroll != nil`
+            // guard, because there is no longer anything pending. Measured
+            // on an iPhone 17 Pro / iOS 26.1 simulator: 5 failures in 18
+            // runs, every one of them logging that single stale-`days` call
+            // and nothing after it; 12 for 12 with this guard, with 9 of
+            // those runs still hitting the stale call.
+            //
+            // An empty `visibleDays` means the list has not rendered a single
+            // day header yet, which is true only of that first-mount call —
+            // and is precisely when `days` cannot be trusted to correspond to
+            // the current window. Any settled render (every chip tap, which
+            // is what this rule was written for) has headers on screen and
+            // still abandons immediately.
+            clearPendingScroll()
             return
         }
 
-        if DayRailNavigation.shouldAbandonScroll(target: pending.day, window: model.currentWindow) {
-            pendingScroll = nil
+        // Whether or not the day was mountable in `days`, the target is only
+        // done once it is actually on screen — issuing a scroll is not
+        // landing one, and `days` here may not even be the array this
+        // render's `List` is showing. `PendingDayScroll.hasLanded` decides;
+        // until it says yes, the target stays armed and
+        // `scheduleScrollRetry` brings us back with whatever `days` the next
+        // render has.
+        if PendingDayScroll.hasLanded(
+            day: pending.day,
+            visibleDays: visibleDays,
+            retryDeadline: scrollRetryDeadline,
+            now: Date()) {
+            clearPendingScroll()
+        } else {
+            scheduleScrollRetry()
         }
+    }
+
+    /// The one place `pendingScroll` is dropped, so its retry deadline can
+    /// never outlive it and re-arm a chain for a target that is gone.
+    private func clearPendingScroll() {
+        pendingScroll = nil
+        scrollRetryDeadline = nil
+    }
+
+    /// Ask `list(days:)` to run `landPendingScroll` again shortly, with the
+    /// `days` of whatever render is current by then — see `scrollRetryTick`.
+    private func scheduleScrollRetry() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollRetryInterval) { [self] in
+            scrollRetryTick &+= 1
+        }
+    }
+
+    /// `proxy.scrollTo`, with the `-uitest-drop-scrolls` hook in front of it.
+    private func issueScroll(_ proxy: ScrollViewProxy, to day: String) {
+        #if DEBUG
+        if model.uiTestScrollsToDrop > 0 {
+            // Simulate the scroll `List` drops when the target's section is
+            // not resolvable yet — see `AppModel.uiTestScrollsToDrop`.
+            model.uiTestScrollsToDrop -= 1
+            return
+        }
+        #endif
+        proxy.scrollTo(day, anchor: .top)
     }
 
     @ViewBuilder
@@ -642,6 +756,22 @@ struct EventListView: View {
             // `pendingScroll != nil` guard makes that second call a no-op,
             // so this cannot re-arm itself in a loop.
             .onChange(of: pendingScroll) { _, _ in
+                landPendingScroll(proxy, days: days)
+            }
+            // The third trigger. The two above each fire at most once per
+            // arm and `.onAppear` fires exactly once, so between them a
+            // target gets a single `scrollTo` — which `List` can silently
+            // drop when the section it names has not been resolved yet, and
+            // which nothing would then re-issue. `resolvePendingScroll` bumps
+            // `scrollRetryTick` whenever `PendingDayScroll.hasLanded` says
+            // the day still is not on screen, landing back here with this
+            // render's `days` to try again.
+            //
+            // Not the fix for #250 — that is the abandon guard in
+            // `resolvePendingScroll` — but the same function's other
+            // unchecked assumption, and `testADayDeepLinkSurvivesADroppedScroll`
+            // pins it.
+            .onChange(of: scrollRetryTick) { _, _ in
                 landPendingScroll(proxy, days: days)
             }
             .onAppear {

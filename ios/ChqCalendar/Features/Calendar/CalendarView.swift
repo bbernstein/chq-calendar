@@ -232,6 +232,14 @@ struct CalendarView: View {
             model.uiTestPendingScrollDelay = 3
         }
 
+        // `-uitest-drop-scrolls <n>` — see `AppModel.uiTestScrollsToDrop` for
+        // why a UI test needs to be able to make a `scrollTo` do nothing.
+        if let flagIndex = arguments.firstIndex(of: "-uitest-drop-scrolls"),
+           arguments.index(after: flagIndex) < arguments.endIndex,
+           let count = Int(arguments[arguments.index(after: flagIndex)]), count > 0 {
+            model.uiTestScrollsToDrop = count
+        }
+
         if arguments.contains("-uitest-show-about") {
             model.uiTestShowAbout = true
         }
