@@ -22,6 +22,8 @@ struct EventListView: View {
     @Bindable var model: AppModel
     var selection: Binding<Event?>?
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @State private var isAboutPresented = false
 
     /// Which pill's sheet is up, if any.
@@ -831,7 +833,28 @@ struct EventListView: View {
     /// pills moved out of the toolbar system entirely into a safe-area
     /// inset, which the tab bar's own safe-area contribution stacks
     /// *above* rather than under (screenshot-verified in task 16).
+    ///
+    /// At accessibility text sizes the two pills no longer fit side by side —
+    /// the date pill is `fixedSize` (abbreviating the date is worse than
+    /// scrolling for it), so `Filters` was the one that truncated to `…`.
+    /// Scrolling the row keeps both labels whole. Gated on
+    /// `isAccessibilitySize` so the default layout — where both fit with room
+    /// to spare — keeps its `Spacer` and stays pixel-identical.
     private var filterPillBar: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    pillRow
+                }
+            } else {
+                pillRow
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+    }
+
+    private var pillRow: some View {
         HStack(spacing: 10) {
             pillButton {
                 KeyboardDismisser.dismiss()
@@ -858,14 +881,13 @@ struct EventListView: View {
                     Image(systemName: "line.3.horizontal.decrease")
                     Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
                         .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .accessibilityLabel(filtersAccessibilityLabel)
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
     }
 
     /// One pill: a plain button whose chrome matches the platform — Liquid
