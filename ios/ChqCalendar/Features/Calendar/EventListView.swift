@@ -609,8 +609,20 @@ struct EventListView: View {
 
     /// Ask `list(days:)` to run `landPendingScroll` again shortly, with the
     /// `days` of whatever render is current by then — see `scrollRetryTick`.
+    ///
+    /// Guarded by the same `pendingScroll != nil` check `landPendingScroll`
+    /// itself opens with: by the time this closure runs, the target that
+    /// justified the retry may already be gone — landed via an earlier
+    /// retry, abandoned as stale, or cleared by a fresh tap elsewhere — and
+    /// bumping the tick for nothing still forces a view update that
+    /// re-enters `landPendingScroll` only to no-op. A tap that lands a new
+    /// `pendingScroll` before this fires is still honored: the guard reads
+    /// "something is pending", not "the same thing is still pending", so an
+    /// in-flight retry for a still-armed (even if different) target keeps
+    /// working exactly as before.
     private func scheduleScrollRetry() {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollRetryInterval) { [self] in
+            guard pendingScroll != nil else { return }
             scrollRetryTick &+= 1
         }
     }
