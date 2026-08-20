@@ -96,4 +96,52 @@ struct IntentTimeframeTests {
         #expect(SeasonStatus.make(now: during, year: year) == .inSeason)
         #expect(SeasonStatus.make(now: after, year: year) == .postSeason)
     }
+
+    // MARK: - targetDayKey
+
+    /// The day a spoken timeframe should *land on* is the first day of the
+    /// window it means — not the whole window. "This week" opens on today, not
+    /// on Saturday: the reader asked what is happening, and the rail is right
+    /// there for the rest of the week.
+    @Test func targetDayKeyIsTheFirstDayOfTheInterval() throws {
+        let now = try #require(ChqTime.parse("2026-07-27 09:00:00"))
+
+        #expect(IntentTimeframe.today.targetDayKey(now: now, year: 2026) == "2026-07-27")
+        #expect(IntentTimeframe.tonight.targetDayKey(now: now, year: 2026) == "2026-07-27")
+        #expect(IntentTimeframe.tomorrow.targetDayKey(now: now, year: 2026) == "2026-07-28")
+        #expect(IntentTimeframe.thisWeek.targetDayKey(now: now, year: 2026) == "2026-07-27")
+    }
+
+    /// `tonight` is 5pm-anchored, so asking at 9pm must still mean today —
+    /// `interval` clamps its start to `now`, and the day key of either is the
+    /// same day. Pinned because a naive "5pm tomorrow" rewrite would pass the
+    /// morning case above and break this one.
+    @Test func targetDayKeyForTonightAskedLateIsStillToday() throws {
+        let now = try #require(ChqTime.parse("2026-07-27 21:30:00"))
+
+        #expect(IntentTimeframe.tonight.targetDayKey(now: now, year: 2026) == "2026-07-27")
+    }
+
+    @Test func targetDayKeyForAnExplicitWeekIsThatWeeksFirstDay() throws {
+        let now = try #require(ChqTime.parse("2026-07-27 09:00:00"))
+        let week3 = SeasonCalendar.weeks(forYear: 2026)[2]
+
+        #expect(IntentTimeframe.week3.targetDayKey(now: now, year: 2026)
+                == ChqTime.dayKey(for: week3.start))
+    }
+
+    /// Week 9's "next week" is past the season: `interval` returns a
+    /// zero-length window at the season's end. A day key still comes out — it
+    /// is `OpenDayIntent`'s bounds check, not this function, that refuses it.
+    /// Pinned so a later "return nil when empty" refactor has to argue with a
+    /// test rather than silently change where the refusal lives.
+    @Test func targetDayKeyForNextWeekInWeekNineStillProducesAKey() throws {
+        let weeks = SeasonCalendar.weeks(forYear: 2026)
+        let inWeekNine = weeks[8].start.addingTimeInterval(3600)
+
+        let key = IntentTimeframe.nextWeek.targetDayKey(now: inWeekNine, year: 2026)
+
+        #expect(ChqTime.isCanonicalDayKey(key))
+        #expect(key == ChqTime.dayKey(for: weeks[8].end))
+    }
 }
