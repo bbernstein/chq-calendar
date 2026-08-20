@@ -19,6 +19,20 @@ function check(name, ok, detail) {
 
 const browser = await chromium.launch();
 
+// Mid-morning Institution time on the run's **own** calendar day.
+//
+// Deliberately not a hardcoded date: these checks run against live production
+// data, so "today" has to stay the real today or every assertion about which
+// days carry events goes stale the moment the feed moves on. What is removed
+// is only the *hour* — the suite now behaves the same at 02:00 as at 14:00.
+//
+// 14:00Z is 10:00 EDT in season and 09:00 EST out of it; both are comfortably
+// mid-morning, which is all this needs, so it buys determinism without any
+// offset arithmetic to get wrong twice a year.
+const FIXED_NOW = new Date(
+  `${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())}T14:00:00Z`
+);
+
 async function newPage({ width = 900, height = 900, storage } = {}) {
   // Chautauqua's own timezone, pinned rather than inherited from the runner.
   //
@@ -30,8 +44,33 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
   // cannot land on today. Reproduced by A/B: this suite passes in Eastern and
   // fails in UTC on `main` as well as on any branch, so `browser-checks` was
   // failing for everyone after roughly 20:00 UTC and passing earlier in the
-  // day. Pinning makes every date-sensitive check here independent of the
-  // wall-clock hour and of where it is run.
+  // day.
+  //
+  // **The timezone pin alone was not enough**, and the original version of
+  // this comment claimed otherwise. It fixed the afternoon-*UTC* case and left
+  // the genuine late-evening-*Eastern* one: once the last event of the day has
+  // passed in Chautauqua, today really has no upcoming events under `Now`, the
+  // anchor really does move to tomorrow, and `11c` really cannot pass. Seen on
+  // `main` at 01:31Z, reproduced identically on a re-run at 01:58Z, and the
+  // same commit passed at 10:17Z — deterministic, not flaky.
+  //
+  // Reproduced locally by pinning the clock to CI's exact failing instant,
+  // which reports:
+  //
+  //     today=2026-08-19 anchor=2026-08-27
+  //     mounted=2026-08-20,2026-08-21,2026-08-22 button=1
+  //
+  // Today is not mounted at all, so ⟳ Now cannot land on it and stays visible
+  // — the app is right and the check's assumption was wrong.
+  //
+  // The boundary is not an hour of the clock but **today's last event plus
+  // `Now`'s one-hour grace**, so it moves with the day's programming: pinned
+  // to 01:30Z that same night, `2026-08-19` is still mounted and this passes;
+  // one minute later at 01:31Z it is gone and this fails. That is why hunting
+  // for a fixed "fails after N o'clock" rule never converged.
+  //
+  // So the clock is pinned too, below, and that is what actually makes these
+  // checks independent of the hour.
   //
   // This pins the TEST's clock, not the app's. Whether `now` ought to be
   // evaluated in the Institution's timezone rather than the device's is a real
@@ -43,6 +82,12 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
     timezoneId: 'America/New_York',
   });
   const page = await ctx.newPage();
+  // `setFixedTime`, not `install`: it pins what `Date.now()`/`new Date()`
+  // report while **leaving every timer running**. The app leans on real
+  // timers — the search debounce, the render window's observers, the rail's
+  // scroll settling — so faking those as well would break the very
+  // interactions these checks drive.
+  await page.clock.setFixedTime(FIXED_NOW);
   if (storage) {
     await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
   }
@@ -216,7 +261,22 @@ for (const scrolled of [false, true]) {
     const scopeAfter = await page.$$eval('button[aria-pressed]', els =>
       els.map(e => `${e.textContent.trim()}=${e.getAttribute('aria-pressed')}`).join(','));
     check('11b ⟳ Now changes no filter', scopeBefore === scopeAfter, scopeAfter);
-    check('11c ⟳ Now hides once back on today', (await page.getByRole('button', { name: 'Go to today' }).count()) === 0);
+
+    // Reported with its state on purpose. `11c` has failed on `main` at night
+    // and passed the same commit in the morning, and every previous
+    // investigation had to guess at the cause because this check printed
+    // nothing but its own name — the log line was `11c ⟳ Now hides once back
+    // on today:` with an empty detail. Whatever the cause turns out to be,
+    // the next failure should be able to state it: what the app thinks today
+    // is, where the anchor actually landed, and which days are mounted.
+    const stillThere = await page.getByRole('button', { name: 'Go to today' }).count();
+    const landedOn = await anchorChip(page);
+    const [appToday, mountedNow] = await page.evaluate(() => [
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date()),
+      [...document.querySelectorAll('[data-day-key]')].slice(0, 3).map(e => e.dataset.dayKey),
+    ]);
+    check('11c ⟳ Now hides once back on today', stillThere === 0,
+      `today=${appToday} anchor=${landedOn} mounted=${mountedNow.join(',')} button=${stillThere}`);
   }
   await page.close();
 }
