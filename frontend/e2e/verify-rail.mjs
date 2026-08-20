@@ -9,6 +9,7 @@
  * server on :3000.
  */
 import { chromium } from 'playwright';
+import { pinClock } from './fixedNow.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 const results = [];
@@ -19,30 +20,56 @@ function check(name, ok, detail) {
 
 const browser = await chromium.launch();
 
+
 async function newPage({ width = 900, height = 900, storage } = {}) {
-  // Chautauqua's own timezone, pinned rather than inherited from the runner.
+  // Chautauqua's own timezone, kept for belt-and-braces — it is no longer
+  // load-bearing. The paragraph that used to be here claimed the app "treats
+  // the browser's clock as event-time" because `startDate`s are
+  // Institution-local and carry no offset. True when written; #243 ("resolve
+  // every date in the Institution's timezone") made it false — `parseEventDate`
+  // reads a naive `startDate` as Institution wall time, `dayKeyOf` resolves the
+  // day key in `CHQ_ZONE`, `chqDateAt` builds instants from Institution parts.
+  // Confirmed by running this whole suite under `Asia/Tokyo`: 36/36, identical
+  // to Eastern. It is recorded as wrong rather than deleted because it
+  // outlived its truth long enough to convince a later reader there was an
+  // unfixed product bug.
   //
-  // Event `startDate`s are Institution-local and carry no offset, so the app
-  // effectively treats the browser's clock as event-time. CI runs UTC, which
-  // in the afternoon Eastern means the app believes the day's programming has
-  // already ended — under the default `Now` scope today then has no upcoming
-  // events, and `11c ⟳ Now hides once back on today` fails because the anchor
-  // cannot land on today. Reproduced by A/B: this suite passes in Eastern and
-  // fails in UTC on `main` as well as on any branch, so `browser-checks` was
-  // failing for everyone after roughly 20:00 UTC and passing earlier in the
-  // day. Pinning makes every date-sensitive check here independent of the
-  // wall-clock hour and of where it is run.
+  // The *hour*, though, was load-bearing, and pinning the timezone never
+  // addressed it. `11c ⟳ Now hides once back on today` failed on `main` at
+  // 01:31Z, again at 01:58Z on a re-run, and passed on the same commit at
+  // 10:17Z. Pinning the clock to that failing instant reproduces it exactly:
   //
-  // This pins the TEST's clock, not the app's. Whether `now` ought to be
-  // evaluated in the Institution's timezone rather than the device's is a real
-  // product question — a visitor on a non-Eastern device late in their local
-  // day sees today's events as already past — and is deliberately left alone
-  // here rather than answered by a test harness.
+  //     today=2026-08-19 anchor=2026-08-27
+  //     mounted=2026-08-20,2026-08-21,2026-08-22 button=1
+  //
+  // Today is not mounted at all — once today's last event plus `Now`'s
+  // one-hour grace has passed, today leaves the window, so ⟳ Now cannot land
+  // on it and correctly stays visible. The app was right; the check's
+  // assumption that today is always reachable was wrong.
+  //
+  // The boundary tracks the day's programming rather than the clock, which is
+  // why no fixed "fails after N o'clock" rule ever fit: pinned to 01:30Z that
+  // night `2026-08-19` is still mounted and `11c` passes; at 01:31Z it is gone
+  // and it fails.
+  //
+  // So the clock is pinned below, and that — not the timezone — is what makes
+  // these checks independent of when they run. It fixes a harness problem, not
+  // a product one: whether `now` is evaluated in the Institution's timezone is
+  // already settled in the app, and `verify-timezone.mjs` holds the standing
+  // proof across `America/New_York`, `UTC`, `America/Los_Angeles` and
+  // `Asia/Tokyo`.
   const ctx = await browser.newContext({
     viewport: { width, height },
     timezoneId: 'America/New_York',
   });
   const page = await ctx.newPage();
+  // Shared with `verify-timezone.mjs`; see `fixedNow.mjs` for what is pinned
+  // and, more importantly, what deliberately is not.
+  await pinClock(page);
+  // Tie the context's lifetime to the page's. Callers only ever `page.close()`,
+  // so without this every check leaks a whole `BrowserContext` — roughly twenty
+  // of them across a run, each holding its own browser process resources.
+  page.once('close', () => { ctx.close().catch(() => {}); });
   if (storage) {
     await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
   }
@@ -216,7 +243,26 @@ for (const scrolled of [false, true]) {
     const scopeAfter = await page.$$eval('button[aria-pressed]', els =>
       els.map(e => `${e.textContent.trim()}=${e.getAttribute('aria-pressed')}`).join(','));
     check('11b ⟳ Now changes no filter', scopeBefore === scopeAfter, scopeAfter);
-    check('11c ⟳ Now hides once back on today', (await page.getByRole('button', { name: 'Go to today' }).count()) === 0);
+
+    // Reported with its state on purpose. `11c` has failed on `main` at night
+    // and passed the same commit in the morning, and every previous
+    // investigation had to guess at the cause because this check printed
+    // nothing but its own name — the log line was `11c ⟳ Now hides once back
+    // on today:` with an empty detail. Whatever the cause turns out to be,
+    // the next failure should be able to state it: what the app thinks today
+    // is, where the anchor actually landed, and which days are mounted.
+    const stillThere = await page.getByRole('button', { name: 'Go to today' }).count();
+    const landedOn = await anchorChip(page);
+    const [appToday, mountedNow] = await page.evaluate(() => [
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date()),
+      // Not sliced. A capped list defeats the point: if the render window ever
+      // mounts more days, `today` lands past the cap and is truncated away in
+      // exactly the failure this exists to explain. It is a short array of day
+      // keys, so printing all of them costs nothing.
+      [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey),
+    ]);
+    check('11c ⟳ Now hides once back on today', stillThere === 0,
+      `today=${appToday} anchor=${landedOn} mounted=${mountedNow.join(',')} button=${stillThere}`);
   }
   await page.close();
 }
