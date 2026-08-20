@@ -67,8 +67,9 @@ for (const { zone, got } of zoneResults) {
     JSON.stringify(got.times) === JSON.stringify(baseline.times),
     got.times.slice(0, 3).join(', '));
 
-  // The two the pinned clock exists for: which day the app calls today, and
-  // how much it considers still upcoming. Both are exact comparisons now.
+  // The two checks the pinned clock exists for: which day the app calls
+  // today, and how much it considers still upcoming. Both are exact
+  // comparisons now.
   check(`4 same day is today under ${zone}`,
     got.today === baseline.today,
     `${got.today} vs ${baseline.today}`);
