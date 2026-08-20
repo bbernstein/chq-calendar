@@ -551,9 +551,21 @@ final class DayRailUITests: XCTestCase {
         // 2026-08-21 is a Friday; the fixture titles every day header through
         // ChqTime.dayTitle ("EEEE, MMMM d", en_US_POSIX, no year), same as
         // testADistantChipTapLandsOnThatDay above.
+        //
+        // 40s, not this file's usual 20, because this test has no warm-up.
+        // testADistantChipTapLandsOnThatDay targets the same 51-day-out day
+        // and makes the same assertions, but spends ~10 revealByScrolling
+        // swipes bringing the chip into view before it ever taps — seconds
+        // of wall clock during which cold start finishes on a real device,
+        // and only after that does its own 10s header wait begin. This test
+        // fires the deep link at launch, so its wait has to cover cold-start
+        // fixture load, first render, the window growth, and the list
+        // rebuild all at once — on the 3-core CI runner (see ios.yml) that
+        // raced past a 20s budget once already. Don't tidy this back down
+        // to match the sibling without re-adding an equivalent warm-up.
         let header = app.staticTexts["Friday, August 21"]
         XCTAssertTrue(
-            header.waitForExistence(timeout: 20),
+            header.waitForExistence(timeout: 40),
             "The linked day never mounted — the deep link never reached selectDay, or the window did not grow")
         XCTAssertTrue(
             header.isHittable,
