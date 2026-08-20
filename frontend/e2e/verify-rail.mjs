@@ -66,6 +66,10 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
   // Shared with `verify-timezone.mjs`; see `fixedNow.mjs` for what is pinned
   // and, more importantly, what deliberately is not.
   await pinClock(page);
+  // Tie the context's lifetime to the page's. Callers only ever `page.close()`,
+  // so without this every check leaks a whole `BrowserContext` — roughly twenty
+  // of them across a run, each holding its own browser process resources.
+  page.once('close', () => { ctx.close().catch(() => {}); });
   if (storage) {
     await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
   }

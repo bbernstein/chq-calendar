@@ -50,6 +50,10 @@ async function phone({ reducedMotion } = {}) {
     ...(reducedMotion ? { reducedMotion: 'reduce' } : {}),
   });
   const page = await ctx.newPage();
+  // Tie the context's lifetime to the page's. Callers only ever `page.close()`,
+  // so without this every check leaks a whole `BrowserContext` — roughly twenty
+  // of them across a run, each holding its own browser process resources.
+  page.once('close', () => { ctx.close().catch(() => {}); });
   await page.goto(URL, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-day-key]');
   return page;
