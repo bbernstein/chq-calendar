@@ -9,6 +9,7 @@
  * server on :3000.
  */
 import { chromium } from 'playwright';
+import { pinClock } from './fixedNow.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 const results = [];
@@ -19,82 +20,52 @@ function check(name, ok, detail) {
 
 const browser = await chromium.launch();
 
-// Mid-morning Institution time on the run's **own** calendar day.
-//
-// Deliberately not a hardcoded date: these checks run against live production
-// data, so "today" has to stay the real today or every assertion about which
-// days carry events goes stale the moment the feed moves on. What is removed
-// is only the *hour* — the suite now behaves the same at 02:00 as at 14:00.
-//
-// 14:00Z is 10:00 EDT in season and 09:00 EST out of it; both are comfortably
-// mid-morning, which is all this needs, so it buys determinism without any
-// offset arithmetic to get wrong twice a year.
-const FIXED_NOW = new Date(
-  `${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())}T14:00:00Z`
-);
 
 async function newPage({ width = 900, height = 900, storage } = {}) {
-  // Chautauqua's own timezone, pinned rather than inherited from the runner.
+  // Chautauqua's own timezone, kept for belt-and-braces — it is no longer
+  // load-bearing. The paragraph that used to be here claimed the app "treats
+  // the browser's clock as event-time" because `startDate`s are
+  // Institution-local and carry no offset. True when written; #243 ("resolve
+  // every date in the Institution's timezone") made it false — `parseEventDate`
+  // reads a naive `startDate` as Institution wall time, `dayKeyOf` resolves the
+  // day key in `CHQ_ZONE`, `chqDateAt` builds instants from Institution parts.
+  // Confirmed by running this whole suite under `Asia/Tokyo`: 36/36, identical
+  // to Eastern. It is recorded as wrong rather than deleted because it
+  // outlived its truth long enough to convince a later reader there was an
+  // unfixed product bug.
   //
-  // **Kept for belt-and-braces only — it is no longer load-bearing, and the
-  // paragraph that used to be here was wrong.** It claimed the app "treats the
-  // browser's clock as event-time" because `startDate`s are Institution-local
-  // and carry no offset. That was true when it was written and #243 ("resolve
-  // every date in the Institution's timezone") made it false: `parseEventDate`
-  // now reads a naive `startDate` as Institution wall time, `dayKeyOf` resolves
-  // the day key in `CHQ_ZONE`, and `chqDateAt` builds instants from
-  // Institution parts. Verified by running this whole suite under
-  // `Asia/Tokyo`: 36/36, identical to Eastern.
-  //
-  // The stale claim outlived its truth long enough to mislead a later reader
-  // of this file into believing there was an unfixed product bug, so it is
-  // recorded here as wrong rather than quietly deleted.
-  //
-  // **The timezone pin alone was not enough**, and the original version of
-  // this comment claimed otherwise. It fixed the afternoon-*UTC* case and left
-  // the genuine late-evening-*Eastern* one: once the last event of the day has
-  // passed in Chautauqua, today really has no upcoming events under `Now`, the
-  // anchor really does move to tomorrow, and `11c` really cannot pass. Seen on
-  // `main` at 01:31Z, reproduced identically on a re-run at 01:58Z, and the
-  // same commit passed at 10:17Z — deterministic, not flaky.
-  //
-  // Reproduced locally by pinning the clock to CI's exact failing instant,
-  // which reports:
+  // The *hour*, though, was load-bearing, and pinning the timezone never
+  // addressed it. `11c ⟳ Now hides once back on today` failed on `main` at
+  // 01:31Z, again at 01:58Z on a re-run, and passed on the same commit at
+  // 10:17Z. Pinning the clock to that failing instant reproduces it exactly:
   //
   //     today=2026-08-19 anchor=2026-08-27
   //     mounted=2026-08-20,2026-08-21,2026-08-22 button=1
   //
-  // Today is not mounted at all, so ⟳ Now cannot land on it and stays visible
-  // — the app is right and the check's assumption was wrong.
+  // Today is not mounted at all — once today's last event plus `Now`'s
+  // one-hour grace has passed, today leaves the window, so ⟳ Now cannot land
+  // on it and correctly stays visible. The app was right; the check's
+  // assumption that today is always reachable was wrong.
   //
-  // The boundary is not an hour of the clock but **today's last event plus
-  // `Now`'s one-hour grace**, so it moves with the day's programming: pinned
-  // to 01:30Z that same night, `2026-08-19` is still mounted and this passes;
-  // one minute later at 01:31Z it is gone and this fails. That is why hunting
-  // for a fixed "fails after N o'clock" rule never converged.
+  // The boundary tracks the day's programming rather than the clock, which is
+  // why no fixed "fails after N o'clock" rule ever fit: pinned to 01:30Z that
+  // night `2026-08-19` is still mounted and `11c` passes; at 01:31Z it is gone
+  // and it fails.
   //
-  // So the clock is pinned too, below, and that is what actually makes these
-  // checks independent of the hour.
-  //
-  // This pins the TEST's clock, not the app's, and it fixes a test-harness
-  // problem rather than a product one. The product question this used to raise
-  // — should `now` be evaluated in the Institution's timezone rather than the
-  // device's — is already answered in the app: it is. `verify-timezone.mjs`
-  // holds the standing proof, asserting that `America/New_York`, `UTC`,
-  // `America/Los_Angeles` and `Asia/Tokyo` all agree on the days shown, the
-  // day headers, the event times, which day is today, and which events are
-  // upcoming.
+  // So the clock is pinned below, and that — not the timezone — is what makes
+  // these checks independent of when they run. It fixes a harness problem, not
+  // a product one: whether `now` is evaluated in the Institution's timezone is
+  // already settled in the app, and `verify-timezone.mjs` holds the standing
+  // proof across `America/New_York`, `UTC`, `America/Los_Angeles` and
+  // `Asia/Tokyo`.
   const ctx = await browser.newContext({
     viewport: { width, height },
     timezoneId: 'America/New_York',
   });
   const page = await ctx.newPage();
-  // `setFixedTime`, not `install`: it pins what `Date.now()`/`new Date()`
-  // report while **leaving every timer running**. The app leans on real
-  // timers — the search debounce, the render window's observers, the rail's
-  // scroll settling — so faking those as well would break the very
-  // interactions these checks drive.
-  await page.clock.setFixedTime(FIXED_NOW);
+  // Shared with `verify-timezone.mjs`; see `fixedNow.mjs` for what is pinned
+  // and, more importantly, what deliberately is not.
+  await pinClock(page);
   if (storage) {
     await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
   }

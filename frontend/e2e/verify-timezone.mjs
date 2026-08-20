@@ -8,6 +8,7 @@
  * property is agreement.
  */
 import { chromium } from 'playwright';
+import { pinClock } from './fixedNow.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 const ZONES = ['America/New_York', 'UTC', 'America/Los_Angeles', 'Asia/Tokyo'];
@@ -22,6 +23,7 @@ const browser = await chromium.launch();
 async function readUnder(timezoneId) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 900 }, timezoneId });
   const page = await ctx.newPage();
+  await pinClock(page);
   await page.goto(URL, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-day-key]', { timeout: 30000 });
   const out = await page.evaluate(() => ({
@@ -36,50 +38,43 @@ async function readUnder(timezoneId) {
   return out;
 }
 
-// The baseline is read once before the other three contexts and again after
-// — `today` and `nowVisible` are wall-clock sensitive, so a run that crosses
-// a minute or day boundary mid-flight must not be reported as a false
-// mismatch against the other zones. Both baseline readings are compared
-// against every zone, and a value must match one of them — matching neither
-// is a real cross-zone disagreement, not clock skew, and still fails.
-const baselineFirst = await readUnder(ZONES[0]);
-check('0 baseline rendered something to compare', baselineFirst.days.length > 0,
-  `${baselineFirst.days.length} days, first=${baselineFirst.days[0]}`);
+// One baseline, compared strictly.
+//
+// This used to read the baseline twice — before and after the other zones —
+// and accept a value matching *either*, because `today` and `nowVisible` are
+// wall-clock sensitive and a run crossing a minute or day boundary mid-flight
+// would otherwise report a false mismatch. Every read now happens at one
+// pinned instant (`fixedNow.mjs`), so there is exactly one right answer and
+// the tolerance is not merely unnecessary but harmful: it would let a genuine
+// cross-zone disagreement pass whenever it happened to match the second read.
+const baseline = await readUnder(ZONES[0]);
+check('0 baseline rendered something to compare', baseline.days.length > 0,
+  `${baseline.days.length} days, first=${baseline.days[0]}`);
 
 const zoneResults = [];
 for (const zone of ZONES.slice(1)) {
   zoneResults.push({ zone, got: await readUnder(zone) });
 }
 
-const baselineLast = await readUnder(ZONES[0]);
-const clockMoved = JSON.stringify(baselineFirst.today) !== JSON.stringify(baselineLast.today)
-  || baselineFirst.nowVisible !== baselineLast.nowVisible;
-
-function agreesWithEitherBaseline(value, pick) {
-  return value === pick(baselineFirst) || value === pick(baselineLast);
-}
-
 for (const { zone, got } of zoneResults) {
   check(`1 same days under ${zone}`,
-    JSON.stringify(got.days) === JSON.stringify(baselineFirst.days),
-    `${got.days[0]}..${got.days.at(-1)} vs ${baselineFirst.days[0]}..${baselineFirst.days.at(-1)}`);
+    JSON.stringify(got.days) === JSON.stringify(baseline.days),
+    `${got.days[0]}..${got.days.at(-1)} vs ${baseline.days[0]}..${baseline.days.at(-1)}`);
   check(`2 same day headers under ${zone}`,
-    JSON.stringify(got.headers) === JSON.stringify(baselineFirst.headers),
+    JSON.stringify(got.headers) === JSON.stringify(baseline.headers),
     got.headers[0] ?? '(none)');
   check(`3 same event times under ${zone}`,
-    JSON.stringify(got.times) === JSON.stringify(baselineFirst.times),
+    JSON.stringify(got.times) === JSON.stringify(baseline.times),
     got.times.slice(0, 3).join(', '));
 
-  // A moving clock explains a value drifting between the two baseline reads.
-  // It does not explain a value matching neither — that is a real cross-zone
-  // disagreement, and this file exists to catch exactly that, so it must
-  // still fail rather than being swallowed as clock skew.
+  // The two the pinned clock exists for: which day the app calls today, and
+  // how much it considers still upcoming. Both are exact comparisons now.
   check(`4 same day is today under ${zone}`,
-    agreesWithEitherBaseline(got.today, b => b.today),
-    `${got.today} vs ${baselineFirst.today}/${baselineLast.today}${clockMoved ? ' (clock moved mid-run)' : ''}`);
+    got.today === baseline.today,
+    `${got.today} vs ${baseline.today}`);
   check(`5 same events are upcoming under ${zone}`,
-    agreesWithEitherBaseline(got.nowVisible, b => b.nowVisible),
-    `${got.nowVisible} vs ${baselineFirst.nowVisible}/${baselineLast.nowVisible}${clockMoved ? ' (clock moved mid-run)' : ''}`);
+    got.nowVisible === baseline.nowVisible,
+    `${got.nowVisible} vs ${baseline.nowVisible}`);
 }
 
 await browser.close();
