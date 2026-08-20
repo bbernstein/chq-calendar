@@ -43,6 +43,8 @@ nonisolated struct DeepLinkTabRoute: Equatable, Sendable {
             return DeepLinkTabRoute(tab: .myDay, consumesLink: true, mapFocusVenue: nil)
         case .map(let venue):
             return DeepLinkTabRoute(tab: .map, consumesLink: true, mapFocusVenue: venue)
+        case .day:
+            return DeepLinkTabRoute(tab: .events, consumesLink: false, mapFocusVenue: nil)
         }
     }
 }
