@@ -1,10 +1,10 @@
 import AppIntents
 
 /// Registers the app's #193 Siri/Shortcuts surface — this is what makes
-/// the seven shortcuts (listed in the Shortcuts app gallery under CHQ
+/// the eight shortcuts (listed in the Shortcuts app gallery under CHQ
 /// Calendar by their `AppIntent.title`: "What's Next", "Today at
 /// Chautauqua", "Open Event", "Weekly Theme", "My Schedule", "Who's
-/// Speaking", "Show Time") show up without the user configuring anything,
+/// Speaking", "Show Time", "Show a Day") show up without the user configuring anything,
 /// and lets Siri run them by voice. "What's Next" alone carries 27
 /// phrases across four families — plain, kind-parameterized,
 /// timeframe-parameterized, and venue-parameterized — so a user can ask
@@ -78,6 +78,21 @@ nonisolated struct ChqShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Open Event",
             systemImageName: "arrow.up.right.circle"
+        )
+        AppShortcut(
+            intent: OpenDayIntent(),
+            phrases: [
+                "Show me a day in \(.applicationName)",
+                "Show me a day at \(.applicationName)",
+                "Show me \(\.$timeframe) in \(.applicationName)",
+                "Show me \(\.$timeframe) at \(.applicationName)",
+                "Open \(\.$timeframe) in \(.applicationName)",
+                "Open \(\.$timeframe) at \(.applicationName)",
+                "Take me to \(\.$timeframe) in \(.applicationName)",
+                "Take me to \(\.$timeframe) at \(.applicationName)"
+            ],
+            shortTitle: "Show a Day",
+            systemImageName: "calendar.day.timeline.left"
         )
         // The first phrase in each array below is the one SiriTipView and
         // the Shortcuts gallery display verbatim (phraseTemplates[0]) —

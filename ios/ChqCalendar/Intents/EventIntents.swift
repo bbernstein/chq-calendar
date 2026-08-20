@@ -57,6 +57,41 @@ struct OpenEventIntent: AppIntent {
     }
 }
 
+/// "Show a Day" — the Siri/Shortcuts equivalent of tapping a day chip on the
+/// rail. Closes the inconsistency #226 recorded: `IntentTimeframe` has shipped
+/// `tomorrow` and `nextWeek` as spoken targets since #193, so a user could
+/// *ask* Siri for tomorrow but, until phase 3b's rail, could not *tap* their
+/// way there. Routing this through the same `chqcal://day/<key>` link the rail
+/// resolves means voice and touch land in identical state.
+///
+/// `openAppWhenRun` brings the app forward; `perform()` hands the day off via
+/// `PendingIntentLink` rather than touching `AppModel` (see that type's doc
+/// comment — an intent can run with the app not launched at all).
+///
+/// Every decision lives in `OpenDayTarget`; this is the delivery shell.
+struct OpenDayIntent: AppIntent {
+    static let title: LocalizedStringResource = "Show a Day"
+    static let openAppWhenRun = true
+
+    @Parameter(title: "When")
+    var timeframe: IntentTimeframe?
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let now = Date()
+        let events = await IntentDataSource.events(now: now)
+        let year = await IntentDataSource.defaultYear()
+
+        switch OpenDayTarget.resolve(
+            timeframe: timeframe, now: now, year: year, events: events) {
+        case .refuse(let dialog):
+            return .result(dialog: "\(dialog)")
+        case .navigate(let dayKey):
+            PendingIntentLink.write(.day(key: dayKey), to: AppGroup.userDefaults())
+            return .result(dialog: "\((timeframe ?? .today).spokenLabel.capitalized).")
+        }
+    }
+}
+
 /// "What's Next" — the #193 workhorse: upcoming events optionally
 /// narrowed by kind of event, timeframe, or venue (each narrowable by
 /// voice through its own phrase family — one parameter per phrase is a

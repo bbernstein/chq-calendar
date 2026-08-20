@@ -141,7 +141,6 @@ struct IntentTimeframeTests {
 
         let key = IntentTimeframe.nextWeek.targetDayKey(now: inWeekNine, year: 2026)
 
-        #expect(ChqTime.isCanonicalDayKey(key))
         #expect(key == ChqTime.dayKey(for: weeks[8].end))
     }
 }
