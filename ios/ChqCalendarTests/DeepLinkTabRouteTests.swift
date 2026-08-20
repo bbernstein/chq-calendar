@@ -51,4 +51,15 @@ struct DeepLinkTabRouteTests {
         #expect(route.tab == .map)
         #expect(route.mapFocusVenue == "Sports Club, Waterfront")
     }
+
+    /// `.day` behaves like `.event`, not like `.myDay`: selecting the Events
+    /// tab is not the navigation, so the link must survive the tab switch for
+    /// `EventListView` to consume once a snapshot exists.
+    @Test func dayLinkRoutesToEventsWithoutConsumingTheLink() {
+        let route = DeepLinkTabRoute.resolve(.day(key: "2026-07-29"))
+
+        #expect(route.tab == .events)
+        #expect(route.consumesLink == false)
+        #expect(route.mapFocusVenue == nil)
+    }
 }

@@ -26,7 +26,8 @@ nonisolated struct DeepLinkTabRoute: Equatable, Sendable {
     let tab: AppTab
 
     /// Whether selecting `tab` fully consumes the link (clears
-    /// `pendingDeepLink`). `false` only for `.event` — see above.
+    /// `pendingDeepLink`). `false` for `.event` and `.day` — both need the
+    /// Events tab's own content before the navigation is complete.
     let consumesLink: Bool
 
     /// For a consumed `.map` link, the venue focus to hand `AppModel`

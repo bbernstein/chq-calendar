@@ -16,6 +16,8 @@ import Foundation
 /// - `chqcal://day/<yyyy-MM-dd>` — open the Events tab on that day, growing
 ///   the window if the day lies past an edge. The key must be canonical
 ///   (`ChqTime.isCanonicalDayKey`); see `dayWithANonCanonicalKeyIsRejected`.
+///   Routes to the Events tab; the scroll-to-day itself is (not-yet-built)
+///   pending list-side wiring.
 nonisolated enum DeepLink: Equatable, Sendable {
     case event(id: String)
     case myDay

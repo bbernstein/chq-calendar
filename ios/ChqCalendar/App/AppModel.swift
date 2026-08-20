@@ -648,6 +648,26 @@ final class AppModel {
         return nil
     }
 
+    /// Resolves a pending `.day(key:)` deep link, clearing `pendingDeepLink`
+    /// and returning the key once a snapshot exists to navigate within.
+    ///
+    /// Unlike the `.event` resolver above there is no "is it present?"
+    /// question to retry: a day key needs no lookup, and `goToDay` is the
+    /// authority on whether the day is reachable. So this clears the link as
+    /// soon as the list has data, whether or not the caller's subsequent
+    /// `goToDay` accepts it — a day outside `navigableBounds` is refused, not
+    /// retried, and holding the link would make it fire again on the next
+    /// snapshot refresh.
+    ///
+    /// Waiting for `snapshot` is what makes a cold launch work: before it
+    /// lands there are no day sections mounted for `PendingDayScroll` to find.
+    func resolvePendingDayDeepLinkIfPossible() -> String? {
+        guard case .day(let key) = pendingDeepLink else { return nil }
+        guard snapshot != nil else { return nil }
+        pendingDeepLink = nil
+        return key
+    }
+
     func toggleFavorite(_ id: String) {
         if favorites.contains(id) {
             favorites.remove(id)
