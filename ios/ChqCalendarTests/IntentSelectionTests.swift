@@ -224,12 +224,19 @@ struct IntentSelectionTests {
         #expect(dialog == "Opening tomorrow.")
     }
 
-    /// A refusal must leave *nothing* pending. `openAppWhenRun` brings the
-    /// app forward either way, so a link written on a refused run would
-    /// navigate on a launch whose own dialog just said it could not — the
-    /// silent teleport the refusal exists to prevent.
-    @Test func deliveringARefusalWritesNothingAndSpeaksItsDialog() {
+    /// A refusal must leave *nothing* pending, even when a previous run
+    /// already wrote a link that hasn't been consumed yet — the app already
+    /// foreground-active is the documented case where consumption is
+    /// delayed. `openAppWhenRun` brings the app forward either way, so a
+    /// stale link left in place on a refused run would navigate on the next
+    /// `.active` transition, contradicting the dialog the user just heard.
+    /// Seeding via a prior `.navigate` delivery (rather than writing the key
+    /// directly) proves the refusal *clears* an existing pending link, not
+    /// merely that it declines to write a new one.
+    @Test func deliveringARefusalClearsAPriorPendingLinkAndSpeaksItsDialog() {
         let defaults = makeDefaults()
+        _ = OpenDayIntent.deliver(
+            .navigate(dayKey: "2026-07-28"), timeframe: .tomorrow, to: defaults)
 
         let dialog = OpenDayIntent.deliver(
             .refuse(dialog: IntentDialogText.coldCache()), timeframe: .today, to: defaults)

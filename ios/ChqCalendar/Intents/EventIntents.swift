@@ -37,6 +37,14 @@ nonisolated enum PendingIntentLink {
         guard let url = URL(string: raw) else { return nil }
         return DeepLink.parse(url)
     }
+
+    /// Removes whatever is stored under `defaultsKey` without parsing it —
+    /// for callers (like a refused `OpenDayIntent`) that need to guarantee
+    /// nothing is left pending but have no link of their own to hand back.
+    /// Harmless when nothing is pending.
+    static func clear(from defaults: UserDefaults) {
+        defaults.removeObject(forKey: defaultsKey)
+    }
 }
 
 /// "Open Event" — the Shortcuts/Siri equivalent of tapping a
@@ -95,8 +103,10 @@ struct OpenDayIntent: AppIntent {
     }
 
     /// The half of `perform()` that has an effect: writes the day link for a
-    /// `.navigate` target, writes nothing for a `.refuse`, and returns the
-    /// line to speak either way.
+    /// `.navigate` target, clears any pending link for a `.refuse` (so a
+    /// stale link from an earlier, not-yet-consumed run can't outlive the
+    /// refusal that just told the user it wouldn't navigate), and returns
+    /// the line to speak either way.
     ///
     /// Split out for the same reason `OpenDayTarget` is: what remains in
     /// `perform()` needs the AppIntents runtime *and* a populated shared
@@ -108,6 +118,13 @@ struct OpenDayIntent: AppIntent {
     ) -> String {
         switch target {
         case .refuse(let dialog):
+            // A previous run may have written a pending link that hasn't
+            // been consumed yet — the app already foreground-active is the
+            // documented case where consumption is delayed. Without this,
+            // a refused run leaves that stale link in place and the next
+            // `.active` transition navigates anyway, contradicting the
+            // dialog the user just heard.
+            PendingIntentLink.clear(from: defaults)
             return dialog
         case .navigate(let dayKey):
             PendingIntentLink.write(.day(key: dayKey), to: defaults)

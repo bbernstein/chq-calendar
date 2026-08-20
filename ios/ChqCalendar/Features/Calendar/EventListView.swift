@@ -1013,18 +1013,29 @@ struct EventListView: View {
     private var filterPillBar: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
+                // No trailing `Spacer` here: inside a horizontal `ScrollView`
+                // the scroll axis offers effectively unbounded width, so an
+                // unconditional `Spacer(minLength: 0)` claims a large ideal
+                // width and produces a big blank scrollable tail past the
+                // two pills — harder to use at exactly the text sizes this
+                // branch exists to fix.
                 ScrollView(.horizontal, showsIndicators: false) {
-                    pillRow
+                    pillRow(includeTrailingSpacer: false)
                 }
             } else {
-                pillRow
+                pillRow(includeTrailingSpacer: true)
             }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
     }
 
-    private var pillRow: some View {
+    /// `includeTrailingSpacer` is `false` only inside `filterPillBar`'s
+    /// `ScrollView` branch — see that property's comment. Everywhere else
+    /// the trailing `Spacer` is what pushes the pills left and fills the
+    /// row, so it stays `true` there and the non-scrolling layout is
+    /// unchanged.
+    private func pillRow(includeTrailingSpacer: Bool) -> some View {
         HStack(spacing: 10) {
             pillButton {
                 KeyboardDismisser.dismiss()
@@ -1064,7 +1075,9 @@ struct EventListView: View {
             }
             .accessibilityLabel(filtersAccessibilityLabel)
 
-            Spacer(minLength: 0)
+            if includeTrailingSpacer {
+                Spacer(minLength: 0)
+            }
         }
     }
 
