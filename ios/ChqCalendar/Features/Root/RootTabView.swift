@@ -14,9 +14,12 @@ nonisolated enum AppTab: Hashable, Sendable {
 /// split out of `RootTabView` so it's testable without a SwiftUI scene.
 ///
 /// Two-phase consumption contract (see `AppModel.pendingDeepLink`):
-/// - `.event` is **not** consumed by the tab switch — `CalendarView` owns
-///   resolving it against the snapshot, which may not have loaded yet, so
-///   the link must stay pending after `RootTabView` selects the Events tab.
+/// - `.event` and `.day` are **not** consumed by the tab switch — the Events
+///   tab's own views own resolving them against the snapshot, which may not
+///   have loaded yet, so the link must stay pending after `RootTabView`
+///   selects that tab. `CalendarView` resolves `.event` (an id has to be
+///   looked up); `EventListView` resolves `.day` through the same `selectDay`
+///   a rail chip tap calls.
 /// - `.myDay` and `.map` **are** consumed by the tab switch itself: the tab
 ///   selection is the whole navigation. A `.map` link's optional venue
 ///   outlives the link as `AppModel.mapFocusVenue`, which `GroundsMapView`
@@ -141,7 +144,8 @@ struct RootTabView: View {
     /// Applies `DeepLinkTabRoute` to whatever is pending: switches tabs for
     /// every link kind, consumes `.myDay`/`.map` (handing a `.map` venue off
     /// to `model.mapFocusVenue` for task 18's `GroundsMapView`), and leaves
-    /// `.event` pending for `CalendarView`'s snapshot-aware resolution.
+    /// `.event` and `.day` pending for the Events tab's own snapshot-aware
+    /// resolution (`CalendarView` and `EventListView` respectively).
     private func routePendingLinkIfNeeded() {
         guard let link = model.pendingDeepLink else { return }
         let route = DeepLinkTabRoute.resolve(link)

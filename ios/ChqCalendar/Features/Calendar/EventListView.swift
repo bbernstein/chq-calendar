@@ -191,6 +191,41 @@ struct EventListView: View {
                     filterPillBar
                 }
             }
+            // The link can arrive before this view exists (a cold launch from
+            // Siri), at the moment the tab switch mounts it, or later while it
+            // is already on screen — and in every case it can only be acted on
+            // once `snapshot` lands. Hence three triggers, all funnelling into
+            // one idempotent resolver: `resolvePendingDayDeepLinkIfPossible`
+            // returns the key exactly once, so extra calls cost a nil check.
+            // `snapshot?.fetchedAt` rather than `phase` for the same reason
+            // `resolvePendingEventDeepLinkIfPossible`'s callers use it: a warm
+            // launch sets `phase = .ready` immediately and never changes it
+            // again when the background refresh replaces the snapshot.
+            //
+            // **On `body`, deliberately — not inside `list(days:)`.** `content`
+            // only builds the list when `model.dayGroups` is non-empty, so
+            // triggers hosted there are unmounted in exactly the states a
+            // pending link most needs resolving: a persisted favourites-only
+            // filter with nothing upcoming, or any filter matching nothing,
+            // renders `noMatchesView` instead. Siri would say "Opening
+            // tomorrow.", nothing would happen, and the link would stay
+            // pending — then fire minutes later, teleporting the reader, the
+            // moment they cleared the filter and the list mounted. `body` is
+            // always mounted, which is also where the `.event` resolver has
+            // always lived (`CalendarView`). Nothing here needs the list:
+            // `selectDay` takes no `ScrollViewProxy` (it arms `pendingScroll`,
+            // which `list(days:)` resolves whenever it does mount), and
+            // `resolvePendingDayDeepLinkIfPossible` already gates on
+            // `snapshot != nil`.
+            .onChange(of: model.pendingDeepLink) { _, _ in
+                consumePendingDayLinkIfPossible()
+            }
+            .onChange(of: model.snapshot?.fetchedAt) { _, _ in
+                consumePendingDayLinkIfPossible()
+            }
+            .onAppear {
+                consumePendingDayLinkIfPossible()
+            }
             .sheet(isPresented: $isAboutPresented) {
                 AboutView(model: model)
             }
@@ -401,10 +436,21 @@ struct EventListView: View {
     /// `consumesLink: false`).
     ///
     /// Routes through `selectDay` — the exact function a rail chip tap calls —
-    /// so a Siri "show me tomorrow" and a finger on tomorrow's chip leave the
-    /// app in identical state: same window expansion, same pinned selection,
-    /// same queued scroll. `selectDay` already refuses an unreachable day, so
-    /// nothing extra is needed for a link naming a day outside the season.
+    /// so for any day the rail also offers, a Siri "show me tomorrow" and a
+    /// finger on tomorrow's chip leave the app in identical state: same window
+    /// expansion, same pinned selection, same queued scroll. `selectDay`
+    /// already refuses an unreachable day, so nothing extra is needed for a
+    /// link naming a day outside the season.
+    ///
+    /// Voice reaches strictly *more* days than touch, and that is intended.
+    /// `OpenDayTarget` bounds against the whole unfiltered year, so a day
+    /// holding nothing under the reader's active filter is still a legal
+    /// target — while the rail disables that day's chip, so a finger cannot
+    /// choose it. This is the same asymmetry `AppModel.goToDay` already
+    /// documents and `goToDayAcceptsAnEmptyDayEvenThoughTheRailDisablesItsChip`
+    /// pins: a day the reader *names* is a destination even when empty. It is
+    /// also not closable — an App Intent runs out of process against the
+    /// shared cache and cannot see the live filter at all.
     private func consumePendingDayLinkIfPossible() {
         guard let dayKey = model.resolvePendingDayDeepLinkIfPossible() else { return }
         selectDay(dayKey)
@@ -600,25 +646,6 @@ struct EventListView: View {
             }
             .onAppear {
                 landPendingScroll(proxy, days: days)
-            }
-            // The link can arrive before this view exists (a cold launch from
-            // Siri), at the moment the tab switch mounts it, or later while it
-            // is already on screen — and in every case it can only be acted on
-            // once `snapshot` lands. Hence three triggers, all funnelling into
-            // one idempotent resolver: `resolvePendingDayDeepLinkIfPossible`
-            // returns the key exactly once, so extra calls cost a nil check.
-            // `snapshot?.fetchedAt` rather than `phase` for the same reason
-            // `resolvePendingEventDeepLinkIfPossible`'s callers use it: a warm
-            // launch sets `phase = .ready` immediately and never changes it
-            // again when the background refresh replaces the snapshot.
-            .onChange(of: model.pendingDeepLink) { _, _ in
-                consumePendingDayLinkIfPossible()
-            }
-            .onChange(of: model.snapshot?.fetchedAt) { _, _ in
-                consumePendingDayLinkIfPossible()
-            }
-            .onAppear {
-                consumePendingDayLinkIfPossible()
             }
         }
     }
@@ -837,9 +864,22 @@ struct EventListView: View {
     /// At accessibility text sizes the two pills no longer fit side by side —
     /// the date pill is `fixedSize` (abbreviating the date is worse than
     /// scrolling for it), so `Filters` was the one that truncated to `…`.
-    /// Scrolling the row keeps both labels whole. Gated on
-    /// `isAccessibilitySize` so the default layout — where both fit with room
-    /// to spare — keeps its `Spacer` and stays pixel-identical.
+    /// Scrolling the row keeps both labels whole.
+    ///
+    /// **Both halves of that fix are gated on `isAccessibilitySize`, and the
+    /// two gates must stay in step**: this `ScrollView`, and `Filters`' own
+    /// `fixedSize` in `pillRow`. `fixedSize` without the `ScrollView` to
+    /// rescue it is worse than the truncation it replaces — the row overflows
+    /// with neither truncation nor scrolling, and the Filters capsule is
+    /// clipped at the screen edge. That band is real and reachable:
+    /// `.xxLarge`/`.xxxLarge` are large text but not *accessibility* text, so
+    /// `isAccessibilitySize` is `false` there, and a long date label
+    /// (`DateFilterLabel`'s "Weeks 1, 3, 5") on a 375pt-wide iPhone overflows
+    /// the row. Those sizes therefore keep the pre-existing behaviour —
+    /// `Filters` truncates to `…` and stays fully on screen — rather than
+    /// getting the scrolling row. Below them both pills fit with room to
+    /// spare, so the default layout keeps its `Spacer` and is pixel-identical
+    /// either way.
     private var filterPillBar: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
@@ -881,7 +921,15 @@ struct EventListView: View {
                     Image(systemName: "line.3.horizontal.decrease")
                     Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
                         .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                        // Only where `filterPillBar`'s `ScrollView` is there
+                        // to scroll to it — see that property's comment for
+                        // why an ungated `fixedSize` clips this capsule off
+                        // the screen edge at `.xxLarge`/`.xxxLarge`. Both
+                        // arguments `false` is a no-op, so the non-
+                        // accessibility bands keep truncating to `…` exactly
+                        // as they always have.
+                        .fixedSize(
+                            horizontal: dynamicTypeSize.isAccessibilitySize, vertical: false)
                 }
             }
             .accessibilityLabel(filtersAccessibilityLabel)

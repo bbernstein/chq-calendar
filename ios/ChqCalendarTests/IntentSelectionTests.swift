@@ -205,4 +205,48 @@ struct IntentSelectionTests {
         // forever), matching `DeepLink.parse`'s "ignore it" convention.
         #expect(defaults.string(forKey: PendingIntentLink.defaultsKey) == nil)
     }
+
+    // MARK: - OpenDayIntent handoff
+
+    /// The step the whole "show me a day" feature hangs on: a navigable
+    /// target writes the `.day` link the next launch consumes, and the dialog
+    /// names the timeframe the user actually spoke. `OpenDayTargetTests`
+    /// covers the decision; nothing covered the effect, which is what
+    /// `OpenDayIntent.deliver` exists to make reachable without the
+    /// AppIntents runtime.
+    @Test func deliveringANavigableDayWritesTheDayLink() {
+        let defaults = makeDefaults()
+
+        let dialog = OpenDayIntent.deliver(
+            .navigate(dayKey: "2026-07-28"), timeframe: .tomorrow, to: defaults)
+
+        #expect(PendingIntentLink.consume(from: defaults) == .day(key: "2026-07-28"))
+        #expect(dialog == "Opening tomorrow.")
+    }
+
+    /// A refusal must leave *nothing* pending. `openAppWhenRun` brings the
+    /// app forward either way, so a link written on a refused run would
+    /// navigate on a launch whose own dialog just said it could not — the
+    /// silent teleport the refusal exists to prevent.
+    @Test func deliveringARefusalWritesNothingAndSpeaksItsDialog() {
+        let defaults = makeDefaults()
+
+        let dialog = OpenDayIntent.deliver(
+            .refuse(dialog: IntentDialogText.coldCache()), timeframe: .today, to: defaults)
+
+        #expect(PendingIntentLink.consume(from: defaults) == nil)
+        #expect(dialog == IntentDialogText.coldCache())
+    }
+
+    /// "Show me a day" with no timeframe spoken is legal, and means today.
+    /// Asserted on the intent because that is the *only* place the default
+    /// lives: `OpenDayTarget.resolve` takes a non-optional timeframe
+    /// precisely so a second, drifting copy of it cannot exist.
+    @Test func anUnspokenTimeframeMeansToday() {
+        var intent = OpenDayIntent()
+        #expect(intent.resolvedTimeframe == .today)
+
+        intent.timeframe = .nextWeek
+        #expect(intent.resolvedTimeframe == .nextWeek)
+    }
 }

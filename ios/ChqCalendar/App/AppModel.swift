@@ -153,6 +153,12 @@ final class AppModel {
     ///   `snapshot` changes until the target event is found (or the snapshot
     ///   is loaded, no refresh that could still surface the event is in
     ///   flight, and it's confirmed unknown).
+    /// - `.day` likewise stays pending, for `EventListView` (task 12,
+    ///   phase 4), via `resolvePendingDayDeepLinkIfPossible()` below: the
+    ///   day key needs no lookup, but navigating to it does need a snapshot
+    ///   (`goToDay` bounds against it), so the link waits exactly as long.
+    ///   `EventListView` hosts those triggers on its `body`, not on the list
+    ///   it may not be rendering — see its own comment there.
     var pendingDeepLink: DeepLink?
 
     /// The venue a consumed `chqcal://map/<venue>` deep link asked to focus

@@ -562,4 +562,45 @@ final class DayRailUITests: XCTestCase {
             app.buttons["day-chip-2026-08-21"].isSelected,
             "The linked day is not the rail's pinned selection")
     }
+
+    /// The same link, arriving when there is **no list to host it**.
+    ///
+    /// `content` only builds `list(days:)` when `model.dayGroups` is
+    /// non-empty, so a filter matching nothing (here a search term no fixture
+    /// event carries; a persisted favourites-only filter with nothing
+    /// upcoming is the shape a real reader hits) renders `noMatchesView`
+    /// instead. While the `.day` triggers lived inside `list(days:)`, that
+    /// state left the link pending forever: Siri said "Opening tomorrow.",
+    /// nothing happened, and the link fired later — teleporting the reader —
+    /// the moment they cleared the filter and the list mounted.
+    ///
+    /// The rail is the observable: it is a `safeAreaInset` on `body`, so it
+    /// is drawn even with no day groups, and it pins whatever `selectDay`
+    /// chose. An empty day's chip is a plain view rather than a `Button`
+    /// (`DayChip.isDisabled`), hence the identifier-only query — see
+    /// `DayRailAccessibilityUITests.railElementPredicate` for the same
+    /// reason.
+    func testADayDeepLinkIsConsumedEvenWithNoDayGroupsOnScreen() {
+        let app = launchFixtureApp(
+            now: "2026-07-01 10:00:00",
+            extraArgs: [
+                "-uitest-search", "zzzznofixtureeventsaysthis",
+                "-uitest-go-to-day", "2026-08-21",
+            ])
+
+        // The precondition this test exists for: the list is not mounted.
+        XCTAssertTrue(
+            app.staticTexts["No matching events"].waitForExistence(timeout: 20),
+            "The search term matched something — the list is mounted and this proves nothing")
+
+        let chip = app.descendants(matching: .any)
+            .matching(identifier: "day-chip-2026-08-21").firstMatch
+        XCTAssertTrue(
+            chip.waitForExistence(timeout: 20),
+            "The rail never scrolled to the linked day — the link was not consumed")
+        XCTAssertTrue(
+            chip.isSelected,
+            "The linked day is not the rail's pinned selection: the link is still pending, "
+                + "waiting to fire whenever the reader next clears their filter")
+    }
 }

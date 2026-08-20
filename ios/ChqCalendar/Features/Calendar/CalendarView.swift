@@ -107,7 +107,10 @@ struct CalendarView: View {
     /// guard against clearing a link a still-running refresh might yet
     /// satisfy); this just pushes the resolved event onto the right
     /// navigation surface. Does nothing for `.myDay`/`.map` — `RootTabView`
-    /// consumes those at the tab level before this view ever sees them.
+    /// consumes those at the tab level before this view ever sees them — and
+    /// nothing for `.day`, the other link the tab switch deliberately leaves
+    /// pending: `EventListView` consumes that one on its own `body`, through
+    /// `resolvePendingDayDeepLinkIfPossible`.
     private func consumePendingDeepLinkIfPossible() {
         guard let event = model.resolvePendingEventDeepLinkIfPossible() else { return }
         route(to: event)

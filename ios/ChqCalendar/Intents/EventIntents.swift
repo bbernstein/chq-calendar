@@ -76,19 +76,42 @@ struct OpenDayIntent: AppIntent {
     @Parameter(title: "When")
     var timeframe: IntentTimeframe?
 
+    /// An unspoken "show me a day" means today. Resolved once, here, so the
+    /// day navigated to and the day the dialog names cannot disagree —
+    /// `OpenDayTarget.resolve` takes the already-resolved value (see its own
+    /// doc comment for why it holds no second copy of this default).
+    var resolvedTimeframe: IntentTimeframe { timeframe ?? .today }
+
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let now = Date()
         let events = await IntentDataSource.events(now: now)
         let year = await IntentDataSource.defaultYear()
-        let resolvedTimeframe = timeframe ?? .today
+        let timeframe = resolvedTimeframe
 
-        switch OpenDayTarget.resolve(
-            timeframe: resolvedTimeframe, now: now, year: year, events: events) {
+        let target = OpenDayTarget.resolve(
+            timeframe: timeframe, now: now, year: year, events: events)
+        return .result(
+            dialog: "\(Self.deliver(target, timeframe: timeframe, to: AppGroup.userDefaults()))")
+    }
+
+    /// The half of `perform()` that has an effect: writes the day link for a
+    /// `.navigate` target, writes nothing for a `.refuse`, and returns the
+    /// line to speak either way.
+    ///
+    /// Split out for the same reason `OpenDayTarget` is: what remains in
+    /// `perform()` needs the AppIntents runtime *and* a populated shared
+    /// on-disk cache to reach either branch, so the one step the whole
+    /// feature hangs on — a navigable day actually reaching
+    /// `PendingIntentLink` — would otherwise have no coverage at all.
+    static func deliver(
+        _ target: OpenDayTarget, timeframe: IntentTimeframe, to defaults: UserDefaults
+    ) -> String {
+        switch target {
         case .refuse(let dialog):
-            return .result(dialog: "\(dialog)")
+            return dialog
         case .navigate(let dayKey):
-            PendingIntentLink.write(.day(key: dayKey), to: AppGroup.userDefaults())
-            return .result(dialog: "Opening \(resolvedTimeframe.spokenLabel).")
+            PendingIntentLink.write(.day(key: dayKey), to: defaults)
+            return "Opening \(timeframe.spokenLabel)."
         }
     }
 }

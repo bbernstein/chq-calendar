@@ -21,12 +21,18 @@ nonisolated enum OpenDayTarget: Equatable, Sendable {
     case navigate(dayKey: String)
     case refuse(dialog: String)
 
+    /// `timeframe` is non-optional on purpose. `OpenDayIntent`'s parameter is
+    /// optional (an unspoken "show me a day" is legal), but the intent
+    /// resolves that `nil` to `.today` once, up front, and speaks the same
+    /// resolved value back in its dialog — so a `?? .today` here would be a
+    /// second, unreachable copy of the same default, free to drift from the
+    /// one the user is actually told about.
     static func resolve(
-        timeframe: IntentTimeframe?, now: Date, year: Int, events: [Event]
+        timeframe: IntentTimeframe, now: Date, year: Int, events: [Event]
     ) -> OpenDayTarget {
         guard !events.isEmpty else { return .refuse(dialog: IntentDialogText.coldCache()) }
 
-        let key = (timeframe ?? .today).targetDayKey(now: now, year: year)
+        let key = timeframe.targetDayKey(now: now, year: year)
         let bounds = ViewWindow.navigableBounds(year: year, events: events, starredDays: [])
         guard bounds.contains(key) else {
             let status = SeasonStatus.make(now: now, year: year)

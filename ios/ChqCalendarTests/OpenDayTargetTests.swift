@@ -14,14 +14,23 @@ struct OpenDayTargetTests {
         #expect(target == .navigate(dayKey: "2026-07-28"))
     }
 
-    /// No timeframe spoken ("show me a day") means today — the same default
-    /// every other timeframe-carrying intent uses.
-    @Test func noTimeframeMeansToday() throws {
-        let now = try #require(ChqTime.parse("2026-07-27 09:00:00"))
-        let events = [makeEvent(id: "a", start: try #require(ChqTime.parse("2026-07-27 10:00:00")))]
+    /// `.today` is `now`'s own day, not the next day carrying an event: the
+    /// rail's chips are days, and a reader asking for today wants today even
+    /// once its last event has started. (Where the *unspoken* timeframe gets
+    /// turned into `.today` is `OpenDayIntent.resolvedTimeframe` — asserted in
+    /// `IntentSelectionTests.anUnspokenTimeframeMeansToday`, since `resolve`
+    /// deliberately holds no second copy of that default.) `now` is 21:00,
+    /// after the fixture event has begun, so a "next upcoming event" reading
+    /// would have to answer 2026-07-28 and fail here.
+    @Test func todayIsNowsOwnDayEvenAfterItsEventsHaveStarted() throws {
+        let now = try #require(ChqTime.parse("2026-07-27 21:00:00"))
+        let events = [
+            makeEvent(id: "a", start: try #require(ChqTime.parse("2026-07-27 10:00:00"))),
+            makeEvent(id: "b", start: try #require(ChqTime.parse("2026-07-28 10:00:00"))),
+        ]
 
         let target = OpenDayTarget.resolve(
-            timeframe: nil, now: now, year: 2026, events: events)
+            timeframe: .today, now: now, year: 2026, events: events)
 
         #expect(target == .navigate(dayKey: "2026-07-27"))
     }
