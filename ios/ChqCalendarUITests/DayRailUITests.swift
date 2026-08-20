@@ -529,4 +529,37 @@ final class DayRailUITests: XCTestCase {
         // The rail may not exist at all off-season; either way, no Now button.
         XCTAssertFalse(app.buttons["day-rail-now"].waitForExistence(timeout: 10))
     }
+
+    /// A `chqcal://day/<key>` link — the shape `OpenDayIntent` writes — lands
+    /// the list on that day and pins the rail's highlight there, exactly as a
+    /// chip tap does. Driven through the launch argument, which feeds
+    /// `model.pendingDeepLink` rather than calling `goToDay` directly, so this
+    /// covers the whole pipeline a Siri run takes.
+    ///
+    /// The target is fifty-one days beyond `now`, outside the launch window —
+    /// the same target `testADistantChipTapLandsOnThatDay` uses, and for the
+    /// same reason: nothing here can pass by accident. The window has to grow,
+    /// the day has to mount, the list has to scroll, and the rail has to adopt
+    /// the pin. None of that is something a launch does on its own.
+    func testADayDeepLinkLandsOnThatDay() {
+        let app = launchFixtureApp(
+            now: "2026-07-01 10:00:00",
+            extraArgs: ["-uitest-go-to-day", "2026-08-21"])
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        // 2026-08-21 is a Friday; the fixture titles every day header through
+        // ChqTime.dayTitle ("EEEE, MMMM d", en_US_POSIX, no year), same as
+        // testADistantChipTapLandsOnThatDay above.
+        let header = app.staticTexts["Friday, August 21"]
+        XCTAssertTrue(
+            header.waitForExistence(timeout: 20),
+            "The linked day never mounted — the deep link never reached selectDay, or the window did not grow")
+        XCTAssertTrue(
+            header.isHittable,
+            "The day mounted but the list never scrolled to it")
+        XCTAssertTrue(
+            app.buttons["day-chip-2026-08-21"].isSelected,
+            "The linked day is not the rail's pinned selection")
+    }
 }

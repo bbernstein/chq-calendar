@@ -267,6 +267,22 @@ struct CalendarView: View {
             }
         }
 
+        // `-uitest-go-to-day <yyyy-MM-dd>` lands the Events list on a named
+        // day by feeding `model.pendingDeepLink` — the same channel
+        // `OpenDayIntent` writes through `PendingIntentLink`. Going through
+        // the link rather than calling `model.goToDay` directly is the point:
+        // the screenshot and the UI test then cover the real pipeline, not a
+        // shortcut around it. A non-canonical key is ignored (the link is
+        // never constructed), leaving the launch behaving as if the flag were
+        // absent.
+        if let flagIndex = arguments.firstIndex(of: "-uitest-go-to-day"),
+           arguments.index(after: flagIndex) < arguments.endIndex {
+            let key = arguments[arguments.index(after: flagIndex)]
+            if ChqTime.isCanonicalDayKey(key) {
+                model.pendingDeepLink = .day(key: key)
+            }
+        }
+
         // `-uitest-search <term>` reads the argument that follows it and
         // commits it straight to `model.filter.searchText`. `searchDraft` is
         // set too so the visible search field shows the term, but the

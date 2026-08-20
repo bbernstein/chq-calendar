@@ -394,6 +394,20 @@ struct EventListView: View {
         #endif
     }
 
+    /// Completes a `chqcal://day/<key>` deep link the tab route deliberately
+    /// left pending (`DeepLinkTabRoute.resolve(.day)` sets
+    /// `consumesLink: false`).
+    ///
+    /// Routes through `selectDay` — the exact function a rail chip tap calls —
+    /// so a Siri "show me tomorrow" and a finger on tomorrow's chip leave the
+    /// app in identical state: same window expansion, same pinned selection,
+    /// same queued scroll. `selectDay` already refuses an unreachable day, so
+    /// nothing extra is needed for a link naming a day outside the season.
+    private func consumePendingDayLinkIfPossible() {
+        guard let dayKey = model.resolvePendingDayDeepLinkIfPossible() else { return }
+        selectDay(dayKey)
+    }
+
     /// Land a pending target if its day has mounted; give up if it never
     /// will, or if the reader has since left the scope/filters it was
     /// tapped under (`PendingDayScroll.isStale`) — a scope change can move
@@ -584,6 +598,25 @@ struct EventListView: View {
             }
             .onAppear {
                 landPendingScroll(proxy, days: days)
+            }
+            // The link can arrive before this view exists (a cold launch from
+            // Siri), at the moment the tab switch mounts it, or later while it
+            // is already on screen — and in every case it can only be acted on
+            // once `snapshot` lands. Hence three triggers, all funnelling into
+            // one idempotent resolver: `resolvePendingDayDeepLinkIfPossible`
+            // returns the key exactly once, so extra calls cost a nil check.
+            // `snapshot?.fetchedAt` rather than `phase` for the same reason
+            // `resolvePendingEventDeepLinkIfPossible`'s callers use it: a warm
+            // launch sets `phase = .ready` immediately and never changes it
+            // again when the background refresh replaces the snapshot.
+            .onChange(of: model.pendingDeepLink) { _, _ in
+                consumePendingDayLinkIfPossible()
+            }
+            .onChange(of: model.snapshot?.fetchedAt) { _, _ in
+                consumePendingDayLinkIfPossible()
+            }
+            .onAppear {
+                consumePendingDayLinkIfPossible()
             }
         }
     }
