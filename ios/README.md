@@ -70,7 +70,9 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO
 
 # Unit tests only — what you want while iterating.
-# ~880 tests, no app launches, finishes in a couple of minutes.
+# 852 tests across 63 suites, a few seconds of test time once built.
+# It still boots a simulator and launches the test host — what it skips is
+# XCUITest's app boot per test, which is where the minutes actually go.
 xcodebuild test \
   -project ChqCalendar.xcodeproj -scheme ChqCalendar \
   -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1' \
@@ -85,7 +87,7 @@ xcodebuild test \
 ```
 
 **The plain `xcodebuild test` runs the UI tests too.** Since phase 3b added
-`ChqCalendarUITests` to this scheme, the ~21 XCUITests each boot the app and
+`ChqCalendarUITests` to this scheme, the XCUITests each boot the app and
 account for most of the runtime — so reach for `-only-testing:ChqCalendarTests`
 while iterating and keep the full run for the commit. `-only-testing:` narrows
 which tests *run*, not what gets *built*, so the unit-only command is still a

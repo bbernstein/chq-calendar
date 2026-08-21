@@ -38,11 +38,16 @@ jobs:
     # would silently drift apart.
     #
     # Why split at all: the ~21 XCUITests each boot the app and account for
-    # most of a ~20-minute combined run, while the ~880 unit tests finish in a
-    # small fraction of it. Combined, a one-line Swift mistake took ~20
-    # minutes to surface. Split, the unit leg reports in a few minutes and the
-    # UI leg keeps running — so the common failure is seen fast without
-    # weakening the gate.
+    # most of a ~20-minute combined run: measured on this runner, the UI leg
+    # executes 18 tests in 999s while the unit leg's 852 tests across 63
+    # suites execute in under four seconds. Combined, a one-line Swift mistake
+    # took ~20 minutes to surface. Split, the first run measured 6m31s for the
+    # unit leg against 20m59s for the UI leg — so the common failure is seen
+    # ~3x sooner without weakening the gate.
+    #
+    # Note what the split does NOT save: both legs still do a full build, so
+    # the unit leg's wall clock is almost entirely compilation, not its four
+    # seconds of tests.
     #
     # BOTH legs still gate a merge. The UI suite is not advisory and must not
     # be moved to a nightly: it is what caught the real scroll defect in #250,
