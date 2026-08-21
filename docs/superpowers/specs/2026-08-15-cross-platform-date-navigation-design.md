@@ -1,6 +1,7 @@
 # Cross-platform date navigation — design
 
-**Status:** Phases 0, 1a, 1b, 2, **3a (web)** and **3b (iOS)** are complete.
+**Status:** Phases 0, 1a, 1b, 2, **3a (web)**, **3b (iOS)** and **4 (iOS
+consolidation)** are complete.
 Phase 3a is on `feat/date-nav-phase-3a-web-day-rail`: it deletes `VITE_NAV_V2`
 and the legacy list container, converges the scope set on Now · Today · All
 Season · All Year, and ships the sticky day rail. **`VITE_NAV_V2` was deleted
@@ -12,20 +13,38 @@ dark in production. Phase 3b is on
 `feat/date-nav-phase-3b-ios-day-rail`: the same rail on the Events tab and
 My Day, sharing `DayRailView` between them.
 
-**Phase 4 (iOS consolidation) is in progress, not yet complete.** Part 1 —
-Siri routing — shipped as PR #250 (`d827903`): a new `OpenDayIntent` ("Show a
-Day") resolves an `IntentTimeframe` to a canonical day key, writes it as a
-`chqcal://day/<key>` deep link, and that link is consumed by the exact same
+**Phase 4 (iOS consolidation) is complete.** Part 1 — Siri routing — shipped
+as PR #250 (`d827903`): a new `OpenDayIntent` ("Show a Day") resolves an
+`IntentTimeframe` to a canonical day key, writes it as a `chqcal://day/<key>`
+deep link, and that link is consumed by the exact same
 `EventListView.selectDay(_:)` a rail-chip tap calls — see the Siri section
-below for what that guarantees. Part 2 is release prep: the 1.1.3 version
-sweep landed (`76a8ce2`, every target including both test bundles now at
-1.1.3, app and widgets at build 6), and this listing-copy/spec-amendment pass
-is task 9 of that part. **Still outstanding:** task 8, reworking the lead
-screenshot (`01-season`) into a day-navigation shot — constrained by App
-Store Connect's 10-shot maximum, so it is a rework of an existing shot rather
-than an eleventh; and the on-device walkthrough of the `whatsNew` bullets
-below (deferred to whoever runs it next — this pass verified every bullet
-against the source, not against a running simulator). The `this-week`
+below for what that guarantees. Part 2 was release prep, done on
+`chore/ios-1.1.3-release-prep`: the 1.1.3 version sweep (`76a8ce2`, every
+target including both test bundles now at 1.1.3, app and widgets at build 6
+— `ChqCalendarUITests` previously had neither version key at all; verified
+by a full suite run, 882 unit + 21 UI tests green); listing copy and this
+spec's own phase-4 amendment (`7321117`); the lead screenshot (`01-season`)
+reworked into a day-navigation shot with its clock pinned (`64ef74b`) — it
+had been the last shot still capturing live production data with no
+`-uitest-freeze-now`; a My Day/Events attribution correction in the release
+checklist and an extended listing description covering the rail and the
+Siri day action (`257fdd5`); a genuine bug the rework surfaced — on iPad the
+lead shot's detail pane showed an event from a different day than the rail,
+because `-uitest-select-event-index` picked from a season-wide pool with no
+knowledge of `-uitest-go-to-day` — fixed by scoping the selection to the
+landed day when both flags are present, with two new unit tests (`c07646c`,
+884 total); and the App Store review notes refreshed for 1.1.3, then trimmed
+under App Store Connect's 4,000-character cap with a `reviewNotes` length
+guard added to `appStoreListing.test.ts`, which had never checked that field
+before (`4f63b8a`, `3148281`). An on-device pass on a booted simulator then
+walked every `whatsNew` bullet, including running the "Show a Day" intent
+from the Shortcuts app; no bullet needed correction.
+
+**Two items remain, both outside what a spec or a branch can close:**
+archiving and uploading build 6 to App Store Connect, and verifying Siri's
+*spoken* invocation of "Show a Day" on a physical device — the simulator
+pass above drove the intent through the Shortcuts app, not through Siri
+itself, and on-device Siri has no simulator equivalent. The `this-week`
 off-season divergence between platforms — `null` on web, a rolling 7-day
 window on iOS — is deliberately left standing and documented in
 `ViewWindow.swift`; phase 4 does not reconcile it.
@@ -698,17 +717,19 @@ both must be met per PR.
 
 ## Obligations
 
-- **Screenshots.** Phases 3b and 4 change visible pixels on the Events tab
-  and My Day. `ios/Scripts/capture-screenshots.sh` then
-  `ios/Scripts/compose-screenshots.py`; commit
-  `docs/app-store/screenshots.manifest.json` and
-  `docs/app-store/screenshots/review/`. `DateFilterLabel` and
-  `MyDayChipContent` are in `ChqCalendarShared/**` and matched by
-  `.github/workflows/app-store-assets.yml`. **Constraint that shaped task
-  8:** `ios/Scripts/screenshot-plan.json` is already at App Store Connect's
-  10-shot maximum, so the lead shot (`01-season`) is reworked into a
-  day-navigation shot rather than the set gaining an eleventh — an existing
-  shot is displaced, not extended.
+- **Screenshots — done.** Phases 3b and 4 changed visible pixels on the
+  Events tab and My Day; both regenerated via `capture-screenshots.sh` then
+  `compose-screenshots.py`, with `docs/app-store/screenshots.manifest.json`
+  and `docs/app-store/screenshots/review/` committed each time.
+  `DateFilterLabel` and `MyDayChipContent` are in `ChqCalendarShared/**` and
+  matched by `.github/workflows/app-store-assets.yml`. **Constraint that
+  shaped task 8:** `ios/Scripts/screenshot-plan.json` was already at App
+  Store Connect's 10-shot maximum, so the lead shot (`01-season`) was
+  reworked into a day-navigation shot (`64ef74b`) rather than the set
+  gaining an eleventh — an existing shot displaced, not extended. That
+  rework surfaced a real bug of its own — the iPad detail pane and the rail
+  could show different days — fixed in `c07646c`, with the screenshot set
+  re-captured and re-composed again.
 - **Version 1.1.3 — done.** Every target, including both test bundles,
   is now at `1.1.3` (`76a8ce2`, phase 4 task 7). The app and widget targets
   are at build `6`; `ChqCalendarTests` and the `ChqCalendarUITests` target
@@ -722,10 +743,16 @@ both must be met per PR.
   ios/ChqCalendar.xcodeproj/project.pbxproj` is now sufficient to verify the
   full set at a glance, which was the point of enumerating every target by
   hand this once.
-- **Listing copy.** `docs/app-store/listing-copy.md` and
-  `listing-fields.json` describe the current date story and must be
-  re-read against the shipped behaviour in phase 4. `whatsNew` must
-  describe the new navigation.
+- **Listing copy — done.** `docs/app-store/listing-copy.md` and
+  `listing-fields.json` were re-read against the shipped phase-4 behaviour
+  (`7321117`); the description was corrected to attribute the rail's
+  controls per-surface (My Day only shares `DayRailView`, not the `⟳ Now`
+  button, the step chevrons, or auto-expand) and extended to mention the
+  rail and the Siri day action (`257fdd5`). `whatsNew` describes the new
+  navigation and was walked bullet-by-bullet on a booted simulator with no
+  correction needed. Review notes were refreshed and trimmed under the
+  4,000-character cap, now guarded by a length check in
+  `appStoreListing.test.ts` (`4f63b8a`, `3148281`).
 - **About copy.** `frontend/src/app/about/aboutContent.ts:241-245` and
   `:292-297` describe "Three buttons cover the questions people actually
   ask". Both guides have tests that fail when documented behaviour drifts,
