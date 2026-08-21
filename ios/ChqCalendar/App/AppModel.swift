@@ -1730,14 +1730,34 @@ final class AppModel {
     /// columns are always visible, so `01-season` and `04-detail` were
     /// selecting the same event and capturing byte-identical images.
     ///
-    /// Out of range returns `nil`, which makes the hook a **no-op** (the
-    /// detail column stays on its "Select an event" placeholder) rather
-    /// than clamping to the nearest valid index. Clamping would silently
-    /// capture a *different, plausible-looking* event than the plan asked
-    /// for, and a typo'd index would ship a wrong-but-believable store
+    /// `dayKey`, when non-nil, scopes the ranked pool to events whose
+    /// `ChqTime.dayKey(for: event.start)` equals it *before* picking the
+    /// `index`-th richest — so a shot that also lands the rail on that day
+    /// via `-uitest-go-to-day` gets a detail pane whose date agrees with the
+    /// rail, instead of the season-wide richest event landing on an
+    /// unrelated day (#255: iPad's `01-season` showed the rail on one day
+    /// and the detail column on another once the caption started promising
+    /// day navigation). `dayKey` defaults to `nil`, reproducing the exact
+    /// season-wide ranking every other caller relies on — `09-reminder`'s
+    /// `-uitest-select-event-index 2` carries no day flag and must not
+    /// shift.
+    ///
+    /// Out of range — within the day-scoped pool when `dayKey` is set, or
+    /// the season-wide pool otherwise — returns `nil`, which makes the hook
+    /// a **no-op** (the detail column stays on its "Select an event"
+    /// placeholder) rather than clamping to the nearest valid index, or
+    /// (when day-scoped) falling back to the season-wide pool. Either kind
+    /// of silent substitution would capture a *different, plausible-looking*
+    /// event than the plan asked for — a typo'd index, or a day with fewer
+    /// linked events than expected, would ship a wrong-but-believable store
     /// screenshot. A no-op is visible in the review pass instead.
-    func uiTestLinkedEvent(at index: Int) -> Event? {
-        let events = uiTestLinkedEvents
+    func uiTestLinkedEvent(at index: Int, dayKey: String? = nil) -> Event? {
+        let events: [Event]
+        if let dayKey {
+            events = uiTestLinkedEvents.filter { ChqTime.dayKey(for: $0.start) == dayKey }
+        } else {
+            events = uiTestLinkedEvents
+        }
         guard events.indices.contains(index) else { return nil }
         return events[index]
     }

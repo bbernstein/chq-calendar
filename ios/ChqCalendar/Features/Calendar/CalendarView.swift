@@ -286,11 +286,18 @@ struct CalendarView: View {
         // shortcut around it. A non-canonical key is ignored (the link is
         // never constructed), leaving the launch behaving as if the flag were
         // absent.
+        //
+        // `uiTestDayKey` is captured alongside so `-uitest-select-event-index`
+        // below can scope its selection pool to this day (see that flag's
+        // comment) — must be declared before that block runs, and it is: this
+        // block is handled first.
+        var uiTestDayKey: String?
         if let flagIndex = arguments.firstIndex(of: "-uitest-go-to-day"),
            arguments.index(after: flagIndex) < arguments.endIndex {
             let key = arguments[arguments.index(after: flagIndex)]
             if ChqTime.isCanonicalDayKey(key) {
                 model.pendingDeepLink = .day(key: key)
+                uiTestDayKey = key
             }
         }
 
@@ -339,7 +346,21 @@ struct CalendarView: View {
             // before concluding there's really nothing to select.
             await model.refresh(force: true)
         }
-        guard let event = model.uiTestLinkedEvent(at: requestedIndex ?? 0) else { return }
+        // `uiTestDayKey` (non-nil only when `-uitest-go-to-day` landed on a
+        // canonical day above, in the *same* launch) scopes the selection
+        // pool to that day. Without this, `01-season` on iPad picked the
+        // season-wide richest linked event independent of `-uitest-go-to-day`
+        // — the rail could land on one day while the detail column showed an
+        // event from another, contradicting a caption that now promises "jump
+        // to any day" (#255). `nil` reproduces the exact season-wide behavior
+        // every other caller relies on — `09-reminder`'s
+        // `-uitest-select-event-index 2` carries no day flag and must not
+        // shift. Out of range inside the scoped-to-that-day pool is a no-op
+        // (nil), the same as the season-wide case: it leaves the detail
+        // column on its placeholder, visible in review, rather than silently
+        // falling back to a season-wide (and therefore possibly
+        // wrong-day) pick.
+        guard let event = model.uiTestLinkedEvent(at: requestedIndex ?? 0, dayKey: uiTestDayKey) else { return }
         route(to: event)
 
         if arguments.contains("-uitest-show-add-to-calendar") {

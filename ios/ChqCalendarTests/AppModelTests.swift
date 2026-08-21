@@ -1994,6 +1994,76 @@ struct AppModelTests {
         #expect(noLinks.uiTestLinkedEvent(at: 0) == nil)
     }
 
+    /// #255: iPad's `01-season` combines `-uitest-go-to-day` (lands the rail
+    /// on a named day) with `-uitest-select-event-index` (populates the
+    /// detail column). Before this fix, the index picked from the
+    /// season-wide richest pool regardless of which day the rail landed on,
+    /// so the rail could show Thursday while the detail pane showed an
+    /// unrelated Monday event — a store screenshot that visibly contradicted
+    /// its own "jump to any day" caption. `dayKey` scopes the pool to the
+    /// landed day *before* ranking by richness.
+    @Test func uiTestLinkedEventDayKeyScopesSelectionToThatDay() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let link = ArticleLink(
+            title: "t", url: URL(string: "https://example.com/t")!,
+            kind: .preview, pubDate: "2026-06-30")
+        let model = makeSnapshotModel(
+            events: [
+                // Season-wide richest overall, but lands on Aug 3 — this is
+                // exactly what a day-scoped Aug-4 pick must NOT select.
+                makeEvent(id: "richest-aug3", start: try #require(ChqTime.parse("2026-08-03 19:00:00")),
+                          details: String(repeating: "x", count: 900)),
+                // Two candidates on Aug 4, both lighter than the Aug 3 event,
+                // so their relative order only shows up once scoped to Aug 4.
+                makeEvent(id: "aug4-heavier", start: try #require(ChqTime.parse("2026-08-04 09:00:00")),
+                          details: String(repeating: "x", count: 300)),
+                makeEvent(id: "aug4-lighter", start: try #require(ChqTime.parse("2026-08-04 10:00:00")),
+                          details: String(repeating: "x", count: 100)),
+            ],
+            now: now,
+            articleLinks: [
+                "richest-aug3": [link], "aug4-heavier": [link], "aug4-lighter": [link],
+            ])
+
+        // Sanity: season-wide (no dayKey) index 0 really is the Aug 3 event
+        // — confirms the fixture reproduces the bug's precondition.
+        #expect(model.uiTestLinkedEvent(at: 0)?.id == "richest-aug3")
+
+        // Day-scoped to Aug 4: index 0/1 rank *within that day* only.
+        #expect(model.uiTestLinkedEvent(at: 0, dayKey: "2026-08-04")?.id == "aug4-heavier")
+        #expect(model.uiTestLinkedEvent(at: 1, dayKey: "2026-08-04")?.id == "aug4-lighter")
+
+        // Out of range *within* the day-scoped pool is a no-op — it must NOT
+        // silently fall back to the season-wide pool, which does have a
+        // valid index 2 ("richest-aug3", wrong day).
+        #expect(model.uiTestLinkedEvents.count == 3)
+        #expect(model.uiTestLinkedEvent(at: 2, dayKey: "2026-08-04") == nil)
+    }
+
+    /// `dayKey: nil` (the default) must reproduce season-wide ranking
+    /// byte-for-byte — `09-reminder`'s `-uitest-select-event-index 2` passes
+    /// no day flag and must not shift when this parameter was added.
+    @Test func uiTestLinkedEventWithoutDayKeyMatchesSeasonWideSelection() throws {
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let link = ArticleLink(
+            title: "t", url: URL(string: "https://example.com/t")!,
+            kind: .preview, pubDate: "2026-06-30")
+        let model = makeSnapshotModel(
+            events: [
+                makeEvent(id: "a", start: try #require(ChqTime.parse("2026-08-03 19:00:00")),
+                          details: String(repeating: "x", count: 900)),
+                makeEvent(id: "b", start: try #require(ChqTime.parse("2026-08-04 10:00:00")),
+                          details: String(repeating: "x", count: 500)),
+                makeEvent(id: "c", start: try #require(ChqTime.parse("2026-08-05 10:00:00")),
+                          details: String(repeating: "x", count: 100)),
+            ],
+            now: now,
+            articleLinks: ["a": [link], "b": [link], "c": [link]])
+
+        #expect(model.uiTestLinkedEvent(at: 2) == model.uiTestLinkedEvent(at: 2, dayKey: nil))
+        #expect(model.uiTestLinkedEvent(at: 2)?.id == "c")
+    }
+
     // MARK: - legacy filter casing normalization
 
     /// Prior to this branch, `selectedLocations`/`selectedCategories` were
