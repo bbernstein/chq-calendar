@@ -6,9 +6,12 @@
   "shots": [
     {
       "id": "01-season",
-      "caption": "The whole season, one scroll.",
-      "launchArgs": [],
-      "settleSeconds": 6,
+      "caption": "Jump to any day in the season.",
+      "launchArgs": [
+        "-uitest-freeze-now", "2026-07-27 09:00:00",
+        "-uitest-go-to-day", "2026-07-30"
+      ],
+      "settleSeconds": 12,
       "deviceLaunchArgs": { "ipad-13": ["-uitest-select-event-index", "1"] }
     },
     {
