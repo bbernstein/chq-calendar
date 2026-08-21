@@ -1,15 +1,15 @@
 {
   "capturedOn": "2026-08-21",
-  "appCommit": "05c1a34",
+  "appCommit": "acc937d",
   "screenshots": [
     {
       "device": "iphone-6.9",
       "id": "01-season",
-      "caption": "Jump to any day in the season.",
+      "caption": "Jump to any day with events.",
       "file": "ios/Scripts/out/final/iphone-6.9/01-season.png",
       "width": 1320,
       "height": 2868,
-      "sha256": "a8946bd9bbaa802982fa4a4e32c32f11b53a28d2c107d47d34c6db4a82e61a00"
+      "sha256": "91a5795a1a1fc36531d4481e8a1faf6b0529ab308fc265e09e64e9e0e654ba5e"
     },
     {
       "device": "iphone-6.9",
@@ -95,11 +95,11 @@
     {
       "device": "ipad-13",
       "id": "01-season",
-      "caption": "Jump to any day in the season.",
+      "caption": "Jump to any day with events.",
       "file": "ios/Scripts/out/final/ipad-13/01-season.png",
       "width": 2064,
       "height": 2752,
-      "sha256": "965f860820f2111118be105607e9d46b47311f2992ee3aec20645aa5557a2150"
+      "sha256": "62bf7c72686245cfaba2918bbc0df6fbdc256966d25bf5f96f28428818537e41"
     },
     {
       "device": "ipad-13",

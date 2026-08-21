@@ -22,7 +22,7 @@ below for what that guarantees. Part 2 was release prep, done on
 `chore/ios-1.1.3-release-prep`: the 1.1.3 version sweep (`76a8ce2`, every
 target including both test bundles now at 1.1.3, app and widgets at build 6
 — `ChqCalendarUITests` previously had neither version key at all; verified
-by a full suite run, 882 unit + 21 UI tests green); listing copy and this
+by a full suite run, 884 unit + 21 UI tests green); listing copy and this
 spec's own phase-4 amendment (`7321117`); the lead screenshot (`01-season`)
 reworked into a day-navigation shot with its clock pinned (`64ef74b`) — it
 had been the last shot still capturing live production data with no

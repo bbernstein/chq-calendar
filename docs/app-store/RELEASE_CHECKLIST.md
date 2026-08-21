@@ -272,8 +272,9 @@ Folded into 1.1.3: the day rail, which the Events tab and My Day share only
 partly — both show a `DayRailView` strip with a per-day event count so an
 empty day is visible before you tap it (`MyDayChipContent`, genuinely
 shared), but the surrounding controls differ. Only the **Events tab** got
-the `⟳ Now` button and the ±1-day step chevrons (`DayStepControl`), and only
-the Events tab's list auto-grows forward at its end (`EventListView`'s
+the `⟳ Now` button and the step-to-next-event-day chevrons (`DayStepControl`,
+which skip past days with nothing to show rather than moving one calendar
+day), and only the Events tab's list auto-grows forward at its end (`EventListView`'s
 last-row `.onAppear` calling `expandWindowEnd()` — there is no
 `expandWindowStart`; going back stays an explicit chevron or rail-chip tap).
 **My Day** instead kept its own,
@@ -284,8 +285,12 @@ rather than growing automatically as the reader scrolls. `whatsNew`'s "A DAY
 AT A TIME" bullets describe the Events tab specifically, not My Day — do not
 generalize them to "the app" when drafting the next version's notes. Siri
 routing through `OpenDayIntent` and the same `chqcal://day/<key>` path the
-rail itself consumes, so "Show me tomorrow in Chautauqua" and a tap on
-tomorrow's chip land in identical state; and the accessibility fix that
+rail itself consumes, so within the current season "Show me tomorrow in
+Chautauqua" and a tap on tomorrow's chip land in identical state — browsing
+an archived year is a known gap (issue #253: the intent resolves its year
+from `IntentDataSource.defaultYear()` while `AppModel.goToDay` bounds
+against `selectedYear`, so the dialog can speak success while nothing
+moves); and the accessibility fix that
 stopped the `Filters` pill from clipping its label at the largest text
 sizes — both Events-tab-specific. **This is a first pass, not the final
 submission artifact — further features may land before submission**, in

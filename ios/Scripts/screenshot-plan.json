@@ -6,7 +6,7 @@
   "shots": [
     {
       "id": "01-season",
-      "caption": "Jump to any day in the season.",
+      "caption": "Jump to any day with events.",
       "launchArgs": [
         "-uitest-freeze-now", "2026-07-27 09:00:00",
         "-uitest-go-to-day", "2026-07-30"
