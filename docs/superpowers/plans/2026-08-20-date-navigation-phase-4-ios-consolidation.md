@@ -3,9 +3,13 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the cross-platform date-navigation initiative on iOS by routing
-Siri through the same `goToDay` the day rail uses, fixing the two clipped-text
-accessibility findings from phase 3b's device pass, and preparing the 1.1.3
-release (version sweep, day-navigation screenshot, listing copy).
+Siri through the same `goToDay` the day rail uses, fixing the `Filters` pill
+truncation from phase 3b's device pass, and preparing the 1.1.3 release
+(version sweep, day-navigation screenshot, listing copy). Phase 3b's device
+pass also flagged a `Search events` placeholder clip at maximum accessibility
+text size; it did not reproduce across five configurations during this phase's
+own repro pass, so no fix was written and `CalendarView` still uses
+`prompt: "Search events"` at both `.searchable` sites.
 
 **Architecture:** A new `DeepLink.day(key:)` case rides the deep-link pipeline
 every launch surface already funnels through (`.onOpenURL`, notification tap,
@@ -90,7 +94,7 @@ Siri rationale is at `:481`. Task 9 amends that section to match what shipped.)
 | `ios/ChqCalendar/Features/Root/RootTabView.swift` | Route `.day` to the Events tab without consuming the link. |
 | `ios/ChqCalendar/App/AppModel.swift` | Add `resolvePendingDayDeepLinkIfPossible()`. |
 | `ios/ChqCalendar/Features/Calendar/EventListView.swift` | Consume the resolved day through the existing `selectDay(_:)`; accessibility fix for the `Filters` pill. |
-| `ios/ChqCalendar/Features/Calendar/CalendarView.swift` | `-uitest-go-to-day <key>` launch arg; accessibility fix for the search prompt. |
+| `ios/ChqCalendar/Features/Calendar/CalendarView.swift` | `-uitest-go-to-day <key>` launch arg; planned search-prompt accessibility fix — not applied (see Task 6's Outcome note: the finding did not reproduce). |
 | `ios/ChqCalendarShared/Domain/OpenDayTarget.swift` | The intent's whole decision — day key + reachability — as a pure, testable type. |
 | `ios/ChqCalendar/Intents/EventIntents.swift` | Add `OpenDayIntent` beside `OpenEventIntent`. |
 | `ios/ChqCalendar/Intents/ChqShortcuts.swift` | Register the 8th `AppShortcut`. |
@@ -1042,12 +1046,22 @@ git commit -m "feat(ios): add a Show a Day intent that opens the list on a spoke
 
 ---
 
-### Task 6: The two clipped-text accessibility fixes
+### Task 6: The `Filters` pill accessibility fix (search-prompt finding did not reproduce)
 
 Both were found by phase 3b's on-device `performAccessibilityAudit()` and both
-are **pre-existing**, untouched by 3b's diff. Both fixes are gated on
+are **pre-existing**, untouched by 3b's diff. The fix below is gated on
 `dynamicTypeSize.isAccessibilitySize` so nothing at default text size moves a
 pixel — which is what makes PR A's screenshot opt-out honest.
+
+**Outcome:** Step 1's repro confirmed the `Filters` pill truncation, which
+Step 2 fixed as written. It did **not** confirm the `Search events` placeholder
+clip — across five configurations at maximum accessibility text size the
+placeholder never clipped — so Step 3 below was not implemented. Steps 3–4 are
+left in place as the repro/fix recipe to run again if the finding ever does
+reproduce (a different device class, a longer locale string, a future prompt
+change), but as of this phase `CalendarView` still uses the unconditional
+`prompt: "Search events"` at both `.searchable` sites, and there is no
+`searchPrompt` computed property or `dynamicTypeSize` read in that file.
 
 **Files:**
 - Modify: `ios/ChqCalendar/Features/Calendar/EventListView.swift:801-836` (`filterPillBar`)
@@ -1070,10 +1084,13 @@ open -a Simulator
 xcrun simctl io booted screenshot /tmp/claude-501/-Users-bernard-src-chq-chq-calendar/*/scratchpad/a11y-before.png
 ```
 
-Confirm with your own eyes: the bottom `Filters` pill truncates to `…`, and the
-`Search events` placeholder clips. Do not implement a fix for a finding you have
-not seen — the audit's contrast findings on this same screen were mostly false
-(see the phase 3b write-up), and these two were verified real by a human render.
+Confirm with your own eyes: the bottom `Filters` pill truncates to `…`. Check
+whether the `Search events` placeholder clips too — the audit's contrast
+findings on this same screen were mostly false (see the phase 3b write-up), so
+verify both by human render rather than trusting the audit output. Do not
+implement a fix for a finding you have not seen reproduce. (Recorded outcome:
+the pill truncated on every configuration tried; the placeholder did not clip
+on any of five — see this task's Outcome note above.)
 
 - [ ] **Step 2: Fix the pill bar**
 
@@ -1127,7 +1144,9 @@ and wrap the bar's `HStack` so it can scroll at accessibility sizes only:
 Move the two `.padding` modifiers to the outer `Group` as shown — leaving them
 on the inner `HStack` would inset the scroll content instead of the bar.
 
-- [ ] **Step 3: Fix the search prompt**
+- [ ] **Step 3: Fix the search prompt (not run — see Outcome note above; the
+  finding did not reproduce, so this step was skipped and `CalendarView` is
+  unchanged)**
 
 In `CalendarView.swift`, add:
 
@@ -1158,10 +1177,12 @@ Relaunch at the largest accessibility size and capture again:
 xcrun simctl io booted screenshot /tmp/claude-501/-Users-bernard-src-chq-chq-calendar/*/scratchpad/a11y-after.png
 ```
 
-Confirm the `Filters` label reads in full (scrolling the row if needed) and the
-placeholder is not clipped. Then set the text size back to **default** and
-confirm the bar looks exactly as it did before this task — the `Spacer` still
-pushes the pills left, no scroll indicator, "Search events" restored.
+Confirm the `Filters` label reads in full (scrolling the row if needed). The
+placeholder step is moot — Step 3 was not run — but confirm it still reads
+"Search events" unclipped in whatever configuration you test, since that
+remains the unconditional prompt. Then set the text size back to **default**
+and confirm the bar looks exactly as it did before this task — the `Spacer`
+still pushes the pills left, no scroll indicator.
 
 - [ ] **Step 5: Run the whole suite**
 
@@ -1172,16 +1193,18 @@ cd ios && xcodebuild test \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
 ```
 
-Expected: PASS. Any UI test that queries the search field by its placeholder
-string will need updating — it runs at default text size, so `searchPrompt` is
-still `"Search events"` there, but check.
+Expected: PASS. (Since Step 3 was not run, there is no `searchPrompt` and no
+UI test needs updating for it — this note applies only if a future pass
+implements Step 3.)
 
 - [ ] **Step 6: Commit**
 
+Only `EventListView.swift` changed — `CalendarView.swift` is untouched because
+Step 3 did not run:
+
 ```bash
-git add ios/ChqCalendar/Features/Calendar/EventListView.swift \
-  ios/ChqCalendar/Features/Calendar/CalendarView.swift
-git commit -m "fix(ios): keep the Filters pill and search prompt whole at accessibility text sizes"
+git add ios/ChqCalendar/Features/Calendar/EventListView.swift
+git commit -m "fix(ios): keep the Filters pill whole at accessibility text sizes"
 ```
 
 - [ ] **Step 7: Open PR A**
@@ -1199,11 +1222,14 @@ your way there. The link is consumed by `EventListView.selectDay` — literally
 the function a chip tap calls — so voice and touch land in identical state:
 same window expansion, same pinned selection, same queued scroll.
 
-Also fixes the two clipped-text findings from phase 3b's on-device
-accessibility audit (the `Filters` pill truncating to `…` and the `Search
-events` placeholder clipping at the largest accessibility text size). Both are
-pre-existing and both fixes are gated on `dynamicTypeSize.isAccessibilitySize`,
-so nothing at default text size changes.
+Also fixes one of the two clipped-text findings from phase 3b's on-device
+accessibility audit: the `Filters` pill truncating to `…` at the largest
+accessibility text size. It is pre-existing and the fix is gated on
+`dynamicTypeSize.isAccessibilitySize`, so nothing at default text size
+changes. The audit's other finding — the `Search events` placeholder clipping
+— did not reproduce across five configurations during this phase's repro
+pass, so no fix was written; `CalendarView` still uses the unconditional
+`prompt: "Search events"`.
 
 [skip-screenshots: every visible change is gated on accessibility text sizes or
 lives on the About sheet, neither of which any shot in ios/Scripts/screenshot-plan.json
@@ -1489,7 +1515,7 @@ ASK FOR A DAY
 • Siri and the day rail land in exactly the same place
 
 ACCESSIBILITY
-• The Filters button and the search field no longer clip their labels at the largest text sizes
+• The Filters button no longer clips its label at the largest text sizes
 ```
 
 Do not claim anything you have not seen running. If the on-device pass in
@@ -1526,8 +1552,9 @@ xcrun simctl boot 'iPhone 17' && open -a Simulator
 - Reach the end of the list → it grows.
 - Run "Show me tomorrow in Chautauqua" from the Shortcuts app → the app opens on
   tomorrow. (Siri proper needs a device; the Shortcuts app runs the same intent.)
-- Set the largest accessibility text size → `Filters` and the search placeholder
-  read in full.
+- Set the largest accessibility text size → `Filters` reads in full (the search
+  placeholder was never fixed — Task 6 found it did not reproduce — so nothing
+  to check there).
 
 Anything that does not behave as written is a bug or a wrong bullet — decide
 which, and fix that one, before continuing.

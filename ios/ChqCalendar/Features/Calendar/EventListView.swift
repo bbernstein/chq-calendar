@@ -218,6 +218,32 @@ struct EventListView: View {
     /// `PendingDayScroll.Key` exists to catch, not to reintroduce.
     @State private var scrollRetryTick = 0
 
+    /// Guards `scheduleScrollRetry` so at most one retry timer is ever in
+    /// flight at once.
+    ///
+    /// `resolvePendingScroll` runs once per triggering `.onChange`, and
+    /// `list(days:)` wires several independent triggers onto
+    /// `landPendingScroll` — more than one can fire from a single SwiftUI
+    /// commit (see `scrollRetryDeadline`'s doc). Before this guard, each of
+    /// those calls that failed to land its target scheduled its own
+    /// `asyncAfter`, so a single commit could leave N concurrent timers
+    /// running `scrollRetryInterval` apart from each other rather than from a
+    /// shared start — a burst of `scrollTo` attempts and view updates instead
+    /// of the one retry per interval this was designed for.
+    ///
+    /// Keyed on "a timer is outstanding", not on which target it is for, so
+    /// it cannot suppress a genuine retry: the scheduled closure always fires
+    /// and always re-checks live `pendingScroll` state before deciding
+    /// whether to bump `scrollRetryTick`, exactly as before this guard
+    /// existed. If the target changes (or lands, or goes stale) while a timer
+    /// is outstanding, a caller that would have scheduled a second timer for
+    /// the new state instead no-ops — the one outstanding timer still fires
+    /// and still re-enters `landPendingScroll` against whatever is pending by
+    /// then, so the retry is deduplicated, never dropped. Cleared
+    /// unconditionally inside the closure — the only place it goes back to
+    /// `false` — so a stale `true` can never wedge every later retry.
+    @State private var scrollRetryScheduled = false
+
     /// The earliest visible day section — the day whose header is at (or
     /// just above) the top of the viewport. `min()` on day-key strings works
     /// because `DayGroup.id` sorts lexicographically the same as
@@ -679,8 +705,16 @@ struct EventListView: View {
     /// "something is pending", not "the same thing is still pending", so an
     /// in-flight retry for a still-armed (even if different) target keeps
     /// working exactly as before.
+    ///
+    /// Also guarded by `scrollRetryScheduled` so only one such timer is ever
+    /// outstanding — see that property's doc for why a second, concurrent
+    /// caller no-ops here rather than stacking another timer, and why that
+    /// cannot drop a retry that is still genuinely owed.
     private func scheduleScrollRetry() {
+        guard !scrollRetryScheduled else { return }
+        scrollRetryScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollRetryInterval) { [self] in
+            scrollRetryScheduled = false
             guard pendingScroll != nil else { return }
             scrollRetryTick &+= 1
         }
