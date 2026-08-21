@@ -13,10 +13,15 @@ import Foundation
 /// - `chqcal://my-day` — the (not-yet-built, task 16) My Day tab.
 /// - `chqcal://map` / `chqcal://map/<venue>` — the (not-yet-built) map tab,
 ///   optionally centered on a venue.
+/// - `chqcal://day/<yyyy-MM-dd>` — open the Events tab on that day, growing
+///   the window if the day lies past an edge and scrolling the list to it.
+///   The key must be canonical (`ChqTime.isCanonicalDayKey`); see
+///   `dayWithANonCanonicalKeyIsRejected`.
 nonisolated enum DeepLink: Equatable, Sendable {
     case event(id: String)
     case myDay
     case map(venue: String?)
+    case day(key: String)
 
     private static let scheme = "chqcal"
 
@@ -46,6 +51,9 @@ nonisolated enum DeepLink: Equatable, Sendable {
             return .myDay
         case "map":
             return .map(venue: pathComponents.first)
+        case "day":
+            guard let key = pathComponents.first, ChqTime.isCanonicalDayKey(key) else { return nil }
+            return .day(key: key)
         default:
             return nil
         }
@@ -70,6 +78,9 @@ nonisolated enum DeepLink: Equatable, Sendable {
             if let venue {
                 components.path = "/\(venue)"
             }
+        case .day(let key):
+            components.host = "day"
+            components.path = "/\(key)"
         }
 
         // Every case above builds `components` from an ASCII scheme/host and

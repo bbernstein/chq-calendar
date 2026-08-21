@@ -153,6 +153,12 @@ final class AppModel {
     ///   `snapshot` changes until the target event is found (or the snapshot
     ///   is loaded, no refresh that could still surface the event is in
     ///   flight, and it's confirmed unknown).
+    /// - `.day` likewise stays pending, for `EventListView` (task 12,
+    ///   phase 4), via `resolvePendingDayDeepLinkIfPossible()` below: the
+    ///   day key needs no lookup, but navigating to it does need a snapshot
+    ///   (`goToDay` bounds against it), so the link waits exactly as long.
+    ///   `EventListView` hosts those triggers on its `body`, not on the list
+    ///   it may not be rendering — see its own comment there.
     var pendingDeepLink: DeepLink?
 
     /// The venue a consumed `chqcal://map/<venue>` deep link asked to focus
@@ -646,6 +652,26 @@ final class AppModel {
         guard !isRefreshing, phase != .launching else { return nil }
         pendingDeepLink = nil
         return nil
+    }
+
+    /// Resolves a pending `.day(key:)` deep link, clearing `pendingDeepLink`
+    /// and returning the key once a snapshot exists to navigate within.
+    ///
+    /// Unlike the `.event` resolver above there is no "is it present?"
+    /// question to retry: a day key needs no lookup, and `goToDay` is the
+    /// authority on whether the day is reachable. So this clears the link as
+    /// soon as the list has data, whether or not the caller's subsequent
+    /// `goToDay` accepts it — a day outside `navigableBounds` is refused, not
+    /// retried, and holding the link would make it fire again on the next
+    /// snapshot refresh.
+    ///
+    /// Waiting for `snapshot` is what makes a cold launch work: before it
+    /// lands there are no day sections mounted for `PendingDayScroll` to find.
+    func resolvePendingDayDeepLinkIfPossible() -> String? {
+        guard case .day(let key) = pendingDeepLink else { return nil }
+        guard snapshot != nil else { return nil }
+        pendingDeepLink = nil
+        return key
     }
 
     func toggleFavorite(_ id: String) {
@@ -1596,6 +1622,30 @@ final class AppModel {
     /// tap, giving it a real window to act in. `0` (the default, and the
     /// value in every real launch) keeps this path fully inert.
     var uiTestPendingScrollDelay: TimeInterval = 0
+
+    /// How many of the next `proxy.scrollTo` calls `EventListView.issueScroll`
+    /// should swallow instead of performing, set by `CalendarView` from
+    /// `-uitest-drop-scrolls <n>` and decremented once per swallowed call.
+    ///
+    /// Makes reachable, deterministically and on any machine, a state that
+    /// otherwise depends on winning a layout race: a `scrollTo` that is
+    /// issued and does nothing, because the section it names was not part of
+    /// the scroll view's resolved content yet (see
+    /// `PendingDayScroll.hasLanded`). Forcing that race directly did not work
+    /// — 24 CPU spinners on a 12-core host and a cold-booted simulator both
+    /// still landed the scroll — so the hook models the *observable
+    /// consequence* instead: the scroll goes nowhere. Before the retry chain,
+    /// one dropped call was fatal, since nothing fired again; with it, the
+    /// pending target survives and the next attempt lands it.
+    ///
+    /// Note this is not the #250 CI failure itself — that one never issued a
+    /// scroll at all (see `EventListView.resolvePendingScroll`'s abandon
+    /// guard, and `testADayDeepLinkLandsOnThatDay`, which falsifies it
+    /// directly). This covers the neighbouring assumption in the same
+    /// function.
+    ///
+    /// `0` (the default, and every real launch) keeps this fully inert.
+    var uiTestScrollsToDrop = 0
 
     /// The first `(day, week)` pairing — in `days` display order — whose
     /// badge actually has a theme. The deterministic target for

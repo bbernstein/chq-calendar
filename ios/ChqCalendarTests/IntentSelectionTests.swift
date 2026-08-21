@@ -205,4 +205,55 @@ struct IntentSelectionTests {
         // forever), matching `DeepLink.parse`'s "ignore it" convention.
         #expect(defaults.string(forKey: PendingIntentLink.defaultsKey) == nil)
     }
+
+    // MARK: - OpenDayIntent handoff
+
+    /// The step the whole "show me a day" feature hangs on: a navigable
+    /// target writes the `.day` link the next launch consumes, and the dialog
+    /// names the timeframe the user actually spoke. `OpenDayTargetTests`
+    /// covers the decision; nothing covered the effect, which is what
+    /// `OpenDayIntent.deliver` exists to make reachable without the
+    /// AppIntents runtime.
+    @Test func deliveringANavigableDayWritesTheDayLink() {
+        let defaults = makeDefaults()
+
+        let dialog = OpenDayIntent.deliver(
+            .navigate(dayKey: "2026-07-28"), timeframe: .tomorrow, to: defaults)
+
+        #expect(PendingIntentLink.consume(from: defaults) == .day(key: "2026-07-28"))
+        #expect(dialog == "Opening tomorrow.")
+    }
+
+    /// A refusal must leave *nothing* pending, even when a previous run
+    /// already wrote a link that hasn't been consumed yet — the app already
+    /// foreground-active is the documented case where consumption is
+    /// delayed. `openAppWhenRun` brings the app forward either way, so a
+    /// stale link left in place on a refused run would navigate on the next
+    /// `.active` transition, contradicting the dialog the user just heard.
+    /// Seeding via a prior `.navigate` delivery (rather than writing the key
+    /// directly) proves the refusal *clears* an existing pending link, not
+    /// merely that it declines to write a new one.
+    @Test func deliveringARefusalClearsAPriorPendingLinkAndSpeaksItsDialog() {
+        let defaults = makeDefaults()
+        _ = OpenDayIntent.deliver(
+            .navigate(dayKey: "2026-07-28"), timeframe: .tomorrow, to: defaults)
+
+        let dialog = OpenDayIntent.deliver(
+            .refuse(dialog: IntentDialogText.coldCache()), timeframe: .today, to: defaults)
+
+        #expect(PendingIntentLink.consume(from: defaults) == nil)
+        #expect(dialog == IntentDialogText.coldCache())
+    }
+
+    /// "Show me a day" with no timeframe spoken is legal, and means today.
+    /// Asserted on the intent because that is the *only* place the default
+    /// lives: `OpenDayTarget.resolve` takes a non-optional timeframe
+    /// precisely so a second, drifting copy of it cannot exist.
+    @Test func anUnspokenTimeframeMeansToday() {
+        var intent = OpenDayIntent()
+        #expect(intent.resolvedTimeframe == .today)
+
+        intent.timeframe = .nextWeek
+        #expect(intent.resolvedTimeframe == .nextWeek)
+    }
 }

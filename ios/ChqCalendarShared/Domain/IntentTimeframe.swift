@@ -77,6 +77,22 @@ nonisolated enum IntentTimeframe: String, CaseIterable, Sendable {
             return DateInterval(start: w.start, end: w.end)
         }
     }
+
+    /// The single NY day this timeframe should open the Events tab on — the
+    /// first day of `interval`, in `ChqTime.dayKey` form.
+    ///
+    /// A timeframe names a *window*; navigation needs a *day*. Taking the
+    /// window's first day is what makes "what's happening this week" and
+    /// "show me this week" agree about where the reader lands, and the day
+    /// rail carries them onward from there.
+    ///
+    /// Always returns a canonical key, including for the degenerate windows
+    /// `interval` produces off-season and for week 9's "next week" — whether
+    /// that day is *reachable* is `ViewWindow.navigableBounds`' question, and
+    /// `OpenDayIntent` asks it.
+    func targetDayKey(now: Date, year: Int) -> String {
+        ChqTime.dayKey(for: interval(now: now, year: year).start)
+    }
 }
 
 /// Where `now` falls relative to `year`'s season — drives the off-season

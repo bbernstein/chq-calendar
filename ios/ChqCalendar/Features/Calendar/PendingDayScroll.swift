@@ -64,4 +64,58 @@ nonisolated enum PendingDayScroll {
     static func isStale(_ target: Target, currentKey: Key) -> Bool {
         target.key != currentKey
     }
+
+    /// Whether a `scrollTo` that has *just been issued* for `day` may be
+    /// treated as done, or has to be issued again.
+    ///
+    /// Issuing a scroll is not the same as landing one. `ScrollViewProxy`
+    /// resolves an id against the scroll view's already-resolved content, and
+    /// the caller's `days` is whatever array its enclosing render captured —
+    /// on a cold launch consuming a `chqcal://day/…` link, neither is
+    /// reliably the current truth at the instant the link is consumed. Rather
+    /// than reason about which, `EventListView.resolvePendingScroll` confirms
+    /// the outcome: `visibleDays` — the set it already maintains from section
+    /// header `onAppear`/`onDisappear` — containing the target is direct
+    /// evidence the day is on screen. Until it does, the scroll is still owed
+    /// and gets re-issued against the next render's `days`.
+    ///
+    /// `retryDeadline` bounds that. A target that can never become visible —
+    /// an empty day with no section, or a list that unmounts — stops being
+    /// re-issued rather than retrying forever, which is the hazard the
+    /// staleness check above exists to prevent in the first place. `nil` (no
+    /// deadline stamped) means "do not retry", the behavior before this
+    /// existed.
+    ///
+    /// `EventListView.resolvePendingScroll` — the only caller — takes its
+    /// deadline from `retryDeadline(existing:now:window:)` below, whose
+    /// return type is non-optional, so in practice this function never sees
+    /// `nil` while a target is genuinely still being retried. The `nil`
+    /// branch is a conservative fallback for a caller that has not stamped
+    /// yet, not a state the live path visits.
+    static func hasLanded(
+        day: String, visibleDays: Set<String>, retryDeadline: Date?, now: Date
+    ) -> Bool {
+        if visibleDays.contains(day) { return true }
+        guard let retryDeadline else { return true }
+        return now >= retryDeadline
+    }
+
+    /// The retry deadline governing an attempt happening at `now`: whatever
+    /// was already stamped for this target, or a fresh `window` if this is
+    /// its first attempt.
+    ///
+    /// **Non-optional by return type, on purpose.** `hasLanded` above reads a
+    /// `nil` deadline as "done, do not retry", so a target arriving at its
+    /// first attempt with nothing stamped would be abandoned before a single
+    /// `scrollTo` could land. Routing every attempt through here makes "an
+    /// attempt always has a deadline" a property of the type rather than of
+    /// the caller remembering to stamp in the right order.
+    ///
+    /// **`existing` wins, on purpose.** The window is measured from the first
+    /// attempt and then stops moving. Re-stamping on every attempt would push
+    /// the deadline out by one interval each time and the target would retry
+    /// forever — the unbounded wait the deadline exists to prevent.
+    static func retryDeadline(existing: Date?, now: Date, window: TimeInterval) -> Date {
+        existing ?? now.addingTimeInterval(window)
+    }
 }

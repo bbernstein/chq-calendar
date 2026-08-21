@@ -57,6 +57,14 @@ nonisolated enum IntentDialogText {
 
     static func noTheme() -> String { "No theme is listed for that week." }
 
+    /// Spoken when a requested day exists on the calendar but lies outside
+    /// everything navigation can reach — e.g. "show me tomorrow" asked on the
+    /// season's last day. Distinct from `offSeason`, which explains that the
+    /// *season* is not running; this explains that the *day* is not in it.
+    static func unreachableDay(year: Int) -> String {
+        "That day is outside the \(year) season."
+    }
+
     static func offSeason(_ status: SeasonStatus, year: Int) -> String? {
         switch status {
         case .inSeason: return nil

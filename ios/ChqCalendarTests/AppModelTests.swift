@@ -1512,6 +1512,47 @@ struct AppModelTests {
         #expect(model.filter.windowStartDayKey == nil)
     }
 
+    // MARK: - Pending day deep link
+
+    @Test func pendingDayLinkResolvesOnceASnapshotExists() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.pendingDeepLink = .day(key: "2026-08-06")
+
+        #expect(model.resolvePendingDayDeepLinkIfPossible() == "2026-08-06")
+        #expect(model.pendingDeepLink == nil)
+    }
+
+    /// Idempotent: a second call must not re-deliver a link already acted on,
+    /// or every `.onChange` trigger in `EventListView` would re-scroll a reader
+    /// who has since moved.
+    @Test func pendingDayLinkIsDeliveredExactlyOnce() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.pendingDeepLink = .day(key: "2026-08-06")
+
+        _ = model.resolvePendingDayDeepLinkIfPossible()
+
+        #expect(model.resolvePendingDayDeepLinkIfPossible() == nil)
+    }
+
+    /// Before the snapshot lands there are no day sections to scroll to, so
+    /// holding the link is what makes a cold launch work.
+    @Test func pendingDayLinkIsHeldUntilTheSnapshotArrives() throws {
+        let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.snapshot = nil
+        model.pendingDeepLink = .day(key: "2026-08-06")
+
+        #expect(model.resolvePendingDayDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .day(key: "2026-08-06"))
+    }
+
+    @Test func pendingEventLinkIsNotResolvedAsADay() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.pendingDeepLink = .event(id: "seed0")
+
+        #expect(model.resolvePendingDayDeepLinkIfPossible() == nil)
+        #expect(model.pendingDeepLink == .event(id: "seed0"))
+    }
+
     // MARK: - ⟳ Now
     //
     // There is no `AppModel.resetToNow()` any more (finding 2 of the phase

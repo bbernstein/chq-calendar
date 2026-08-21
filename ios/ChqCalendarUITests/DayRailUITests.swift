@@ -529,4 +529,135 @@ final class DayRailUITests: XCTestCase {
         // The rail may not exist at all off-season; either way, no Now button.
         XCTAssertFalse(app.buttons["day-rail-now"].waitForExistence(timeout: 10))
     }
+
+    /// A `chqcal://day/<key>` link — the shape `OpenDayIntent` writes — lands
+    /// the list on that day and pins the rail's highlight there, exactly as a
+    /// chip tap does. Driven through the launch argument, which feeds
+    /// `model.pendingDeepLink` rather than calling `goToDay` directly, so this
+    /// covers the whole pipeline a Siri run takes.
+    ///
+    /// The target is fifty-one days beyond `now`, outside the launch window —
+    /// the same target `testADistantChipTapLandsOnThatDay` uses, and for the
+    /// same reason: nothing here can pass by accident. The window has to grow,
+    /// the day has to mount, the list has to scroll, and the rail has to adopt
+    /// the pin. None of that is something a launch does on its own.
+    func testADayDeepLinkLandsOnThatDay() {
+        let app = launchFixtureApp(
+            now: "2026-07-01 10:00:00",
+            extraArgs: ["-uitest-go-to-day", "2026-08-21"])
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        // 2026-08-21 is a Friday; the fixture titles every day header through
+        // ChqTime.dayTitle ("EEEE, MMMM d", en_US_POSIX, no year), same as
+        // testADistantChipTapLandsOnThatDay above.
+        //
+        // Back to this file's usual 10s. This wait was briefly 40s on the
+        // theory that the CI failure was cold start racing a budget. It was
+        // not, and it was not CI-only either: on an unmodified build this
+        // test failed 3 runs in 8 on an iPhone 17 Pro / iOS 26.1 simulator,
+        // in 15s each — a coin flip, not a slow machine. The defect was
+        // `EventListView.resolvePendingScroll` abandoning the pending target
+        // on the one call whose `days` predates `goToDay`'s window growth;
+        // see its abandon guard. **This test is that fix's falsifier** —
+        // remove the guard and it goes back to failing about half the time,
+        // so do not weaken these assertions or stretch this budget to make a
+        // red run go away.
+        let header = app.staticTexts["Friday, August 21"]
+        XCTAssertTrue(
+            header.waitForExistence(timeout: 10),
+            "The linked day never mounted — the deep link never reached selectDay, or the window did not grow")
+        XCTAssertTrue(
+            header.isHittable,
+            "The day mounted but the list never scrolled to it")
+        XCTAssertTrue(
+            app.buttons["day-chip-2026-08-21"].isSelected,
+            "The linked day is not the rail's pinned selection")
+    }
+
+    /// The same link, with its first three `scrollTo` calls thrown away.
+    ///
+    /// The companion to the fix for #250, covering its *second* half. The
+    /// root cause there was `resolvePendingScroll` abandoning the target on a
+    /// stale `days` array (see its abandon guard); that is falsified by
+    /// `testADayDeepLinkLandsOnThatDay` above, which fails roughly one run in
+    /// three without the guard. What that test cannot reach is the other
+    /// assumption in the same function: that a `scrollTo`, once issued, has
+    /// landed. It may not have — `ScrollViewProxy` resolves an id against
+    /// already-resolved content — and before this branch, clearing
+    /// `pendingScroll` right after the call spent the only attempt anyone
+    /// would ever make.
+    ///
+    /// That race cannot be won on demand: CPU-saturating the host with 24
+    /// spinners and re-running this file's siblings never reproduced it. So
+    /// `-uitest-drop-scrolls 3` models the observable consequence instead —
+    /// the scroll is issued and goes nowhere — deterministically, on any
+    /// machine. Three, not one, so passing takes a genuine retry *chain*
+    /// rather than one spare trigger firing by luck.
+    ///
+    /// Falsified by reverting `resolvePendingScroll` to clear `pendingScroll`
+    /// unconditionally after `issueScroll`: this test then fails on the
+    /// header wait, in the same shape CI failed.
+    func testADayDeepLinkSurvivesADroppedScroll() {
+        let app = launchFixtureApp(
+            now: "2026-07-01 10:00:00",
+            extraArgs: [
+                "-uitest-go-to-day", "2026-08-21",
+                "-uitest-drop-scrolls", "3",
+            ])
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        let header = app.staticTexts["Friday, August 21"]
+        XCTAssertTrue(
+            header.waitForExistence(timeout: 10),
+            "A dropped scroll was never retried — the pending target was cleared as though it had landed")
+        XCTAssertTrue(
+            header.isHittable,
+            "The day mounted but the list never scrolled to it")
+        XCTAssertTrue(
+            app.buttons["day-chip-2026-08-21"].isSelected,
+            "The linked day is not the rail's pinned selection")
+    }
+
+    /// The same link, arriving when there is **no list to host it**.
+    ///
+    /// `content` only builds `list(days:)` when `model.dayGroups` is
+    /// non-empty, so a filter matching nothing (here a search term no fixture
+    /// event carries; a persisted favourites-only filter with nothing
+    /// upcoming is the shape a real reader hits) renders `noMatchesView`
+    /// instead. While the `.day` triggers lived inside `list(days:)`, that
+    /// state left the link pending forever: Siri said "Opening tomorrow.",
+    /// nothing happened, and the link fired later — teleporting the reader —
+    /// the moment they cleared the filter and the list mounted.
+    ///
+    /// The rail is the observable: it is a `safeAreaInset` on `body`, so it
+    /// is drawn even with no day groups, and it pins whatever `selectDay`
+    /// chose. An empty day's chip is a plain view rather than a `Button`
+    /// (`DayChip.isDisabled`), hence the identifier-only query — see
+    /// `DayRailAccessibilityUITests.railElementPredicate` for the same
+    /// reason.
+    func testADayDeepLinkIsConsumedEvenWithNoDayGroupsOnScreen() {
+        let app = launchFixtureApp(
+            now: "2026-07-01 10:00:00",
+            extraArgs: [
+                "-uitest-search", "zzzznofixtureeventsaysthis",
+                "-uitest-go-to-day", "2026-08-21",
+            ])
+
+        // The precondition this test exists for: the list is not mounted.
+        XCTAssertTrue(
+            app.staticTexts["No matching events"].waitForExistence(timeout: 20),
+            "The search term matched something — the list is mounted and this proves nothing")
+
+        let chip = app.descendants(matching: .any)
+            .matching(identifier: "day-chip-2026-08-21").firstMatch
+        XCTAssertTrue(
+            chip.waitForExistence(timeout: 20),
+            "The rail never scrolled to the linked day — the link was not consumed")
+        XCTAssertTrue(
+            chip.isSelected,
+            "The linked day is not the rail's pinned selection: the link is still pending, "
+                + "waiting to fire whenever the reader next clears their filter")
+    }
 }

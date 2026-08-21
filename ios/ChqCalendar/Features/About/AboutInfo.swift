@@ -63,6 +63,7 @@ enum AboutInfo {
         SiriPhrase(id: "speaking", phrase: "Who is speaking tomorrow in Chautauqua?"),
         SiriPhrase(id: "theme", phrase: "What's the theme this week in Chautauqua?"),
         SiriPhrase(id: "myday", phrase: "What am I doing tomorrow in Chautauqua?"),
+        SiriPhrase(id: "show-day", phrase: "Show me tomorrow in Chautauqua."),
     ]
 
     /// Formats the marketing version and build number for display.

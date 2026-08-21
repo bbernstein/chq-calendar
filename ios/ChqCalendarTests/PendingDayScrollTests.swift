@@ -125,4 +125,97 @@ struct PendingDayScrollTests {
             for: selection(dateScope: .day, selectedDayKey: "2026-07-05"), year: 2026)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
+
+    // MARK: hasLanded — issuing a scroll is not landing one
+
+    /// The confirmation that fixes #250. The target's header is on screen
+    /// (`visibleDays` is maintained from section-header `onAppear`), so the
+    /// scroll did what it was asked and the pending target is done.
+    @Test func aVisibleTargetHasLanded() {
+        #expect(PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: ["2026-08-20", "2026-08-21"],
+            retryDeadline: Date().addingTimeInterval(5),
+            now: Date()))
+    }
+
+    /// The CI failure, in one assertion: the day is nowhere on screen after
+    /// the `scrollTo`, so the scroll was dropped and is still owed. Before
+    /// this check existed the caller cleared `pendingScroll` here anyway and
+    /// no trigger ever fired again.
+    @Test func aTargetThatIsNotOnScreenHasNotLanded() {
+        let now = Date()
+        #expect(!PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: ["2026-07-01", "2026-07-03", "2026-07-04"],
+            retryDeadline: now.addingTimeInterval(5),
+            now: now))
+    }
+
+    /// Retrying is bounded: a target whose day can never become visible —
+    /// the list unmounted, or it vanished for a reason neither staleness nor
+    /// `shouldAbandonScroll` catches — stops being re-issued once its window
+    /// closes, rather than re-scrolling forever.
+    @Test func aTargetPastItsRetryDeadlineIsGivenUpOn() {
+        let now = Date()
+        #expect(PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: ["2026-07-01"],
+            retryDeadline: now.addingTimeInterval(-0.001),
+            now: now))
+    }
+
+    /// No deadline stamped means no retry — the behavior before this
+    /// existed, kept as the safe fallback for any path that arms a target
+    /// without going through `resolvePendingScroll`. The live path cannot
+    /// reach it: `retryDeadline(existing:now:window:)` below returns a
+    /// non-optional, and every attempt goes through it.
+    @Test func noRetryDeadlineMeansASingleAttempt() {
+        #expect(PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: [],
+            retryDeadline: nil,
+            now: Date()))
+    }
+
+    // MARK: retryDeadline — the window starts at the first attempt
+
+    /// A target reaching its first resolution attempt with nothing stamped
+    /// gets its full window measured from *that* moment.
+    ///
+    /// This is the fix: the deadline used to be stamped by `selectDay` at arm
+    /// time, but every attempt happens inside `EventListView.list(days:)`,
+    /// which is not mounted while `dayGroups` is empty. A deep link consumed
+    /// against an unmounted list burned its whole window in real time before
+    /// one attempt could run — and the first attempt after the list finally
+    /// mounted found the deadline already spent and gave up without issuing
+    /// a single `scrollTo`.
+    @Test func theFirstAttemptStampsAFreshWindow() {
+        let now = Date()
+        let deadline = PendingDayScroll.retryDeadline(existing: nil, now: now, window: 5)
+        #expect(deadline == now.addingTimeInterval(5))
+        // The point of the fix, stated as the caller sees it: this deadline
+        // has not already expired, however long the target sat armed.
+        #expect(!PendingDayScroll.hasLanded(
+            day: "2026-08-21", visibleDays: [], retryDeadline: deadline, now: now))
+    }
+
+    /// Later attempts keep the first attempt's deadline rather than pushing
+    /// it out. Re-stamping each time would slide the window forward by an
+    /// interval per retry and the target would retry forever — the unbounded
+    /// wait the deadline exists to prevent.
+    @Test func aLaterAttemptDoesNotSlideTheWindowForward() {
+        let first = Date()
+        let stamped = PendingDayScroll.retryDeadline(existing: nil, now: first, window: 5)
+        let later = first.addingTimeInterval(4.9)
+        #expect(
+            PendingDayScroll.retryDeadline(existing: stamped, now: later, window: 5) == stamped)
+        // And the window really does close, rather than being renewed.
+        #expect(PendingDayScroll.hasLanded(
+            day: "2026-08-21",
+            visibleDays: [],
+            retryDeadline: PendingDayScroll.retryDeadline(
+                existing: stamped, now: first.addingTimeInterval(5.1), window: 5),
+            now: first.addingTimeInterval(5.1)))
+    }
 }

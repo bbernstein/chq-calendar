@@ -37,6 +37,14 @@ nonisolated enum PendingIntentLink {
         guard let url = URL(string: raw) else { return nil }
         return DeepLink.parse(url)
     }
+
+    /// Removes whatever is stored under `defaultsKey` without parsing it —
+    /// for callers (like a refused `OpenDayIntent`) that need to guarantee
+    /// nothing is left pending but have no link of their own to hand back.
+    /// Harmless when nothing is pending.
+    static func clear(from defaults: UserDefaults) {
+        defaults.removeObject(forKey: defaultsKey)
+    }
 }
 
 /// "Open Event" — the Shortcuts/Siri equivalent of tapping a
@@ -54,6 +62,74 @@ struct OpenEventIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         PendingIntentLink.write(.event(id: event.id), to: AppGroup.userDefaults())
         return .result()
+    }
+}
+
+/// "Show a Day" — the Siri/Shortcuts equivalent of tapping a day chip on the
+/// rail. Closes the inconsistency #226 recorded: `IntentTimeframe` has shipped
+/// `tomorrow` and `nextWeek` as spoken targets since #193, so a user could
+/// *ask* Siri for tomorrow but, until phase 3b's rail, could not *tap* their
+/// way there. Routing this through the same `chqcal://day/<key>` link the rail
+/// resolves means voice and touch land in identical state.
+///
+/// `openAppWhenRun` brings the app forward; `perform()` hands the day off via
+/// `PendingIntentLink` rather than touching `AppModel` (see that type's doc
+/// comment — an intent can run with the app not launched at all).
+///
+/// Every decision lives in `OpenDayTarget`; this is the delivery shell.
+struct OpenDayIntent: AppIntent {
+    static let title: LocalizedStringResource = "Show a Day"
+    static let openAppWhenRun = true
+
+    @Parameter(title: "When")
+    var timeframe: IntentTimeframe?
+
+    /// An unspoken "show me a day" means today. Resolved once, here, so the
+    /// day navigated to and the day the dialog names cannot disagree —
+    /// `OpenDayTarget.resolve` takes the already-resolved value (see its own
+    /// doc comment for why it holds no second copy of this default).
+    var resolvedTimeframe: IntentTimeframe { timeframe ?? .today }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let now = Date()
+        let events = await IntentDataSource.events(now: now)
+        let year = await IntentDataSource.defaultYear()
+        let timeframe = resolvedTimeframe
+
+        let target = OpenDayTarget.resolve(
+            timeframe: timeframe, now: now, year: year, events: events)
+        return .result(
+            dialog: "\(Self.deliver(target, timeframe: timeframe, to: AppGroup.userDefaults()))")
+    }
+
+    /// The half of `perform()` that has an effect: writes the day link for a
+    /// `.navigate` target, clears any pending link for a `.refuse` (so a
+    /// stale link from an earlier, not-yet-consumed run can't outlive the
+    /// refusal that just told the user it wouldn't navigate), and returns
+    /// the line to speak either way.
+    ///
+    /// Split out for the same reason `OpenDayTarget` is: what remains in
+    /// `perform()` needs the AppIntents runtime *and* a populated shared
+    /// on-disk cache to reach either branch, so the one step the whole
+    /// feature hangs on — a navigable day actually reaching
+    /// `PendingIntentLink` — would otherwise have no coverage at all.
+    static func deliver(
+        _ target: OpenDayTarget, timeframe: IntentTimeframe, to defaults: UserDefaults
+    ) -> String {
+        switch target {
+        case .refuse(let dialog):
+            // A previous run may have written a pending link that hasn't
+            // been consumed yet — the app already foreground-active is the
+            // documented case where consumption is delayed. Without this,
+            // a refused run leaves that stale link in place and the next
+            // `.active` transition navigates anyway, contradicting the
+            // dialog the user just heard.
+            PendingIntentLink.clear(from: defaults)
+            return dialog
+        case .navigate(let dayKey):
+            PendingIntentLink.write(.day(key: dayKey), to: defaults)
+            return "Opening \(timeframe.spokenLabel)."
+        }
     }
 }
 

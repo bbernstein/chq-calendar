@@ -107,7 +107,10 @@ struct CalendarView: View {
     /// guard against clearing a link a still-running refresh might yet
     /// satisfy); this just pushes the resolved event onto the right
     /// navigation surface. Does nothing for `.myDay`/`.map` — `RootTabView`
-    /// consumes those at the tab level before this view ever sees them.
+    /// consumes those at the tab level before this view ever sees them — and
+    /// nothing for `.day`, the other link the tab switch deliberately leaves
+    /// pending: `EventListView` consumes that one on its own `body`, through
+    /// `resolvePendingDayDeepLinkIfPossible`.
     private func consumePendingDeepLinkIfPossible() {
         guard let event = model.resolvePendingEventDeepLinkIfPossible() else { return }
         route(to: event)
@@ -229,6 +232,14 @@ struct CalendarView: View {
             model.uiTestPendingScrollDelay = 3
         }
 
+        // `-uitest-drop-scrolls <n>` — see `AppModel.uiTestScrollsToDrop` for
+        // why a UI test needs to be able to make a `scrollTo` do nothing.
+        if let flagIndex = arguments.firstIndex(of: "-uitest-drop-scrolls"),
+           arguments.index(after: flagIndex) < arguments.endIndex,
+           let count = Int(arguments[arguments.index(after: flagIndex)]), count > 0 {
+            model.uiTestScrollsToDrop = count
+        }
+
         if arguments.contains("-uitest-show-about") {
             model.uiTestShowAbout = true
         }
@@ -264,6 +275,22 @@ struct CalendarView: View {
                 model.pendingDeepLink = .map(venue: nil)
             default:
                 break
+            }
+        }
+
+        // `-uitest-go-to-day <yyyy-MM-dd>` lands the Events list on a named
+        // day by feeding `model.pendingDeepLink` — the same channel
+        // `OpenDayIntent` writes through `PendingIntentLink`. Going through
+        // the link rather than calling `model.goToDay` directly is the point:
+        // the screenshot and the UI test then cover the real pipeline, not a
+        // shortcut around it. A non-canonical key is ignored (the link is
+        // never constructed), leaving the launch behaving as if the flag were
+        // absent.
+        if let flagIndex = arguments.firstIndex(of: "-uitest-go-to-day"),
+           arguments.index(after: flagIndex) < arguments.endIndex {
+            let key = arguments[arguments.index(after: flagIndex)]
+            if ChqTime.isCanonicalDayKey(key) {
+                model.pendingDeepLink = .day(key: key)
             }
         }
 

@@ -30,6 +30,31 @@ struct DeepLinkTests {
         #expect(DeepLink.parse(link.url) == link)
     }
 
+    @Test func dayRoundTrips() {
+        let link = DeepLink.day(key: "2026-07-29")
+        #expect(DeepLink.parse(link.url) == link)
+    }
+
+    @Test func dayURLHasExpectedShape() {
+        #expect(DeepLink.day(key: "2026-07-29").url.absoluteString == "chqcal://day/2026-07-29")
+    }
+
+    /// `ChqTime.parse` is more permissive than its format string suggests —
+    /// `"2026-7-9"` reads as July 9th and `"26-07-09"` reads as year 26 — and
+    /// neither is a key `EventFilter`'s raw string comparisons will ever
+    /// match. A link carrying one must be rejected at the door rather than
+    /// silently resolving to a day the list cannot show.
+    @Test func dayWithANonCanonicalKeyIsRejected() {
+        #expect(DeepLink.parse(URL(string: "chqcal://day/2026-7-9")!) == nil)
+        #expect(DeepLink.parse(URL(string: "chqcal://day/26-07-09")!) == nil)
+        #expect(DeepLink.parse(URL(string: "chqcal://day/tomorrow")!) == nil)
+    }
+
+    @Test func dayWithNoKeyIsRejected() {
+        #expect(DeepLink.parse(URL(string: "chqcal://day")!) == nil)
+        #expect(DeepLink.parse(URL(string: "chqcal://day/")!) == nil)
+    }
+
     // MARK: - URL shape
 
     @Test func eventURLHasExpectedShape() {

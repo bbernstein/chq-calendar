@@ -124,7 +124,7 @@ struct ChqShortcutsTests {
         #expect(
             Set(checkedIntents) == [
                 "NextEventsIntent", "TodayEventsIntent", "OpenEventIntent",
-                "WeekThemeIntent", "MyScheduleIntent", "WhoIsSpeakingIntent",
+                "OpenDayIntent", "WeekThemeIntent", "MyScheduleIntent", "WhoIsSpeakingIntent",
                 "ShowTimeIntent",
             ],
             "Unexpected set of intents found in ChqShortcuts.swift: \(checkedIntents)"
