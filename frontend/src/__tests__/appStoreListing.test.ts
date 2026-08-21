@@ -38,6 +38,7 @@ const LIMITS: Record<string, number> = {
   keywords: 100,
   description: 4000,
   whatsNew: 4000,
+  reviewNotes: 4000,
 };
 
 describe('App Store listing fields', () => {
