@@ -167,6 +167,7 @@ def main() -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         for shot in plan["shots"]:
+            note = shot.get("note")
             raw_path = RAW_ROOT / key / f"{shot['id']}.png"
             if not raw_path.exists():
                 if shot.get("manual"):
@@ -202,6 +203,13 @@ def main() -> int:
                 "sha256": hashlib.sha256(final_path.read_bytes()).hexdigest(),
             })
             print(f"  {key}/{shot['id']}.png  {width}x{height}")
+            if note:
+                # "note" is an operational caveat (e.g. 01-season's
+                # live-production-data dependency), distinct from
+                # "manualNote" above — it applies to automated shots too,
+                # so it's printed here on every composition rather than
+                # only when a shot is missing/manual.
+                print(f"    NOTE: {note}")
 
     if missing:
         print("\nerror: missing raw captures:", file=sys.stderr)

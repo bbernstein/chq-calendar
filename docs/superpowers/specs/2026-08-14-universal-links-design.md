@@ -275,6 +275,15 @@ Visit www.chqcal.org in iOS Safari
 
 *Moot while deferred; recorded because it is the non-obvious part of ever
 executing this, and the reasoning would have to be re-derived otherwise.*
+**The version numbers below (1.1.2 / 1.1.3) are the versions that were
+current at design time, 2026-08-14/15 — not a live plan.** 1.1.3 has since
+shipped (or is shipping) without this work: its release covers the day rail
+and Siri day-routing instead, because Universal Links are deferred and not
+targeted at any version (see "Status" at the top). If this is ever picked
+back up, substitute whichever versions are actually current and next at that
+time. What is worth keeping is the *shape* of the sequencing — web/infra
+lands independently of any app release; iOS work is gated on the release
+immediately ahead of it, not bundled into it.
 
 **This reverses the "hold everything until iOS is ready" answer given during
 brainstorming, because a fact discovered afterwards makes that ordering
@@ -282,26 +291,33 @@ costly.** On-device verification of a universal link requires the AASA to be
 live in production — Apple's CDN fetches it from the real domain, and even
 Associated Domains developer mode, which bypasses the CDN, still fetches from
 the domain itself. Holding the file back means the first real test of the
-association happens after 1.1.3 is already in review, and a mistake there
-costs another review cycle. That is precisely the cost the 1.1.2 decision was
-meant to avoid.
+association happens after the carrying release is already in review, and a
+mistake there costs another review cycle. That is precisely the cost the
+1.1.2 decision (illustrative, below) was meant to avoid.
 
 **Stage 1 — web + infra (mergeable immediately).** AASA file, deploy changes,
 CloudFront function exemption, meta tag, banner suppression. Nothing here
 depends on an app release: the AASA is inert until an app claims it, and the
-Smart App Banner works against the *currently live* 1.1. Verifiable in
-production the moment it deploys.
+Smart App Banner works against whatever iOS build happens to be currently
+live. Verifiable in production the moment it deploys.
 
-**Stage 2 — iOS (merges after 1.1.2 is approved and released).** Entitlement,
-mapper, in-app browser, the 1.1.3 version bump, and the `whatsNew` line.
+**Stage 2 — iOS (merges after the release immediately ahead of it is
+approved and released).** Entitlement, mapper, in-app browser, and the
+version bump + `whatsNew` line for whichever release actually ends up
+carrying this.
 
-`MARKETING_VERSION` stays at **1.1.2** on `main` for the whole of stage 1, so
-that a rejection of the in-review 1.1.2 can still be reworked and resubmitted
-as a 1.1.2 build. The bump to 1.1.3 is the last commit of stage 2.
+At design time, the release immediately ahead was 1.1.2 (then in review) and
+the intended carrier was 1.1.3 — an illustration of the pattern, now
+superseded by events: `MARKETING_VERSION` would stay on the ahead-of-it
+release on `main` for the whole of stage 1, so that a rejection of the
+in-review release could still be reworked and resubmitted without this work
+attached. The version bump to the carrying release would be the last commit
+of stage 2.
 
-TestFlight uploads are permitted while a version is in review, so a 1.1.3
-TestFlight build can be used for on-device verification during 1.1.2's review
-— only a new *submission* has to wait.
+TestFlight uploads are permitted while a version is in review, so a
+TestFlight build carrying this work can be used for on-device verification
+during the ahead-of-it release's review — only a new *submission* has to
+wait.
 
 ## Testing
 
@@ -323,7 +339,8 @@ TestFlight build can be used for on-device verification during 1.1.2's review
 **On-device, and only on-device** (the simulator cannot do universal links,
 and CI cannot either) — this becomes part of the pre-submit checklist:
 
-1. Install a 1.1.3 TestFlight build.
+1. Install a TestFlight build of whichever release ends up carrying this
+   work (see "Sequencing" — no version is currently targeted).
 2. Tap a `https://chqcal.org` link from Messages → app opens.
 3. Tap a `https://www.chqcal.org/about/iphone` link → app opens, guide page
    appears in the in-app browser.
@@ -360,9 +377,15 @@ These are independent of this deferral and remain live:
   with other external links; declined on the grounds that these render only on
   iOS, where the store app takes over and `_blank` orphans a tab. Still the
   user's call to reverse.
-- **1.1.3 release notes** must cover the expanded Siri surface, the captions
-  link, the My Day changes, *and* now universal links — everything merged
-  since 1.1 is still unreleased.
+- **Release notes.** At design time this bullet said 1.1.3's release notes
+  would need to cover Universal Links alongside the expanded Siri surface,
+  the captions link, and the My Day changes. That's now stale: Universal
+  Links are deferred and not targeted at any version (see "Status" above),
+  so 1.1.3 ships without a Universal Links line. Whichever release
+  eventually carries this work needs its own release-note line added at
+  that time. The other items are tracked independently in
+  `docs/app-store/RELEASE_CHECKLIST.md`'s "Release notes for the next
+  version" section, not here.
 - **Screenshot guard.** Would have applied had this shipped: the work touches
   `ios/**`, and the `SFSafariViewController` sheet is not in
   `screenshot-plan.json`, so the PR would opt out with a stated reason rather

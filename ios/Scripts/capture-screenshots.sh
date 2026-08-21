@@ -11,6 +11,13 @@
 #         (no args = every device in screenshot-plan.json)
 #
 # screenshot-plan.json shot schema (per shot):
+#   "note"             - optional operational caveat, printed for this shot
+#                        regardless of whether it's automated or manual (e.g.
+#                        01-season's live-production-data dependency). Not
+#                        instructions to follow — just something a future
+#                        operator should know when looking at the result.
+#   "manualNote"        - optional, manual shots only (see "manual" below):
+#                        capture instructions, since simctl can't drive them.
 #   "launchArgs"       - args passed on every device (required, may be []).
 #   "deviceLaunchArgs" - optional map of { "<device key>": [extra args] },
 #                        appended after "launchArgs" for that device only.
@@ -222,6 +229,18 @@ for key in "${device_keys[@]}"; do
 
   echo "==> $key done: $out_dir"
 done
+
+# Prints "note" (operational caveats — not instructions) for every shot
+# that has one, automated or manual alike. This is what surfaces
+# 01-season's live-production-data caveat: it's an automated shot (no
+# "manual" key), so it would otherwise never reach the manual-only block
+# below.
+notes=$(jq -r '.shots[] | select(.note != null) | "  - \(.id): \(.note)"' "$PLAN")
+if [ -n "$notes" ]; then
+  echo
+  echo "NOTES on the shots just captured:"
+  echo "$notes"
+fi
 
 # Prints any shots marked "manual": true in the plan, with their
 # "manualNote", so a human bootstrapping a fresh checkout isn't stuck
