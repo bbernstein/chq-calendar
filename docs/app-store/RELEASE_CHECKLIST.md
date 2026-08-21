@@ -103,9 +103,22 @@ Related documents:
 
 - [ ] **5. Create the version in App Store Connect and attach the processed
   build.**
-  In App Store Connect, create the new version (e.g. "1.0") under the iOS
-  App, then wait for the uploaded build to finish processing and attach it
-  to that version via **Build → Add Build**.
+  In App Store Connect, create the new version under the iOS App, then wait
+  for the uploaded build to finish processing and attach it to that version
+  via **Build → Add Build**.
+
+  **Determine this release's version and build number before starting** —
+  don't assume the numbers below are current, they change every release.
+  They come from Step 2's grep, or directly:
+  ```bash
+  grep -n "MARKETING_VERSION\|CURRENT_PROJECT_VERSION" \
+    ios/ChqCalendar.xcodeproj/project.pbxproj | sort -u
+  ```
+  `MARKETING_VERSION` is the version (e.g. `1.1.3`); the app target's
+  `CURRENT_PROJECT_VERSION` (not the test targets') is the build (e.g. `6`).
+  **At the time this section was last written, that was `1.1.3` build
+  `6`** — used below as a concrete example only. Substitute whatever Step 2
+  actually shows for your release.
 
   App Store Connect's layout shifts between redesigns, so treat the
   labels below as "look for something like this" rather than exact
@@ -117,26 +130,30 @@ Related documents:
   **appstoreconnect.apple.com → Apps → CHQ Calendar → TestFlight** and
   watch the build's status. It moves through *Processing* → *Ready to
   Submit* (or *Ready to Test*). This usually takes 10–60 minutes. Apple
-  emails you when it completes — subject line resembles *"Version 1.0
-  (2) for CHQ Calendar has completed processing."* **Do not continue
-  until this finishes**; a still-processing build simply will not appear
-  in the picker in 5d, which is the single most common reason people
-  think this step is broken.
+  emails you when it completes — subject line resembles *"Version
+  &lt;marketing version&gt; (&lt;build&gt;) for CHQ Calendar has completed
+  processing."*, e.g. for this release, *"Version 1.1.3 (6) for CHQ
+  Calendar has completed processing."* **Do not continue until this
+  finishes**; a still-processing build simply will not appear in the
+  picker in 5d, which is the single most common reason people think this
+  step is broken.
 
   **5b. Open or create the version.** In the left sidebar of the app's
   page there is a **iOS App** section listing versions.
 
-  - For a **first release**, App Store Connect usually pre-creates
-    **"1.0 Prepare for Submission"** as soon as the app record exists.
-    If you see it, click it and skip to 5c.
-  - If it is not there, click the **+** beside *iOS App* (labelled
-    something like **Add Version or Platform**), choose **iOS**, enter
-    the version number **1.0**, and confirm.
+  - **Only on the very first submission** (this app's was `1.0`), App
+    Store Connect pre-creates a version named **"&lt;version&gt; Prepare
+    for Submission"** as soon as the app record exists. If you see one
+    matching this release's version, click it and skip to 5c. For every
+    release after the first, this will not be there.
+  - Otherwise, click the **+** beside *iOS App* (labelled something like
+    **Add Version or Platform**), choose **iOS**, enter this release's
+    version number (e.g. `1.1.3`), and confirm.
 
   The version number here must match the build's `MARKETING_VERSION`
-  (currently `1.0`). A build whose marketing version is `1.0` can only
-  be attached to a `1.0` version — this is why 5d sometimes shows an
-  empty list even for a fully processed build.
+  from the grep above. A build whose marketing version is, say, `1.1.3`
+  can only be attached to a `1.1.3` version — this is why 5d sometimes
+  shows an empty list even for a fully processed build.
 
   **5c. Fill the metadata first (optional but easier).** Steps 7 and 8
   populate screenshots and copy on this same page. Doing them before
@@ -150,19 +167,23 @@ Related documents:
 
   1. Click it. A panel lists every processed build whose marketing
      version matches this version.
-  2. **Pick build 2, not build 1.** Both are marketing version `1.0`,
-     so both may appear. Build 1 is the original TestFlight upload and
-     predates the sRGB icon profile, the export-compliance flag, the
-     Travel category, and the About screen. Build 2 is the one this
-     work produced. The picker shows the build number in parentheses:
-     `1.0 (2)`.
+  2. **Pick the build number that matches this release's
+     `CURRENT_PROJECT_VERSION`** from the grep above (e.g. `6` for
+     1.1.3). More than one processed build can share the same marketing
+     version — for example, a prior upload that was superseded before
+     submission, or (historically, for the original `1.0` release) a
+     TestFlight-only build that predated a later fix. Do not assume the
+     newest-looking or top-of-list entry is the right one; match the
+     build number deliberately. The picker shows it in parentheses,
+     e.g. `1.1.3 (6)`.
   3. Confirm (**Done** / **Select**).
   4. Click **Save** at the top right of the version page. The
      attachment is not persisted until you save.
 
-  **5e. Verify it took.** The Build section should now show `1.0 (2)`
-  with the app icon beside it instead of the add-a-build prompt. That
-  icon appearing here is the first confirmation that Step 6 will pass.
+  **5e. Verify it took.** The Build section should now show
+  `<version> (<build>)` — e.g. `1.1.3 (6)` for this release — with the
+  app icon beside it instead of the add-a-build prompt. That icon
+  appearing here is the first confirmation that Step 6 will pass.
 
   **If the build list is empty in 5d**, work through these in order:
   processing not finished (5a); marketing version mismatch between the
@@ -262,11 +283,55 @@ Track user-visible changes here as they land, then fold the accepted
 bullets into `whatsNew` in `listing-fields.json` (Step 8) when preparing
 the next submission.
 
-*(Empty — everything tracked here was folded into `whatsNew` for 1.1.2.)*
+*(Empty — everything tracked here was folded into `whatsNew` for 1.1.3.)*
 
 Folded into 1.1.2: the Captions link, the expanded Siri vocabulary, the My
 Day date-navigation work, the date-filter corrections, and the star-tap
 performance fix.
+
+Folded into 1.1.3: the day rail, which the Events tab and My Day share only
+partly — both show a `DayRailView` strip with a per-day event count so an
+empty day is visible before you tap it (`MyDayChipContent`, genuinely
+shared), but the surrounding controls differ. Only the **Events tab** got
+the `⟳ Now` button and the step-to-next-event-day chevrons (`DayStepControl`,
+which skip past days with nothing to show rather than moving one calendar
+day), and only the Events tab's list auto-grows forward at its end (`EventListView`'s
+last-row `.onAppear` calling `expandWindowEnd()` — there is no
+`expandWindowStart`; going back stays an explicit chevron or rail-chip tap).
+**My Day** instead kept its own,
+older controls: a plain toolbar "Today" text button (not `⟳ Now`), and a
+pair of manual reveal-more chevrons (`MyDayExpandControl`, toggling
+`showsEarlier`/`showsLater`) that widen the strip to the season edge on tap
+rather than growing automatically as the reader scrolls. `whatsNew`'s "A DAY
+AT A TIME" bullets describe the Events tab specifically, not My Day — do not
+generalize them to "the app" when drafting the next version's notes. Siri
+routing through `OpenDayIntent` and the same `chqcal://day/<key>` path the
+rail itself consumes, so within the current season "Show me tomorrow in
+Chautauqua" and a tap on tomorrow's chip land in identical state — browsing
+an archived year is a known gap (issue #253: the intent resolves its year
+from `IntentDataSource.defaultYear()` while `AppModel.goToDay` bounds
+against `selectedYear`, so the dialog can speak success while nothing
+moves). There is a second, narrower divergence: `OpenDayTarget.resolve` and
+`AppModel.goToDay` only check that the target day falls inside
+`ViewWindow.navigableBounds` — they don't check whether that day holds any
+events — while the Events rail passes `disablesEmptyDays: true`
+(`EventListView`), which disables the chip for a day with zero events (or
+one emptied by an active filter), leaving it untappable
+(`DayRailNavigation.plan` has no emptiness check either — the rail's
+restriction lives entirely in the chip's `isDisabled`, not in the shared
+navigation logic). So Siri can reach a day the rail has no tappable chip
+for at all. This is intentional, not a bug to fix before submission —
+recorded in `reviewNotes` (the "Siri, Shortcuts, and Spotlight" bullet) so
+a reviewer who notices the discrepancy on-device reads it as documented
+behavior rather than filing it. `whatsNew` and `promotionalText`
+deliberately say nothing about it: for a user, Siri reaching *more* days
+than the rail is not a broken promise, and qualifying "lands you in the
+same place as a rail tap" further would make the store copy read worse
+without making it any truer; and the accessibility fix that
+stopped the `Filters` pill from clipping its label at the largest text
+sizes — both Events-tab-specific. **This is a first pass, not the final
+submission artifact — further features may land before submission**, in
+which case fold them in here before Step 8's render.
 
 Dropped rather than folded: "filtering moved to the bottom of the screen."
 That change shipped **in 1.1** — it simply never made it into 1.1's
