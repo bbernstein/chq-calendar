@@ -12,9 +12,23 @@ dark in production. Phase 3b is on
 `feat/date-nav-phase-3b-ios-day-rail`: the same rail on the Events tab and
 My Day, sharing `DayRailView` between them.
 
-Remaining: Siri routing, screenshots beyond the mandatory regeneration, the
-1.1.3 version sweep, and listing copy — deferred to phase 4 by decision on
-2026-08-18 (see this doc's iOS surface section).
+**Phase 4 (iOS consolidation) is in progress, not yet complete.** Part 1 —
+Siri routing — shipped as PR #250 (`d827903`): a new `OpenDayIntent` ("Show a
+Day") resolves an `IntentTimeframe` to a canonical day key, writes it as a
+`chqcal://day/<key>` deep link, and that link is consumed by the exact same
+`EventListView.selectDay(_:)` a rail-chip tap calls — see the Siri section
+below for what that guarantees. Part 2 is release prep: the 1.1.3 version
+sweep landed (`76a8ce2`, every target including both test bundles now at
+1.1.3, app and widgets at build 6), and this listing-copy/spec-amendment pass
+is task 9 of that part. **Still outstanding:** task 8, reworking the lead
+screenshot (`01-season`) into a day-navigation shot — constrained by App
+Store Connect's 10-shot maximum, so it is a rework of an existing shot rather
+than an eleventh; and the on-device walkthrough of the `whatsNew` bullets
+below (deferred to whoever runs it next — this pass verified every bullet
+against the source, not against a running simulator). The `this-week`
+off-season divergence between platforms — `null` on web, a rolling 7-day
+window on iOS — is deliberately left standing and documented in
+`ViewWindow.swift`; phase 4 does not reconcile it.
 
 ### What the iOS device pass caught that the task reviews did not
 
@@ -485,6 +499,22 @@ Routing them through the same `goToDay` closes the inconsistency #226
 records — that you can *ask* Siri for tomorrow but cannot *tap* your way
 there — and guarantees voice and touch land in identical state.
 
+**Shipped (PR #250, phase 4 part 1):** `OpenDayIntent` ("Show a Day") resolves
+`IntentTimeframe` to a canonical `"yyyy-MM-dd"` day key via `OpenDayTarget`,
+writes it as `DeepLink.day(key:)` (`chqcal://day/<key>`) through
+`PendingIntentLink`, and `EventListView.consumePendingDayLinkIfPossible()`
+hands that key to `selectDay(_:)` — the identical private function a rail
+chip's `onSelect` calls. Voice and touch therefore share not just an outcome
+but the literal call path: same window expansion, same pinned selection, same
+queued scroll. The reachability check — `ViewWindow.navigableBounds` — lives
+in `OpenDayTarget` rather than in `AppModel.goToDay` specifically so an
+unreachable day can be *spoken*: `AppModel.goToDay` already refused
+out-of-bounds days, but silently, and an intent that just opens the app and
+does nothing is a worse experience than one that says why. On refusal,
+`PendingIntentLink.clear(from:)` wipes any link a previous, not-yet-consumed
+run may have left pending, so a refusal dialog is never followed by a
+navigation the user was just told wouldn't happen.
+
 ### AppModel
 
 Add `expandWindowStart`, `expandWindowEnd`, `goToDay(_:)`, `stepDay(_:)`,
@@ -674,14 +704,24 @@ both must be met per PR.
   `docs/app-store/screenshots.manifest.json` and
   `docs/app-store/screenshots/review/`. `DateFilterLabel` and
   `MyDayChipContent` are in `ChqCalendarShared/**` and matched by
-  `.github/workflows/app-store-assets.yml`.
-- **Version 1.1.3.** The app and widget targets are at `1.1.3`;
-  `CURRENT_PROJECT_VERSION` remains `5`, consistent with the earlier
-  decision not to increment a build that was never uploaded. The **test
-  bundle `org.chqcal.calendarTests` is still at `1.1.2`**
-  (`project.pbxproj:375`, `:393`) — the same incompleteness as the 1.1.2
-  bump. Fix in phase 4. Every version reference in docs, plans and the
-  App Store listing uses 1.1.3.
+  `.github/workflows/app-store-assets.yml`. **Constraint that shaped task
+  8:** `ios/Scripts/screenshot-plan.json` is already at App Store Connect's
+  10-shot maximum, so the lead shot (`01-season`) is reworked into a
+  day-navigation shot rather than the set gaining an eleventh — an existing
+  shot is displaced, not extended.
+- **Version 1.1.3 — done.** Every target, including both test bundles,
+  is now at `1.1.3` (`76a8ce2`, phase 4 task 7). The app and widget targets
+  are at build `6`; `ChqCalendarTests` and the `ChqCalendarUITests` target
+  added in phase 3b — which had shipped with **neither** version key —
+  are both pinned at build `1` and must not track the app/widget build
+  number. Before task 7 this bullet's older draft was stale: it claimed the
+  app and widget targets were already at `1.1.3`, but they were still at
+  `1.1.2` (build 5, the version live in the App Store) until task 7 ran, and
+  the unit-test bundle was too — the same incompleteness the 1.1.2 bump
+  left behind. `grep -n "CURRENT_PROJECT_VERSION\|MARKETING_VERSION"
+  ios/ChqCalendar.xcodeproj/project.pbxproj` is now sufficient to verify the
+  full set at a glance, which was the point of enumerating every target by
+  hand this once.
 - **Listing copy.** `docs/app-store/listing-copy.md` and
   `listing-fields.json` describe the current date story and must be
   re-read against the shipped behaviour in phase 4. `whatsNew` must

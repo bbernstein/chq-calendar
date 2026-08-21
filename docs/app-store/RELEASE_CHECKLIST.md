@@ -262,11 +262,21 @@ Track user-visible changes here as they land, then fold the accepted
 bullets into `whatsNew` in `listing-fields.json` (Step 8) when preparing
 the next submission.
 
-*(Empty — everything tracked here was folded into `whatsNew` for 1.1.2.)*
+*(Empty — everything tracked here was folded into `whatsNew` for 1.1.3.)*
 
 Folded into 1.1.2: the Captions link, the expanded Siri vocabulary, the My
 Day date-navigation work, the date-filter corrections, and the star-tap
 performance fix.
+
+Folded into 1.1.3: the day rail on the Events tab and My Day (step chevrons,
+`⟳ Now`, an auto-expanding list instead of a hard edge, and a per-day event
+count so an empty day is visible before you tap it); Siri routing through
+`OpenDayIntent` and the same `chqcal://day/<key>` path the rail itself
+consumes, so "Show me tomorrow in Chautauqua" and a tap on tomorrow's chip
+land in identical state; and the accessibility fix that stopped the
+`Filters` pill from clipping its label at the largest text sizes. **This is
+a first pass, not the final submission artifact — further features may land
+before submission**, in which case fold them in here before Step 8's render.
 
 Dropped rather than folded: "filtering moved to the bottom of the screen."
 That change shipped **in 1.1** — it simply never made it into 1.1's
