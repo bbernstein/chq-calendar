@@ -30,7 +30,6 @@
     "sync:upload": "ts-node src/scripts/uploadToFrontendBucket.ts",
     "sync:upload-local": "ts-node src/scripts/uploadToFrontendBucket.ts --save-local",
     "init-tables": "ts-node src/scripts/initTables.ts",
-    "create-tables": "cd .. && ./scripts/create-tables.sh",
     "trigger-sync": "ts-node src/scripts/triggerFullSeasonSync.ts",
     "ingest:articles:local": "ts-node src/scripts/runArticleIngestLocal.ts",
     "ingest:programs:local": "ts-node src/scripts/runProgramIngestLocal.ts",

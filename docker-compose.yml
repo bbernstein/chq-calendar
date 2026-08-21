@@ -88,7 +88,11 @@ services:
   # backend/src/scripts/runArticleIngestLocalAws.ts and
   # docs/runbooks/article-links.md.
   localstack:
-    image: localstack/localstack:latest
+    # Pinned, not :latest. LocalStack's 2026.x calendar-versioned images are
+    # license-gated: with no LOCALSTACK_AUTH_TOKEN they exit 55 ("License
+    # activation failed") on startup. 4.14.0 is the newest Community release,
+    # verified to boot unauthenticated and serve S3. See issue #247.
+    image: localstack/localstack:4.14.0
     container_name: chq-calendar-localstack
     ports:
       - "4566:4566"
