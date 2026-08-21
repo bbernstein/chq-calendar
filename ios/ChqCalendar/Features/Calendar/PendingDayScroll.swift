@@ -85,11 +85,37 @@ nonisolated enum PendingDayScroll {
     /// staleness check above exists to prevent in the first place. `nil` (no
     /// deadline stamped) means "do not retry", the behavior before this
     /// existed.
+    ///
+    /// `EventListView.resolvePendingScroll` — the only caller — takes its
+    /// deadline from `retryDeadline(existing:now:window:)` below, whose
+    /// return type is non-optional, so in practice this function never sees
+    /// `nil` while a target is genuinely still being retried. The `nil`
+    /// branch is a conservative fallback for a caller that has not stamped
+    /// yet, not a state the live path visits.
     static func hasLanded(
         day: String, visibleDays: Set<String>, retryDeadline: Date?, now: Date
     ) -> Bool {
         if visibleDays.contains(day) { return true }
         guard let retryDeadline else { return true }
         return now >= retryDeadline
+    }
+
+    /// The retry deadline governing an attempt happening at `now`: whatever
+    /// was already stamped for this target, or a fresh `window` if this is
+    /// its first attempt.
+    ///
+    /// **Non-optional by return type, on purpose.** `hasLanded` above reads a
+    /// `nil` deadline as "done, do not retry", so a target arriving at its
+    /// first attempt with nothing stamped would be abandoned before a single
+    /// `scrollTo` could land. Routing every attempt through here makes "an
+    /// attempt always has a deadline" a property of the type rather than of
+    /// the caller remembering to stamp in the right order.
+    ///
+    /// **`existing` wins, on purpose.** The window is measured from the first
+    /// attempt and then stops moving. Re-stamping on every attempt would push
+    /// the deadline out by one interval each time and the target would retry
+    /// forever — the unbounded wait the deadline exists to prevent.
+    static func retryDeadline(existing: Date?, now: Date, window: TimeInterval) -> Date {
+        existing ?? now.addingTimeInterval(window)
     }
 }

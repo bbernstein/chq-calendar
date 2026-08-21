@@ -146,9 +146,20 @@ struct EventListView: View {
     @State private var pendingScrollDeadline: Date?
     #endif
 
-    /// How long after `selectDay` arms a target we keep re-issuing its
-    /// `scrollTo` until the day is actually on screen — see
-    /// `PendingDayScroll.hasLanded` for why issuing one is not landing one.
+    /// How long after `resolvePendingScroll`'s first actual attempt at a
+    /// target we keep re-issuing its `scrollTo` until the day is actually on
+    /// screen — see `PendingDayScroll.hasLanded` for why issuing one is not
+    /// landing one.
+    ///
+    /// Measured from the first *attempt*, not from `selectDay` arming the
+    /// target — `list(days:)`, where every attempt happens, is not mounted
+    /// when `model.dayGroups` is empty (a favourites-only filter with
+    /// nothing upcoming, say). A deadline stamped at arm time would burn down
+    /// in real time while the list is unmounted and nothing can even try;
+    /// when the reader later clears the filter and the list mounts, the
+    /// window could already be spent, and the first attempt would read as
+    /// "already expired" and give up without ever issuing a `scrollTo`. See
+    /// `resolvePendingScroll` for where this is stamped.
     ///
     /// Generous on purpose. It costs nothing when the scroll lands on the
     /// first attempt (the common case: the confirmation reads `visibleDays`,
@@ -164,8 +175,29 @@ struct EventListView: View {
     private static let scrollRetryInterval: TimeInterval = 0.1
 
     /// The wall-clock moment `pendingScroll` stops being re-issued and is
-    /// dropped whether or not its day ever appeared. Stamped by `selectDay`,
-    /// cleared alongside `pendingScroll`.
+    /// dropped whether or not its day ever appeared.
+    ///
+    /// Stamped lazily by `resolvePendingScroll`, on its first actual
+    /// resolution attempt for the current target — **not** by `selectDay` at
+    /// arm time. `selectDay` only resets this to `nil`. The two used to be
+    /// the same moment, and that was itself a bug fixed on this branch
+    /// (`resolvePendingScroll`'s `!visibleDays.isEmpty` guard, for #250): a
+    /// deep link consumed while `list(days:)` is unmounted (a
+    /// favourites-only filter with nothing upcoming, showing
+    /// `noMatchesView`) has no `resolvePendingScroll` call to stamp anything
+    /// — arming at `selectDay` would burn the whole window in real time
+    /// before a single attempt could run, and the eventual first attempt,
+    /// after the reader clears the filter, would find the deadline already
+    /// passed and give up immediately.
+    ///
+    /// `nil` here means "no attempt has happened yet for the armed target",
+    /// which is also the meaning while nothing is pending at all —
+    /// `clearPendingScroll` resets both together. It is never read as "give
+    /// up" by `PendingDayScroll.hasLanded`: `resolvePendingScroll` always
+    /// stamps a concrete deadline before that call, so `hasLanded`'s own
+    /// `nil` branch (its pre-existing "do not retry" default) is dead in
+    /// this path and stays only as the conservative fallback if that ever
+    /// stops being true.
     ///
     /// A deadline rather than an attempt counter for the same reason
     /// `pendingScrollDeadline` is one: `list(days:)` wires several
@@ -459,7 +491,13 @@ struct EventListView: View {
             key: PendingDayScroll.key(for: model.filter, year: model.selectedYear))
         pendingScroll = target
         pinnedSelection = target
-        scrollRetryDeadline = Date().addingTimeInterval(Self.scrollRetryWindow)
+        // Reset, not stamped: a fresh arm must not inherit whatever deadline
+        // (spent or otherwise) belonged to a previous target, and stamping
+        // one here would measure the retry window from a moment
+        // `resolvePendingScroll` may not get to run at for a while — see
+        // `scrollRetryDeadline`'s doc. It gets its real value lazily, on the
+        // first actual resolution attempt.
+        scrollRetryDeadline = nil
         #if DEBUG
         // `model.uiTestPendingScrollDelay` is still consumed once, here —
         // reset to `0` so only this one arm is delayed, not every tap after
@@ -541,6 +579,27 @@ struct EventListView: View {
     private func resolvePendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
         guard let pending = pendingScroll else { return }
 
+        // The retry window starts here, on the first real attempt at this
+        // target — not back when `selectDay` armed it. `selectDay` only
+        // resets `scrollRetryDeadline` to `nil`; a `nil` reaching this point
+        // means no attempt has happened yet for `pending`; see
+        // `scrollRetryDeadline`'s doc for why arm time was the wrong moment.
+        // Every call to `resolvePendingScroll` after this one for the same
+        // target finds a non-nil deadline and leaves it alone.
+        //
+        // Kept in a local as well as in `@State` because the `hasLanded`
+        // call at the bottom of this function has to read *this* attempt's
+        // deadline with certainty. `hasLanded` reads `nil` as "done, do not
+        // retry"; if the write below were not yet visible to a read later in
+        // the same function, the very first attempt would abandon its own
+        // target — precisely the failure this stamping order exists to fix.
+        // A local removes the question rather than resolving it, and
+        // `PendingDayScroll.retryDeadline`'s non-optional return means the
+        // value handed to `hasLanded` cannot be `nil` by construction.
+        let retryDeadline = PendingDayScroll.retryDeadline(
+            existing: scrollRetryDeadline, now: Date(), window: Self.scrollRetryWindow)
+        scrollRetryDeadline = retryDeadline
+
         let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
         if PendingDayScroll.isStale(pending, currentKey: currentKey) {
             clearPendingScroll()
@@ -592,7 +651,7 @@ struct EventListView: View {
         if PendingDayScroll.hasLanded(
             day: pending.day,
             visibleDays: visibleDays,
-            retryDeadline: scrollRetryDeadline,
+            retryDeadline: retryDeadline,
             now: Date()) {
             clearPendingScroll()
         } else {
