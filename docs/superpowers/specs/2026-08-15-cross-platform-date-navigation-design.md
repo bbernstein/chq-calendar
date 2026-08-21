@@ -745,12 +745,17 @@ both must be met per PR.
   hand this once.
 - **Listing copy — done.** `docs/app-store/listing-copy.md` and
   `listing-fields.json` were re-read against the shipped phase-4 behaviour
-  (`7321117`); the description was corrected to attribute the rail's
-  controls per-surface (My Day only shares `DayRailView`, not the `⟳ Now`
-  button, the step chevrons, or auto-expand) and extended to mention the
-  rail and the Siri day action (`257fdd5`). `whatsNew` describes the new
-  navigation and was walked bullet-by-bullet on a booted simulator with no
-  correction needed. Review notes were refreshed and trimmed under the
+  (`7321117`); `description` was extended to mention the rail and the Siri
+  day action (`257fdd5`) but does not itself attribute controls per-surface.
+  The per-surface attribution (My Day only shares `DayRailView`, not the
+  `⟳ Now` button, the step chevrons, or auto-expand) landed in
+  `docs/app-store/RELEASE_CHECKLIST.md` instead, as an internal note for
+  whoever drafts the next `whatsNew`, not as App Store Connect copy.
+  `listing-copy.md` itself was deliberately left unedited — it explains the
+  JSON and restates no field values (see its own header), so it had nothing
+  to correct or extend. `whatsNew` describes the new navigation and was
+  walked bullet-by-bullet on a booted simulator with no correction needed.
+  Review notes were refreshed and trimmed under the
   4,000-character cap, now guarded by a length check in
   `appStoreListing.test.ts` (`4f63b8a`, `3148281`).
 - **About copy.** `frontend/src/app/about/aboutContent.ts:241-245` and

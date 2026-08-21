@@ -2033,11 +2033,26 @@ struct AppModelTests {
         #expect(model.uiTestLinkedEvent(at: 0, dayKey: "2026-08-04")?.id == "aug4-heavier")
         #expect(model.uiTestLinkedEvent(at: 1, dayKey: "2026-08-04")?.id == "aug4-lighter")
 
-        // Out of range *within* the day-scoped pool is a no-op — it must NOT
-        // silently fall back to the season-wide pool, which does have a
-        // valid index 2 ("richest-aug3", wrong day).
+        // Out of range *within* the day-scoped pool (which has only 2
+        // entries for Aug 4) is a no-op — index 2 must not clamp to, or
+        // wrap into, anything. This does NOT by itself prove there's no
+        // fallback to the season-wide pool: season-wide index 2 is
+        // "aug4-lighter" (900/300/100 sorts to richest-aug3, aug4-heavier,
+        // aug4-lighter), which is already on the right day and already sits
+        // at day-scoped index 1, so a buggy implementation that fell back to
+        // the season-wide pool whenever the *requested index* were out of
+        // range would still read as correct here. The case below instead
+        // empties the day pool entirely, which is what actually
+        // distinguishes "no fallback" from "falls back once the day pool
+        // runs out."
         #expect(model.uiTestLinkedEvents.count == 3)
         #expect(model.uiTestLinkedEvent(at: 2, dayKey: "2026-08-04") == nil)
+
+        // A day with no linked events at all: an implementation that falls
+        // back to the season-wide pool only when the day-scoped pool is
+        // *empty* (rather than never falling back) would return
+        // "richest-aug3" here. It must stay nil.
+        #expect(model.uiTestLinkedEvent(at: 0, dayKey: "2026-08-05") == nil)
     }
 
     /// `dayKey: nil` (the default) must reproduce season-wide ranking

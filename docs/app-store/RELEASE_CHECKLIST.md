@@ -273,8 +273,10 @@ partly — both show a `DayRailView` strip with a per-day event count so an
 empty day is visible before you tap it (`MyDayChipContent`, genuinely
 shared), but the surrounding controls differ. Only the **Events tab** got
 the `⟳ Now` button and the ±1-day step chevrons (`DayStepControl`), and only
-the Events tab's list auto-grows at its edges (`EventListView`'s last-row
-`.onAppear` calling `expandWindowEnd()`). **My Day** instead kept its own,
+the Events tab's list auto-grows forward at its end (`EventListView`'s
+last-row `.onAppear` calling `expandWindowEnd()` — there is no
+`expandWindowStart`; going back stays an explicit chevron or rail-chip tap).
+**My Day** instead kept its own,
 older controls: a plain toolbar "Today" text button (not `⟳ Now`), and a
 pair of manual reveal-more chevrons (`MyDayExpandControl`, toggling
 `showsEarlier`/`showsLater`) that widen the strip to the season edge on tap

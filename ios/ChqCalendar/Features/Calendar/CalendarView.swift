@@ -339,11 +339,18 @@ struct CalendarView: View {
             || requestedIndex != nil
         guard wantsLinkedEvent else { return }
 
-        if model.uiTestFirstLinkedEvent == nil {
+        if model.uiTestLinkedEvent(at: 0, dayKey: uiTestDayKey) == nil {
             // See the doc comment above: this is the cold-launch sidecar
             // race, not "no linked events exist" — force one more full
             // refresh (bypassing the just-fetched-so-skip-it fast path)
-            // before concluding there's really nothing to select.
+            // before concluding there's really nothing to select. Testing
+            // the day-scoped pool (when `uiTestDayKey` is set) rather than
+            // the season-wide `uiTestFirstLinkedEvent` matters: the
+            // season-wide pool can be non-empty while the day-scoped one
+            // is empty only because the sidecar hasn't loaded yet, and the
+            // season-wide check would skip the retry and leave the detail
+            // column on its placeholder instead of picking up the
+            // day-scoped event once the sidecar lands.
             await model.refresh(force: true)
         }
         // `uiTestDayKey` (non-nil only when `-uitest-go-to-day` landed on a

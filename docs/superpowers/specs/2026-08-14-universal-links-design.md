@@ -116,7 +116,7 @@ static page nobody links to.
 | Which paths the app claims | All public paths, excluding `/admin/*`, `/publish/*`, `/.well-known/*` |
 | Claimed URL the app can't render | Open it in an in-app `SFSafariViewController` |
 | Smart App Banner vs the custom banner | Ship the meta tag; suppress the custom banner in iOS Safari only |
-| Release | 1.1.3, **after** the in-review 1.1.2 is approved and released |
+| Release | Deferred — see "Status" above and "Why we deferred" below; not targeted at any version. 1.1.3 shipped without it. |
 
 ## Architecture
 

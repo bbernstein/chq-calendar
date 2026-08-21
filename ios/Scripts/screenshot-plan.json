@@ -12,7 +12,8 @@
         "-uitest-go-to-day", "2026-07-30"
       ],
       "settleSeconds": 12,
-      "deviceLaunchArgs": { "ipad-13": ["-uitest-select-event-index", "1"] }
+      "deviceLaunchArgs": { "ipad-13": ["-uitest-select-event-index", "1"] },
+      "manualNote": "`-uitest-freeze-now` pins the clock, but the feed and the article-links sidecar still come from production, so which events on 2026-07-30 carry a linked article is NOT reproducible the way the clock pin is. On iPad, the detail column is populated by `AppModel.uiTestLinkedEvent(at: 1, dayKey: \"2026-07-30\")` — day-scoped, per #255 — and if that day ever holds fewer than 2 linked events, the call returns nil (by design, no season-wide fallback) and the detail column silently shows its 'Select an event' placeholder (AppModel.swift ~1743-1752) instead of an event. A recapture that shows a blank/placeholder detail pane on iPad means the linked-event count for 2026-07-30 dropped, not that the mechanism broke."
     },
     {
       "id": "02-filters",
