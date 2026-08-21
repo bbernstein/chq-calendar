@@ -69,16 +69,38 @@ xcodebuild build \
   -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1' \
   CODE_SIGNING_ALLOWED=NO
 
-# Full test suite (unit tests, no UI tests)
+# Unit tests only — what you want while iterating.
+# ~880 tests, no app launches, finishes in a couple of minutes.
+xcodebuild test \
+  -project ChqCalendar.xcodeproj -scheme ChqCalendar \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1' \
+  -only-testing:ChqCalendarTests \
+  CODE_SIGNING_ALLOWED=NO
+
+# Everything, including ChqCalendarUITests. Run this once before you commit.
 xcodebuild test \
   -project ChqCalendar.xcodeproj -scheme ChqCalendar \
   -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1' \
   CODE_SIGNING_ALLOWED=NO
 ```
 
+**The plain `xcodebuild test` runs the UI tests too.** Since phase 3b added
+`ChqCalendarUITests` to this scheme, the ~21 XCUITests each boot the app and
+account for most of the runtime — so reach for `-only-testing:ChqCalendarTests`
+while iterating and keep the full run for the commit. `-only-testing:` narrows
+which tests *run*, not what gets *built*, so the unit-only command is still a
+full compile gate over all three targets. `.github/workflows/ios.yml` splits
+along the same line, into a fast unit leg and a slower UI leg that both gate a
+merge.
+
 Swap the `-destination` name/OS for whatever simulators are installed
 locally (`xcrun simctl list devices available`). `CODE_SIGNING_ALLOWED=NO`
 avoids needing a signing identity for simulator builds.
+
+To wait on a background `xcodebuild` from a script, poll with
+`until ! pgrep -x xcodebuild >/dev/null; do sleep 15; done`. Do **not** use
+`pgrep -f "xcodebuild test …"` — the polling shell's own command line contains
+that string, so it matches itself and the loop never exits.
 
 ### Targets
 
