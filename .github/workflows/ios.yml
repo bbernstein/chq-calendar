@@ -30,14 +30,57 @@ concurrency:
 
 jobs:
   test-ios:
-    name: Build and test (iOS)
+    # Two legs of one matrix, not two hand-written jobs: every setup step
+    # below is identical for both, and GitHub Actions has no YAML anchors to
+    # share them with (see the `paths:` note above). A matrix is the only way
+    # to express "same setup, different `-only-testing:`" without maintaining
+    # two copies of the Xcode-selection and simulator-resolution steps that
+    # would silently drift apart.
+    #
+    # Why split at all: the ~21 XCUITests each boot the app and account for
+    # most of a ~20-minute combined run: measured on this runner, the UI leg
+    # executes 18 tests in 999s while the unit leg's 852 tests across 63
+    # suites execute in under four seconds. Combined, a one-line Swift mistake
+    # took ~20 minutes to surface. Split, the first run measured 6m31s for the
+    # unit leg against 20m59s for the UI leg — so the common failure is seen
+    # ~3x sooner without weakening the gate.
+    #
+    # Note what the split does NOT save: both legs still do a full build, so
+    # the unit leg's wall clock is almost entirely compilation, not its four
+    # seconds of tests.
+    #
+    # BOTH legs still gate a merge. The UI suite is not advisory and must not
+    # be moved to a nightly: it is what caught the real scroll defect in #250,
+    # where a Siri-opened day grew the window and moved the rail's highlight
+    # but never scrolled the list. No unit test saw that, and it reached a PR.
+    #
+    # `fail-fast: false` because the two legs answer different questions. A UI
+    # failure must not cancel the unit leg (or the reverse) — the whole point
+    # is to learn both answers in one run.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: unit
+            label: unit tests
+            target: ChqCalendarTests
+            timeout: 30
+          - suite: ui
+            label: UI tests
+            target: ChqCalendarUITests
+            timeout: 60
+
+    name: Build and test (iOS, ${{ matrix.label }})
     runs-on: macos-15
     # Mirrors build-and-test.yml's dedupe: for same-repo PRs the `push` event
     # already covers the branch, so the `pull_request` run would be a
     # duplicate. Fork PRs get no `push` event on this repo, so they are the
     # one case that must run on `pull_request`.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == true
-    timeout-minutes: 60
+    # Per-leg: the UI leg boots the app once per test and needs the old 60;
+    # the unit leg has no reason to sit anywhere near that long, and a tighter
+    # ceiling turns a hang into a fast red instead of a 60-minute one.
+    timeout-minutes: ${{ matrix.timeout }}
 
     steps:
       - uses: actions/checkout@v7
@@ -78,6 +121,9 @@ jobs:
         # image releases. Resolving a concrete UDID at runtime — newest
         # available iOS >= the project's 18.0 deployment target, on an iPhone —
         # means this job does not break when the image's simulator set moves.
+        #
+        # Both legs need this: unit tests run on a simulator too, not just the
+        # XCUITests.
         run: |
           set -euo pipefail
           resolved=$(xcrun simctl list devices available --json | python3 -c '
@@ -113,7 +159,7 @@ jobs:
           echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
           echo "Using $name (iOS $os) — $udid"
 
-      - name: Build and test
+      - name: Build and test (${{ matrix.label }})
         env:
           # Interleaves xcodebuild's stdout/stderr in real time so a failure
           # appears next to the work that caused it in the job log.
@@ -124,13 +170,14 @@ jobs:
         # the condition this flag creates. Its own doc comment names the flag.
         # Dropping it turns a green tree red.
         #
-        # One step covers all three source trees: the ChqCalendar scheme
+        # Both legs compile all three source trees: the ChqCalendar scheme
         # builds the ChqCalendarWidgets target too (it is embedded in the app),
-        # so a compile error anywhere in ChqCalendarWidgets/ fails this job.
+        # so a compile error anywhere in ChqCalendarWidgets/ fails either leg.
         # Verified empirically by planting a type error in
         # ChqCalendarWidgets/WidgetViews.swift and watching `xcodebuild build
         # -scheme ChqCalendar` fail on it — a separate widgets build step
-        # would be redundant.
+        # would be redundant. `-only-testing:` narrows which tests RUN, not
+        # what gets BUILT, so the unit leg is still a full compile gate.
         #
         # -parallel-testing-enabled NO is load-bearing on this runner, and was
         # arrived at by measurement, not preference. A GitHub-hosted macos-15
@@ -146,8 +193,8 @@ jobs:
         # `waitUntil` (ChqCalendarTests/TestSupport.swift). On 3 cores the
         # cooperative pool is oversubscribed, the awaited state does not
         # settle inside that helper's 5s deadline, and it records an issue.
-        # Locally the entire 716-test suite finishes in under a second, so
-        # the pressure never materializes and the headroom is invisible.
+        # Locally the entire suite finishes in seconds, so the pressure never
+        # materializes and the headroom is invisible.
         #
         # Serial is also simply faster here than the contended parallel run
         # (47.7s vs 101.7s of test time), so this costs nothing. Note it
@@ -155,13 +202,12 @@ jobs:
         # tracked separately; see the follow-up issue referenced in the PR.
         # Do not drop this flag without re-measuring on a 3-core runner.
         #
-        # ChqCalendarUITests (added in phase 3b) runs in this same invocation.
-        # UI tests are slow — each one boots the app — so the timeout above is
-        # 60 rather than 45. They are also the reason
-        # -parallel-testing-enabled NO matters twice over: two XCUITest
-        # classes running concurrently on a 3-core runner contend for the
-        # single booted simulator, which fails as "Application is not
-        # running" rather than as anything resembling the real cause.
+        # The flag matters on the UI leg for a second, unrelated reason: two
+        # XCUITest classes running concurrently on a 3-core runner contend for
+        # the single booted simulator, which fails as "Application is not
+        # running" rather than as anything resembling the real cause. Splitting
+        # the legs across runners does not change that — each leg still has one
+        # simulator — so the flag stays on both.
         run: |
           set -euo pipefail
           cd ios
@@ -169,17 +215,28 @@ jobs:
             -project ChqCalendar.xcodeproj \
             -scheme ChqCalendar \
             -destination "id=$SIMULATOR_UDID" \
+            -only-testing:${{ matrix.target }} \
             -resultBundlePath "$RUNNER_TEMP/ChqCalendar.xcresult" \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Upload test results
         # Only on failure: the .xcresult bundle is large and uninteresting
-        # when everything passed, but it is the only way to see which of the
-        # 716 tests failed and why without re-running locally.
+        # when everything passed, but it is the only way to see which tests
+        # failed and why without re-running locally. For a UI failure it also
+        # carries the accessibility hierarchy and a screen recording from the
+        # moment of failure — which is how #250's scroll defect was actually
+        # diagnosed, after a plausible-sounding theory had already wasted a
+        # full CI cycle. Pull it before theorising:
+        #   gh run download <run-id> -n xcresult-ui -D <dir> -R <owner>/<repo>
+        #   xcrun xcresulttool export attachments \
+        #     --test-id '<Suite>/<test>()' --path <dir> --output-path <dir>/att
+        #
+        # The artifact name is per-leg because both legs upload, and
+        # upload-artifact rejects two artifacts sharing a name in one run.
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: xcresult
+          name: xcresult-${{ matrix.suite }}
           path: ${{ runner.temp }}/ChqCalendar.xcresult
           retention-days: 7
