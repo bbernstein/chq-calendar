@@ -268,15 +268,26 @@ Folded into 1.1.2: the Captions link, the expanded Siri vocabulary, the My
 Day date-navigation work, the date-filter corrections, and the star-tap
 performance fix.
 
-Folded into 1.1.3: the day rail on the Events tab and My Day (step chevrons,
-`⟳ Now`, an auto-expanding list instead of a hard edge, and a per-day event
-count so an empty day is visible before you tap it); Siri routing through
-`OpenDayIntent` and the same `chqcal://day/<key>` path the rail itself
-consumes, so "Show me tomorrow in Chautauqua" and a tap on tomorrow's chip
-land in identical state; and the accessibility fix that stopped the
-`Filters` pill from clipping its label at the largest text sizes. **This is
-a first pass, not the final submission artifact — further features may land
-before submission**, in which case fold them in here before Step 8's render.
+Folded into 1.1.3: the day rail, which the Events tab and My Day share only
+partly — both show a `DayRailView` strip with a per-day event count so an
+empty day is visible before you tap it (`MyDayChipContent`, genuinely
+shared), but the surrounding controls differ. Only the **Events tab** got
+the `⟳ Now` button and the ±1-day step chevrons (`DayStepControl`), and only
+the Events tab's list auto-grows at its edges (`EventListView`'s last-row
+`.onAppear` calling `expandWindowEnd()`). **My Day** instead kept its own,
+older controls: a plain toolbar "Today" text button (not `⟳ Now`), and a
+pair of manual reveal-more chevrons (`MyDayExpandControl`, toggling
+`showsEarlier`/`showsLater`) that widen the strip to the season edge on tap
+rather than growing automatically as the reader scrolls. `whatsNew`'s "A DAY
+AT A TIME" bullets describe the Events tab specifically, not My Day — do not
+generalize them to "the app" when drafting the next version's notes. Siri
+routing through `OpenDayIntent` and the same `chqcal://day/<key>` path the
+rail itself consumes, so "Show me tomorrow in Chautauqua" and a tap on
+tomorrow's chip land in identical state; and the accessibility fix that
+stopped the `Filters` pill from clipping its label at the largest text
+sizes — both Events-tab-specific. **This is a first pass, not the final
+submission artifact — further features may land before submission**, in
+which case fold them in here before Step 8's render.
 
 Dropped rather than folded: "filtering moved to the bottom of the screen."
 That change shipped **in 1.1** — it simply never made it into 1.1's
