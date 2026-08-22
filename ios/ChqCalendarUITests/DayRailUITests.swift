@@ -297,12 +297,14 @@ final class DayRailUITests: XCTestCase {
         let rail = app.scrollViews["day-rail"]
         XCTAssertTrue(rail.waitForExistence(timeout: 20))
 
-        // Open the date sheet first — `.presentationBackgroundInteraction`
+        // Open the filter sheet first — `.presentationBackgroundInteraction`
         // keeps the rail reachable behind it — so the distant tap below and
         // the scope change that follows are only one `.tap()`'s worth of
         // settle apart, the fastest sequencing two discrete UI actions can
-        // achieve here.
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Date range:'")).firstMatch.tap()
+        // achieve here. The WHEN section (date scope, including "All Year"
+        // below) now lives in this same sheet — see FilterSheet — rather
+        // than behind a separate date pill, which #256 deleted.
+        app.buttons["filters-toolbar-button"].tap()
 
         let chip = app.buttons["day-chip-2026-08-21"]
         let rowMidY = app.buttons["day-chip-2026-06-27"].frame.midY

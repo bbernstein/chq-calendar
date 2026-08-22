@@ -15,14 +15,12 @@ import SwiftUI
 ///   mode since nothing ever pushes a value.
 ///
 /// Everything else — the loading/offline/error/no-matches states, the
-/// countdown/offline banners, the filter pill bar, and
+/// countdown/offline banners, the Filters toolbar button, and
 /// `refreshable` — is identical between the two layouts, which is the whole
 /// point of sharing this view.
 struct EventListView: View {
     @Bindable var model: AppModel
     var selection: Binding<Event?>?
-
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var isAboutPresented = false
 
@@ -278,11 +276,6 @@ struct EventListView: View {
                     dayRail(nav)
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                if model.snapshot != nil {
-                    filterPillBar
-                }
-            }
             // The link can arrive before this view exists (a cold launch from
             // Siri), at the moment the tab switch mounts it, or later while it
             // is already on screen — and in every case it can only be acted on
@@ -375,11 +368,11 @@ struct EventListView: View {
     /// The day rail: every day navigation can reach, with how many events
     /// each holds under the current non-date filters.
     ///
-    /// Mounted on `content` via `.safeAreaInset(edge: .top)` — the mirror of
-    /// `filterPillBar` at the bottom — so it is chrome rather than content.
-    /// A `safeAreaInset` bar contributes its height to the scroll view's safe
-    /// area exactly as a toolbar would, so the list insets its own content
-    /// and its scroll indicator to clear it without any margin of ours.
+    /// Mounted on `content` via `.safeAreaInset(edge: .top)`, so it is chrome
+    /// rather than content. A `safeAreaInset` bar contributes its height to
+    /// the scroll view's safe area exactly as a toolbar would, so the list
+    /// insets its own content and its scroll indicator to clear it without
+    /// any margin of ours.
     ///
     /// The span is `navigableBounds`, deliberately independent of the current
     /// scope: in `Today` it still shows the week around you, because the rail
@@ -817,17 +810,9 @@ struct EventListView: View {
                     pinnedSelection = nil
                 }
             }
-            // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
-            // the date/filter pills are no longer a toolbar item — they're this
-            // view's own hand-rolled `filterPillBar`, applied to `content` via
-            // `.safeAreaInset(edge: .bottom)` in `body` above. A
-            // `.safeAreaInset` bar contributes its height to the scroll view's
-            // safe area the same way a real toolbar would, so the list already
-            // insets its content (and its scroll indicator) to clear the pills
-            // without any margin of ours. The inset is owned by the
-            // `.safeAreaInset` modifier itself, not by any state of ours, so
-            // nothing we render can shift the list vertically. Adding a margin
-            // back would double-count it.
+            // No `contentMargins(.bottom, …)` here: the list runs all the way
+            // to the tab bar now that Filters lives in the toolbar (#256)
+            // rather than in a bottom safe-area inset the list had to clear.
             .refreshable {
                 await model.refresh(force: true)
             }
@@ -1061,118 +1046,73 @@ struct EventListView: View {
             : "Filters, \(filterCount) active. Double tap to change."
     }
 
-    /// The date/filter pill bar, floated above the tab bar via
-    /// `.safeAreaInset(edge: .bottom)` in `body`.
-    ///
-    /// History: before the tab shell (task 16) these two buttons were a
-    /// `ToolbarItemGroup(placement: .bottomBar)`, sharing the system's
-    /// bottom bar with a `DefaultToolbarItem(kind: .search)` on iOS 26
-    /// (where `.searchable`'s default placement was bottom-anchored — see
-    /// git history of this comment for that arrangement's own rationale).
-    /// `RootTabView`'s tab bar ended it: on both iOS 26 and the tab shell's
-    /// first screenshots, the tab bar rendered ON TOP of any app-declared
-    /// `.bottomBar` content — date pill, Filters, and the search item were
-    /// all present but covered and untappable. So search moved to
-    /// `.navigationBarDrawer` placement (in `CalendarView`), and these
-    /// pills moved out of the toolbar system entirely into a safe-area
-    /// inset, which the tab bar's own safe-area contribution stacks
-    /// *above* rather than under (screenshot-verified in task 16).
-    ///
-    /// At accessibility text sizes the two pills no longer fit side by side —
-    /// the date pill is `fixedSize` (abbreviating the date is worse than
-    /// scrolling for it), so `Filters` was the one that truncated to `…`.
-    /// Scrolling the row keeps both labels whole.
-    ///
-    /// **Both halves of that fix are gated on `isAccessibilitySize`, and the
-    /// two gates must stay in step**: this `ScrollView`, and `Filters`' own
-    /// `fixedSize` in `pillRow`. `fixedSize` without the `ScrollView` to
-    /// rescue it is worse than the truncation it replaces — the row overflows
-    /// with neither truncation nor scrolling, and the Filters capsule is
-    /// clipped at the screen edge. That band is real and reachable:
-    /// `.xxLarge`/`.xxxLarge` are large text but not *accessibility* text, so
-    /// `isAccessibilitySize` is `false` there, and a long date label
-    /// (`DateFilterLabel`'s "Weeks 1, 3, 5") on a 375pt-wide iPhone overflows
-    /// the row. Those sizes therefore keep the pre-existing behaviour —
-    /// `Filters` truncates to `…` and stays fully on screen — rather than
-    /// getting the scrolling row. Below them both pills fit with room to
-    /// spare, so the default layout keeps its `Spacer` and is pixel-identical
-    /// either way.
-    private var filterPillBar: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                // No trailing `Spacer` here: inside a horizontal `ScrollView`
-                // the scroll axis offers effectively unbounded width, so an
-                // unconditional `Spacer(minLength: 0)` claims a large ideal
-                // width and produces a big blank scrollable tail past the
-                // two pills — harder to use at exactly the text sizes this
-                // branch exists to fix.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    pillRow(includeTrailingSpacer: false)
-                }
-            } else {
-                pillRow(includeTrailingSpacer: true)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-    }
-
-    /// `includeTrailingSpacer` is `false` only inside `filterPillBar`'s
-    /// `ScrollView` branch — see that property's comment. Everywhere else
-    /// the trailing `Spacer` is what pushes the pills left and fills the
-    /// row, so it stays `true` there and the non-scrolling layout is
-    /// unchanged.
-    private func pillRow(includeTrailingSpacer: Bool) -> some View {
-        HStack(spacing: 10) {
-            pillButton {
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
                 KeyboardDismisser.dismiss()
                 isFilterSheetPresented = true
             } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "line.3.horizontal.decrease")
-                    Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
-                        .lineLimit(1)
-                        // Only where `filterPillBar`'s `ScrollView` is there
-                        // to scroll to it — see that property's comment for
-                        // why an ungated `fixedSize` clips this capsule off
-                        // the screen edge at `.xxLarge`/`.xxxLarge`. Both
-                        // arguments `false` is a no-op, so the non-
-                        // accessibility bands keep truncating to `…` exactly
-                        // as they always have.
-                        .fixedSize(
-                            horizontal: dynamicTypeSize.isAccessibilitySize, vertical: false)
-                }
+                // The badge is what makes this legible at icon size. An
+                // icon alone cannot tell "everything" from "a slice", and
+                // neither could the word "Filters" it replaces — which is
+                // why the count moves with it rather than being dropped as
+                // decoration.
+                //
+                // The condition has two halves on purpose.
+                // `filterCount` alone is `ActiveFilterCount.value(for:)`,
+                // which deliberately excludes date scope and week selection
+                // — its own doc explains why: they used to be summarised by
+                // the date pill sitting next to this one, and counting them
+                // in both places would have double-reported one decision.
+                // That pill is gone (#256); nothing else on screen says the
+                // list is narrowed by scope or weeks. Without the second
+                // half, a reader with only Weeks 1, 3, and 5 selected would
+                // see a plain, unfilled icon — the exact "no visible sign
+                // anything is filtered" complaint that started this task, in
+                // a new place. `model.filter.isDefault` closes that gap: it
+                // is true only when nothing the reader chose is narrowing
+                // the list, so it fills the icon for a week/scope-only
+                // narrowing without duplicating `filterCount`'s own number.
+                //
+                // Deliberately `isDefault`, not `hasDateFilters`.
+                // `FilterSelection.hasDateFilters` is true on a fresh
+                // install, because the default `dateScope` is `.next` and
+                // `hasDateFilters` tests `dateScope != .all` — it would light
+                // the icon for every reader before they touched anything,
+                // and an indicator that is always on communicates nothing.
+                // `isDefault` instead asks "did the reader change anything
+                // from the out-of-the-box state," which is the question this
+                // badge exists to answer.
+                Image(systemName: filterCount > 0 || !model.filter.isDefault
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle")
             }
             .accessibilityLabel(filtersAccessibilityLabel)
-
-            if includeTrailingSpacer {
-                Spacer(minLength: 0)
+            .accessibilityIdentifier("filters-toolbar-button")
+        }
+        // Declared after Filters and before the `⋯` menu below: `topBarTrailing`
+        // items render in declaration order, first-declared-leftmost — verified
+        // against a screenshot, not assumed (an earlier ordering here, declared
+        // ⋯-then-year, rendered ⚌ ⋯ 2026, not the ⚌ 2026 ⋯ this reads left to
+        // right today).
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                ForEach(model.years, id: \.self) { year in
+                    Button {
+                        Task { await model.select(year: year) }
+                    } label: {
+                        if year == model.selectedYear {
+                            Label(String(year), systemImage: "checkmark")
+                        } else {
+                            Text(String(year))
+                        }
+                    }
+                }
+            } label: {
+                Text(String(model.selectedYear))
             }
         }
-    }
-
-    /// One pill: a plain button whose chrome matches the platform — Liquid
-    /// Glass on iOS 26 (what the old system bottom bar drew around these
-    /// same labels), a material capsule on iOS 18.
-    private func pillButton(
-        action: @escaping () -> Void, @ViewBuilder label: () -> some View
-    ) -> some View {
-        let button = Button(action: action) {
-            label()
-                .padding(.vertical, 11)
-                .padding(.horizontal, 14)
-        }
-        return Group {
-            if #available(iOS 26.0, *) {
-                button.glassEffect(.regular.interactive())
-            } else {
-                button.background(.regularMaterial, in: Capsule())
-            }
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 ForEach(AboutInfo.quickLinks) { link in
@@ -1190,23 +1130,6 @@ struct EventListView: View {
                 Image(systemName: "ellipsis.circle")
             }
             .accessibilityLabel("More")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                ForEach(model.years, id: \.self) { year in
-                    Button {
-                        Task { await model.select(year: year) }
-                    } label: {
-                        if year == model.selectedYear {
-                            Label(String(year), systemImage: "checkmark")
-                        } else {
-                            Text(String(year))
-                        }
-                    }
-                }
-            } label: {
-                Text(String(model.selectedYear))
-            }
         }
     }
 }
