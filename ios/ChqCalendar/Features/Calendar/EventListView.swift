@@ -1098,10 +1098,22 @@ struct EventListView: View {
 
     private var filterCount: Int { ActiveFilterCount.value(for: model.filter) }
 
+    /// Whether the Filters icon is filled — and, through the same call, what
+    /// its accessibility label says. See `FiltersButtonState` for why the
+    /// two must come from one expression: they did not, and disagreed
+    /// exactly where it mattered (#256 review fix).
+    private var isFilterActive: Bool {
+        FiltersButtonState.isActive(count: filterCount, selection: model.filter)
+    }
+
     private var filtersAccessibilityLabel: String {
-        filterCount == 0
-            ? "Filters, none active. Double tap to change."
-            : "Filters, \(filterCount) active. Double tap to change."
+        FiltersButtonState.accessibilityLabel(
+            count: filterCount,
+            selection: model.filter,
+            dateLabel: DateFilterLabel.text(
+                for: model.filter,
+                seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count,
+                isCurrentYear: model.isCurrentYear))
     }
 
     @ToolbarContentBuilder
@@ -1131,32 +1143,11 @@ struct EventListView: View {
                 // why the count moves with it rather than being dropped as
                 // decoration.
                 //
-                // The condition has two halves on purpose.
-                // `filterCount` alone is `ActiveFilterCount.value(for:)`,
-                // which deliberately excludes date scope and week selection
-                // — its own doc explains why: they used to be summarised by
-                // the date pill sitting next to this one, and counting them
-                // in both places would have double-reported one decision.
-                // That pill is gone (#256); nothing else on screen says the
-                // list is narrowed by scope or weeks. Without the second
-                // half, a reader with only Weeks 1, 3, and 5 selected would
-                // see a plain, unfilled icon — the exact "no visible sign
-                // anything is filtered" complaint that started this task, in
-                // a new place. `model.filter.isDefault` closes that gap: it
-                // is true only when nothing the reader chose is narrowing
-                // the list, so it fills the icon for a week/scope-only
-                // narrowing without duplicating `filterCount`'s own number.
-                //
-                // Deliberately `isDefault`, not `hasDateFilters`.
-                // `FilterSelection.hasDateFilters` is true on a fresh
-                // install, because the default `dateScope` is `.next` and
-                // `hasDateFilters` tests `dateScope != .all` — it would light
-                // the icon for every reader before they touched anything,
-                // and an indicator that is always on communicates nothing.
-                // `isDefault` instead asks "did the reader change anything
-                // from the out-of-the-box state," which is the question this
-                // badge exists to answer.
-                Image(systemName: filterCount > 0 || !model.filter.isDefault
+                // The condition, and the reasoning behind both of its
+                // halves, is `FiltersButtonState.isActive` — shared with
+                // this button's accessibility label so that the icon and the
+                // spoken name cannot answer the same question differently.
+                Image(systemName: isFilterActive
                     ? "line.3.horizontal.decrease.circle.fill"
                     : "line.3.horizontal.decrease.circle")
             }
