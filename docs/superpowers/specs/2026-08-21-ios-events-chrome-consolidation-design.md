@@ -191,21 +191,39 @@ their boundary Saturday. An earlier draft drew the boundary through the
 centre of the Saturday chip; that is rejected as too fine a distinction to
 read on a 44pt chip while swiping.
 
-This creates a deliberate divergence that **must not be "unified" later**:
+**This is the model the app already displays.**
+`SeasonCalendar.weekNumbers(spanningDayOf:)` — which feeds `day.weekNumbers`
+and therefore the `Wk 5/6` day-header badge — is already day-granular and
+already returns both weeks for a boundary Saturday. The band adopts it rather
+than inventing anything.
 
-| | Saturday morning | Saturday afternoon |
-|---|---|---|
-| **Band** (display + navigation) | week *n-1* **and** week *n* | week *n-1* **and** week *n* |
-| **`EventFilter`** (what week *n* matches) | week *n-1* only | week *n* only |
+The **week filter** does not yet: `EventFilter` splits the Saturday at noon,
+so the app can say "this day is in weeks 5 and 6" and then hand back half of
+it when you filter to week 5. That inconsistency predates this design and is
+fixed separately in **#257**, which points both platforms' week filters at the
+day-granular helper each already ships.
 
-The filter keeps noon semantics because the noon boundary is not a display
-choice — it is when the Institution's weekly **gate program** turns over
-(`SeasonCalendar`'s own doc comment), and `GatePassPolicy` reads those bounds
-to decide what a pass admits you to. Changing `EventFilter` to day granularity
-would make the app misstate gate-pass access. Changing the band to noon
-granularity would put an unreadable half-chip seam on the most-used surface in
-the app. Both models are right for their own job; the shared-Saturday visual
-treatment below is what keeps the seam legible rather than mysterious.
+An earlier draft of this document argued the filter *must* stay noon-granular
+because `GatePassPolicy` depends on it. That was wrong: `GatePassPolicy` reads
+only `weeks.first.start` and `weeks.last.end` — the season's **outer** bounds —
+and never touches per-week boundaries. The record is kept here because it is
+the kind of objection that sounds decisive and is worth not re-raising.
+
+What genuinely stays noon-based, in both this design and #257:
+
+- **`SeasonCalendar.weeks`' bounds themselves** — they are when the
+  Institution's weekly gate program turns over.
+- **`currentWeekNumber(at:)`** — it must stay single-valued, because Siri's
+  "what's the theme this week" cannot answer with two and
+  `FilterChipState.isWeekSelected` reads it.
+
+Neither is a *day membership* question, which is the only thing the band and
+the filter care about.
+
+**#257 does not block this design**, and this design does not block #257 — the
+band renders identically either way. They are listed together because shipping
+the band while the filter still splits at noon would put the inconsistency on
+a more prominent surface than the day-header badge it currently hides behind.
 
 **The shared Saturday is marked**, not merely spanned twice — a split fill
 across the chip's band segment, carrying both weeks' tones, so "this day is in
@@ -364,10 +382,11 @@ selection) is a real capability that a navigating band does not replace.
 
 **The band is day-granular and a Saturday is in both its weeks**
 (2026-08-21). Bands overlap on their shared Saturday rather than splitting it
-at noon, and that chip carries a split fill. The noon model stays in
-`EventFilter` because it is the gate program, not a display convention — see
-A4's table for the divergence and why unifying the two would be a regression
-in either direction.
+at noon, and that chip carries a split fill. This is the model
+`SeasonCalendar.weekNumbers(spanningDayOf:)` and the `Wk 5/6` badge already
+use. The week *filter* is brought into line with it in **#257**, split out
+because it is a cross-platform behaviour change with nothing to do with
+chrome.
 
 **Tapping a band lands on the full opening Saturday** (2026-08-21), falling
 back to the week's first day with events, then to disabled.
