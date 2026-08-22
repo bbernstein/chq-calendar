@@ -452,7 +452,21 @@ final class DayRailUITests: XCTestCase {
         // scroll to. Asserting only that *some* button sits at index 0
         // would pass whether or not that property held, so this compares
         // identifiers rather than merely checking existence.
-        let firstChip = rail.buttons.element(boundBy: 0)
+        //
+        // `rail.buttons` is not chips-only: the same #256 review that
+        // removed the step chevrons also gave `WeekBandSegmentView`
+        // `.accessibilityAddTraits(.isButton)` (finding F5, so VoiceOver
+        // announces a navigable band as a control and so
+        // `rail.buttons["Week 5"]` resolves at all). The band row sits
+        // above the chip row, so index 0 of the unfiltered collection is a
+        // `day-band-*` segment, not the leftmost chip — that's the product
+        // working as intended, not a regression. Filtering to the
+        // `day-chip-` identifier prefix is what makes "leftmost chip" mean
+        // what it says; do not simplify this back to
+        // `rail.buttons.element(boundBy: 0)`.
+        let firstChip = rail.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'day-chip-'"))
+            .element(boundBy: 0)
         XCTAssertEqual(
             firstChip.identifier, "day-chip-2026-06-27",
             "The earliest reachable day is not the leftmost chip in the rail")
