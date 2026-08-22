@@ -326,14 +326,29 @@ final class DayRailAccessibilityUITests: XCTestCase {
             XCTAssertTrue(rail.waitForExistence(timeout: 20), "no rail on \(dayKey)")
             settleRailAnimation()
 
-            // Proves the band is actually in scope before asserting it is
-            // clean: a missing `day-band-*` element would leave the band row
-            // outside `railBounds(in:)`, and the audit below would pass by
+            // Proves a band segment is actually visible on screen before
+            // asserting the audit is clean, or the audit below could pass by
             // examining nothing.
-            let bandCount = app.descendants(matching: .any)
+            //
+            // Existence alone (`count > 0` on this same query) does not
+            // prove that: `DayRailView` renders `entries` eagerly, in a
+            // plain `HStack`/`ForEach` over the rail's *whole* navigable
+            // span (`WeekBands.segments(dayKeys:year:)`'s own doc comment —
+            // `dayKeys` is "a superset of the season" ), not just the
+            // scrolled-to window. All nine labelled `day-band-*` segments —
+            // one per season week — are mounted as descendants at all
+            // times, so a plain existence count is ~9 regardless of scroll
+            // position and would have stayed green even if this test never
+            // scrolled the rail to `dayKey`'s week at all. `isHittable`
+            // requires a resolvable on-screen frame that is not occluded
+            // and not scrolled past either edge of the rail's visible
+            // viewport, which existence does not.
+            let visibleBandSegments = app.descendants(matching: .any)
                 .matching(NSPredicate(format: "identifier BEGINSWITH 'day-band-'"))
-                .count
-            XCTAssertGreaterThan(bandCount, 0, "no week-band segment on screen for \(dayKey)")
+                .allElementsBoundByIndex
+                .filter(\.isHittable)
+            XCTAssertFalse(
+                visibleBandSegments.isEmpty, "no week-band segment is visible on screen for \(dayKey)")
 
             let issues = try railIssues(in: app)
             XCTAssertTrue(
