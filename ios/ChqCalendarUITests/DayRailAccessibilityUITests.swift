@@ -164,7 +164,7 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// the chips alone stops at the chips' own top edge and puts every band
     /// finding out of scope — the audit would run and report nothing, which
     /// is the shape of a green test that checks nothing. Only a *labelled*
-    /// segment is exposed at all (`DayRailView.bandSegment`), so this
+    /// segment is exposed at all (`WeekBandSegmentView`), so this
     /// matches the nine `WEEK n` segments, whose frames sit at the band
     /// row's own y and together span it.
     private let railElementPredicate = NSPredicate(

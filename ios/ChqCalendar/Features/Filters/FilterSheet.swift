@@ -1,15 +1,19 @@
 import SwiftUI
 
-/// The filter pill's sheet: what is active, when, the two facets, and
-/// favorites.
+/// The app's one filter sheet, behind the toolbar's `⚌` button: what is
+/// active, when, the two facets, and favorites. Every filter is here, and
+/// every control on the day rail behind it navigates — that split is the
+/// rule #256 exists to make learnable.
 ///
 /// Everything applies live — the list behind the sheet re-filters on every
 /// tap, visible at the medium detent. The footer button only dismisses.
 /// There is no staged selection, so there is nothing to cancel and no way
 /// for the sheet's state and the model's to disagree.
 ///
-/// Favorites lives here rather than in the bar so the pill's badge can
-/// account for every filter that narrows the list. See `ActiveFilterCount`.
+/// Favorites lives here, rather than as chrome of its own, so one badge on
+/// one button can account for every filter that narrows the list. See
+/// `ActiveFilterCount` for what that badge counts, and
+/// `FiltersButtonState` for the rest of what the button says.
 struct FilterSheet: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss

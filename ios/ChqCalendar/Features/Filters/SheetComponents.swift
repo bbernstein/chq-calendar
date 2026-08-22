@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Shared furniture for the filter sheets. Extracted from
+// Shared furniture for the filter sheet. Extracted from
 // `DateFilterSheet.swift` when that view was deleted (#256): both types
 // were always shared — `SheetChip` by `FilterSheet` and `FacetChipCloud`,
 // `SheetDismissButton` by `FilterSheet` — and only lived there because
@@ -9,9 +9,10 @@ import SwiftUI
 // Nothing about either type changed in the move. If you are reading this
 // because a chip renders differently, the cause is elsewhere.
 
-/// A selectable pill inside a sheet. Distinct from the bottom-bar buttons
-/// in `EventListView`, which are controls that open something rather than
-/// values that toggle.
+/// A selectable pill inside a sheet: a *value* that toggles. Distinct from
+/// the toolbar buttons in `EventListView` — the magnifier and Filters — which
+/// are controls that open something. (The bottom-bar pills this used to be
+/// contrasted against were deleted in #256.)
 struct SheetChip: View {
     let label: String
     var count: Int?
@@ -94,7 +95,9 @@ struct SheetChip: View {
     }
 }
 
-/// The footer both sheets share. It **dismisses** — filters have already
+/// The filter sheet's footer — shared with the second sheet #256 deleted,
+/// and kept here rather than folded back into `FilterSheet` because it is
+/// furniture, not filtering. It **dismisses** — filters have already
 /// applied live behind the sheet. There is no staged selection to commit,
 /// so there is nothing to cancel either.
 struct SheetDismissButton: View {

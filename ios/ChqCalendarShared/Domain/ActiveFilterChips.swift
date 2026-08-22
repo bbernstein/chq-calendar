@@ -41,9 +41,23 @@ nonisolated enum ActiveFilterChips {
     /// Order mirrors the web's `buildActiveChips`: search, locations,
     /// categories, favorites — and selection order within each group.
     ///
-    /// Date scope and week are deliberately absent: their own controls sit
-    /// directly above this row and already show selection, and unlike
-    /// venues they cannot scroll out of view. "Clear all" still clears them.
+    /// Date scope and week are deliberately absent — and since #256 none of
+    /// the reasons this comment used to give for that are true any more, so
+    /// here is the one that is.
+    ///
+    /// They no longer have "their own controls directly above this row":
+    /// they are the WHEN section of this same sheet, rendered *below* the
+    /// ACTIVE row, inside a vertical `ScrollView` at a `.medium` detent —
+    /// so they can scroll out of view exactly like a venue can. And there is
+    /// no "Clear all": the button beside this row is `Clear Filters`, wired
+    /// to `AppModel.clearNonDateFilters()`, which `FilterSheet` spends
+    /// eleven lines warning must never be "fixed" into clearing dates.
+    ///
+    /// This row is the remove-one-of-these surface for exactly the filters
+    /// that button clears. Dates are deliberately outside its scope — a
+    /// reader who reached an empty list through a week selection needs the
+    /// other filters cleared without losing the dates they chose — so a date
+    /// chip here would sit in a row whose own reset control cannot reset it.
     static func build(selection: FilterSelection) -> [ActiveFilterChip] {
         var chips: [ActiveFilterChip] = []
 
