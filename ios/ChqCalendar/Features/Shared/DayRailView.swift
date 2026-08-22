@@ -46,6 +46,26 @@ extension Color {
 /// what holds the selection still so that revealing the past never moves you.
 struct DayRailView<Leading: View, Trailing: View>: View {
     let entries: [MyDayChipContent.Entry]
+
+    /// The week band above the chips: one segment per chip, in the same
+    /// order as `entries` (#256). Empty — the default — renders no band at
+    /// all, which is what My Day passes: it has no season weeks to show, so
+    /// its call site needs no change.
+    ///
+    /// Same-length-and-same-order-as-`entries` is the caller's contract, and
+    /// `EventListView` honours it by building both from one `railDayKeys`
+    /// array rather than two calls that happen to agree.
+    /// `resolvedSegment(at:day:)` still re-checks each segment's own
+    /// `dayKey` against the chip it is about to sit over: a silent one-chip
+    /// offset would read as the whole band being shifted by a day, which is
+    /// exactly the class of defect a band is worst at making visible.
+    var bandSegments: [WeekBandSegment] = []
+
+    /// Tapping a band segment navigates to that week. `nil` — the default —
+    /// leaves the band decorative, which is what it is until task 8 wires
+    /// the callback.
+    var onSelectWeek: ((Int) -> Void)? = nil
+
     let selectedDay: String?
     /// Names the strip as a whole for VoiceOver. A group of links or buttons
     /// needs a group role and a label; a bare container's label is dropped
@@ -137,16 +157,63 @@ struct DayRailView<Leading: View, Trailing: View>: View {
             leading()
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
+                    // The band and the chips are one `VStack` per day inside
+                    // one `HStack` inside this single `ScrollView`, so they
+                    // share one scroll offset and cannot desync, and each
+                    // band segment is exactly its chip's width because the
+                    // same stack lays both out. Alignment is structural, not
+                    // something two parallel layouts agree on today and drift
+                    // apart on tomorrow — and a single pixel of drift reads
+                    // as a seam through a week boundary.
                     HStack(spacing: 8) {
-                        ForEach(entries) { entry in
-                            DayChip(
-                                dayKey: entry.day,
-                                content: entry.content,
-                                isSelected: entry.day == selectedDay,
-                                isDisabled: disablesEmptyDays && entry.content.isEmpty
-                            ) {
-                                onSelect(entry.day)
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                            VStack(spacing: 2) {
+                                // Not `Color.clear` for an absent band: a
+                                // zero-segment rail is My Day, which has no
+                                // season weeks to show, and an invisible
+                                // 14pt strip there is not "no band" — it is
+                                // a band's worth of dead space pushing the
+                                // chips down. Inside the Events rail
+                                // `bandSegments` is never empty, so an
+                                // out-of-season *day* still gets its clear
+                                // segment and stays aligned with its
+                                // in-season neighbours.
+                                if !bandSegments.isEmpty {
+                                    WeekBandSegmentView(
+                                        segment: resolvedSegment(at: index, day: entry.day),
+                                        day: entry.day,
+                                        onSelectWeek: onSelectWeek
+                                    )
+                                    // Capped here rather than on the label
+                                    // alone so the band's own height
+                                    // (`@ScaledMetric` inside) and the label
+                                    // it has to hold are measured against the
+                                    // *same* size. Capping only the label
+                                    // left a 14pt strip with 28pt text
+                                    // bleeding out of it above and below at
+                                    // AX XXXL; capping only the height would
+                                    // clip the label instead. Past
+                                    // `.accessibility1` the band stops
+                                    // growing, which keeps it from eating the
+                                    // event list it exists to navigate — the
+                                    // chip text below is uncapped and still
+                                    // carries the day at full size.
+                                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                                }
+                                DayChip(
+                                    dayKey: entry.day,
+                                    content: entry.content,
+                                    isSelected: entry.day == selectedDay,
+                                    isDisabled: disablesEmptyDays && entry.content.isEmpty
+                                ) {
+                                    onSelect(entry.day)
+                                }
                             }
+                            // On the `VStack`, not the chip: `ScrollViewProxy.
+                            // scrollTo` centres the *outermost* view carrying
+                            // the id, so leaving it on the chip would centre
+                            // the chip and let the band slide out of the
+                            // scrolled frame.
                             .id(entry.day)
                         }
                     }
@@ -205,6 +272,27 @@ struct DayRailView<Leading: View, Trailing: View>: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    /// The segment for `index`, but only if it really is the one for `day`.
+    ///
+    /// Same-length-and-same-order-as-`entries` is `bandSegments`' documented
+    /// contract, but a band is unusually bad at showing when that contract
+    /// breaks: a whole band shifted one chip to the left looks exactly like
+    /// a band, just wrong. Re-checking the key costs one string compare per
+    /// chip and turns a silent misalignment into a visible gap, plus a trap
+    /// in DEBUG so the caller's own test run finds it first.
+    private func resolvedSegment(at index: Int, day: String) -> WeekBandSegment? {
+        guard !bandSegments.isEmpty else { return nil }
+        guard index < bandSegments.count, bandSegments[index].dayKey == day else {
+            assertionFailure(
+                "bandSegments must be one-per-entry and in the same order as entries; "
+                    + "index \(index) is "
+                    + "\(index < bandSegments.count ? bandSegments[index].dayKey : "missing") "
+                    + "but the chip there is \(day)")
+            return nil
+        }
+        return bandSegments[index]
+    }
+
     private func scroll(_ proxy: ScrollViewProxy, to day: String?) {
         guard let day else { return }
         lastCentered = (day, reanchorOn)
@@ -219,6 +307,122 @@ extension DayRailView {
         var copy = self
         copy.reanchorOn = values
         return copy
+    }
+}
+
+/// One day's slice of the week band above the chips (#256).
+///
+/// A shared Saturday carries **both** weeks' tones, split down the middle —
+/// that is what says "this day is in both" directly, rather than leaving the
+/// reader to infer it from two labels either side of a single flat colour.
+///
+/// Its own type rather than a `@ViewBuilder` method on `DayRailView` for one
+/// concrete reason: `@ScaledMetric` reads the environment of the view that
+/// declares it, so `height` here scales against the *capped*
+/// `dynamicTypeSize` the call site applies to this view, not against the
+/// rail's uncapped one. A method on `DayRailView` could only have read the
+/// rail's, and the band would have grown past the label it holds.
+private struct WeekBandSegmentView: View {
+    let segment: WeekBandSegment?
+    let day: String
+    let onSelectWeek: ((Int) -> Void)?
+
+    /// Scales with `.caption2`, the label's own text style, so the strip and
+    /// the `WEEK n` inside it stay in proportion at every text size instead
+    /// of the text outgrowing a fixed 14pt strip.
+    @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = 14
+
+    var body: some View {
+        fill
+            .frame(height: height)
+            // An `.overlay`, not a second `ZStack` child: an overlay is sized
+            // by its parent and cannot widen it, so a `WEEK n` label wider
+            // than one chip overhangs into its neighbours (clipped only by
+            // the scroll view) instead of stretching this segment — and with
+            // it the enclosing `VStack`, and with that the chip below — past
+            // the width every other chip has. The label names a whole week,
+            // so overhanging is correct; widening one column of the rail is
+            // not.
+            .overlay {
+                if let week = segment?.labelledWeek {
+                    Text("WEEK \(week)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if let week = segment?.navigationTarget { onSelectWeek?(week) }
+            }
+            // Only a *labelled* segment is exposed to VoiceOver, and
+            // `WeekBands.segments` places at most one of those per week.
+            // Exposing every in-season segment instead would put sixty-odd
+            // extra stops in front of a reader swiping the rail, most of them
+            // carrying no label at all — an unlabelled element being itself
+            // the thing an audit flags. Nine elements reading "Week 1"
+            // through "Week 9" is the band's actual content. The tap target
+            // stays on every segment above, where it is a pointer affordance
+            // rather than a stop.
+            .accessibilityElement()
+            .accessibilityHidden(segment?.labelledWeek == nil)
+            .accessibilityLabel(segment?.labelledWeek.map { "Week \($0)" } ?? "")
+            .accessibilityIdentifier("day-band-\(day)")
+    }
+
+    @ViewBuilder
+    private var fill: some View {
+        if let segment, !segment.rampSteps.isEmpty {
+            if segment.rampSteps.count == 1 {
+                Self.rampColor(segment.rampSteps[0])
+            } else {
+                HStack(spacing: 0) {
+                    // Two equal halves, so a boundary Saturday reads as
+                    // literally half of each week rather than as some third
+                    // colour of its own.
+                    ForEach(Array(segment.rampSteps.prefix(2).enumerated()), id: \.offset) { _, step in
+                        Self.rampColor(step)
+                    }
+                }
+            }
+        } else {
+            // Outside the season there is no week, so the band says nothing
+            // rather than guessing one.
+            Color.clear
+        }
+    }
+
+    /// The ramp, interpolated between two named assets rather than nine
+    /// hand-tuned colours. Lightness varies and hue does not, so adjacent
+    /// weeks always differ, the season reads as a gradient, and colour-vision
+    /// deficiency costs nothing.
+    ///
+    /// **On the endpoint values, and why they are grey.** They were checked,
+    /// not eyeballed: `WeekBandContrastTests` computes the WCAG 2.1 ratio
+    /// between each endpoint and the `.primary` label drawn on it, in both
+    /// appearances, against the 4.5:1 AA floor. Both endpoints are the worst
+    /// cases — the mix is monotonic in lightness, so every intermediate week
+    /// sits between them — which is why that test checks the two ends and not
+    /// the middle. If a future palette change fails there, the fix is to pull
+    /// the endpoints closer together (less lightness travel, still monotonic)
+    /// or to demote the fill to a thin rule under a normally-coloured label —
+    /// never to loosen the floor.
+    ///
+    /// The plan's starting palette was a blue ramp (`#DCE6F2`/`#8FA9C6`
+    /// light, `#22303F`/`#5A7794` dark). It was replaced after a dark-mode
+    /// screenshot at week 9: `#5A7794` computes 1.196:1 against
+    /// `DayChipSelected` dark, and the band segment and the selected chip
+    /// directly beneath it merged into a single shape — the selected chip
+    /// appeared to have grown a flag. The ramp is a neutral cool grey now,
+    /// which is what keeps the accent blue meaning exactly one thing on this
+    /// rail. Darkening the dark end also bought the white `WEEK n` label real
+    /// headroom: 4.67:1 on the old palette, 6.75:1 on this one. The light end
+    /// moved the same way for the same reason a screenshot showed —
+    /// `#DCE6F2` was so close to `DayChipBackground` that week 1's band was
+    /// all but invisible.
+    private static func rampColor(_ step: Double) -> Color {
+        Color("WeekBandStart").mix(with: Color("WeekBandEnd"), by: step)
     }
 }
 

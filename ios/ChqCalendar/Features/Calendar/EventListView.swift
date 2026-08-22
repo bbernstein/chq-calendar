@@ -396,13 +396,21 @@ struct EventListView: View {
         let reachableToday = DayRailNavigation.reachableTodayKey(
             model.isCurrentYear ? todayKey : nil, bounds: nav.bounds)
 
+        // Hoisted out of the `entries:` argument so the chips and the band
+        // are built from the *same* array rather than from two calls that
+        // happen to agree — that is what makes `DayRailView`'s
+        // one-segment-per-chip contract hold by construction (#256).
+        let railDayKeys = ChqTime.dayKeys(
+            from: nav.bounds.lowerBound, through: nav.bounds.upperBound)
+
         return DayRailView(
             entries: MyDayChipContent.makeAll(
-                days: ChqTime.dayKeys(from: nav.bounds.lowerBound, through: nav.bounds.upperBound),
+                days: railDayKeys,
                 todayKey: todayKey,
                 counts: nav.countsByDay,
                 style: .events,
                 includingYear: !model.isCurrentYear),
+            bandSegments: WeekBands.segments(dayKeys: railDayKeys, year: model.selectedYear),
             selectedDay: anchor,
             accessibilityLabel: "Days in the season",
             disablesEmptyDays: true,

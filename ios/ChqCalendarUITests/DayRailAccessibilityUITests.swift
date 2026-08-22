@@ -158,9 +158,19 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// real defect lived (`.disabled()` dimming text to ~3.7:1, see
     /// `DayChip.body`'s own comment on why there is no `.disabled()` left to
     /// do that).
+    ///
+    /// `day-band-` joins the list with #256's week band. The band row sits
+    /// *above* the chips inside the same scroll view, so a box built from
+    /// the chips alone stops at the chips' own top edge and puts every band
+    /// finding out of scope — the audit would run and report nothing, which
+    /// is the shape of a green test that checks nothing. Only a *labelled*
+    /// segment is exposed at all (`DayRailView.bandSegment`), so this
+    /// matches the nine `WEEK n` segments, whose frames sit at the band
+    /// row's own y and together span it.
     private let railElementPredicate = NSPredicate(
         format: """
             identifier BEGINSWITH 'day-chip-' OR identifier BEGINSWITH 'day-rail-expand-' \
+            OR identifier BEGINSWITH 'day-band-' \
             OR identifier IN {'day-rail-now'}
             """)
 
@@ -287,6 +297,53 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// seeds three on 2026-07-15 (a non-empty fixture day) to reach the
     /// rail at all — same convention `DayRailUITests.testMyDaysEmptyChipIsTappable`
     /// uses.
+    /// Week 1 and week 9 specifically, because a ramp that reads fine
+    /// mid-season and fails at its extremes is the expected failure mode
+    /// (#256) and a mid-season spot check sails straight past it. Both ends
+    /// are also the only steps that need checking: `WeekBands.segments`
+    /// maps week 1 to ramp step 0 and week 9 to step 1, and the mix between
+    /// the two endpoint assets is monotonic, so every intermediate week
+    /// sits between the two colours audited here.
+    ///
+    /// `2026-06-29` and `2026-08-24` are chosen so the week's *labelled*
+    /// segment is on screen: `WeekBands` puts each label on the middle of
+    /// its visible solo days, which is `2026-06-30` for week 1 and
+    /// `2026-08-26` for week 9 — one and two chips from the selection, so
+    /// both land inside the rail's visible window. Without a labelled
+    /// segment on screen there is no `day-band-*` element for
+    /// `railBounds(in:)` to include, and the band's whole row would fall
+    /// outside the audit's scope.
+    ///
+    /// Contrast is *not* what this gates — see `auditTypes` for why the
+    /// audit is structurally blind to it on this rail.
+    /// `WeekBandContrastTests` computes the WCAG ratio between each ramp
+    /// endpoint and the label drawn on it directly instead, which is exact
+    /// where this is blind.
+    func testWeekBandPassesAuditAtBothEndsOfTheRamp() throws {
+        for dayKey in ["2026-06-29", "2026-08-24"] {
+            let app = launchFixtureApp(extraArgs: ["-uitest-go-to-day", dayKey])
+            let rail = app.scrollViews["day-rail"]
+            XCTAssertTrue(rail.waitForExistence(timeout: 20), "no rail on \(dayKey)")
+            settleRailAnimation()
+
+            // Proves the band is actually in scope before asserting it is
+            // clean: a missing `day-band-*` element would leave the band row
+            // outside `railBounds(in:)`, and the audit below would pass by
+            // examining nothing.
+            let bandCount = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH 'day-band-'"))
+                .count
+            XCTAssertGreaterThan(bandCount, 0, "no week-band segment on screen for \(dayKey)")
+
+            let issues = try railIssues(in: app)
+            XCTAssertTrue(
+                issues.isEmpty,
+                "Week band audit at \(dayKey) found \(issues.count) issue(s):\n\(describe(issues))"
+            )
+            app.terminate()
+        }
+    }
+
     func testMyDayRailPassesDynamicTypeAndClippingAudit() throws {
         let app = launchFixtureApp(extraArgs: [
             "-uitest-seed-favorites", "2026-07-15-0,2026-07-15-1,2026-07-15-2",
