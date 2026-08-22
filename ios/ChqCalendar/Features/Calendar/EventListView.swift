@@ -26,8 +26,8 @@ struct EventListView: View {
 
     @State private var isAboutPresented = false
 
-    /// Which pill's sheet is up, if any.
-    @State private var activeSheet: FilterBarSheet?
+    /// Whether the filter sheet is up.
+    @State private var isFilterSheetPresented = false
 
     /// Which day the rail highlights when nothing else claims it (no
     /// scroll-derived anchor yet, no pending tap). View state: derived from
@@ -262,12 +262,6 @@ struct EventListView: View {
         return pinnedSelection.day
     }
 
-    private enum FilterBarSheet: String, Identifiable {
-        case date
-        case filters
-        var id: String { rawValue }
-    }
-
     var body: some View {
         content
             // Inline, and shortened to fit beside the year and overflow
@@ -327,11 +321,8 @@ struct EventListView: View {
             .sheet(isPresented: $isAboutPresented) {
                 AboutView(model: model)
             }
-            .sheet(item: $activeSheet) { sheet in
-                switch sheet {
-                case .date: DateFilterSheet(model: model)
-                case .filters: FilterSheet(model: model)
-                }
+            .sheet(isPresented: $isFilterSheetPresented) {
+                FilterSheet(model: model)
             }
             #if DEBUG
             .onAppear(perform: presentFilterSheetIfNeeded)
@@ -353,7 +344,7 @@ struct EventListView: View {
     private func presentFilterSheetIfNeeded() {
         if model.uiTestShowFilters {
             model.uiTestShowFilters = false
-            activeSheet = .filters
+            isFilterSheetPresented = true
         }
     }
 
@@ -1062,15 +1053,6 @@ struct EventListView: View {
         }
     }
 
-    /// The date pill's label. Never abbreviates — it is precisely the thing
-    /// a scrolling user wants to keep reading.
-    private var dateLabel: String {
-        DateFilterLabel.text(
-            for: model.filter,
-            seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count,
-            isCurrentYear: model.isCurrentYear)
-    }
-
     private var filterCount: Int { ActiveFilterCount.value(for: model.filter) }
 
     private var filtersAccessibilityLabel: String {
@@ -1144,24 +1126,7 @@ struct EventListView: View {
         HStack(spacing: 10) {
             pillButton {
                 KeyboardDismisser.dismiss()
-                activeSheet = .date
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "calendar")
-                    // `fixedSize` so the date label never abbreviates — it
-                    // is precisely the thing a scrolling user wants to keep
-                    // reading. Longest value this can take is
-                    // `DateFilterLabel`'s "Weeks 1, 3, 5".
-                    Text(dateLabel)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .accessibilityLabel("Date range: \(dateLabel). Double tap to change.")
-
-            pillButton {
-                KeyboardDismisser.dismiss()
-                activeSheet = .filters
+                isFilterSheetPresented = true
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "line.3.horizontal.decrease")
