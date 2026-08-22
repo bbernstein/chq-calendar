@@ -390,7 +390,17 @@ enum WeekBandRun {
         let left = segments[index]
         let right = segments[index + 1]
         guard !left.weekNumbers.isEmpty, !right.weekNumbers.isEmpty else { return false }
-        return !Set(left.weekNumbers).isDisjoint(with: right.weekNumbers)
+        // `weekNumbers` holds 0, 1, or 2 entries by construction (a shared
+        // Saturday is the only 2-entry case), and this runs twice per
+        // segment on every rail render — i.e. on every day-section boundary
+        // crossed while scrolling (#256 review fix, same path as
+        // `WeekBands.segments`'s single-season-build fix). A `Set` over a
+        // domain this small buys nothing but an allocation, so this checks
+        // membership directly instead. Must compare every element on both
+        // sides, not just `first`: a boundary Saturday's `[1, 2]` shares its
+        // *second* entry with the week after it, which a `first == first`
+        // shortcut would miss.
+        return left.weekNumbers.contains(where: right.weekNumbers.contains)
     }
 }
 

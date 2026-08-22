@@ -314,4 +314,41 @@ struct WeekBandRunTests {
         #expect(WeekBandRun.bridgesGutter(after: 1, in: all) == false)
         #expect(WeekBandRun.bridgesGutter(after: 5, in: all) == false)
     }
+
+    /// Hand-built segments, isolated from `WeekBands.segments`, pinning the
+    /// exact case a `first == first` comparison would get wrong (#258
+    /// review fix): a shared Saturday's second week number, matched against
+    /// the *first* (only) entry of its neighbour on that side.
+    private func segment(_ key: String, _ weeks: [Int]) -> WeekBandSegment {
+        WeekBandSegment(
+            dayKey: key, weekNumbers: weeks, rampSteps: weeks.map { Double($0) },
+            navigationTarget: nil, labelledWeek: nil)
+    }
+
+    @Test func aSharedSaturdaysSecondWeekNumberStillBridges() {
+        // Left is the boundary Saturday, [5, 6]; right is plain week 6.
+        // `first == first` compares 5 to 6 and misses the match that is
+        // actually there in the second slot.
+        let left = segment("2026-07-25", [5, 6])
+        let right = segment("2026-07-26", [6])
+        #expect(WeekBandRun.bridgesGutter(after: 0, in: [left, right]) == true)
+    }
+
+    @Test func aSharedSaturdaysFirstWeekNumberStillBridgesOnTheOtherSide() {
+        // Mirror of the above: the shared Saturday is now on the right,
+        // and the match is in its *first* slot against the plain week
+        // before it — `first == first` would get this one right by luck,
+        // but only the direct-comparison form gets both sides right.
+        let left = segment("2026-07-24", [5])
+        let right = segment("2026-07-25", [5, 6])
+        #expect(WeekBandRun.bridgesGutter(after: 0, in: [left, right]) == true)
+    }
+
+    @Test func disjointWeekNumbersNeverBridgeEvenWithTwoEntries() {
+        // No shared entry at all — the negative case a same-cardinality
+        // comparison must still get right.
+        let left = segment("2026-07-25", [5, 6])
+        let right = segment("2026-08-01", [7, 8])
+        #expect(WeekBandRun.bridgesGutter(after: 0, in: [left, right]) == false)
+    }
 }

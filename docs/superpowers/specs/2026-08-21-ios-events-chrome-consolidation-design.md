@@ -1,6 +1,6 @@
 # iOS Events tab — chrome consolidation
 
-**Status:** Implemented and shipped in 1.1.3 (PR #258, 2026-08-22). Kept as the
+**Status:** Implemented; ships in 1.1.3 (PR #258). Kept as the
 record of why the Events tab is shaped this way — several decisions here are
 load-bearing and easy to undo by accident, notably the `.navigationBarDrawer`
 placement (A1), the day-granular Saturday model (A4), and the colour ramp's
