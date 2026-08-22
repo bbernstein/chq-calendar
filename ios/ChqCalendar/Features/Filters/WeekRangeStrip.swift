@@ -142,3 +142,22 @@ struct WeekRangeStrip: View {
             }
     }
 }
+
+/// Re-homed from `DateFilterSheet.swift`, which #256 deleted — the preview
+/// went with the file and the strip it previews did not.
+///
+/// It earns its keep more here than it did there: the strip's new home is the
+/// Filters sheet's WHEN section, a denser stack (ACTIVE chips, the date
+/// label, four scope chips, then this) inside a `ScrollView` at a `.medium`
+/// detent, so accessibility-size layout has less room to go wrong in than the
+/// sheet it came from.
+#Preview("Week strip — accessibility3") {
+    WeekRangeStrip(
+        weekNumbers: Array(1...9),
+        isSelected: { (4...6).contains($0) },
+        effectiveSelection: [4, 5, 6],
+        timeState: { $0 < 6 ? .past : $0 == 6 ? .current : .upcoming },
+        commit: { _ in })
+    .padding(20)
+    .environment(\.dynamicTypeSize, .accessibility3)
+}

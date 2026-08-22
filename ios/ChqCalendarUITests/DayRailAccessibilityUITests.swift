@@ -37,8 +37,8 @@ import XCTest
 /// identifier matching silently dropped every genuine chip-text issue —
 /// exactly the false negative this file exists to prevent. Unioning the
 /// frames of the rail's own identified elements (`day-chip-*`,
-/// `day-step-previous`/`day-step-next`, `day-rail-now`,
-/// `day-rail-expand-earlier`/`day-rail-expand-later`) gives a tight box
+/// `day-rail-now`, `day-rail-expand-earlier`/`day-rail-expand-later`) gives
+/// a tight box
 /// that still contains every one of their descendant text runs — those nest
 /// fully inside their element's frame — while excluding the search field,
 /// which sits well outside it.
@@ -158,10 +158,20 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// real defect lived (`.disabled()` dimming text to ~3.7:1, see
     /// `DayChip.body`'s own comment on why there is no `.disabled()` left to
     /// do that).
+    ///
+    /// `day-band-` joins the list with #256's week band. The band row sits
+    /// *above* the chips inside the same scroll view, so a box built from
+    /// the chips alone stops at the chips' own top edge and puts every band
+    /// finding out of scope — the audit would run and report nothing, which
+    /// is the shape of a green test that checks nothing. Only a *labelled*
+    /// segment is exposed at all (`WeekBandSegmentView`), so this
+    /// matches the nine `WEEK n` segments, whose frames sit at the band
+    /// row's own y and together span it.
     private let railElementPredicate = NSPredicate(
         format: """
             identifier BEGINSWITH 'day-chip-' OR identifier BEGINSWITH 'day-rail-expand-' \
-            OR identifier IN {'day-step-previous', 'day-step-next', 'day-rail-now'}
+            OR identifier BEGINSWITH 'day-band-' \
+            OR identifier IN {'day-rail-now'}
             """)
 
     /// The union of every rail element's own frame — see the type's doc
@@ -287,6 +297,68 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// seeds three on 2026-07-15 (a non-empty fixture day) to reach the
     /// rail at all — same convention `DayRailUITests.testMyDaysEmptyChipIsTappable`
     /// uses.
+    /// Week 1 and week 9 specifically, because a ramp that reads fine
+    /// mid-season and fails at its extremes is the expected failure mode
+    /// (#256) and a mid-season spot check sails straight past it. Both ends
+    /// are also the only steps that need checking: `WeekBands.segments`
+    /// maps week 1 to ramp step 0 and week 9 to step 1, and the mix between
+    /// the two endpoint assets is monotonic, so every intermediate week
+    /// sits between the two colours audited here.
+    ///
+    /// `2026-06-29` and `2026-08-24` are chosen so the week's *labelled*
+    /// segment is on screen: `WeekBands` puts each label on the middle of
+    /// its visible solo days, which is `2026-06-30` for week 1 and
+    /// `2026-08-26` for week 9 — one and two chips from the selection, so
+    /// both land inside the rail's visible window. Without a labelled
+    /// segment on screen there is no `day-band-*` element for
+    /// `railBounds(in:)` to include, and the band's whole row would fall
+    /// outside the audit's scope.
+    ///
+    /// Contrast is *not* what this gates — see `auditTypes` for why the
+    /// audit is structurally blind to it on this rail.
+    /// `WeekBandContrastTests` computes the WCAG ratio between each ramp
+    /// endpoint and the label drawn on it directly instead, which is exact
+    /// where this is blind.
+    func testWeekBandPassesAuditAtBothEndsOfTheRamp() throws {
+        for dayKey in ["2026-06-29", "2026-08-24"] {
+            let app = launchFixtureApp(extraArgs: ["-uitest-go-to-day", dayKey])
+            let rail = app.scrollViews["day-rail"]
+            XCTAssertTrue(rail.waitForExistence(timeout: 20), "no rail on \(dayKey)")
+            settleRailAnimation()
+
+            // Proves a band segment is actually visible on screen before
+            // asserting the audit is clean, or the audit below could pass by
+            // examining nothing.
+            //
+            // Existence alone (`count > 0` on this same query) does not
+            // prove that: `DayRailView` renders `entries` eagerly, in a
+            // plain `HStack`/`ForEach` over the rail's *whole* navigable
+            // span (`WeekBands.segments(dayKeys:year:)`'s own doc comment —
+            // `dayKeys` is "a superset of the season" ), not just the
+            // scrolled-to window. All nine labelled `day-band-*` segments —
+            // one per season week — are mounted as descendants at all
+            // times, so a plain existence count is ~9 regardless of scroll
+            // position and would have stayed green even if this test never
+            // scrolled the rail to `dayKey`'s week at all. `isHittable`
+            // requires a resolvable on-screen frame that is not occluded
+            // and not scrolled past either edge of the rail's visible
+            // viewport, which existence does not.
+            let visibleBandSegments = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH 'day-band-'"))
+                .allElementsBoundByIndex
+                .filter(\.isHittable)
+            XCTAssertFalse(
+                visibleBandSegments.isEmpty, "no week-band segment is visible on screen for \(dayKey)")
+
+            let issues = try railIssues(in: app)
+            XCTAssertTrue(
+                issues.isEmpty,
+                "Week band audit at \(dayKey) found \(issues.count) issue(s):\n\(describe(issues))"
+            )
+            app.terminate()
+        }
+    }
+
     func testMyDayRailPassesDynamicTypeAndClippingAudit() throws {
         let app = launchFixtureApp(extraArgs: [
             "-uitest-seed-favorites", "2026-07-15-0,2026-07-15-1,2026-07-15-2",

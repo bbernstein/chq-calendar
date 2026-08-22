@@ -22,6 +22,10 @@ struct CalendarView: View {
     /// before committing the draft into the model.
     @State private var searchDraft: String = ""
 
+    /// Drives the toolbar's magnifier button (#256). `.searchFocused` is
+    /// iOS 18+, which is the deployment target.
+    @FocusState private var isSearchFocused: Bool
+
     /// iPad-only: the event shown in the split view's detail column.
     /// Unused (and un-navigated) in compact mode, where `EventListView`
     /// pushes via `NavigationLink` instead.
@@ -128,40 +132,54 @@ struct CalendarView: View {
         }
     }
 
-    // `placement: .navigationBarDrawer(displayMode: .always)` on both
-    // containers below is load-bearing on iOS 26 inside the tab shell
-    // (task 16). The default placement there is a bottom-anchored field,
-    // which occupies the same screen edge as `RootTabView`'s tab bar —
-    // verified by screenshot: the tab bar rendered ON TOP of the bottom
-    // toolbar group (date pill, Filters, search all present but covered
-    // and unusable). Pinning search under the navigation bar vacates the
-    // bottom edge; `EventListView` drops its
-    // `DefaultToolbarItem(kind: .search)` in the same change (that item
-    // existed only to re-surface the bottom-anchored field next to the
-    // date/filter pills — see its old comment there). `.always` rather
-    // than `.automatic` so search stays discoverable without knowing the
-    // pull-down gesture. On iOS 18 this placement is where the field
-    // rendered anyway; the explicit `displayMode` is the only behavior
-    // change there (visible without scrolling).
+    // `placement: .navigationBarDrawer` is load-bearing and must not become
+    // `.automatic`: on iOS 26 the default placement is a bottom-anchored
+    // field, which occupies the same screen edge as `RootTabView`'s tab bar
+    // — verified by screenshot, the tab bar rendered ON TOP of the bottom
+    // toolbar group and everything in it was present but unusable. Pinning
+    // search under the navigation bar is what vacates the bottom edge.
+    //
+    // `displayMode` is `.automatic` since #256, so the field scrolls away
+    // with the content instead of costing 52pt on every screen forever.
+    // `.always` was originally chosen so search stayed discoverable without
+    // knowing the pull-down gesture; the toolbar's magnifier button
+    // (`EventListView.toolbarContent`) is what buys that discoverability
+    // now, at no permanent vertical cost. Do not restore `.always` without
+    // also removing that button — two ways to reach the same field, one of
+    // which is always on screen, is the state this change left.
+    //
+    // `searchFieldDisplayMode` below reverts to `.always` while
+    // `model.filter.searchText` (the committed value, not `searchDraft`) is
+    // non-empty — screenshot-verified `.automatic` alone scrolls the field
+    // away mid-term just like it does when empty, which would strand an
+    // active "meditation" search with no visible field to read or clear
+    // short of scrolling back to the top or reopening it via the magnifier.
+    // A live term is exactly the moment the field needs to stay reachable.
+    private var searchFieldDisplayMode: SearchFieldPlacement.NavigationBarDrawerDisplayMode {
+        model.filter.searchText.isEmpty ? .automatic : .always
+    }
+
     private var stackView: some View {
         NavigationStack(path: $path) {
-            EventListView(model: model, selection: nil)
+            EventListView(model: model, selection: nil, searchFocus: $isSearchFocused)
         }
         .searchable(
             text: $searchDraft,
-            placement: .navigationBarDrawer(displayMode: .always),
+            placement: .navigationBarDrawer(displayMode: searchFieldDisplayMode),
             prompt: "Search events")
+        .searchFocused($isSearchFocused)
         .submitLabel(.search)
         .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
     }
 
     private var splitView: some View {
         NavigationSplitView {
-            EventListView(model: model, selection: $selectedEvent)
+            EventListView(model: model, selection: $selectedEvent, searchFocus: $isSearchFocused)
                 .searchable(
                     text: $searchDraft,
-                    placement: .navigationBarDrawer(displayMode: .always),
+                    placement: .navigationBarDrawer(displayMode: searchFieldDisplayMode),
                     prompt: "Search events")
+                .searchFocused($isSearchFocused)
                 .submitLabel(.search)
                 .onSubmit(of: .search) { KeyboardDismisser.dismiss() }
         } detail: {

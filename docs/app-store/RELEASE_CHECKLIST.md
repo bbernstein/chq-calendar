@@ -293,9 +293,10 @@ Folded into 1.1.3: the day rail, which the Events tab and My Day share only
 partly — both show a `DayRailView` strip with a per-day event count so an
 empty day is visible before you tap it (`MyDayChipContent`, genuinely
 shared), but the surrounding controls differ. Only the **Events tab** got
-the `⟳ Now` button and the step-to-next-event-day chevrons (`DayStepControl`,
-which skip past days with nothing to show rather than moving one calendar
-day), and only the Events tab's list auto-grows forward at its end (`EventListView`'s
+the `⟳ Now` button and (until #256 replaced them, described below) the
+step-to-next-event-day chevrons (`DayStepControl`, which skipped past days
+with nothing to show rather than moving one calendar day), and only the
+Events tab's list auto-grows forward at its end (`EventListView`'s
 last-row `.onAppear` calling `expandWindowEnd()` — there is no
 `expandWindowStart`; going back stays an explicit chevron or rail-chip tap).
 **My Day** instead kept its own,
@@ -329,9 +330,36 @@ than the rail is not a broken promise, and qualifying "lands you in the
 same place as a rail tap" further would make the store copy read worse
 without making it any truer; and the accessibility fix that
 stopped the `Filters` pill from clipping its label at the largest text
-sizes — both Events-tab-specific. **This is a first pass, not the final
-submission artifact — further features may land before submission**, in
-which case fold them in here before Step 8's render.
+sizes — both Events-tab-specific. **Both the `⟳ Now`/chevron pairing and the
+`Filters` pill described in this paragraph are superseded by #256, folded in
+next**: neither the chevrons nor the pill exist in the shipped 1.1.3 build.
+
+Also folded into 1.1.3, from the Events-tab chrome consolidation (#256):
+roughly a third of the Events screen was permanent chrome spread across five
+bands owned by four mechanisms; this collapsed it to one. Search and Filters
+are now toolbar buttons beside the year and the `⋯` menu — the floating
+`Now`/`Filters` pill bar that used to hover over the list is gone, and so is
+the separate `DateFilterSheet`: the four date scopes (Now, Today, All
+Season, All Year) and the week-range strip now live in `FilterSheet` under a
+`WHEN` heading. The search field's `displayMode` changed from `.always` to
+`.automatic`, so it scrolls away as the reader reads; a magnifier toolbar
+button (bound via `@FocusState`/`.searchFocused`) refocuses it, and it stays
+pinned whenever a search term is active. The day rail's `‹ ›` one-day step
+chevrons (`DayStepControl`) are gone — dropping them is what buys the room
+for roughly twice as many day chips on screen — and stepping to the next or
+previous day *with events* survives as a VoiceOver rotor action on the rail
+(`DayRailNavigation.stepTargets`, unchanged; `EventListView.swift`). A
+`WEEK 1`…`WEEK 9` band (`ChqCalendarShared/Domain/WeekBands.swift`) now runs
+above the day chips, one continuous segment per week, with the Saturday two
+weeks share carrying both weeks' shading — the same thing the `Wk 5/6` day
+headers have always said. Tapping a band navigates to that week's opening
+Saturday (falling back to the week's first day with events, or doing
+nothing, if that Saturday or the week holds none under the current filters)
+— it navigates, it does not filter, so any venue or category already chosen
+survives the jump. **All of this is Events-tab only**: My Day keeps its own
+chevrons (`MyDayExpandControl`, meaning "reveal the rest of the season," a
+different question from stepping to the next day with events) and has no
+week band — do not generalize any of the above to "the app."
 
 Dropped rather than folded: "filtering moved to the bottom of the screen."
 That change shipped **in 1.1** — it simply never made it into 1.1's

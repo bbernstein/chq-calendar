@@ -87,12 +87,23 @@ nonisolated enum SeasonCalendar {
     /// in-season week boundary intersects both the outgoing and incoming
     /// week, so it returns two numbers (e.g. `[1, 2]`).
     static func weekNumbers(spanningDayOf date: Date, year: Int) -> [Int] {
+        weekNumbers(spanningDayOf: date, in: weeks(forYear: year))
+    }
+
+    /// The same rule against a season that has already been built.
+    ///
+    /// Exists so a caller asking the question many times in a row — the week
+    /// band asks it once per day chip, inside a scroll-path render — pays for
+    /// `weeks(forYear:)` once instead of once per day. The year-taking form
+    /// above is unchanged in behaviour and remains the one to reach for
+    /// anywhere the question is asked once.
+    static func weekNumbers(spanningDayOf date: Date, in weeks: [SeasonWeek]) -> [Int] {
         let cal = ChqTime.calendar
         let dayStart = cal.startOfDay(for: date)
         guard let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else {
             return []
         }
-        return weeks(forYear: year)
+        return weeks
             .filter { $0.start < dayEnd && $0.end > dayStart }
             .map { $0.number }
     }

@@ -297,12 +297,14 @@ final class DayRailUITests: XCTestCase {
         let rail = app.scrollViews["day-rail"]
         XCTAssertTrue(rail.waitForExistence(timeout: 20))
 
-        // Open the date sheet first — `.presentationBackgroundInteraction`
+        // Open the filter sheet first — `.presentationBackgroundInteraction`
         // keeps the rail reachable behind it — so the distant tap below and
         // the scope change that follows are only one `.tap()`'s worth of
         // settle apart, the fastest sequencing two discrete UI actions can
-        // achieve here.
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Date range:'")).firstMatch.tap()
+        // achieve here. The WHEN section (date scope, including "All Year"
+        // below) now lives in this same sheet — see FilterSheet — rather
+        // than behind a separate date pill, which #256 deleted.
+        app.buttons["filters-toolbar-button"].tap()
 
         let chip = app.buttons["day-chip-2026-08-21"]
         let rowMidY = app.buttons["day-chip-2026-06-27"].frame.midY
@@ -414,21 +416,19 @@ final class DayRailUITests: XCTestCase {
             "Nothing is highlighted at all — the anchor was cleared rather than moved")
     }
 
-    /// Named by target, never by direction — and the target is the nearest
-    /// day that HAS events, so pressing it always changes what is on screen.
-    /// UITestFixture leaves 2026-07-02 empty (day-index 5, `5 % 3 == 2`), so
-    /// a correct control skips it and lands on 2026-07-03 instead — a Friday
-    /// carrying the fixture's usual three events, per `MyDayChipContentTests`'
-    /// "Go to Sunday, August 16, 4 events" wording.
-    func testTheForwardStepIsNamedForTheDayItGoesTo() {
-        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
-        XCTAssertTrue(app.scrollViews["day-rail"].waitForExistence(timeout: 20))
-
-        let step = app.buttons["day-step-next"]
-        XCTAssertTrue(step.exists)
-        XCTAssertEqual(step.label, "Go to Friday, July 3, 3 events")
-    }
-
+    /// `testTheForwardStepIsNamedForTheDayItGoesTo` used to live here,
+    /// asserting `day-step-next`'s label named its destination ("Go to
+    /// Friday, July 3, 3 events"). #256 removed that button along with
+    /// `day-step-previous` (see `testTheBackwardStepIsDisabledAtTheEarliestReachableDay`
+    /// below) to give the rail's chip strip the space they occupied. The
+    /// skip-empty-days capability survives as two VoiceOver custom actions
+    /// on the rail (`EventListView.dayRail`), deliberately named by
+    /// capability ("Next day with events") rather than by destination —
+    /// there is no button left to attach a destination-naming assertion to,
+    /// and this codebase has no established pattern for driving a custom
+    /// accessibility action from XCUITest. `DayRailNavigationTests` still
+    /// covers the skip-empty-day targeting itself at the unit level.
+    ///
     /// The 2026 season starts 2026-06-27 at *noon*, so launching that
     /// morning can render `OffSeasonLandingView` with no rail at all.
     /// Launching at the standard time and tapping the earliest chip instead
@@ -444,7 +444,32 @@ final class DayRailUITests: XCTestCase {
         revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
         chip.tap()
 
-        XCTAssertFalse(app.buttons["day-step-previous"].isEnabled)
+        // The step chevrons were removed in #256 (they cost ~88pt of a
+        // 440pt rail, leaving 3 chips). What they guarded — that there is
+        // no earlier day to reach — is now a property of the strip itself:
+        // the earliest reachable day (`chip`, just tapped above) must BE
+        // the leftmost chip in the rail, i.e. there is nothing before it to
+        // scroll to. Asserting only that *some* button sits at index 0
+        // would pass whether or not that property held, so this compares
+        // identifiers rather than merely checking existence.
+        //
+        // `rail.buttons` is not chips-only: the same #256 review that
+        // removed the step chevrons also gave `WeekBandSegmentView`
+        // `.accessibilityAddTraits(.isButton)` (finding F5, so VoiceOver
+        // announces a navigable band as a control and so
+        // `rail.buttons["Week 5"]` resolves at all). The band row sits
+        // above the chip row, so index 0 of the unfiltered collection is a
+        // `day-band-*` segment, not the leftmost chip — that's the product
+        // working as intended, not a regression. Filtering to the
+        // `day-chip-` identifier prefix is what makes "leftmost chip" mean
+        // what it says; do not simplify this back to
+        // `rail.buttons.element(boundBy: 0)`.
+        let firstChip = rail.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'day-chip-'"))
+            .element(boundBy: 0)
+        XCTAssertEqual(
+            firstChip.identifier, "day-chip-2026-06-27",
+            "The earliest reachable day is not the leftmost chip in the rail")
     }
 
     /// Defect 2 (user report, #245): `⟳ Now` and both step chevrons used to
@@ -659,5 +684,93 @@ final class DayRailUITests: XCTestCase {
             chip.isSelected,
             "The linked day is not the rail's pinned selection: the link is still pending, "
                 + "waiting to fire whenever the reader next clears their filter")
+    }
+
+    /// Tapping a week band lands on the Saturday that opens that week, and
+    /// changes no filter — the rule the whole #256 design rests on is that
+    /// every control on the rail navigates and every filter is in the sheet.
+    ///
+    /// Launches through `launchFixtureApp`, not a bare `XCUIApplication()`
+    /// (the plan's reference test used the latter): every other test in this
+    /// file goes through the helper because `-uitest-fixture` is what
+    /// replaces CloudFront with deterministic data (see its doc) — without
+    /// it this test would depend on live network data instead of the
+    /// fixture the assertions below are written against.
+    ///
+    /// `-uitest-go-to-day 2026-07-30` anchors the rail on a Thursday inside
+    /// week 5 (the season opens 2026-06-27, a Saturday, so week 5 opens
+    /// 2026-07-25 and its six solo days run 07-26 through 07-31). `WeekBands.
+    /// segments` places a week's label on the middle of its solo days —
+    /// 2026-07-29 here — which sits one chip from the anchor and so is on
+    /// screen without the `revealByScrolling` every distant-chip test in
+    /// this file needs. Naming week 5 exactly is also deterministic in a way
+    /// the plan's `firstMatch` over every `'Week '`-prefixed element in the
+    /// rail is not: document order in that query would offer week 1's label
+    /// first (the rail's `HStack` is not lazy, so it exists in the tree from
+    /// launch even off-screen), and week 1 is ~30 days from this anchor —
+    /// genuinely off-screen, where `tap()` would fail the same way a plain
+    /// `swipeLeft()` does elsewhere in this file (see `revealByScrolling`'s
+    /// doc).
+    func testTappingAWeekBandNavigatesWithoutFiltering() {
+        let app = launchFixtureApp(
+            now: "2026-07-27 09:00:00",
+            extraArgs: ["-uitest-go-to-day", "2026-07-30"])
+
+        let rail = app.scrollViews["day-rail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 20))
+
+        // `buttons`, not `otherElements` (#256 review fix). The band carries
+        // the `.isButton` trait now, so this query is itself the assertion
+        // that it announces as a control — before that trait landed the only
+        // way to reach it was as a plain element and a coordinate tap, which
+        // proved the fill was on screen and nothing about whether VoiceOver
+        // could activate it.
+        //
+        // `BEGINSWITH`, because the label names its destination now ("Go to
+        // Week 5, opens Saturday, July 25, N events") rather than reading a
+        // bare "Week 5" — the counts come from the fixture and are not worth
+        // pinning here; `WeekBandDestinationTests` pins the whole phrase.
+        let band = rail.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'Go to Week 5'")).firstMatch
+        XCTAssertTrue(
+            band.waitForExistence(timeout: 10),
+            "The week 5 band did not resolve as a button naming its destination")
+        band.tap()
+
+        // The navigation half of the rule: the tap must land on the Saturday
+        // that opens week 5, not merely on some day inside it.
+        XCTAssertTrue(
+            app.staticTexts["Saturday, July 25"].waitForExistence(timeout: 10),
+            "Tapping the week 5 band did not land on the Saturday that opens week 5")
+
+        // The filter button's accessible name carries `ActiveFilterCount`,
+        // so it is the cheapest first check that no filter moved. It is not
+        // sufficient on its own: `ActiveFilterCount.value(for:)` deliberately
+        // excludes both date scope and week selection (its own doc explains
+        // why — they used to be summarised by a date pill this initiative
+        // removed), so a regression that added a scope or week change here
+        // would leave this label reading "none active" regardless.
+        let filters = app.buttons["filters-toolbar-button"]
+        XCTAssertTrue(filters.waitForExistence(timeout: 10))
+        XCTAssertTrue(filters.label.contains("none active"))
+
+        // The check that actually closes that gap: open the sheet and read
+        // the WHEN section's own week selector directly.
+        // `WeekRangeStrip.segment` exposes `.isSelected` only when `on` is
+        // true, and week 5 is the *current* week under this test's frozen
+        // clock, so its accessible label is "Week 5, current week" rather
+        // than the band's bare "Week 5" — hence `BEGINSWITH` rather than an
+        // exact match. If `selectWeek` ever regressed into also calling
+        // `model.setWeekSelection`, this is what would catch it: proven by
+        // Step 4's falsification below, which the two checks above do not
+        // fail under.
+        filters.tap()
+        let weekChip = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'Week 5'")
+        ).firstMatch
+        XCTAssertTrue(weekChip.waitForExistence(timeout: 10))
+        XCTAssertFalse(
+            weekChip.isSelected,
+            "Tapping the band selected week 5 as a filter — bands must navigate, not filter")
     }
 }

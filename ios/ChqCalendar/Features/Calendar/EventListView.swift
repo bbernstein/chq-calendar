@@ -15,19 +15,22 @@ import SwiftUI
 ///   mode since nothing ever pushes a value.
 ///
 /// Everything else — the loading/offline/error/no-matches states, the
-/// countdown/offline banners, the filter pill bar, and
+/// countdown/offline banners, the Filters and search toolbar buttons, and
 /// `refreshable` — is identical between the two layouts, which is the whole
 /// point of sharing this view.
 struct EventListView: View {
     @Bindable var model: AppModel
     var selection: Binding<Event?>?
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Set by the toolbar's magnifier button to focus the search field that
+    /// `CalendarView` owns. A `FocusState.Binding` rather than a plain
+    /// `Bool` binding because `.searchFocused` requires one.
+    var searchFocus: FocusState<Bool>.Binding
 
     @State private var isAboutPresented = false
 
-    /// Which pill's sheet is up, if any.
-    @State private var activeSheet: FilterBarSheet?
+    /// Whether the filter sheet is up.
+    @State private var isFilterSheetPresented = false
 
     /// Which day the rail highlights when nothing else claims it (no
     /// scroll-derived anchor yet, no pending tap). View state: derived from
@@ -262,12 +265,6 @@ struct EventListView: View {
         return pinnedSelection.day
     }
 
-    private enum FilterBarSheet: String, Identifiable {
-        case date
-        case filters
-        var id: String { rawValue }
-    }
-
     var body: some View {
         content
             // Inline, and shortened to fit beside the year and overflow
@@ -277,16 +274,11 @@ struct EventListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             // Only once there is a snapshot to filter against — during
-            // launch or the offline/error states the pills would summarise
-            // nothing.
+            // launch or the offline/error states the day rail would have
+            // no days to show.
             .safeAreaInset(edge: .top) {
                 if model.snapshot != nil, let nav = model.navMatching {
                     dayRail(nav)
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                if model.snapshot != nil {
-                    filterPillBar
                 }
             }
             // The link can arrive before this view exists (a cold launch from
@@ -327,11 +319,8 @@ struct EventListView: View {
             .sheet(isPresented: $isAboutPresented) {
                 AboutView(model: model)
             }
-            .sheet(item: $activeSheet) { sheet in
-                switch sheet {
-                case .date: DateFilterSheet(model: model)
-                case .filters: FilterSheet(model: model)
-                }
+            .sheet(isPresented: $isFilterSheetPresented) {
+                FilterSheet(model: model)
             }
             #if DEBUG
             .onAppear(perform: presentFilterSheetIfNeeded)
@@ -353,7 +342,7 @@ struct EventListView: View {
     private func presentFilterSheetIfNeeded() {
         if model.uiTestShowFilters {
             model.uiTestShowFilters = false
-            activeSheet = .filters
+            isFilterSheetPresented = true
         }
     }
 
@@ -384,11 +373,11 @@ struct EventListView: View {
     /// The day rail: every day navigation can reach, with how many events
     /// each holds under the current non-date filters.
     ///
-    /// Mounted on `content` via `.safeAreaInset(edge: .top)` — the mirror of
-    /// `filterPillBar` at the bottom — so it is chrome rather than content.
-    /// A `safeAreaInset` bar contributes its height to the scroll view's safe
-    /// area exactly as a toolbar would, so the list insets its own content
-    /// and its scroll indicator to clear it without any margin of ours.
+    /// Mounted on `content` via `.safeAreaInset(edge: .top)`, so it is chrome
+    /// rather than content. A `safeAreaInset` bar contributes its height to
+    /// the scroll view's safe area exactly as a toolbar would, so the list
+    /// insets its own content and its scroll indicator to clear it without
+    /// any margin of ours.
     ///
     /// The span is `navigableBounds`, deliberately independent of the current
     /// scope: in `Today` it still shows the week around you, because the rail
@@ -407,12 +396,31 @@ struct EventListView: View {
         let reachableToday = DayRailNavigation.reachableTodayKey(
             model.isCurrentYear ? todayKey : nil, bounds: nav.bounds)
 
+        // Hoisted out of the `entries:` argument so the chips and the band
+        // are built from the *same* array rather than from two calls that
+        // happen to agree — that is what makes `DayRailView`'s
+        // one-segment-per-chip contract hold by construction (#256).
+        let railDayKeys = ChqTime.dayKeys(
+            from: nav.bounds.lowerBound, through: nav.bounds.upperBound)
+
         return DayRailView(
             entries: MyDayChipContent.makeAll(
-                days: ChqTime.dayKeys(from: nav.bounds.lowerBound, through: nav.bounds.upperBound),
+                days: railDayKeys,
                 todayKey: todayKey,
                 counts: nav.countsByDay,
                 style: .events,
+                includingYear: !model.isCurrentYear),
+            bandSegments: WeekBands.segments(dayKeys: railDayKeys, year: model.selectedYear),
+            onSelectWeek: { week in selectWeek(week, nav: nav) },
+            // Reachability and the spoken destination come from one call, so
+            // a dimmed band and a refused tap can never disagree — the state
+            // the band shipped in was a normal-looking band next to visibly
+            // empty chips that silently did nothing (#256 review fix).
+            weekDestinations: WeekBands.destinations(
+                year: model.selectedYear,
+                eventDays: nav.eventDays,
+                bounds: nav.bounds,
+                countsByDay: nav.countsByDay,
                 includingYear: !model.isCurrentYear),
             selectedDay: anchor,
             accessibilityLabel: "Days in the season",
@@ -422,26 +430,26 @@ struct EventListView: View {
                 if let reachableToday {
                     nowButton(reachableToday, nav: nav)
                 }
-                DayStepControl(
-                    symbol: "chevron.left",
-                    identifier: "day-step-previous",
-                    destinationLabel: step.previous.map { stepLabel(for: $0, nav: nav) },
-                    emptyLabel: "No earlier days with events"
-                ) {
-                    if let previous = step.previous { selectDay(previous) }
-                }
             },
-            trailing: {
-                DayStepControl(
-                    symbol: "chevron.right",
-                    identifier: "day-step-next",
-                    destinationLabel: step.next.map { stepLabel(for: $0, nav: nav) },
-                    emptyLabel: "No later days with events"
-                ) {
-                    if let next = step.next { selectDay(next) }
-                }
-            })
+            trailing: { EmptyView() })
         .background(.bar)
+        // The chevrons used to carry this capability visibly — they were the
+        // only control that skipped *empty* days, since tapping a
+        // neighbouring chip lands on the next chip, not the next day with
+        // events. Removing them for the chip space (#256) would silently
+        // drop that for VoiceOver, so it survives here as two custom
+        // actions over the same `DayRailNavigation.stepTargets` the
+        // chevrons used. Named by capability ("Next day with events")
+        // rather than by destination ("Go to Sunday, August 16, 4 events"):
+        // a rotor action is read from a list before it's chosen, where the
+        // capability is the useful thing to say, unlike a button the reader
+        // is already focused on.
+        .accessibilityAction(named: Text("Previous day with events")) {
+            if let previous = step.previous { selectDay(previous) }
+        }
+        .accessibilityAction(named: Text("Next day with events")) {
+            if let next = step.next { selectDay(next) }
+        }
     }
 
     /// `⟳ Now`: navigation, never a filter change — the spec is explicit
@@ -468,11 +476,16 @@ struct EventListView: View {
             Label("Now", systemImage: "arrow.clockwise")
                 .labelStyle(.iconOnly)
                 .font(.subheadline.weight(.semibold))
-                // `.primary`, not the default accent tint — see
-                // `DayStepControl`'s matching comment for why.
+                // `.primary`, not the default accent tint (accessibility
+                // follow-up to #245): the accent colour against the opaque
+                // `dayRailControlBackground` measures under 4.5:1, caught
+                // by an on-device audit.
                 .foregroundStyle(.primary)
-                // Minimum, not fixed (accessibility follow-up to #245) —
-                // see `DayStepControl`'s matching comment for why.
+                // Minimum, not fixed (accessibility follow-up to #245): a
+                // fixed frame clipped the symbol at large Dynamic Type
+                // sizes. 44pt still meets the HIG tap-target minimum; at
+                // the default text size this renders at exactly 44x62,
+                // matching `DayChip`.
                 .frame(minWidth: 44, minHeight: 62)
                 .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -534,6 +547,35 @@ struct EventListView: View {
         pendingScrollDeadline = delay > 0 ? Date().addingTimeInterval(delay) : nil
         model.uiTestPendingScrollDelay = 0
         #endif
+    }
+
+    /// Tapping a week band is navigation, exactly like tapping a chip —
+    /// it must not touch scope, weeks, categories or search. A reader with
+    /// a venue filter active keeps it. Filtering by week is a different
+    /// control, in the Filters sheet's WHEN section.
+    ///
+    /// The target is the full Saturday that opens the week: a reader asking
+    /// for week 6 is asking to be put at the top of week 6, and week 6 opens
+    /// on that Saturday. Its morning belongs to week 5, which the day
+    /// header's `Wk 5/6` and the band's own split fill both already say.
+    ///
+    /// Two fallbacks, because the rail never announces a destination it
+    /// cannot reach: if the opening Saturday has nothing under the current
+    /// non-date filters, land on the week's first day that does; if no day
+    /// in the week does, do nothing — and the band that would have fired is
+    /// dimmed and non-tappable, so this last branch should not be reachable
+    /// by a finger at all. It stays because `onSelectWeek` is a callback
+    /// anything could call.
+    ///
+    /// All three branches live in `WeekBands.navigationTarget`, which is a
+    /// pure function and therefore testable; this method is the wiring. The
+    /// two fallbacks were untestable while they lived here (#256 review fix).
+    private func selectWeek(_ week: Int, nav: NavMatching) {
+        guard let target = WeekBands.navigationTarget(
+            week: week, year: model.selectedYear,
+            eventDays: nav.eventDays, bounds: nav.bounds)
+        else { return }
+        selectDay(target)
     }
 
     /// Completes a `chqcal://day/<key>` deep link the tab route deliberately
@@ -826,17 +868,9 @@ struct EventListView: View {
                     pinnedSelection = nil
                 }
             }
-            // No `contentMargins(.bottom, …)` here on purpose. Since task 16,
-            // the date/filter pills are no longer a toolbar item — they're this
-            // view's own hand-rolled `filterPillBar`, applied to `content` via
-            // `.safeAreaInset(edge: .bottom)` in `body` above. A
-            // `.safeAreaInset` bar contributes its height to the scroll view's
-            // safe area the same way a real toolbar would, so the list already
-            // insets its content (and its scroll indicator) to clear the pills
-            // without any margin of ours. The inset is owned by the
-            // `.safeAreaInset` modifier itself, not by any state of ours, so
-            // nothing we render can shift the list vertically. Adding a margin
-            // back would double-count it.
+            // No `contentMargins(.bottom, …)` here: the list runs all the way
+            // to the tab bar now that Filters lives in the toolbar (#256)
+            // rather than in a bottom safe-area inset the list had to clear.
             .refreshable {
                 await model.refresh(force: true)
             }
@@ -1062,152 +1096,86 @@ struct EventListView: View {
         }
     }
 
-    /// The date pill's label. Never abbreviates — it is precisely the thing
-    /// a scrolling user wants to keep reading.
-    private var dateLabel: String {
-        DateFilterLabel.text(
-            for: model.filter,
-            seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count,
-            isCurrentYear: model.isCurrentYear)
-    }
-
     private var filterCount: Int { ActiveFilterCount.value(for: model.filter) }
 
+    /// Whether the Filters icon is filled — and, through the same call, what
+    /// its accessibility label says. See `FiltersButtonState` for why the
+    /// two must come from one expression: they did not, and disagreed
+    /// exactly where it mattered (#256 review fix).
+    private var isFilterActive: Bool {
+        FiltersButtonState.isActive(count: filterCount, selection: model.filter)
+    }
+
     private var filtersAccessibilityLabel: String {
-        filterCount == 0
-            ? "Filters, none active. Double tap to change."
-            : "Filters, \(filterCount) active. Double tap to change."
-    }
-
-    /// The date/filter pill bar, floated above the tab bar via
-    /// `.safeAreaInset(edge: .bottom)` in `body`.
-    ///
-    /// History: before the tab shell (task 16) these two buttons were a
-    /// `ToolbarItemGroup(placement: .bottomBar)`, sharing the system's
-    /// bottom bar with a `DefaultToolbarItem(kind: .search)` on iOS 26
-    /// (where `.searchable`'s default placement was bottom-anchored — see
-    /// git history of this comment for that arrangement's own rationale).
-    /// `RootTabView`'s tab bar ended it: on both iOS 26 and the tab shell's
-    /// first screenshots, the tab bar rendered ON TOP of any app-declared
-    /// `.bottomBar` content — date pill, Filters, and the search item were
-    /// all present but covered and untappable. So search moved to
-    /// `.navigationBarDrawer` placement (in `CalendarView`), and these
-    /// pills moved out of the toolbar system entirely into a safe-area
-    /// inset, which the tab bar's own safe-area contribution stacks
-    /// *above* rather than under (screenshot-verified in task 16).
-    ///
-    /// At accessibility text sizes the two pills no longer fit side by side —
-    /// the date pill is `fixedSize` (abbreviating the date is worse than
-    /// scrolling for it), so `Filters` was the one that truncated to `…`.
-    /// Scrolling the row keeps both labels whole.
-    ///
-    /// **Both halves of that fix are gated on `isAccessibilitySize`, and the
-    /// two gates must stay in step**: this `ScrollView`, and `Filters`' own
-    /// `fixedSize` in `pillRow`. `fixedSize` without the `ScrollView` to
-    /// rescue it is worse than the truncation it replaces — the row overflows
-    /// with neither truncation nor scrolling, and the Filters capsule is
-    /// clipped at the screen edge. That band is real and reachable:
-    /// `.xxLarge`/`.xxxLarge` are large text but not *accessibility* text, so
-    /// `isAccessibilitySize` is `false` there, and a long date label
-    /// (`DateFilterLabel`'s "Weeks 1, 3, 5") on a 375pt-wide iPhone overflows
-    /// the row. Those sizes therefore keep the pre-existing behaviour —
-    /// `Filters` truncates to `…` and stays fully on screen — rather than
-    /// getting the scrolling row. Below them both pills fit with room to
-    /// spare, so the default layout keeps its `Spacer` and is pixel-identical
-    /// either way.
-    private var filterPillBar: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                // No trailing `Spacer` here: inside a horizontal `ScrollView`
-                // the scroll axis offers effectively unbounded width, so an
-                // unconditional `Spacer(minLength: 0)` claims a large ideal
-                // width and produces a big blank scrollable tail past the
-                // two pills — harder to use at exactly the text sizes this
-                // branch exists to fix.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    pillRow(includeTrailingSpacer: false)
-                }
-            } else {
-                pillRow(includeTrailingSpacer: true)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-    }
-
-    /// `includeTrailingSpacer` is `false` only inside `filterPillBar`'s
-    /// `ScrollView` branch — see that property's comment. Everywhere else
-    /// the trailing `Spacer` is what pushes the pills left and fills the
-    /// row, so it stays `true` there and the non-scrolling layout is
-    /// unchanged.
-    private func pillRow(includeTrailingSpacer: Bool) -> some View {
-        HStack(spacing: 10) {
-            pillButton {
-                KeyboardDismisser.dismiss()
-                activeSheet = .date
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "calendar")
-                    // `fixedSize` so the date label never abbreviates — it
-                    // is precisely the thing a scrolling user wants to keep
-                    // reading. Longest value this can take is
-                    // `DateFilterLabel`'s "Weeks 1, 3, 5".
-                    Text(dateLabel)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .accessibilityLabel("Date range: \(dateLabel). Double tap to change.")
-
-            pillButton {
-                KeyboardDismisser.dismiss()
-                activeSheet = .filters
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "line.3.horizontal.decrease")
-                    Text(filterCount > 0 ? "Filters (\(filterCount))" : "Filters")
-                        .lineLimit(1)
-                        // Only where `filterPillBar`'s `ScrollView` is there
-                        // to scroll to it — see that property's comment for
-                        // why an ungated `fixedSize` clips this capsule off
-                        // the screen edge at `.xxLarge`/`.xxxLarge`. Both
-                        // arguments `false` is a no-op, so the non-
-                        // accessibility bands keep truncating to `…` exactly
-                        // as they always have.
-                        .fixedSize(
-                            horizontal: dynamicTypeSize.isAccessibilitySize, vertical: false)
-                }
-            }
-            .accessibilityLabel(filtersAccessibilityLabel)
-
-            if includeTrailingSpacer {
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    /// One pill: a plain button whose chrome matches the platform — Liquid
-    /// Glass on iOS 26 (what the old system bottom bar drew around these
-    /// same labels), a material capsule on iOS 18.
-    private func pillButton(
-        action: @escaping () -> Void, @ViewBuilder label: () -> some View
-    ) -> some View {
-        let button = Button(action: action) {
-            label()
-                .padding(.vertical, 11)
-                .padding(.horizontal, 14)
-        }
-        return Group {
-            if #available(iOS 26.0, *) {
-                button.glassEffect(.regular.interactive())
-            } else {
-                button.background(.regularMaterial, in: Capsule())
-            }
-        }
+        FiltersButtonState.accessibilityLabel(
+            count: filterCount,
+            selection: model.filter,
+            dateLabel: DateFilterLabel.text(
+                for: model.filter,
+                seasonWeekCount: SeasonCalendar.weeks(forYear: model.selectedYear).count,
+                isCurrentYear: model.isCurrentYear))
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Declared before Filters so it renders leftmost (⚌ 2026 ⋯ was the
+        // confirmed left-to-right order for the three items below before
+        // this one existed — see the comment further down) — the magnifier
+        // is what buys back search's discoverability now that `CalendarView`
+        // no longer keeps the field on screen at all times (#256).
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                searchFocus.wrappedValue = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .accessibilityLabel("Search events")
+            .accessibilityIdentifier("search-toolbar-button")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                KeyboardDismisser.dismiss()
+                isFilterSheetPresented = true
+            } label: {
+                // The badge is what makes this legible at icon size. An
+                // icon alone cannot tell "everything" from "a slice", and
+                // neither could the word "Filters" it replaces — which is
+                // why the count moves with it rather than being dropped as
+                // decoration.
+                //
+                // The condition, and the reasoning behind both of its
+                // halves, is `FiltersButtonState.isActive` — shared with
+                // this button's accessibility label so that the icon and the
+                // spoken name cannot answer the same question differently.
+                Image(systemName: isFilterActive
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle")
+            }
+            .accessibilityLabel(filtersAccessibilityLabel)
+            .accessibilityIdentifier("filters-toolbar-button")
+        }
+        // Declared after Filters and before the `⋯` menu below: `topBarTrailing`
+        // items render in declaration order, first-declared-leftmost — verified
+        // against a screenshot, not assumed (an earlier ordering here, declared
+        // ⋯-then-year, rendered ⚌ ⋯ 2026, not the ⚌ 2026 ⋯ this reads left to
+        // right today).
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                ForEach(model.years, id: \.self) { year in
+                    Button {
+                        Task { await model.select(year: year) }
+                    } label: {
+                        if year == model.selectedYear {
+                            Label(String(year), systemImage: "checkmark")
+                        } else {
+                            Text(String(year))
+                        }
+                    }
+                }
+            } label: {
+                Text(String(model.selectedYear))
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 ForEach(AboutInfo.quickLinks) { link in
@@ -1225,23 +1193,6 @@ struct EventListView: View {
                 Image(systemName: "ellipsis.circle")
             }
             .accessibilityLabel("More")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                ForEach(model.years, id: \.self) { year in
-                    Button {
-                        Task { await model.select(year: year) }
-                    } label: {
-                        if year == model.selectedYear {
-                            Label(String(year), systemImage: "checkmark")
-                        } else {
-                            Text(String(year))
-                        }
-                    }
-                }
-            } label: {
-                Text(String(model.selectedYear))
-            }
         }
     }
 }

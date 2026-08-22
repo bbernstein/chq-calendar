@@ -465,8 +465,10 @@ private struct MyDayExpandControl: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
-                // `.primary`, not the default accent tint — see
-                // `DayStepControl`'s matching comment for why.
+                // `.primary`, not the default accent tint (accessibility
+                // follow-up to #245): the accent colour against the opaque
+                // `dayRailControlBackground` measures under 4.5:1, caught
+                // by an on-device audit.
                 .foregroundStyle(.primary)
                 // Width's minimum is 44pt to meet the HIG minimum tap
                 // target. The horizontal axis is the mis-tap-prone one
