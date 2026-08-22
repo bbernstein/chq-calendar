@@ -15,12 +15,17 @@ import SwiftUI
 ///   mode since nothing ever pushes a value.
 ///
 /// Everything else — the loading/offline/error/no-matches states, the
-/// countdown/offline banners, the Filters toolbar button, and
+/// countdown/offline banners, the Filters and search toolbar buttons, and
 /// `refreshable` — is identical between the two layouts, which is the whole
 /// point of sharing this view.
 struct EventListView: View {
     @Bindable var model: AppModel
     var selection: Binding<Event?>?
+
+    /// Set by the toolbar's magnifier button to focus the search field that
+    /// `CalendarView` owns. A `FocusState.Binding` rather than a plain
+    /// `Bool` binding because `.searchFocused` requires one.
+    var searchFocus: FocusState<Bool>.Binding
 
     @State private var isAboutPresented = false
 
@@ -1048,6 +1053,20 @@ struct EventListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Declared before Filters so it renders leftmost (⚌ 2026 ⋯ was the
+        // confirmed left-to-right order for the three items below before
+        // this one existed — see the comment further down) — the magnifier
+        // is what buys back search's discoverability now that `CalendarView`
+        // no longer keeps the field on screen at all times (#256).
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                searchFocus.wrappedValue = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .accessibilityLabel("Search events")
+            .accessibilityIdentifier("search-toolbar-button")
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 KeyboardDismisser.dismiss()
