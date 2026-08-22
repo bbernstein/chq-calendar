@@ -70,6 +70,21 @@ final class SearchToolbarUITests: XCTestCase {
     /// commit. Typing is again the assertion: `app.typeText` fails outright
     /// if focus has gone, and `field.value` shows the term accumulating if
     /// it has not.
+    ///
+    /// The wait itself (`waitForSearchDebounceWindow` below) has no better
+    /// alternative than a fixed span: `field.value` already reads back the
+    /// freshly typed character the instant `app.typeText` returns, well
+    /// before `searchDraft`'s 200 ms `.task(id:)` debounce commits to
+    /// `model.filter.searchText` and `searchFieldDisplayMode` recomputes —
+    /// so a predicate that just waits for `field.value == expected` would
+    /// resolve immediately and never actually observe the flip this test
+    /// exists to catch. There is no accessibility-visible signal for "the
+    /// debounce fired and displayMode finished recomputing"; that happens
+    /// entirely on the model side. The fixed wait is unavoidable — what
+    /// changed is *how* it waits: a run-loop-pumped expectation instead of
+    /// `Thread.sleep`, so the test process's own async plumbing (the thing
+    /// `waitForExistence` etc. rely on) keeps running while we wait, rather
+    /// than being blocked out for the span.
     func testFocusSurvivesTheDisplayModeFlipWhileTyping() {
         let app = launchFixtureApp()
 
@@ -83,7 +98,7 @@ final class SearchToolbarUITests: XCTestCase {
         let term = "med"
         for (index, character) in term.enumerated() {
             app.typeText(String(character))
-            Thread.sleep(forTimeInterval: 0.5)
+            waitForSearchDebounceWindow()
             XCTAssertEqual(
                 field.value as? String, String(term.prefix(index + 1)),
                 "Typing \"\(character)\" past the 200 ms debounce lost the field: "
@@ -95,12 +110,31 @@ final class SearchToolbarUITests: XCTestCase {
         // and the one that would strand a reader mid-correction.
         for remaining in stride(from: term.count - 1, through: 0, by: -1) {
             app.typeText(XCUIKeyboardKey.delete.rawValue)
-            Thread.sleep(forTimeInterval: 0.5)
+            waitForSearchDebounceWindow()
             let expected = remaining == 0 ? "Search events" : String(term.prefix(remaining))
             XCTAssertEqual(
                 field.value as? String, expected,
                 "Deleting back to \(remaining) characters lost the field")
         }
+    }
+
+    /// Waits out a fixed span via the run loop, rather than blocking the
+    /// test thread the way `Thread.sleep` would.
+    ///
+    /// This is a genuine fixed-duration wait, not a disguised one: there is
+    /// no observable proxy for "the 200 ms `searchDraft` debounce fired and
+    /// `searchFieldDisplayMode` finished recomputing" short of waiting out
+    /// (a margin past) the debounce itself and then reading `field.value` —
+    /// which the caller does immediately after this returns. Fulfilling the
+    /// expectation from a timer (rather than leaving it unfulfilled and
+    /// relying on `XCTWaiter` timeout) means the run loop keeps servicing
+    /// the test process's own asynchronous work — the accessibility
+    /// notifications `waitForExistence` and friends depend on — for the
+    /// full span, instead of that plumbing sitting idle behind a hard sleep.
+    private func waitForSearchDebounceWindow(seconds: TimeInterval = 0.5) {
+        let settled = expectation(description: "search debounce window elapsed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { settled.fulfill() }
+        wait(for: [settled], timeout: seconds + 5)
     }
 
     /// `Clear Filters` zeroes `searchText` while the sheet is open, which

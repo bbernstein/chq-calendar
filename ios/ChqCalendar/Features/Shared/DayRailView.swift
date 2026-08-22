@@ -347,25 +347,6 @@ extension DayRailView {
 /// without inventing them — and this is a pure function of the segment list
 /// that deserves testing without a view host.
 enum WeekBandRun {
-    /// Whether the band's fill runs straight through the gutter between the
-    /// chips at `index` and `index + 1`, instead of stopping at the chip's
-    /// edge the way the segment's own frame does.
-    ///
-    /// **This is the whole reason a week reads as a week.** Every chip is
-    /// separated from the next by the same `RailMetrics.chipGutter`, within a
-    /// week and across a week boundary alike — so a band drawn strictly
-    /// chip-by-chip is a row of identical bars with identical gaps, and a
-    /// week's *extent* is invisible: nothing but the `WEEK n` text says a
-    /// week exists at all. Bridging the gutters inside a week turns each week
-    /// into one continuous run, and then the one gap that survives — the seam
-    /// through a boundary Saturday, see `WeekBandSegmentView.fillRun` — is
-    /// the only break in the band and therefore unmistakable.
-    ///
-    /// Two adjacent days bridge when they share a week. A boundary Saturday
-    /// shares its closing week with the Friday before it and its opening week
-    /// with the Sunday after, so it bridges *both* ways and its own split is
-    /// where the break goes. An out-of-season day shares nothing, so a run
-    /// ends at the season's edge.
     /// How far an unreachable week's fill is faded (#256 review fix).
     ///
     /// **The fill, never the `WEEK n` label.** `DayChip` records at length
@@ -385,6 +366,25 @@ enum WeekBandRun {
     /// the test would check a constant nothing uses.
     static let unreachableFillOpacity: Double = 0.3
 
+    /// Whether the band's fill runs straight through the gutter between the
+    /// chips at `index` and `index + 1`, instead of stopping at the chip's
+    /// edge the way the segment's own frame does.
+    ///
+    /// **This is the whole reason a week reads as a week.** Every chip is
+    /// separated from the next by the same `RailMetrics.chipGutter`, within a
+    /// week and across a week boundary alike — so a band drawn strictly
+    /// chip-by-chip is a row of identical bars with identical gaps, and a
+    /// week's *extent* is invisible: nothing but the `WEEK n` text says a
+    /// week exists at all. Bridging the gutters inside a week turns each week
+    /// into one continuous run, and then the one gap that survives — the seam
+    /// through a boundary Saturday, see `WeekBandSegmentView.fillRun` — is
+    /// the only break in the band and therefore unmistakable.
+    ///
+    /// Two adjacent days bridge when they share a week. A boundary Saturday
+    /// shares its closing week with the Friday before it and its opening week
+    /// with the Sunday after, so it bridges *both* ways and its own split is
+    /// where the break goes. An out-of-season day shares nothing, so a run
+    /// ends at the season's edge.
     static func bridgesGutter(after index: Int, in segments: [WeekBandSegment]) -> Bool {
         guard index >= 0, index + 1 < segments.count else { return false }
         let left = segments[index]
