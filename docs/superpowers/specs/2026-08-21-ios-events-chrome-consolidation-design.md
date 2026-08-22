@@ -139,11 +139,33 @@ stays, only its control surface changes.
 **Week band.** A ~14pt row above the chips, inside the same horizontal
 `ScrollView` so it cannot desync from them (the same single-`scrollLeft`
 argument the web rail's three stacked layers rest on). Each band spans its
-week's days, labelled `WEEK 5`, and tapping one calls
-`model.setWeekSelection([n])`.
+week's days and is labelled `WEEK 5`.
 
-This retires `WeekRangeStrip` from a sheet nobody opens and answers P5 in the
-surface where the question is actually asked.
+**Tapping a band navigates** (decided 2026-08-21) — it is a chip that spans
+seven days, not a filter control. Concretely it is `selectDay(target)` where
+`target` is the first day in `[week.start, week.end)` that has events under
+the current non-date filters, taken from the same `nav.eventDays` set the
+chevrons used. It therefore inherits, for free and without a new code path:
+
+- the edge-growth behaviour, if the target week lies outside the current view
+  window;
+- the pending-scroll and re-anchoring machinery;
+- the invariant `⟳ Now` already holds — **navigation never touches scope,
+  weeks, categories or search**. Tapping `WEEK 6` with a venue filter active
+  keeps that filter.
+
+A week with no reachable day is disabled and does not fire, matching
+`disablesEmptyDays: true` on the chips. The accessibility label names the
+destination ("Go to Week 6, June 27 – July 4, 84 events"), never the
+direction — the rail's established convention.
+
+Note the boundary Saturday is usually the target for week *n*, and its
+section's morning belongs to week *n-1*. That is not a defect: the day header
+already reads `Wk 5/6`, so the shared day is surfaced honestly rather than
+hidden.
+
+This answers P5 in the surface where the question is actually asked. It does
+**not** retire `WeekRangeStrip` — see A5.
 
 **The Saturday problem.** `SeasonCalendar` runs weeks Saturday noon → Saturday
 noon, so a Saturday genuinely belongs to two weeks — that is what `Wk 8/9` on
@@ -162,15 +184,27 @@ reimplementing it.
 
 ### A5 — `DateFilterSheet` is deleted; the scopes move to `FilterSheet`
 
-Both halves of the sheet have better homes: the week strip becomes the rail's
-band, and day-level choosing is what the rail already does. What remains is
-the four scopes (`Now` · `Today` · `All Season` · `All Year`), which are not
-date *filters* the way the sheet frames them — they are "where do I land and
-how much loads."
+Day-level choosing is what the rail already does, so the sheet as a container
+has no reason to exist. Its two contents move rather than disappear:
 
-They move into `FilterSheet` as a `WHEN` section, lifted from
-`DateFilterSheet.section("When")` with `visibleScopes` and its
-`FilterChipState.isScopeSelected` call intact.
+- **The four scopes** (`Now` · `Today` · `All Season` · `All Year`) move into
+  `FilterSheet` as a `WHEN` section, lifted from
+  `DateFilterSheet.section("When")` with `visibleScopes` and its
+  `FilterChipState.isScopeSelected` call intact. They are not date *filters*
+  the way the sheet frames them — they are "where do I land and how much
+  loads."
+- **`WeekRangeStrip` moves with them, into the same `WHEN` section.**
+
+That second point follows directly from the band navigating rather than
+filtering. Week-as-a-filter — including `WeekStripDrag`'s range selection,
+which the band has no gesture for — is a capability the app has today and
+this design must not silently drop. The band answers "take me to week 6"; the
+strip answers "show me only weeks 3–5." Two questions, two controls.
+
+The mutual exclusion between scope and week selection (`AppModel.selectScope`
+/ `AppModel.setWeekSelection`) is unchanged and, for the first time, both of
+its controls are in the same view — which should make it easier to render
+honestly, not harder.
 
 `FilterBarSheet` collapses to a single case; `activeSheet` can become a plain
 `Bool` or stay an enum if a future sheet is likely.
@@ -195,8 +229,8 @@ something real instead of being orphaned.
 | `EventListView.swift` | delete `filterPillBar`/`pillRow`/`pillButton` + bottom inset; add `🔍`/`⚌` toolbar items; `dayRail` drops `trailing`, leading is `⟳` only; `FilterBarSheet` loses `.date` |
 | `DayRailView.swift` | week band; Events call site's furniture; rotor actions |
 | `DateFilterSheet.swift` | **deleted** |
-| `FilterSheet.swift` | gains `WHEN` section |
-| `WeekRangeStrip.swift` | sole consumer was `DateFilterSheet` — becomes the band, or is replaced by it |
+| `FilterSheet.swift` | gains `WHEN` section: four scopes + `WeekRangeStrip` |
+| `WeekRangeStrip.swift` | unchanged; re-parented from `DateFilterSheet` to `FilterSheet` |
 | `DayRailUITests.swift:447` | asserts `day-step-previous` is disabled at a boundary |
 | `DayRailAccessibilityUITests.swift:40,164` | audit filter names both chevron identifiers |
 
@@ -238,13 +272,23 @@ a device/simulator pass, all drawn from recorded failures on the rail:
    surrounding history says this specific modifier has surprised the project
    before.
 
+## Resolved during design
+
+**Tapping a week band navigates; it does not filter** (2026-08-21). Every
+control on the rail is now navigation without exception — chips, `⟳ Now`, and
+bands — and every filter lives in one sheet behind one toolbar button. The
+rail/filter split that P1 identified as the root cause is now a property of
+*which surface a control is on*, which is the version of the rule a reader can
+actually learn.
+
+The consequence is recorded in A5: `WeekRangeStrip` survives, re-parented into
+`FilterSheet`'s `WHEN` section, because week-as-a-filter (and its drag-range
+selection) is a real capability that a navigating band does not replace.
+
 ## Open at design time
 
 - Whether the band label is `WEEK 5` or `WK 5` at the narrower iPad-sidebar
   width, and what it does at accessibility text sizes.
-- Whether tapping a band *selects* that week (a filter) or *navigates* to it
-  (a scroll). Selecting is the natural reading of a strip that replaced a
-  filter control; navigating is consistent with every other control on the
-  rail. This needs deciding before implementation — it is the same
-  filter-vs-navigation confusion as P1, one level down, and getting it wrong
-  reintroduces the problem this design exists to remove.
+- Whether a band should render at all over days outside the season. A4 says
+  the band renders nothing there; an alternative is a muted `OFF SEASON` span.
+  Low stakes, but it should be decided rather than fall out of the layout.
