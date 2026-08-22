@@ -283,7 +283,54 @@ Track user-visible changes here as they land, then fold the accepted
 bullets into `whatsNew` in `listing-fields.json` (Step 8) when preparing
 the next submission.
 
-*(Empty — everything tracked here was folded into `whatsNew` for 1.1.3.)*
+**Not yet folded into any `whatsNew` — from the Events-tab chrome
+consolidation (#256).** Roughly a third of the Events screen was permanent
+chrome across five bands owned by four mechanisms; this collapses it to one.
+Draft bullets:
+
+- **The search field scrolls away.** It used to hold 52pt on every screen
+  forever. A magnifier in the toolbar reaches it in one tap, and it stays
+  pinned whenever a search term is active, so you can always see and clear
+  what is narrowing the list.
+- **One Filters button, one Filters sheet.** The floating `Now` / `Filters`
+  pills that hovered over the list are gone. Filters is a toolbar button
+  with a count badge, and the separate Dates sheet is gone with them: the
+  four date choices (Now, Today, All Season, All Year) and the week-range
+  strip now live in that one sheet, under WHEN.
+- **Almost twice as many days on the rail.** The Events rail's `‹ ›`
+  one-day step chevrons are gone, which is what buys the room. Stepping to
+  the next or previous day *with events* survives as a VoiceOver action on
+  the rail.
+- **The rail shows the season's weeks.** A `WEEK 1`…`WEEK 9` band runs above
+  the day chips, one continuous bar per week, so a week boundary is visible
+  at swipe speed and the shading says how far into the summer you are. The
+  Saturday two weeks share carries both weeks' colours, which is the same
+  thing the `Wk 5/6` day headers have always said. **Tapping a week band
+  jumps to that week** — it navigates, it does not filter, so any venue or
+  category you have chosen survives the jump. A week holding nothing under
+  your current filters is dimmed and does not fire.
+
+Two things to keep straight when these are folded in:
+
+- **Every rail change above is Events-tab only.** My Day keeps its own
+  chevrons — they mean "reveal the rest of the season," a different question
+  — and has no week band. The same warning the 1.1.3 notes carry about the
+  day rail applies verbatim here: do not generalize these bullets to "the
+  app."
+- **The rule worth stating once, if a bullet can carry it:** every control
+  on the day rail now navigates, and every filter lives in the Filters
+  sheet. That is the whole point of the change, and it is the sentence a
+  user can actually learn.
+
+**`listing-fields.json` is stale against this branch and was deliberately
+left alone.** Its `whatsNew` describes the step chevrons and its
+`reviewNotes` describe the Filters pill, both of which this work deletes —
+but `MARKETING_VERSION` is 1.1.3 and unsubmitted, and this work may ship as
+1.1.4, so editing 1.1.3's copy could corrupt notes for a release that ships
+without this branch. That call belongs to the human preparing the
+submission: **whichever version carries #256 must have both fields
+rewritten at Step 8**, and if 1.1.3 ships first, its `whatsNew` and
+`reviewNotes` need re-reading against what is actually in that build.
 
 Folded into 1.1.2: the Captions link, the expanded Siri vocabulary, the My
 Day date-navigation work, the date-filter corrections, and the star-tap
