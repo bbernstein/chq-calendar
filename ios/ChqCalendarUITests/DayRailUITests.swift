@@ -416,21 +416,19 @@ final class DayRailUITests: XCTestCase {
             "Nothing is highlighted at all — the anchor was cleared rather than moved")
     }
 
-    /// Named by target, never by direction — and the target is the nearest
-    /// day that HAS events, so pressing it always changes what is on screen.
-    /// UITestFixture leaves 2026-07-02 empty (day-index 5, `5 % 3 == 2`), so
-    /// a correct control skips it and lands on 2026-07-03 instead — a Friday
-    /// carrying the fixture's usual three events, per `MyDayChipContentTests`'
-    /// "Go to Sunday, August 16, 4 events" wording.
-    func testTheForwardStepIsNamedForTheDayItGoesTo() {
-        let app = launchFixtureApp(now: "2026-07-01 10:00:00")
-        XCTAssertTrue(app.scrollViews["day-rail"].waitForExistence(timeout: 20))
-
-        let step = app.buttons["day-step-next"]
-        XCTAssertTrue(step.exists)
-        XCTAssertEqual(step.label, "Go to Friday, July 3, 3 events")
-    }
-
+    /// `testTheForwardStepIsNamedForTheDayItGoesTo` used to live here,
+    /// asserting `day-step-next`'s label named its destination ("Go to
+    /// Friday, July 3, 3 events"). #256 removed that button along with
+    /// `day-step-previous` (see `testTheBackwardStepIsDisabledAtTheEarliestReachableDay`
+    /// below) to give the rail's chip strip the space they occupied. The
+    /// skip-empty-days capability survives as two VoiceOver custom actions
+    /// on the rail (`EventListView.dayRail`), deliberately named by
+    /// capability ("Next day with events") rather than by destination —
+    /// there is no button left to attach a destination-naming assertion to,
+    /// and this codebase has no established pattern for driving a custom
+    /// accessibility action from XCUITest. `DayRailNavigationTests` still
+    /// covers the skip-empty-day targeting itself at the unit level.
+    ///
     /// The 2026 season starts 2026-06-27 at *noon*, so launching that
     /// morning can render `OffSeasonLandingView` with no rail at all.
     /// Launching at the standard time and tapping the earliest chip instead
@@ -446,7 +444,18 @@ final class DayRailUITests: XCTestCase {
         revealByScrolling(chip, in: app, rail: rail, rowMidY: rowMidY)
         chip.tap()
 
-        XCTAssertFalse(app.buttons["day-step-previous"].isEnabled)
+        // The step chevrons were removed in #256 (they cost ~88pt of a
+        // 440pt rail, leaving 3 chips). What they guarded — that there is
+        // no earlier day to reach — is now a property of the strip itself:
+        // the earliest reachable day (`chip`, just tapped above) must BE
+        // the leftmost chip in the rail, i.e. there is nothing before it to
+        // scroll to. Asserting only that *some* button sits at index 0
+        // would pass whether or not that property held, so this compares
+        // identifiers rather than merely checking existence.
+        let firstChip = rail.buttons.element(boundBy: 0)
+        XCTAssertEqual(
+            firstChip.identifier, "day-chip-2026-06-27",
+            "The earliest reachable day is not the leftmost chip in the rail")
     }
 
     /// Defect 2 (user report, #245): `⟳ Now` and both step chevrons used to

@@ -411,26 +411,26 @@ struct EventListView: View {
                 if let reachableToday {
                     nowButton(reachableToday, nav: nav)
                 }
-                DayStepControl(
-                    symbol: "chevron.left",
-                    identifier: "day-step-previous",
-                    destinationLabel: step.previous.map { stepLabel(for: $0, nav: nav) },
-                    emptyLabel: "No earlier days with events"
-                ) {
-                    if let previous = step.previous { selectDay(previous) }
-                }
             },
-            trailing: {
-                DayStepControl(
-                    symbol: "chevron.right",
-                    identifier: "day-step-next",
-                    destinationLabel: step.next.map { stepLabel(for: $0, nav: nav) },
-                    emptyLabel: "No later days with events"
-                ) {
-                    if let next = step.next { selectDay(next) }
-                }
-            })
+            trailing: { EmptyView() })
         .background(.bar)
+        // The chevrons used to carry this capability visibly — they were the
+        // only control that skipped *empty* days, since tapping a
+        // neighbouring chip lands on the next chip, not the next day with
+        // events. Removing them for the chip space (#256) would silently
+        // drop that for VoiceOver, so it survives here as two custom
+        // actions over the same `DayRailNavigation.stepTargets` the
+        // chevrons used. Named by capability ("Next day with events")
+        // rather than by destination ("Go to Sunday, August 16, 4 events"):
+        // a rotor action is read from a list before it's chosen, where the
+        // capability is the useful thing to say, unlike a button the reader
+        // is already focused on.
+        .accessibilityAction(named: Text("Previous day with events")) {
+            if let previous = step.previous { selectDay(previous) }
+        }
+        .accessibilityAction(named: Text("Next day with events")) {
+            if let next = step.next { selectDay(next) }
+        }
     }
 
     /// `⟳ Now`: navigation, never a filter change — the spec is explicit

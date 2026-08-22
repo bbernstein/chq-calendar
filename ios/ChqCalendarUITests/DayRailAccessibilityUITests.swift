@@ -37,8 +37,8 @@ import XCTest
 /// identifier matching silently dropped every genuine chip-text issue —
 /// exactly the false negative this file exists to prevent. Unioning the
 /// frames of the rail's own identified elements (`day-chip-*`,
-/// `day-step-previous`/`day-step-next`, `day-rail-now`,
-/// `day-rail-expand-earlier`/`day-rail-expand-later`) gives a tight box
+/// `day-rail-now`, `day-rail-expand-earlier`/`day-rail-expand-later`) gives
+/// a tight box
 /// that still contains every one of their descendant text runs — those nest
 /// fully inside their element's frame — while excluding the search field,
 /// which sits well outside it.
@@ -161,7 +161,7 @@ final class DayRailAccessibilityUITests: XCTestCase {
     private let railElementPredicate = NSPredicate(
         format: """
             identifier BEGINSWITH 'day-chip-' OR identifier BEGINSWITH 'day-rail-expand-' \
-            OR identifier IN {'day-step-previous', 'day-step-next', 'day-rail-now'}
+            OR identifier IN {'day-rail-now'}
             """)
 
     /// The union of every rail element's own frame — see the type's doc
