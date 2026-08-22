@@ -115,6 +115,144 @@ struct WeekBandsTests {
     }
 }
 
+/// Where a band tap lands (#256 review fix).
+///
+/// These three branches used to live inside a private `EventListView` method
+/// and could not be reached from a unit test at all — and because the UI
+/// fixture's week-5 opening Saturday has events, only the happy path ever
+/// ran. `WeekBands.navigationTarget` is the same decision as a pure
+/// function, which is also what gives `WeekBandSegmentView` the reachability
+/// signal it needs to dim a week it cannot reach.
+///
+/// 2026 season: week 5 opens Sat 2026-07-25 and closes Sat 2026-08-01, which
+/// it shares with week 6.
+struct WeekBandNavigationTargetTests {
+    private let season = "2026-06-01"..."2026-09-30"
+
+    private func target(_ week: Int, _ eventDays: [String],
+                        bounds: ClosedRange<String>? = nil) -> String? {
+        WeekBands.navigationTarget(
+            week: week, year: 2026, eventDays: eventDays,
+            bounds: bounds ?? season)
+    }
+
+    @Test func theOpeningSaturdayWinsWhenItHasEvents() {
+        #expect(target(5, ["2026-07-25", "2026-07-28"]) == "2026-07-25")
+    }
+
+    @Test func anEmptyOpeningSaturdayFallsBackToTheWeeksFirstDayWithEvents() {
+        // Fallback 1. The rail never announces a destination it cannot
+        // reach, so an empty opening Saturday is not a legal landing.
+        #expect(target(5, ["2026-07-28", "2026-07-30"]) == "2026-07-28")
+    }
+
+    @Test func theFallbackTakesTheWeeksEarliestDayNotTheListsFirst() {
+        // `NavMatching.eventDays` spans the whole rail, not one week, and it
+        // is documented as sorted ascending — which is what lets the fallback
+        // stop at the first match. What it must not do is stop at the first
+        // element: 07-20 is in week 4.
+        #expect(target(5, ["2026-07-20", "2026-07-28", "2026-07-30"]) == "2026-07-28")
+    }
+
+    @Test func aWeekWithNothingReachableHasNoTarget() {
+        // Fallback 2, the one the band renders as disabled. Days on either
+        // side of week 5, none inside it.
+        #expect(target(5, ["2026-07-20", "2026-08-05"]) == nil)
+    }
+
+    @Test func theSharedSaturdayCountsForBothOfItsWeeks() {
+        // Day-granular membership: Sat 2026-08-01 closes week 5 and opens
+        // week 6, so it is reachable from either band.
+        #expect(target(5, ["2026-08-01"]) == "2026-08-01")
+        #expect(target(6, ["2026-08-01"]) == "2026-08-01")
+    }
+
+    @Test func aWeekOutsideTheSeasonHasNoTarget() {
+        #expect(target(0, ["2026-07-25"]) == nil)
+        #expect(target(10, ["2026-07-25"]) == nil)
+    }
+
+    @Test func daysOutsideTheRailsBoundsAreNotLegalTargets() {
+        // `AppModel.goToDay` refuses a day past `navigableBounds`, so a
+        // target outside them would be announced and then declined.
+        let clamped = "2026-07-28"..."2026-09-30"
+        #expect(target(5, ["2026-07-25", "2026-07-29"], bounds: clamped) == "2026-07-29")
+    }
+
+    @Test func aWeekEntirelyOutsideTheBoundsIsUnreachable() {
+        let clamped = "2026-08-10"..."2026-09-30"
+        #expect(target(5, ["2026-07-25"], bounds: clamped) == nil)
+    }
+}
+
+/// What VoiceOver reads for a week band (#256 review fix).
+///
+/// Design A4 specified a label naming the *destination* — "Go to Week 6,
+/// opens Saturday June 27, 84 events" — never the direction, which is this
+/// rail's established convention. The band shipped announcing a bare
+/// "Week 6" with no button trait at all.
+struct WeekBandDestinationTests {
+    private let season = "2026-06-01"..."2026-09-30"
+
+    private func destinations(
+        _ eventDays: [String], counts: [String: Int] = [:],
+        includingYear: Bool = false
+    ) -> [Int: WeekBandDestination] {
+        WeekBands.destinations(
+            year: 2026, eventDays: eventDays, bounds: season,
+            countsByDay: counts, includingYear: includingYear)
+    }
+
+    @Test func theOpeningSaturdayIsNamedAsOpeningTheWeek() {
+        let result = destinations(["2026-07-25"], counts: ["2026-07-25": 84])
+        #expect(result[5]?.dayKey == "2026-07-25")
+        #expect(result[5]?.accessibilityLabel
+            == "Go to Week 5, opens Saturday, July 25, 84 events")
+    }
+
+    @Test func aFallbackDayDoesNotClaimToOpenTheWeek() {
+        // Saying "opens" here would be a small lie about where the reader is
+        // being put down.
+        let result = destinations(["2026-07-28"], counts: ["2026-07-28": 1])
+        #expect(result[5]?.accessibilityLabel
+            == "Go to Week 5, first events Tuesday, July 28, 1 event")
+    }
+
+    @Test func anUnreachableWeekIsAbsentFromTheMap() {
+        let result = destinations(["2026-07-28"])
+        #expect(result[5] != nil)
+        #expect(result[1] == nil)
+        #expect(result[9] == nil)
+    }
+
+    @Test func anUnreachableWeekIsStatedAsAFactNotOfferedAsADestination() {
+        // Mirrors `MyDayChipContent`'s empty chip ("Sunday, August 16, no
+        // events"), which also never says "Go to".
+        #expect(WeekBands.unreachableLabel(week: 6) == "Week 6, no events")
+    }
+
+    @Test func anArchivedSeasonSaysWhichYear() {
+        let result = destinations(["2026-07-25"], counts: ["2026-07-25": 3],
+                                  includingYear: true)
+        #expect(result[5]?.accessibilityLabel.contains("2026") == true)
+    }
+
+    @Test func theBatchFormAgreesWithTheSingleWeekForm() {
+        // The dimmed band and the refused tap read the batch form; the tap
+        // handler reads the single-week form. They must not be able to
+        // disagree about which weeks are reachable.
+        let eventDays = ["2026-06-30", "2026-07-28", "2026-07-30", "2026-08-20"]
+        let batch = destinations(eventDays)
+        for week in 1...9 {
+            let single = WeekBands.navigationTarget(
+                week: week, year: 2026, eventDays: eventDays, bounds: season)
+            let message = "week \(week): batch \(String(describing: batch[week]?.dayKey)) "
+                + "vs single \(String(describing: single))"
+            #expect(batch[week]?.dayKey == single, Comment(rawValue: message))
+        }
+    }
+}
+
 /// Where the band's painted run breaks (#256 review fix).
 ///
 /// The rule the *look* of the band rests on: every chip is the same distance

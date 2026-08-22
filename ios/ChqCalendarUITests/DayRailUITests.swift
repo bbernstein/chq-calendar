@@ -689,14 +689,14 @@ final class DayRailUITests: XCTestCase {
     /// segments` places a week's label on the middle of its solo days —
     /// 2026-07-29 here — which sits one chip from the anchor and so is on
     /// screen without the `revealByScrolling` every distant-chip test in
-    /// this file needs. Targeting that label directly (`otherElements["Week
-    /// 5"]`) is also deterministic in a way the plan's `firstMatch` over
-    /// every `'Week '`-prefixed element in the rail is not: document order in
-    /// that query would offer week 1's label first (the rail's `HStack` is
-    /// not lazy, so it exists in the tree from launch even off-screen), and
-    /// week 1 is ~30 days from this anchor — genuinely off-screen, where
-    /// `tap()` would fail the same way a plain `swipeLeft()` does elsewhere
-    /// in this file (see `revealByScrolling`'s doc).
+    /// this file needs. Naming week 5 exactly is also deterministic in a way
+    /// the plan's `firstMatch` over every `'Week '`-prefixed element in the
+    /// rail is not: document order in that query would offer week 1's label
+    /// first (the rail's `HStack` is not lazy, so it exists in the tree from
+    /// launch even off-screen), and week 1 is ~30 days from this anchor —
+    /// genuinely off-screen, where `tap()` would fail the same way a plain
+    /// `swipeLeft()` does elsewhere in this file (see `revealByScrolling`'s
+    /// doc).
     func testTappingAWeekBandNavigatesWithoutFiltering() {
         let app = launchFixtureApp(
             now: "2026-07-27 09:00:00",
@@ -705,8 +705,22 @@ final class DayRailUITests: XCTestCase {
         let rail = app.scrollViews["day-rail"]
         XCTAssertTrue(rail.waitForExistence(timeout: 20))
 
-        let band = rail.otherElements["Week 5"]
-        XCTAssertTrue(band.waitForExistence(timeout: 10))
+        // `buttons`, not `otherElements` (#256 review fix). The band carries
+        // the `.isButton` trait now, so this query is itself the assertion
+        // that it announces as a control — before that trait landed the only
+        // way to reach it was as a plain element and a coordinate tap, which
+        // proved the fill was on screen and nothing about whether VoiceOver
+        // could activate it.
+        //
+        // `BEGINSWITH`, because the label names its destination now ("Go to
+        // Week 5, opens Saturday, July 25, N events") rather than reading a
+        // bare "Week 5" — the counts come from the fixture and are not worth
+        // pinning here; `WeekBandDestinationTests` pins the whole phrase.
+        let band = rail.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'Go to Week 5'")).firstMatch
+        XCTAssertTrue(
+            band.waitForExistence(timeout: 10),
+            "The week 5 band did not resolve as a button naming its destination")
         band.tap()
 
         // The navigation half of the rule: the tap must land on the Saturday

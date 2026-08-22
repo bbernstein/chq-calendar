@@ -35,10 +35,12 @@ extension Color {
 ///
 /// Extracted from My Day (#192), which had it first, so the Events tab's day
 /// rail is the same surface rather than a lookalike. The two screens differ
-/// only in what the chips count (`DayChipCountStyle`) and what sits at the
-/// ends: My Day's chevrons reveal the rest of the season, the Events rail's
-/// step one day at a time. Both, not one replacing the other — "go far" and
-/// "go one" are different questions.
+/// only in what the chips count (`DayChipCountStyle`), what sits at the ends,
+/// and whether a week band runs above them. My Day keeps its chevrons, which
+/// reveal the rest of the season; the Events rail dropped its own one-day step
+/// chevrons in #256 to buy chip space, and reaches a distant week through the
+/// band instead (empty-day stepping survives there as a VoiceOver rotor
+/// action — see `EventListView.dayRail`).
 ///
 /// **Scroll-to-selection lives here**, because getting it wrong is invisible
 /// until a real device: expanding an end prepends or appends chips, which
@@ -62,9 +64,20 @@ struct DayRailView<Leading: View, Trailing: View>: View {
     var bandSegments: [WeekBandSegment] = []
 
     /// Tapping a band segment navigates to that week. `nil` — the default —
-    /// leaves the band decorative, which is what it is until task 8 wires
-    /// the callback.
+    /// leaves the band decorative, which is what My Day passes: it has no
+    /// week band at all.
     var onSelectWeek: ((Int) -> Void)? = nil
+
+    /// Which weeks a band tap can actually reach, and what VoiceOver reads
+    /// for each — `WeekBands.destinations(...)`, computed by the screen that
+    /// knows the filter.
+    ///
+    /// A week **absent** from a non-nil map is unreachable: its fill dims and
+    /// its tap does not fire, mirroring the empty chips beneath it
+    /// (`disablesEmptyDays: true`) rather than looking ordinary and silently
+    /// refusing. `nil` — the default — means the caller has no reachability
+    /// to offer, and every band stays a plain, tappable `Week n`.
+    var weekDestinations: [Int: WeekBandDestination]? = nil
 
     let selectedDay: String?
     /// Names the strip as a whole for VoiceOver. A group of links or buttons
@@ -198,7 +211,8 @@ struct DayRailView<Leading: View, Trailing: View>: View {
                                             after: index - 1, in: bandSegments),
                                         bridgesTrailing: WeekBandRun.bridgesGutter(
                                             after: index, in: bandSegments),
-                                        onSelectWeek: onSelectWeek
+                                        onSelectWeek: onSelectWeek,
+                                        weekDestinations: weekDestinations
                                     )
                                     // Capped here rather than on the label
                                     // alone so the band's own height
@@ -352,6 +366,25 @@ enum WeekBandRun {
     /// with the Sunday after, so it bridges *both* ways and its own split is
     /// where the break goes. An out-of-season day shares nothing, so a run
     /// ends at the season's edge.
+    /// How far an unreachable week's fill is faded (#256 review fix).
+    ///
+    /// **The fill, never the `WEEK n` label.** `DayChip` records at length
+    /// why the rail has no `.disabled()` left in it: SwiftUI's disabled
+    /// dimming is a compositing pass over the whole label, and it took an
+    /// empty chip's text to a sampled ~3.7:1 in an on-device audit. Fading
+    /// only the fill cannot repeat that — the label keeps `.primary`, and
+    /// because the ramp sits *between* the rail's background and the label's
+    /// colour in both appearances (light: a grey fill under black text on a
+    /// near-white bar; dark: a grey fill under white text on a near-black
+    /// bar), a faded fill composites *toward* the background and so can only
+    /// raise the label's contrast, never lower it.
+    ///
+    /// Here rather than on `WeekBandSegmentView`, which is `private` and so
+    /// cannot be named from a test: `WeekBandContrastTests` computes the
+    /// faded composite against this exact value, and a copy of the number in
+    /// the test would check a constant nothing uses.
+    static let unreachableFillOpacity: Double = 0.3
+
     static func bridgesGutter(after index: Int, in segments: [WeekBandSegment]) -> Bool {
         guard index >= 0, index + 1 < segments.count else { return false }
         let left = segments[index]
@@ -425,6 +458,10 @@ private struct WeekBandSegmentView: View {
 
     let onSelectWeek: ((Int) -> Void)?
 
+    /// See `DayRailView.weekDestinations`. `nil` means "no reachability
+    /// information", not "nothing is reachable".
+    let weekDestinations: [Int: WeekBandDestination]?
+
     /// Scales with `.caption2`, the label's own text style, so the strip and
     /// the `WEEK n` inside it stay in proportion at every text size instead
     /// of the text outgrowing a fixed 14pt strip.
@@ -462,9 +499,7 @@ private struct WeekBandSegmentView: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture {
-                if let week = segment?.navigationTarget { onSelectWeek?(week) }
-            }
+            .onTapGesture { navigate() }
             // Only a *labelled* segment is exposed to VoiceOver, and
             // `WeekBands.segments` places at most one of those per week.
             // Exposing every in-season segment instead would put sixty-odd
@@ -476,14 +511,65 @@ private struct WeekBandSegmentView: View {
             // rather than a stop.
             .accessibilityElement()
             .accessibilityHidden(segment?.labelledWeek == nil)
-            .accessibilityLabel(segment?.labelledWeek.map { "Week \($0)" } ?? "")
+            .accessibilityLabel(spokenLabel)
+            // A band is a control, and until this trait landed it announced
+            // as plain text: VoiceOver gave a reader no way to know "Week 6"
+            // could be activated, and an unreachable week was indistinguishable
+            // from a reachable one. Traits and label move together — the trait
+            // is only added where `navigate()` will actually fire, so
+            // "double tap to activate" is never announced for a week the tap
+            // silently refuses.
+            .accessibilityAddTraits(isNavigable ? [.isButton] : [])
+            // Not left to the `.onTapGesture` above: a tap gesture on an
+            // `.accessibilityElement()` container is not reliably what
+            // VoiceOver's activation invokes. `WeekRangeStrip.segment` states
+            // its action the same way for the same reason.
+            .accessibilityAction { navigate() }
             .accessibilityIdentifier("day-band-\(day)")
+    }
+
+    /// The week this segment's tap means, when it means one and can reach it.
+    ///
+    /// `WeekBandSegment.navigationTarget` answers only the first half — a
+    /// shared Saturday has no unambiguous week, so it is never a tap target
+    /// regardless of reachability. `weekDestinations` answers the second.
+    private var targetWeek: Int? {
+        guard let week = segment?.navigationTarget else { return nil }
+        guard let weekDestinations else { return week }
+        return weekDestinations[week] == nil ? nil : week
+    }
+
+    private var isNavigable: Bool { targetWeek != nil }
+
+    private func navigate() {
+        guard let targetWeek else { return }
+        onSelectWeek?(targetWeek)
+    }
+
+    /// Named by destination, never by direction — `WeekBands` builds the
+    /// phrase so it can be tested without a view host, and so an unreachable
+    /// week is stated as a fact ("Week 6, no events") rather than offered.
+    ///
+    /// Only a *labelled* segment is exposed at all, so this is read for at
+    /// most one segment per week.
+    private var spokenLabel: String {
+        guard let week = segment?.labelledWeek else { return "" }
+        guard let weekDestinations else { return "Week \(week)" }
+        return weekDestinations[week]?.accessibilityLabel
+            ?? WeekBands.unreachableLabel(week: week)
     }
 
     /// A bleed is only ever applied to a segment that actually has a run to
     /// draw; a nil segment (out of season, or the misalignment
     /// `DayRailView.resolvedSegment` refuses to guess at) paints nothing, so
     /// it must not paint nothing *wider*.
+    ///
+    /// **The `segment == nil` short-circuit is load-bearing, not defensive.**
+    /// `bridgesLeading`/`bridgesTrailing` are looked up by *raw index* into
+    /// `DayRailView.bandSegments`, which is the one place the band does not
+    /// re-check that the index really belongs to this chip; refusing to bleed
+    /// when this view has no segment of its own is what keeps a stale or
+    /// misaligned bridge answer from painting a run over a day that has none.
     private var leadingBleed: CGFloat {
         segment == nil || !bridgesLeading ? 0 : RailMetrics.bandBleed
     }
@@ -506,14 +592,21 @@ private struct WeekBandSegmentView: View {
     @ViewBuilder
     private var fillRun: some View {
         let steps = runSteps
+        let weeks = segment?.weekNumbers ?? []
         if steps.count == 1 {
-            bar(step: steps[0], roundsLeading: !bridgesLeading, roundsTrailing: !bridgesTrailing)
+            bar(step: steps[0], week: weeks.first,
+                roundsLeading: !bridgesLeading, roundsTrailing: !bridgesTrailing)
         } else if steps.count == 2 {
             HStack(spacing: RailMetrics.weekSeam) {
                 // Both inner ends are rounded: they are the ends of two
-                // different weeks' runs, not the middle of one.
-                bar(step: steps[0], roundsLeading: !bridgesLeading, roundsTrailing: true)
-                bar(step: steps[1], roundsLeading: true, roundsTrailing: !bridgesTrailing)
+                // different weeks' runs, not the middle of one. Each half
+                // also dims on its own week's reachability — a shared
+                // Saturday can close a week that still has events and open
+                // one that has none.
+                bar(step: steps[0], week: weeks.first,
+                    roundsLeading: !bridgesLeading, roundsTrailing: true)
+                bar(step: steps[1], week: weeks.count > 1 ? weeks[1] : nil,
+                    roundsLeading: true, roundsTrailing: !bridgesTrailing)
             }
         } else {
             // Outside the season there is no week, so the band says nothing
@@ -546,7 +639,9 @@ private struct WeekBandSegmentView: View {
     /// at a seam, or at the edge of the season. A rounded end inside a run
     /// would be a false boundary, and a square end at a real one would blunt
     /// the only signal this design has left.
-    private func bar(step: Double, roundsLeading: Bool, roundsTrailing: Bool) -> some View {
+    private func bar(
+        step: Double, week: Int?, roundsLeading: Bool, roundsTrailing: Bool
+    ) -> some View {
         let radius = RailMetrics.bandCornerRadius
         return UnevenRoundedRectangle(
             topLeadingRadius: roundsLeading ? radius : 0,
@@ -555,8 +650,19 @@ private struct WeekBandSegmentView: View {
             topTrailingRadius: roundsTrailing ? radius : 0,
             style: .continuous
         )
-        .fill(Self.rampColor(step))
+        .fill(Self.rampColor(step)
+            .opacity(isReachable(week) ? 1 : WeekBandRun.unreachableFillOpacity))
     }
+
+    /// Whether the fill for `week` is drawn at full strength.
+    ///
+    /// Reachability is per *week*, not per segment, precisely so a shared
+    /// Saturday's two halves can disagree.
+    private func isReachable(_ week: Int?) -> Bool {
+        guard let weekDestinations, let week else { return true }
+        return weekDestinations[week] != nil
+    }
+
 
     /// The ramp, interpolated between two named assets rather than nine
     /// hand-tuned colours. Lightness varies and hue does not, so adjacent

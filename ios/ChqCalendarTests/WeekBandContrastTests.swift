@@ -6,7 +6,7 @@ import UIKit
 /// the same way `DayChipContrastTests` pins the chips — and for the same
 /// reason: `performAccessibilityAudit` cannot sample an individual `Text`
 /// run once its container has collapsed the label into one accessibility
-/// node, which `DayRailView.bandSegment`'s `.accessibilityElement()` does.
+/// node, which `WeekBandSegmentView`'s `.accessibilityElement()` does.
 /// See `DayRailAccessibilityUITests`'s `auditTypes` for the full account of
 /// that blind spot. Contrast between two *known* colours has none of that
 /// ambiguity.
@@ -216,6 +216,58 @@ struct WeekBandContrastTests {
                 spread <= 24,
                 "\(name) is not a neutral fill in \(style) (channel spread \(spread))")
         }
+    }
+
+    /// Fading an unreachable week's fill must not cost the `WEEK n` label
+    /// its contrast.
+    ///
+    /// This is the failure mode the rail has already had once: `DayChip`
+    /// records at length how SwiftUI's `.disabled()` dimming took an empty
+    /// chip's text to a sampled ~3.7:1, and why there is no `.disabled()`
+    /// left anywhere on this rail. The band's answer is to fade **only the
+    /// fill** and leave the label at `.primary` — and because the ramp sits
+    /// between the rail's background and the label's colour in both
+    /// appearances, a faded fill composites *toward* the background, away
+    /// from the label. That is the claim; this checks it at both ends of the
+    /// ramp rather than trusting it.
+    ///
+    /// `DayChipBackground` stands in for the rail's own `.bar`: a material
+    /// cannot be sampled, and this asset is the opaque colour the chips
+    /// beside the band already use (`UIColor.secondarySystemBackground`'s
+    /// own values), which is the nearest thing to the band's real backdrop
+    /// that has numbers at all.
+    @Test(arguments: [UIUserInterfaceStyle.light, .dark])
+    func aFadedFillNeverCostsTheLabelContrast(style: UIUserInterfaceStyle) throws {
+        let backdrop = try resolvedAssetColor(named: "DayChipBackground", style: style)
+        for name in ["WeekBandStart", "WeekBandEnd"] {
+            let fill = try resolvedAssetColor(named: name, style: style)
+            let faded = Self.composite(
+                fill, over: backdrop, alpha: WeekBandRun.unreachableFillOpacity)
+            let full = Contrast.ratio(fill, label(style))
+            let ratio = Contrast.ratio(faded, label(style))
+            let floorMessage = "\(name) faded to \(WeekBandRun.unreachableFillOpacity) in \(style): "
+                + "WEEK n computes \(ratio):1, below AA's \(Self.aaNormalText):1"
+            #expect(ratio >= Self.aaNormalText, Comment(rawValue: floorMessage))
+            let directionMessage = "fading \(name) in \(style) moved the fill *toward* the "
+                + "label (\(full):1 -> \(ratio):1); the whole argument for fading only the "
+                + "fill is that it cannot do that"
+            #expect(ratio >= full, Comment(rawValue: directionMessage))
+        }
+    }
+
+    /// Ordinary source-over alpha compositing, in sRGB, which is what
+    /// `.opacity` on a fill does over an opaque backdrop.
+    private static func composite(
+        _ color: UIColor, over backdrop: UIColor, alpha: Double
+    ) -> UIColor {
+        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        var (br, bg, bb, ba): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        backdrop.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+        func mix(_ top: CGFloat, _ bottom: CGFloat) -> CGFloat {
+            top * CGFloat(alpha) + bottom * CGFloat(1 - alpha)
+        }
+        return UIColor(red: mix(r, br), green: mix(g, bg), blue: mix(b, bb), alpha: 1)
     }
 
     /// The claim the two tests above rest on: the ramp travels in one

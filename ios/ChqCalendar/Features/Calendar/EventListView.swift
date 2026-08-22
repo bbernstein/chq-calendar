@@ -412,6 +412,16 @@ struct EventListView: View {
                 includingYear: !model.isCurrentYear),
             bandSegments: WeekBands.segments(dayKeys: railDayKeys, year: model.selectedYear),
             onSelectWeek: { week in selectWeek(week, nav: nav) },
+            // Reachability and the spoken destination come from one call, so
+            // a dimmed band and a refused tap can never disagree — the state
+            // the band shipped in was a normal-looking band next to visibly
+            // empty chips that silently did nothing (#256 review fix).
+            weekDestinations: WeekBands.destinations(
+                year: model.selectedYear,
+                eventDays: nav.eventDays,
+                bounds: nav.bounds,
+                countsByDay: nav.countsByDay,
+                includingYear: !model.isCurrentYear),
             selectedDay: anchor,
             accessibilityLabel: "Days in the season",
             disablesEmptyDays: true,
@@ -552,32 +562,20 @@ struct EventListView: View {
     /// Two fallbacks, because the rail never announces a destination it
     /// cannot reach: if the opening Saturday has nothing under the current
     /// non-date filters, land on the week's first day that does; if no day
-    /// in the week does, do nothing.
+    /// in the week does, do nothing — and the band that would have fired is
+    /// dimmed and non-tappable, so this last branch should not be reachable
+    /// by a finger at all. It stays because `onSelectWeek` is a callback
+    /// anything could call.
+    ///
+    /// All three branches live in `WeekBands.navigationTarget`, which is a
+    /// pure function and therefore testable; this method is the wiring. The
+    /// two fallbacks were untestable while they lived here (#256 review fix).
     private func selectWeek(_ week: Int, nav: NavMatching) {
-        guard let opening = WeekBands.openingDayKey(ofWeek: week, year: model.selectedYear)
+        guard let target = WeekBands.navigationTarget(
+            week: week, year: model.selectedYear,
+            eventDays: nav.eventDays, bounds: nav.bounds)
         else { return }
-
-        if nav.eventDays.contains(opening) {
-            selectDay(opening)
-            return
-        }
-
-        // `nav.eventDays` is already sorted ascending (`NavMatching`'s own
-        // doc), so re-sorting it here would just repeat work `AppModel`
-        // already did — `first(where:)` over it in its existing order is
-        // enough to find the week's earliest reachable day.
-        let weekDays = Set(
-            WeekBands.segments(
-                dayKeys: ChqTime.dayKeys(
-                    from: nav.bounds.lowerBound, through: nav.bounds.upperBound),
-                year: model.selectedYear
-            )
-            .filter { $0.weekNumbers.contains(week) }
-            .map(\.dayKey))
-
-        guard let fallback = nav.eventDays.first(where: { weekDays.contains($0) })
-        else { return }
-        selectDay(fallback)
+        selectDay(target)
     }
 
     /// Completes a `chqcal://day/<key>` deep link the tab route deliberately
