@@ -411,6 +411,7 @@ struct EventListView: View {
                 style: .events,
                 includingYear: !model.isCurrentYear),
             bandSegments: WeekBands.segments(dayKeys: railDayKeys, year: model.selectedYear),
+            onSelectWeek: { week in selectWeek(week, nav: nav) },
             selectedDay: anchor,
             accessibilityLabel: "Days in the season",
             disablesEmptyDays: true,
@@ -531,6 +532,47 @@ struct EventListView: View {
         pendingScrollDeadline = delay > 0 ? Date().addingTimeInterval(delay) : nil
         model.uiTestPendingScrollDelay = 0
         #endif
+    }
+
+    /// Tapping a week band is navigation, exactly like tapping a chip —
+    /// it must not touch scope, weeks, categories or search. A reader with
+    /// a venue filter active keeps it. Filtering by week is a different
+    /// control, in the Filters sheet's WHEN section.
+    ///
+    /// The target is the full Saturday that opens the week: a reader asking
+    /// for week 6 is asking to be put at the top of week 6, and week 6 opens
+    /// on that Saturday. Its morning belongs to week 5, which the day
+    /// header's `Wk 5/6` and the band's own split fill both already say.
+    ///
+    /// Two fallbacks, because the rail never announces a destination it
+    /// cannot reach: if the opening Saturday has nothing under the current
+    /// non-date filters, land on the week's first day that does; if no day
+    /// in the week does, do nothing.
+    private func selectWeek(_ week: Int, nav: NavMatching) {
+        guard let opening = WeekBands.openingDayKey(ofWeek: week, year: model.selectedYear)
+        else { return }
+
+        if nav.eventDays.contains(opening) {
+            selectDay(opening)
+            return
+        }
+
+        // `nav.eventDays` is already sorted ascending (`NavMatching`'s own
+        // doc), so re-sorting it here would just repeat work `AppModel`
+        // already did — `first(where:)` over it in its existing order is
+        // enough to find the week's earliest reachable day.
+        let weekDays = Set(
+            WeekBands.segments(
+                dayKeys: ChqTime.dayKeys(
+                    from: nav.bounds.lowerBound, through: nav.bounds.upperBound),
+                year: model.selectedYear
+            )
+            .filter { $0.weekNumbers.contains(week) }
+            .map(\.dayKey))
+
+        guard let fallback = nav.eventDays.first(where: { weekDays.contains($0) })
+        else { return }
+        selectDay(fallback)
     }
 
     /// Completes a `chqcal://day/<key>` deep link the tab route deliberately
