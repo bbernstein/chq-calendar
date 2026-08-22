@@ -274,8 +274,8 @@ struct EventListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             // Only once there is a snapshot to filter against — during
-            // launch or the offline/error states the pills would summarise
-            // nothing.
+            // launch or the offline/error states the day rail would have
+            // no days to show.
             .safeAreaInset(edge: .top) {
                 if model.snapshot != nil, let nav = model.navMatching {
                     dayRail(nav)
@@ -466,11 +466,16 @@ struct EventListView: View {
             Label("Now", systemImage: "arrow.clockwise")
                 .labelStyle(.iconOnly)
                 .font(.subheadline.weight(.semibold))
-                // `.primary`, not the default accent tint — see
-                // `DayStepControl`'s matching comment for why.
+                // `.primary`, not the default accent tint (accessibility
+                // follow-up to #245): the accent colour against the opaque
+                // `dayRailControlBackground` measures under 4.5:1, caught
+                // by an on-device audit.
                 .foregroundStyle(.primary)
-                // Minimum, not fixed (accessibility follow-up to #245) —
-                // see `DayStepControl`'s matching comment for why.
+                // Minimum, not fixed (accessibility follow-up to #245): a
+                // fixed frame clipped the symbol at large Dynamic Type
+                // sizes. 44pt still meets the HIG tap-target minimum; at
+                // the default text size this renders at exactly 44x62,
+                // matching `DayChip`.
                 .frame(minWidth: 44, minHeight: 62)
                 .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
         }

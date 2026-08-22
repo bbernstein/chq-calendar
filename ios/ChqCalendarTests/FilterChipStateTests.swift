@@ -75,7 +75,7 @@ struct FilterChipStateTests {
 
     // MARK: - Non-current year
 
-    /// The bug: on a past season `DateFilterSheet.visibleScopes` collapses
+    /// The bug: on a past season `FilterSheet.visibleScopes` collapses
     /// to the lone `.all` chip, but a persisted `.next` scope made
     /// `dateScope == .all` false — so the sheet's only date control rendered
     /// unchecked over a list `EventFilter` had left entirely unfiltered
@@ -111,7 +111,7 @@ struct FilterChipStateTests {
             currentWeek: nil, isCurrentYear: false))
     }
 
-    /// Not reachable through `DateFilterSheet` (its `visibleScopes` is
+    /// Not reachable through `FilterSheet` (its `visibleScopes` is
     /// `[.all]` off the current year), but answered rather than left to the
     /// caller: the pipeline is ignoring these scopes, so no chip claiming
     /// one may light up — not even when the stored scope matches it.

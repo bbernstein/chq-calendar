@@ -23,7 +23,7 @@ nonisolated enum FilterChipState {
     ///   ignoring.
     ///
     ///   This is the fix for the state where a persisted `.next` scope
-    ///   viewed against a past season left `DateFilterSheet`'s sole
+    ///   viewed against a past season left `FilterSheet`'s sole
     ///   visible chip — "All", the only date control on offer — rendering
     ///   unselected over a list that was not date-filtered at all. Note
     ///   the fix belongs **here** and not at the call site: an earlier

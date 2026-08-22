@@ -11,7 +11,7 @@ nonisolated enum DateScope: String, Codable, CaseIterable, Sendable {
     /// A single named calendar day, held in `FilterSelection.selectedDayKey`.
     ///
     /// **Derived, not pickable.** It is never offered in
-    /// `DateFilterSheet.visibleScopes` — an arbitrary date cannot be chosen
+    /// `FilterSheet.visibleScopes` — an arbitrary date cannot be chosen
     /// from a fixed row of presets — and arrives only from My Day's
     /// empty-day "Browse …" action (#192).
     ///
