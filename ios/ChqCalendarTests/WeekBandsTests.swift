@@ -114,3 +114,66 @@ struct WeekBandsTests {
         #expect(WeekBands.openingDayKey(ofWeek: 10, year: 2026) == nil)
     }
 }
+
+/// Where the band's painted run breaks (#256 review fix).
+///
+/// The rule the *look* of the band rests on: every chip is the same distance
+/// from the next, so a band drawn strictly chip-by-chip is a row of identical
+/// bars with identical gaps and a week's extent is invisible. Bridging the
+/// gutters inside a week makes each week one continuous run, and then the one
+/// surviving break — the seam through the Saturday two weeks share — is the
+/// only gap in the band. These tests pin *where* the runs break; the
+/// screenshot is what proves it reads.
+struct WeekBandRunTests {
+    private func segments(_ keys: [String]) -> [WeekBandSegment] {
+        WeekBands.segments(dayKeys: keys, year: 2026)
+    }
+
+    private func bridges(_ keys: [String]) -> [Bool] {
+        let all = segments(keys)
+        return (0..<max(all.count - 1, 0)).map {
+            WeekBandRun.bridgesGutter(after: $0, in: all)
+        }
+    }
+
+    @Test func everyGutterInsideAWeekIsBridged() {
+        // Sun through Fri of week 2 — six days, five gutters, none of them a
+        // boundary. If any of these came back false the week would be drawn
+        // in pieces and the boundary would stop being the only break.
+        let keys = ["2026-07-05", "2026-07-06", "2026-07-07",
+                    "2026-07-08", "2026-07-09", "2026-07-10"]
+        #expect(bridges(keys) == [true, true, true, true, true])
+    }
+
+    @Test func aBoundarySaturdayBridgesBothWays() {
+        // Sat Jul 4 closes week 1 and opens week 2, so it joins the run on
+        // each side and the break goes *through* it rather than beside it —
+        // which is also what makes the split fill read as "this day is in
+        // both" instead of as a third colour wedged between two weeks.
+        let keys = ["2026-07-03", "2026-07-04", "2026-07-05"]
+        #expect(bridges(keys) == [true, true])
+
+        let saturday = segments(["2026-07-04"])[0]
+        #expect(saturday.weekNumbers == [1, 2])
+        #expect(saturday.rampSteps.count == 2)
+    }
+
+    @Test func aRunEndsAtTheSeasonsEdge() {
+        // Thu/Fri before the season, then the opening Saturday. Nothing to
+        // share, so the run starts flush with week 1's first chip instead of
+        // bleeding into empty rail.
+        let keys = ["2026-06-25", "2026-06-26", "2026-06-27", "2026-06-28"]
+        #expect(bridges(keys) == [false, false, true])
+    }
+
+    @Test func twoOutOfSeasonDaysNeverBridge() {
+        #expect(bridges(["2026-01-15", "2026-01-16"]) == [false])
+    }
+
+    @Test func theEndsOfTheArrayHaveNoGutterToBridge() {
+        let all = segments(["2026-07-06", "2026-07-07"])
+        #expect(WeekBandRun.bridgesGutter(after: -1, in: all) == false)
+        #expect(WeekBandRun.bridgesGutter(after: 1, in: all) == false)
+        #expect(WeekBandRun.bridgesGutter(after: 5, in: all) == false)
+    }
+}

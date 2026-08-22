@@ -153,7 +153,7 @@ struct DayRailView<Leading: View, Trailing: View>: View {
     /// out of the scrollable content is what keeps them reachable no matter
     /// how far the chips have scrolled.
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: RailMetrics.chipGutter) {
             leading()
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -163,9 +163,17 @@ struct DayRailView<Leading: View, Trailing: View>: View {
                     // band segment is exactly its chip's width because the
                     // same stack lays both out. Alignment is structural, not
                     // something two parallel layouts agree on today and drift
-                    // apart on tomorrow — and a single pixel of drift reads
-                    // as a seam through a week boundary.
-                    HStack(spacing: 8) {
+                    // apart on tomorrow.
+                    //
+                    // The band's *painted run* is the one thing allowed out of
+                    // that grid: within a week it bleeds half a gutter each
+                    // way so the week reads as one continuous bar rather than
+                    // seven identical bars with seven identical gaps. That is
+                    // a `.background` with negative padding inside
+                    // `WeekBandSegmentView` and changes no frame — segment
+                    // width, tap target and accessibility frame all stay
+                    // chip-width. Do not "tidy" the two back together.
+                    HStack(spacing: RailMetrics.chipGutter) {
                         ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             VStack(spacing: 2) {
                                 // Not `Color.clear` for an absent band: a
@@ -182,6 +190,14 @@ struct DayRailView<Leading: View, Trailing: View>: View {
                                     WeekBandSegmentView(
                                         segment: resolvedSegment(at: index, day: entry.day),
                                         day: entry.day,
+                                        // The *fill* bridges the gutter to a
+                                        // neighbour in the same week; the
+                                        // segment's own frame does not. See
+                                        // `WeekBandRun.bridgesGutter(after:in:)`.
+                                        bridgesLeading: WeekBandRun.bridgesGutter(
+                                            after: index - 1, in: bandSegments),
+                                        bridgesTrailing: WeekBandRun.bridgesGutter(
+                                            after: index, in: bandSegments),
                                         onSelectWeek: onSelectWeek
                                     )
                                     // Capped here rather than on the label
@@ -310,6 +326,72 @@ extension DayRailView {
     }
 }
 
+/// Where the week band's painted fill runs, and where it breaks.
+///
+/// A free namespace rather than a member of `DayRailView`, which is generic
+/// over its two end-control view types and so cannot be named in a test
+/// without inventing them — and this is a pure function of the segment list
+/// that deserves testing without a view host.
+enum WeekBandRun {
+    /// Whether the band's fill runs straight through the gutter between the
+    /// chips at `index` and `index + 1`, instead of stopping at the chip's
+    /// edge the way the segment's own frame does.
+    ///
+    /// **This is the whole reason a week reads as a week.** Every chip is
+    /// separated from the next by the same `RailMetrics.chipGutter`, within a
+    /// week and across a week boundary alike — so a band drawn strictly
+    /// chip-by-chip is a row of identical bars with identical gaps, and a
+    /// week's *extent* is invisible: nothing but the `WEEK n` text says a
+    /// week exists at all. Bridging the gutters inside a week turns each week
+    /// into one continuous run, and then the one gap that survives — the seam
+    /// through a boundary Saturday, see `WeekBandSegmentView.fillRun` — is
+    /// the only break in the band and therefore unmistakable.
+    ///
+    /// Two adjacent days bridge when they share a week. A boundary Saturday
+    /// shares its closing week with the Friday before it and its opening week
+    /// with the Sunday after, so it bridges *both* ways and its own split is
+    /// where the break goes. An out-of-season day shares nothing, so a run
+    /// ends at the season's edge.
+    static func bridgesGutter(after index: Int, in segments: [WeekBandSegment]) -> Bool {
+        guard index >= 0, index + 1 < segments.count else { return false }
+        let left = segments[index]
+        let right = segments[index + 1]
+        guard !left.weekNumbers.isEmpty, !right.weekNumbers.isEmpty else { return false }
+        return !Set(left.weekNumbers).isDisjoint(with: right.weekNumbers)
+    }
+}
+
+/// The rail's shared horizontal metrics.
+///
+/// One place, because the band's fill overflow is *derived* from the chip
+/// gutter rather than a second literal that happens to match today: the fill
+/// bridges exactly half a gutter on each side, so two bridged neighbours meet
+/// with no hairline and no overlap seam. Two independent `8`s would drift the
+/// moment one of them was tuned.
+private enum RailMetrics {
+    /// Space between two day chips, and between the two fixed end controls
+    /// and the scrolling strip.
+    static let chipGutter: CGFloat = 8
+
+    /// How far a bridged band fill overflows its own segment on one side —
+    /// half the gutter, so two neighbours' overflows meet exactly at the
+    /// gutter's midpoint.
+    static var bandBleed: CGFloat { chipGutter / 2 }
+
+    /// The break between two weeks' runs, drawn through the middle of the
+    /// boundary Saturday they share.
+    ///
+    /// Deliberately *narrower* than a chip gutter: it is the only gap left in
+    /// the band, so it does not need to shout, and a wider one would start to
+    /// look like the per-chip gaps this design removed. Half a gutter keeps it
+    /// proportional to the bleed either side of it.
+    static var weekSeam: CGFloat { chipGutter / 2 }
+
+    /// Rounding on a run's outer ends. Small enough to stay a bar rather than
+    /// a capsule at 14pt, large enough that a run reads as one closed shape.
+    static let bandCornerRadius: CGFloat = 3
+}
+
 /// One day's slice of the week band above the chips (#256).
 ///
 /// A shared Saturday carries **both** weeks' tones, split down the middle —
@@ -325,6 +407,22 @@ extension DayRailView {
 private struct WeekBandSegmentView: View {
     let segment: WeekBandSegment?
     let day: String
+
+    /// Whether this day's *fill* continues into the gutter on that side,
+    /// because the neighbour there is in the same week.
+    ///
+    /// **Fill only — never the frame.** The segment's frame, its
+    /// `contentShape` tap target and its accessibility element all stay
+    /// exactly one chip wide, which is what makes band-to-chip alignment
+    /// structural (the same `HStack` lays out both) rather than two layouts
+    /// agreeing. Only the painted run overflows, via negative padding inside
+    /// a `.background`, which cannot change the size of the view it is drawn
+    /// behind. Keep the two separable: collapsing them would make a week's
+    /// chips wider than its neighbours' and pull the band out of line with
+    /// the chips it labels.
+    let bridgesLeading: Bool
+    let bridgesTrailing: Bool
+
     let onSelectWeek: ((Int) -> Void)?
 
     /// Scales with `.caption2`, the label's own text style, so the strip and
@@ -333,8 +431,19 @@ private struct WeekBandSegmentView: View {
     @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = 14
 
     var body: some View {
-        fill
+        Color.clear
             .frame(height: height)
+            // The run is a `.background`, not the view itself, for the same
+            // reason the label is an `.overlay`: a background is laid out
+            // against its parent's size and cannot change it. That is what
+            // lets the fill overflow into the gutters (negative padding
+            // below) while this view — and so the `VStack` and the chip under
+            // it — stays exactly one chip wide.
+            .background(alignment: .center) {
+                fillRun
+                    .padding(.leading, -leadingBleed)
+                    .padding(.trailing, -trailingBleed)
+            }
             // An `.overlay`, not a second `ZStack` child: an overlay is sized
             // by its parent and cannot widen it, so a `WEEK n` label wider
             // than one chip overhangs into its neighbours (clipped only by
@@ -371,26 +480,82 @@ private struct WeekBandSegmentView: View {
             .accessibilityIdentifier("day-band-\(day)")
     }
 
+    /// A bleed is only ever applied to a segment that actually has a run to
+    /// draw; a nil segment (out of season, or the misalignment
+    /// `DayRailView.resolvedSegment` refuses to guess at) paints nothing, so
+    /// it must not paint nothing *wider*.
+    private var leadingBleed: CGFloat {
+        segment == nil || !bridgesLeading ? 0 : RailMetrics.bandBleed
+    }
+
+    private var trailingBleed: CGFloat {
+        segment == nil || !bridgesTrailing ? 0 : RailMetrics.bandBleed
+    }
+
+    /// This day's piece of its week's run.
+    ///
+    /// One bar for an ordinary day, two for a boundary Saturday — split down
+    /// the middle, carrying both weeks' tones, with `RailMetrics.weekSeam`
+    /// between them. That seam is the *only* gap in an otherwise continuous
+    /// band: every gutter inside a week is bridged (see
+    /// `WeekBandRun.bridgesGutter(after:in:)`), so the reader does not have
+    /// to compare two greys across a gap to find a boundary — the shape
+    /// breaks there and nowhere else, and the colour change merely confirms
+    /// it. The seam lands on the shared Saturday's centre line, which is also
+    /// what says "this one day is in both weeks."
     @ViewBuilder
-    private var fill: some View {
-        if let segment, !segment.rampSteps.isEmpty {
-            if segment.rampSteps.count == 1 {
-                Self.rampColor(segment.rampSteps[0])
-            } else {
-                HStack(spacing: 0) {
-                    // Two equal halves, so a boundary Saturday reads as
-                    // literally half of each week rather than as some third
-                    // colour of its own.
-                    ForEach(Array(segment.rampSteps.prefix(2).enumerated()), id: \.offset) { _, step in
-                        Self.rampColor(step)
-                    }
-                }
+    private var fillRun: some View {
+        let steps = runSteps
+        if steps.count == 1 {
+            bar(step: steps[0], roundsLeading: !bridgesLeading, roundsTrailing: !bridgesTrailing)
+        } else if steps.count == 2 {
+            HStack(spacing: RailMetrics.weekSeam) {
+                // Both inner ends are rounded: they are the ends of two
+                // different weeks' runs, not the middle of one.
+                bar(step: steps[0], roundsLeading: !bridgesLeading, roundsTrailing: true)
+                bar(step: steps[1], roundsLeading: true, roundsTrailing: !bridgesTrailing)
             }
         } else {
             // Outside the season there is no week, so the band says nothing
             // rather than guessing one.
             Color.clear
         }
+    }
+
+    /// The ramp steps this segment draws, at most two.
+    ///
+    /// `WeekBandSegment.rampSteps` mirrors `weekNumbers`, which
+    /// `SeasonCalendar.weekNumbers(spanningDayOf:)` documents as one week for
+    /// an ordinary day and two for the Saturday two weeks share — a day
+    /// cannot be in three Chautauqua weeks, so three entries would mean that
+    /// contract had changed under us. Recording the assumption the way
+    /// `DayRailView.resolvedSegment(at:day:)` records its own: DEBUG builds
+    /// trap so the change is found by its author's own test run, release
+    /// builds draw the first two rather than crash a rail over a colour.
+    private var runSteps: [Double] {
+        guard let segment else { return [] }
+        if segment.rampSteps.count > 2 {
+            assertionFailure(
+                "WeekBandSegment.rampSteps carries \(segment.rampSteps.count) steps for "
+                    + "\(segment.dayKey); the band can only draw one week or two")
+        }
+        return Array(segment.rampSteps.prefix(2))
+    }
+
+    /// One week's piece of run, rounded only where the run actually ends —
+    /// at a seam, or at the edge of the season. A rounded end inside a run
+    /// would be a false boundary, and a square end at a real one would blunt
+    /// the only signal this design has left.
+    private func bar(step: Double, roundsLeading: Bool, roundsTrailing: Bool) -> some View {
+        let radius = RailMetrics.bandCornerRadius
+        return UnevenRoundedRectangle(
+            topLeadingRadius: roundsLeading ? radius : 0,
+            bottomLeadingRadius: roundsLeading ? radius : 0,
+            bottomTrailingRadius: roundsTrailing ? radius : 0,
+            topTrailingRadius: roundsTrailing ? radius : 0,
+            style: .continuous
+        )
+        .fill(Self.rampColor(step))
     }
 
     /// The ramp, interpolated between two named assets rather than nine
