@@ -65,14 +65,19 @@ inside `DateFilterSheet`.
 ┌──────────────────────────────────────────┐
 │ CHQ Calendar  2026 ▾        🔍  ⚌·  ⋯    │
 ├──────────────────────────────────────────┤
-│        WEEK 5        │       WEEK 6      │
-│ ⟳  Mon  Tue  Wed  Thu  Fri  Sat  Sun     │
-│    27   28   29   30   31   1    2       │
-│    12   8    9    32   14   6    11      │
+│ ▒▒▒ WEEK 5 ▒▒▒▒▒▒▒▒▒░▓▓▓ WEEK 6 ▓▓▓▓▓▓▓▓ │
+│ ⟳  Wed  Thu  Fri  Sat  Sun  Mon  Tue     │
+│    29   30   31   1    2    3    4       │
+│    9    32   14   6    11   27   18      │
 ├──────────────────────────────────────────┤
 │ Thursday, July 30                        │
 │  7:45  CHQ Mystic Heart …                │
 ```
+
+The Saturday sits in **both** weeks — it closes week 5 and opens week 6 — so
+its band segment carries both tones. Each week's fill is one step of a
+nine-step ramp across the season, so a boundary is unmistakable at swipe speed
+and the ramp's position answers "how far into the summer am I."
 
 Three decisions, taken 2026-08-21:
 
@@ -141,11 +146,21 @@ stays, only its control surface changes.
 argument the web rail's three stacked layers rest on). Each band spans its
 week's days and is labelled `WEEK 5`.
 
-**Tapping a band navigates** (decided 2026-08-21) — it is a chip that spans
-seven days, not a filter control. Concretely it is `selectDay(target)` where
-`target` is the first day in `[week.start, week.end)` that has events under
-the current non-date filters, taken from the same `nav.eventDays` set the
-chevrons used. It therefore inherits, for free and without a new code path:
+**Tapping a band navigates** (decided 2026-08-21) — it is a chip that spans a
+week, not a filter control. **The target is the full Saturday that opens the
+week** — `selectDay(Sat_start)` — not the first day with events. A reader
+tapping `WEEK 6` is asking to be put at the top of week 6, and week 6 opens on
+that Saturday.
+
+Two fallbacks, in order, because the rail never announces a destination it
+cannot reach:
+
+1. If that Saturday has no events under the current non-date filters, target
+   the first day in the week that does (`nav.eventDays`).
+2. If no day in the week does, the band is **disabled** and does not fire,
+   matching `disablesEmptyDays: true` on the chips.
+
+It therefore inherits, for free and without a new code path:
 
 - the edge-growth behaviour, if the target week lies outside the current view
   window;
@@ -154,25 +169,80 @@ chevrons used. It therefore inherits, for free and without a new code path:
   weeks, categories or search**. Tapping `WEEK 6` with a venue filter active
   keeps that filter.
 
-A week with no reachable day is disabled and does not fire, matching
-`disablesEmptyDays: true` on the chips. The accessibility label names the
-destination ("Go to Week 6, June 27 – July 4, 84 events"), never the
-direction — the rail's established convention.
+The accessibility label names the destination ("Go to Week 6, opens Saturday
+June 27, 84 events"), never the direction — the rail's established
+convention.
 
-Note the boundary Saturday is usually the target for week *n*, and its
-section's morning belongs to week *n-1*. That is not a defect: the day header
-already reads `Wk 5/6`, so the shared day is surfaced honestly rather than
-hidden.
+The target Saturday's section shows its morning events too, which belong to
+week *n-1*. That is not a defect: the day header already reads `Wk 5/6`, and
+the band's split fill on that chip says the same thing.
 
 This answers P5 in the surface where the question is actually asked. It does
 **not** retire `WeekRangeStrip` — see A5.
 
-**The Saturday problem.** `SeasonCalendar` runs weeks Saturday noon → Saturday
-noon, so a Saturday genuinely belongs to two weeks — that is what `Wk 8/9` on
-the day headers means. A band therefore **cannot** align to whole chips. The
-boundary is drawn through the horizontal centre of each Saturday chip, which
-is both honest and teaches the reader the real model. Snapping to whole days
-would be a small, permanent lie on the app's most-used surface.
+**The Saturday problem, and the two-model answer.** `SeasonCalendar` runs
+weeks Saturday noon → Saturday noon, so a Saturday genuinely belongs to two
+weeks — that is what `Wk 8/9` on the day headers means.
+
+Decided 2026-08-21: **the band uses day granularity, and a Saturday belongs to
+both of its weeks.** Week *n*'s band spans the day keys
+`Sat_start … Sat_end` **inclusive** — eight chips — and adjacent bands share
+their boundary Saturday. An earlier draft drew the boundary through the
+centre of the Saturday chip; that is rejected as too fine a distinction to
+read on a 44pt chip while swiping.
+
+This creates a deliberate divergence that **must not be "unified" later**:
+
+| | Saturday morning | Saturday afternoon |
+|---|---|---|
+| **Band** (display + navigation) | week *n-1* **and** week *n* | week *n-1* **and** week *n* |
+| **`EventFilter`** (what week *n* matches) | week *n-1* only | week *n* only |
+
+The filter keeps noon semantics because the noon boundary is not a display
+choice — it is when the Institution's weekly **gate program** turns over
+(`SeasonCalendar`'s own doc comment), and `GatePassPolicy` reads those bounds
+to decide what a pass admits you to. Changing `EventFilter` to day granularity
+would make the app misstate gate-pass access. Changing the band to noon
+granularity would put an unreadable half-chip seam on the most-used surface in
+the app. Both models are right for their own job; the shared-Saturday visual
+treatment below is what keeps the seam legible rather than mysterious.
+
+**The shared Saturday is marked**, not merely spanned twice — a split fill
+across the chip's band segment, carrying both weeks' tones, so "this day is in
+both" is visible rather than inferred. Week 1's opening Saturday and week 9's
+closing Saturday have no neighbour to share with and render as ordinary
+single-week segments.
+
+**Colour: a nine-step ramp in one hue** (decided 2026-08-21).
+
+Adjacent weeks always differ, so a boundary is unmistakable while swiping —
+and because the ramp is monotonic across the season it also answers "am I
+early or late in the summer" at a glance, which alternation cannot. It varies
+in **lightness rather than hue**, so it survives colour-vision deficiency,
+and it needs two colorset endpoints plus interpolation rather than eighteen
+hand-tuned values.
+
+Nine distinct hues were considered and rejected: they buy week *identity*
+rather than boundary legibility, one of them inevitably lands near
+`DayChipSelected`'s blue, and nine hues collapse to four or five
+distinguishable buckets under red-green CVD. Should per-week identity ever be
+wanted, tying it to the week's fetched `WeekTheme` is the better route than
+nine static colours.
+
+Constraints on the ramp, all of which the on-device audit will test:
+
+- The `WEEK n` label is **always** present, so colour is never the only
+  signal carrying week identity. This is what makes the ramp safe.
+- The ramp endpoints must clear contrast against the label at **both** ends
+  and in both themes — the classic failure is a ramp that is legible in the
+  middle and fails at week 1 and week 9. If the label cannot clear the fill at
+  the extremes, the fill becomes a thin rule beneath a normally-coloured
+  label rather than a filled band behind it.
+- The ramp must not read as the selection. `DayChipSelected` is the only
+  saturated fill on the rail and must stay that way; the band's hue should be
+  distinct from it, or the ramp desaturated enough that no step competes.
+- Dark mode inverts the ramp's direction relative to the background, not its
+  order: week 1 stays the "start" end in both themes.
 
 **Out-of-season days.** `navigableBounds` extends past the season whenever an
 event falls outside it, and `SeasonCalendar` has no week number for those
@@ -228,6 +298,8 @@ something real instead of being orphaned.
 | `CalendarView.swift` | `displayMode` `.always` → `.automatic`; `@FocusState` + `.searchFocused` |
 | `EventListView.swift` | delete `filterPillBar`/`pillRow`/`pillButton` + bottom inset; add `🔍`/`⚌` toolbar items; `dayRail` drops `trailing`, leading is `⟳` only; `FilterBarSheet` loses `.date` |
 | `DayRailView.swift` | week band; Events call site's furniture; rotor actions |
+| `ChqCalendarShared/Domain/` | **new** — week-band spans (day-granular, overlapping on Saturdays), their labels, and the ramp step per week. Pure and unit-testable; the view renders it. Note this directory is inside the App Store screenshot rule's watched paths. |
+| `Assets.xcassets` | **new** — two colorsets for the ramp endpoints (light + dark each) |
 | `DateFilterSheet.swift` | **deleted** |
 | `FilterSheet.swift` | gains `WHEN` section: four scopes + `WeekRangeStrip` |
 | `WeekRangeStrip.swift` | unchanged; re-parented from `DateFilterSheet` to `FilterSheet` |
@@ -258,15 +330,20 @@ events.") is arguably *better* served by the new rail.
 Beyond the unit suite, three things this design cannot be trusted on without
 a device/simulator pass, all drawn from recorded failures on the rail:
 
-1. **The week band's alignment under scroll**, including the Saturday
-   half-chip boundary. The web rail's equivalent seam was only ever caught by
-   a browser pass, never by a unit test.
-2. **`performAccessibilityAudit()` on the rail at default text size.** Phase
-   3b's on-device audit found 18 contrast failures and 21 Dynamic-Type
-   warnings on chips that had passed every unit test — and the fix (an opaque
-   named colour asset, not `.secondarySystemBackground`) was route-sensitive
-   in a way no test predicted. A new band row over the same background is
-   exactly the shape of change that reopens it.
+1. **The week band's alignment under scroll**, including the shared-Saturday
+   split fill at both of a week's ends. The web rail's equivalent seam was
+   only ever caught by a browser pass, never by a unit test. Which *spans* a
+   band covers is pure and belongs in unit tests; where those spans land in
+   pixels does not.
+2. **`performAccessibilityAudit()` on the rail at default text size, and at
+   both ends of the ramp.** Phase 3b's on-device audit found 18 contrast
+   failures and 21 Dynamic-Type warnings on chips that had passed every unit
+   test — and the fix (an opaque named colour asset, not
+   `.secondarySystemBackground`) was route-sensitive in a way no test
+   predicted. A new band row *plus nine new fills* over that same background
+   is squarely the shape of change that reopens it. Audit week 1 and week 9
+   specifically: a ramp that passes in the middle and fails at the extremes is
+   the expected failure, and a mid-season spot check would miss it.
 3. **`.searchable` behaviour on the iOS 26 SDK inside the tab shell**, by
    screenshot. The `.always` → `.automatic` change is small, and the
    surrounding history says this specific modifier has surprised the project
@@ -285,6 +362,20 @@ The consequence is recorded in A5: `WeekRangeStrip` survives, re-parented into
 `FilterSheet`'s `WHEN` section, because week-as-a-filter (and its drag-range
 selection) is a real capability that a navigating band does not replace.
 
+**The band is day-granular and a Saturday is in both its weeks**
+(2026-08-21). Bands overlap on their shared Saturday rather than splitting it
+at noon, and that chip carries a split fill. The noon model stays in
+`EventFilter` because it is the gate program, not a display convention — see
+A4's table for the divergence and why unifying the two would be a regression
+in either direction.
+
+**Tapping a band lands on the full opening Saturday** (2026-08-21), falling
+back to the week's first day with events, then to disabled.
+
+**Colour is a nine-step ramp in one hue** (2026-08-21), not nine hues — it
+serves boundary legibility and season position rather than week identity, and
+it degrades gracefully under colour-vision deficiency.
+
 ## Open at design time
 
 - Whether the band label is `WEEK 5` or `WK 5` at the narrower iPad-sidebar
@@ -292,3 +383,7 @@ selection) is a real capability that a navigating band does not replace.
 - Whether a band should render at all over days outside the season. A4 says
   the band renders nothing there; an alternative is a muted `OFF SEASON` span.
   Low stakes, but it should be decided rather than fall out of the layout.
+- Which hue the ramp uses, and whether it is a filled band or a rule beneath
+  a normally-coloured label. A4 makes that contingent on whether the label
+  clears the fill at both ends of the ramp — a question for the device, not
+  the design.
