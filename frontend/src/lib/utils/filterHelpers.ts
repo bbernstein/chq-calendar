@@ -1,6 +1,6 @@
 import type { Event, SeasonWeek } from '@/lib/types';
 import { parseEventDate } from '@/lib/utils/chqTime';
-import { isInChautauquaWeek } from './dateHelpers';
+import { weekNumbersForCalendarDate } from './dateHelpers';
 import { windowContains, type ViewWindow } from './dayWindow';
 import { searchEvents } from './searchHelpers';
 
@@ -39,11 +39,17 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
   const dateWindow = options.viewWindow;
   filtered = filtered.filter((event) => windowContains(dateWindow, parseEventDate(event.startDate)));
 
-  // Week filter (independent of date filter)
+  // Week filter (independent of date filter). Day-granular, matching the
+  // day header's `Wk 5/6` badge: a boundary Saturday belongs to both adjacent
+  // weeks in full, so filtering to week 5 no longer hands back only the half
+  // of that Saturday before noon (#257). `parseEventDate` is expensive, so it
+  // runs once per event here, not once per selected week.
   if (options.selectedWeeks.length > 0) {
-    filtered = filtered.filter(event =>
-      options.selectedWeeks.some(weekNum => isInChautauquaWeek(event.startDate, weekNum, options.seasonWeeks))
-    );
+    const selected = new Set(options.selectedWeeks);
+    filtered = filtered.filter(event => {
+      const numbers = weekNumbersForCalendarDate(parseEventDate(event.startDate), options.seasonWeeks);
+      return numbers.some(n => selected.has(n));
+    });
   }
 
   // Location filter - case insensitive
