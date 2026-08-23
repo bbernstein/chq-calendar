@@ -85,14 +85,21 @@ PIN_YEAR=$(jq -r '.capture.pinYear // empty' "$PLAN")
 
 # Validate every pin value in the plan before touching a simulator.
 #
-# This is a hard gate rather than a nicety because of how the app fails: a
-# value `ChqTime.parse` rejects, or a year `Int()` rejects, makes
-# `AppModel.launchNow()`/`launchPinnedYear()` fall back to the real clock and
-# the server's default season *exactly as if the flag were never passed*. The
-# run then completes, the dimension and quality checks pass, and it silently
-# produces screenshots of "now" — which is the precise failure this whole
-# mechanism exists to prevent, in its least visible form. A typo has to stop
-# the run here, where there is somewhere to print an error to.
+# This is a hard gate rather than a nicety because of how the app fails, in
+# either of two ways, neither of them loud:
+#   - A value the app's parser rejects makes
+#     `AppModel.launchNow()`/`launchPinnedYear()` fall back to the real clock
+#     and the server's default season *exactly as if the flag were never
+#     passed*. The run completes, the dimension and quality checks pass, and
+#     it silently produces screenshots of "now" — the precise failure this
+#     whole mechanism exists to prevent, in its least visible form.
+#   - Worse, the app's parsers are not the backstop they look like. Swift's
+#     `Int("-5")` *succeeds*, so `-uitest-pin-year -5` pins year -5 and the
+#     app goes looking for `all-events--5.json`. Nothing downstream of the
+#     flag has an opinion about whether a year is plausible.
+# Either way a typo has to stop the run here, where there is somewhere to
+# print an error to. These regexes are the only plausibility check in the
+# system, not a second one.
 #
 # The date pattern is deliberately stricter than `ChqTime.parse`, which
 # accepts variable-width numeric fields (see that function's doc comment:
