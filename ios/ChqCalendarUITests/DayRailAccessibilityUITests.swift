@@ -43,16 +43,16 @@ import XCTest
 /// fully inside their element's frame — while excluding the search field,
 /// which sits well outside it.
 ///
-/// **Why `descendants(matching: .any)`, not `app.buttons`.** A chip is a
-/// `Button` when tappable, but `DayChip`'s `isDisabled` branch (an empty day
-/// on the Events rail, `disablesEmptyDays: true`) mounts the identical
-/// `day-chip-*` identifier on a plain, non-button view instead — see
-/// `DayChip.body`. A `railBounds(in:)` built from `app.buttons` alone
-/// silently excludes every disabled chip from the audit's scope, which is
-/// exactly backwards: an empty chip is where the original, real defect
-/// lived (`.disabled()` dimming text to ~3.7:1, see `DayChip.body`'s own
-/// comment on why there is no `.disabled()` left to do that now). Matching
-/// by identifier against every element type closes that gap.
+/// **Why every element type, not `app.buttons`.** A chip is a `Button` when
+/// tappable, but `DayChip`'s `isDisabled` branch (an empty day on the Events
+/// rail, `disablesEmptyDays: true`) mounts the identical `day-chip-*`
+/// identifier on a plain, non-button view instead — see `DayChip.body`. A
+/// `railBounds(in:)` built from `app.buttons` alone silently excludes every
+/// disabled chip from the audit's scope, which is exactly backwards: an
+/// empty chip is where the original, real defect lived (`.disabled()`
+/// dimming text to ~3.7:1, see `DayChip.body`'s own comment on why there is
+/// no `.disabled()` left to do that now). Matching by identifier against
+/// every node in the hierarchy, whatever its type, closes that gap.
 ///
 /// **Why a nil `issue.element` still counts as a rail issue, and why a
 /// non-nil-but-anonymous one sometimes doesn't.** `DayChip` wraps its
@@ -167,22 +167,62 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// segment is exposed at all (`WeekBandSegmentView`), so this
     /// matches the nine `WEEK n` segments, whose frames sit at the band
     /// row's own y and together span it.
-    private let railElementPredicate = NSPredicate(
-        format: """
-            identifier BEGINSWITH 'day-chip-' OR identifier BEGINSWITH 'day-rail-expand-' \
-            OR identifier BEGINSWITH 'day-band-' \
-            OR identifier IN {'day-rail-now'}
-            """)
+    ///
+    /// A plain function rather than the `NSPredicate` this used to be:
+    /// `railBounds(in:)` now walks an `XCUIElementSnapshot` tree (see its
+    /// doc comment for why), whose nodes are not the KVC-compliant objects
+    /// an `NSPredicate` needs. The match itself is unchanged, prefix for
+    /// prefix.
+    private func isRailElement(_ identifier: String) -> Bool {
+        identifier.hasPrefix("day-chip-")
+            || identifier.hasPrefix("day-rail-expand-")
+            || identifier.hasPrefix("day-band-")
+            || identifier == "day-rail-now"
+    }
 
     /// The union of every rail element's own frame — see the type's doc
     /// comment for why this, and not `rail.frame` or an issue's own element
-    /// identifier, is what scopes the audit. `descendants(matching: .any)`,
-    /// not `app.buttons`, so a disabled (non-button) empty chip is included
-    /// — see `railElementPredicate`.
+    /// identifier, is what scopes the audit. Every node type is considered,
+    /// not just buttons, so a disabled (non-button) empty chip is included —
+    /// see `isRailElement(_:)`.
+    ///
+    /// **Why one snapshot, and not `descendants(matching:).matching(_:)`.**
+    /// This was the single most expensive thing in the iOS UI suite (#259).
+    /// The query form returns live `XCUIElement`s, and *each* `.frame` access
+    /// re-resolves its element against the app — a fresh whole-hierarchy
+    /// traversal per element, visible in the test log as a run of `Find the
+    /// Any (Element at index n)` lines. The Events rail mounts its chips
+    /// eagerly across the whole navigable span, so that was 99 elements and
+    /// therefore 99 sequential traversals. Measured on an iPhone 17 Pro
+    /// simulator, one `railBounds` call cost **30.4s**, against **10.3s** for
+    /// the `performAccessibilityAudit` it exists to scope: three quarters of
+    /// the work was spent deciding where to look, on a screen deliberately
+    /// held still.
+    ///
+    /// `snapshot()` takes the entire hierarchy in one round trip and returns
+    /// plain values whose `frame` is already resolved, so walking it is
+    /// local work. The set of matched frames is identical — same identifiers,
+    /// same hierarchy, same frames — because the query form was resolving
+    /// against this very tree, once per element, instead of once.
+    ///
+    /// A snapshot failure throws rather than degrading to `.null`. `.null`
+    /// answers `false` to `CGRect.contains` for every element, so swallowing
+    /// the error would drop every bounds-matched issue and let the audit pass
+    /// having checked nothing — the precise "green test that checks nothing"
+    /// shape this file exists to prevent. `snapshot()` and
+    /// `performAccessibilityAudit` are independent calls, so an earlier draft's
+    /// reasoning that "the audit's own throw would surface first" did not hold:
+    /// nothing guarantees the audit fails just because the snapshot did.
     @MainActor
-    private func railBounds(in app: XCUIApplication) -> CGRect {
-        app.descendants(matching: .any).matching(railElementPredicate).allElementsBoundByIndex
-            .reduce(CGRect.null) { $0.union($1.frame) }
+    private func railBounds(in app: XCUIApplication) throws -> CGRect {
+        let root = try app.snapshot()
+        var box = CGRect.null
+        var pending = [root]
+        while let node = pending.popLast() {
+            if isRailElement(node.identifier) { box = box.union(node.frame) }
+            pending.append(contentsOf: node.children)
+        }
+        return box
     }
 
     /// Runs the audit across the whole app, keeping only issues that belong
@@ -216,12 +256,27 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// across every attempt in every run observed, so a real regression
     /// still clears a majority easily — only a one-off mistimed sample
     /// gets absorbed.
+    ///
+    /// **Sampling stops as soon as the verdict is settled empty.** Once
+    /// enough samples have come back clean that the remaining ones could not
+    /// form a majority even if every one of them found something, the result
+    /// is already `[]` and further audits cannot change it — so the loop
+    /// returns. With the default five attempts that means a clean screen
+    /// costs three audits, not five. This is a pure cost cut, not a weaker
+    /// check: it can only fire on a verdict of `[]`, which carries no
+    /// diagnostic content, and the majority threshold itself is untouched.
+    /// The reporting case is deliberately *not* short-circuited — a run that
+    /// has already reached a majority keeps sampling so the richest sample is
+    /// still available for the failure message. `AuditSampleTally` holds the
+    /// arithmetic, and `AuditSampleTallyTests` proves over every possible
+    /// sample sequence that the early exit returns what the full run would.
     @MainActor
     private func railIssues(in app: XCUIApplication, attempts: Int = 5) throws -> [XCUIAccessibilityAuditIssue] {
         var samples: [[XCUIAccessibilityAuditIssue]] = []
+        var tally = AuditSampleTally(attempts: attempts)
         for attempt in 0..<attempts {
             if attempt > 0 { settleRailAnimation() }
-            let bounds = railBounds(in: app)
+            let bounds = try railBounds(in: app)
             var found: [XCUIAccessibilityAuditIssue] = []
             try app.performAccessibilityAudit(for: auditTypes) { issue in
                 if let element = issue.element {
@@ -249,12 +304,20 @@ final class DayRailAccessibilityUITests: XCTestCase {
                 return true
             }
             samples.append(found)
+            tally.record(foundIssues: !found.isEmpty)
+            if tally.isSettledEmpty { return [] }
         }
-        let nonEmptySamples = samples.filter { !$0.isEmpty }
-        guard nonEmptySamples.count * 2 > attempts else { return [] }
+        // Reachable only when `attempts == 0` (the loop never runs, so nothing
+        // is ever tallied). For every `attempts >= 1` this is an invariant, not
+        // live logic: falling out of the loop means the final iteration found
+        // `isSettledEmpty == false` with no samples remaining, which — with
+        // `remaining == 0` — is exactly `foundMajority`. Kept rather than
+        // dropped so the degenerate case still returns `[]` instead of reading
+        // a majority off an empty tally.
+        guard tally.foundMajority else { return [] }
         // Report the richest sample so a failure message is as complete as
         // possible.
-        return nonEmptySamples.max(by: { $0.count < $1.count }) ?? []
+        return samples.filter { !$0.isEmpty }.max(by: { $0.count < $1.count }) ?? []
     }
 
     /// `DayRailView.scroll(_:to:)` runs a 0.2s `withAnimation(.easeInOut)`

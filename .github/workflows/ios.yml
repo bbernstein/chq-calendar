@@ -37,13 +37,20 @@ jobs:
     # two copies of the Xcode-selection and simulator-resolution steps that
     # would silently drift apart.
     #
-    # Why split at all: the ~21 XCUITests each boot the app and account for
-    # most of a ~20-minute combined run: measured on this runner, the UI leg
-    # executes 18 tests in 999s while the unit leg's 852 tests across 63
-    # suites execute in under four seconds. Combined, a one-line Swift mistake
-    # took ~20 minutes to surface. Split, the first run measured 6m31s for the
-    # unit leg against 20m59s for the UI leg — so the common failure is seen
-    # ~3x sooner without weakening the gate.
+    # Why split at all: the XCUITests dominate a combined run. Measured on
+    # this runner, the UI leg executed 18 tests in 999s while the unit leg's
+    # 852 tests across 63 suites executed in under four seconds. Combined, a
+    # one-line Swift mistake took ~20 minutes to surface. Split, the first run
+    # measured 6m31s for the unit leg against 20m59s for the UI leg — so the
+    # common failure is seen ~3x sooner without weakening the gate.
+    #
+    # What that cost is NOT, despite an earlier version of this comment
+    # saying so (#259): the per-test app launches. Launching is cheap —
+    # LaunchFixtureUITests does nothing else and takes ~6.7s, the median test
+    # is ~18s, and all 25 launches together are ~9% of test time. Rewriting
+    # tests to share a launch would trade real interaction coverage for
+    # almost nothing. Measure before optimising here; the cost has twice now
+    # turned out to sit somewhere other than where it looked.
     #
     # Note what the split does NOT save: both legs still do a full build, so
     # the unit leg's wall clock is almost entirely compilation, not its four
