@@ -8,7 +8,12 @@
 // all.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { getChautauquaSeasonWeeks, getCurrentWeekNumber } from '@/lib/utils/dateHelpers';
+import {
+  getChautauquaSeasonWeeks,
+  getCurrentWeekNumber,
+  weekNumbersForCalendarDate,
+} from '@/lib/utils/dateHelpers';
+import { parseEventDate } from '@/lib/utils/chqTime';
 import { navigableBounds, viewWindow } from '@/lib/utils/dayWindow';
 import type { Event } from '@/lib/types';
 
@@ -286,6 +291,55 @@ describe('filterEvents week stage — day-granular boundary Saturdays (#257)', (
     ];
     const result = filterEvents(events, baseOptions({ dateFilter: 'all', selectedWeeks: [5, 6] }));
     expect(result.map((e) => e.id)).toEqual(['fri-wk5', 'sat-boundary', 'sun-wk6']);
+  });
+
+  // The filter derives each selected week's day-granular instant range once
+  // (`calendarDaySpanOfWeek`) instead of deriving every event's week numbers
+  // (`weekNumbersForCalendarDate`), for ~7 fewer Intl round-trips per event.
+  // That is only sound while the two agree EXACTLY, so walk the whole season
+  // — every hour of every day from a week before it opens to a week after it
+  // closes — and require the filter to return precisely the events the
+  // badge's own rule says belong to each week. Any drift between the fast
+  // path and the display rule reintroduces #257's two-models bug.
+  it('agrees with weekNumbersForCalendarDate for every hour of the season', () => {
+    const probes: Event[] = [];
+    const cursor = new Date(2026, 5, 20, 0, 0);
+    const stop = new Date(2026, 8, 5, 0, 0);
+    while (cursor < stop) {
+      probes.push(makeEvent(`p-${cursor.getTime()}`, new Date(cursor)));
+      cursor.setHours(cursor.getHours() + 1);
+    }
+    expect(probes.length).toBeGreaterThan(1800);
+
+    for (let week = 1; week <= 9; week++) {
+      const expected = probes
+        .filter((e) =>
+          weekNumbersForCalendarDate(parseEventDate(e.startDate), seasonWeeks).includes(week)
+        )
+        .map((e) => e.id);
+      const actual = filterEvents(
+        probes,
+        baseOptions({ dateFilter: 'all', selectedWeeks: [week] })
+      ).map((e) => e.id);
+
+      expect(actual, `week ${week}`).toEqual(expected);
+      // Eight calendar days of 24 hourly probes — a week is 7 days but
+      // touches 8, which is the whole point of #257.
+      expect(expected.length, `week ${week} span`).toBe(8 * 24);
+    }
+  });
+
+  it('ignores a selected week number the season does not have', () => {
+    // The pre-#257 predicate indexed `seasonWeeks[n - 1]` unguarded and threw
+    // on `undefined.start`. Nothing in the UI can select week 12, but a
+    // corrupt localStorage payload reaches this code directly.
+    const events = [makeEvent('midweek', new Date(2026, 6, 29, 10, 0))];
+    expect(
+      filterEvents(events, baseOptions({ dateFilter: 'all', selectedWeeks: [12] })).map((e) => e.id)
+    ).toEqual([]);
+    expect(
+      filterEvents(events, baseOptions({ dateFilter: 'all', selectedWeeks: [5, 12] })).map((e) => e.id)
+    ).toEqual(['midweek']);
   });
 
   it('matches no week for an out-of-season event', () => {

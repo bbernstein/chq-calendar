@@ -1,6 +1,6 @@
 import type { Event, SeasonWeek } from '@/lib/types';
 import { parseEventDate } from '@/lib/utils/chqTime';
-import { weekNumbersForCalendarDate } from './dateHelpers';
+import { calendarDaySpanOfWeek } from './dateHelpers';
 import { windowContains, type ViewWindow } from './dayWindow';
 import { searchEvents } from './searchHelpers';
 
@@ -42,13 +42,22 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
   // Week filter (independent of date filter). Day-granular, matching the
   // day header's `Wk 5/6` badge: a boundary Saturday belongs to both adjacent
   // weeks in full, so filtering to week 5 no longer hands back only the half
-  // of that Saturday before noon (#257). `parseEventDate` is expensive, so it
-  // runs once per event here, not once per selected week.
+  // of that Saturday before noon (#257).
+  //
+  // Each selected week is turned into its day-granular instant range ONCE,
+  // here, and every event is then a pair of numeric comparisons. Deriving the
+  // event's week numbers per event instead would be the same answer at ~7
+  // extra `Intl.formatToParts` round-trips each, over a corpus this runs
+  // twice per filter change. `parseEventDate` likewise runs once per event,
+  // not once per selected week as the pre-#257 predicate did.
   if (options.selectedWeeks.length > 0) {
-    const selected = new Set(options.selectedWeeks);
+    const spans = options.selectedWeeks
+      .map(n => options.seasonWeeks[n - 1])
+      .filter((w): w is SeasonWeek => w !== undefined)
+      .map(calendarDaySpanOfWeek);
     filtered = filtered.filter(event => {
-      const numbers = weekNumbersForCalendarDate(parseEventDate(event.startDate), options.seasonWeeks);
-      return numbers.some(n => selected.has(n));
+      const at = parseEventDate(event.startDate);
+      return spans.some(s => at >= s.start && at < s.end);
     });
   }
 
