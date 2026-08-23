@@ -156,8 +156,35 @@ def content_fingerprint(entries: list[dict]) -> list[tuple]:
     return sorted(tuple(entry[field] for field in CONTENT_FIELDS) for entry in entries)
 
 
+def depicted_pins(plan: dict) -> dict:
+    """The run-wide clock/dataset-year pins the captures were taken under
+    (screenshot-plan.json's "capture" block, #222), recorded into the
+    manifest so a later reader can tell *what date these shots show* without
+    re-deriving it from the pixels. Metadata about the run, not about any one
+    file — note that 01-season and 07-my-day override the clock locally, so
+    this is the run-wide default, not a promise about every frame.
+
+    Tolerates a missing or malformed "capture" block rather than raising:
+    capture-screenshots.sh is where a plan that cannot pin a run is rejected
+    (loudly, before a simulator boots), and composition runs over raw PNGs
+    that may well have been captured by an older plan. Aborting a
+    composition over metadata would trade a complete set of images for a
+    traceback.
+
+    An empty result means "this plan does not say", NOT "these shots are
+    unpinned" — the two are indistinguishable from here, and the raw PNGs
+    were almost certainly captured under a plan that did say. See main(),
+    which keeps whatever the manifest already recorded rather than
+    overwriting it with this."""
+    capture = plan.get("capture")
+    if not isinstance(capture, dict):
+        return {}
+    return {key: capture[key] for key in ("frozenNow", "pinYear") if key in capture}
+
+
 def main() -> int:
     plan = json.loads(PLAN_PATH.read_text())
+    pins = depicted_pins(plan)
     REVIEW_ROOT.mkdir(parents=True, exist_ok=True)
     entries, missing = [], []
 
@@ -225,13 +252,33 @@ def main() -> int:
         except Exception as exc:
             print(f"warning: could not parse existing manifest, will rewrite: {exc}", file=sys.stderr)
 
-    if existing is not None and content_fingerprint(existing.get("screenshots", [])) == content_fingerprint(entries):
+    # A plan with no usable `capture` block cannot tell us these shots were
+    # unpinned — only that it does not know. Recording `{}` over a manifest
+    # that already names the pins would erase the one record of what the
+    # images depict, which is worse than the traceback the dict guard in
+    # `depicted_pins` was added to avoid. Keep what is there and say so.
+    if not pins:
+        inherited = (existing or {}).get("depicts") or {}
+        if inherited:
+            print(f"warning: screenshot-plan.json declares no capture pins; keeping the "
+                  f"manifest's existing depicts {inherited} rather than recording these "
+                  f"shots as unpinned.", file=sys.stderr)
+            pins = inherited
+
+    # `depicts` joins the fingerprint check even though it is metadata: it
+    # describes the *inputs* the shots were taken under, so it going stale
+    # while the images stay byte-identical would be a lie rather than a
+    # harmless omission.
+    if (existing is not None
+            and content_fingerprint(existing.get("screenshots", [])) == content_fingerprint(entries)
+            and existing.get("depicts", {}) == pins):
         print(f"\nManifest unchanged ({len(entries)} screenshots identical): {MANIFEST_PATH.relative_to(REPO_ROOT)}")
         return 0
 
     MANIFEST_PATH.write_text(json.dumps({
         "capturedOn": date.today().isoformat(),
         "appCommit": git_sha(),
+        "depicts": pins,
         "screenshots": entries,
     }, indent=2) + "\n")
     print(f"\nManifest: {MANIFEST_PATH.relative_to(REPO_ROOT)} ({len(entries)} screenshots)")

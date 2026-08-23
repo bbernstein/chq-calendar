@@ -13,7 +13,11 @@ struct ChqCalendarApp: App {
     // `{ Date() }` default so a DEBUG build can honor `-uitest-freeze-now`
     // (off-season landing screenshots, #177) — see that function's doc
     // comment for why the seam has to be here, at construction, rather than
-    // a later mutation.
+    // a later mutation. `pinnedYear:` is the same seam for the *dataset*
+    // year (`-uitest-pin-year`, #222): the clock and the year are two
+    // independent inputs, and a screenshot run has to pin both or it shows
+    // one season's events under another season's clock. Both are `nil`/
+    // `Date()` in Release.
     //
     // Built inside `init()` rather than as `model`'s own default-value
     // expression (as before task 8) because wiring the notification
@@ -25,6 +29,7 @@ struct ChqCalendarApp: App {
     // initialized before the delegate is wired.
     init() {
         let now = AppModel.launchNow()
+        let pinnedYear = AppModel.launchPinnedYear()
         let reminderCenter = ReminderCenter(scheduler: UNUserNotificationCenter.current(), now: now)
 
         // A `-uitest-fixture` launch swaps the whole data layer: a generated
@@ -48,6 +53,7 @@ struct ChqCalendarApp: App {
             repository: repository,
             store: store,
             now: now,
+            pinnedYear: pinnedYear,
             reminderCenter: reminderCenter,
             widgetReloader: LiveWidgetReloading(),
             spotlightIndexer: LiveSpotlightIndexing()

@@ -256,10 +256,25 @@ final class AppModel {
     /// "ask once" actually deterministic.
     private var hasRequestedReminderAuthorizationThisLaunch = false
 
+    /// The dataset year this launch is nailed to, or `nil` — every real
+    /// launch — for the normal "whatever the years manifest calls default"
+    /// behavior.
+    ///
+    /// Non-nil only under `-uitest-pin-year` in a DEBUG build (see
+    /// `launchPinnedYear()`), which is what keeps an App Store screenshot
+    /// capture on the 2026 season after the manifest has moved on to a
+    /// later one. Freezing the clock with `-uitest-freeze-now` is not
+    /// enough on its own: `start()` takes the year from the *manifest*, not
+    /// from `now`, so a capture run in March 2027 with only the clock
+    /// pinned would render 2027 events under a summer-2026 clock — worse
+    /// than pinning nothing (#222).
+    private let pinnedYear: Int?
+
     init(
         repository: EventRepository,
         store: UserStateStore,
         now: @escaping @Sendable () -> Date = { Date() },
+        pinnedYear: Int? = nil,
         reminderCenter: ReminderCenter? = nil,
         widgetReloader: WidgetReloading? = nil,
         spotlightIndexer: SpotlightIndexing? = nil
@@ -274,8 +289,13 @@ final class AppModel {
         self.favorites = store.loadFavorites()
         self.recents = store.loadRecents()
         self.reminderSettings = store.loadReminderSettings()
-        self.selectedYear = Self.placeholderYear
-        self.defaultYear = Self.placeholderYear
+        self.pinnedYear = pinnedYear
+        // A pin is in force from construction, not from `start()`: the
+        // launching UI reads `selectedYear` before any manifest has been
+        // fetched, and a pinned run must never briefly render the
+        // placeholder year's state.
+        self.selectedYear = pinnedYear ?? Self.placeholderYear
+        self.defaultYear = pinnedYear ?? Self.placeholderYear
     }
 
     // MARK: - Derived
@@ -520,10 +540,22 @@ final class AppModel {
 
         let manifest = await repository.availableYears()
         years = manifest.years
-        defaultYear = manifest.defaultYear
+        // A pinned launch (`-uitest-pin-year`, DEBUG only) overrides the
+        // manifest outright, including its `defaultYear` — the pinned year
+        // has to read as *the current season* (`isCurrentYear`), or the
+        // shots pick up the archived-season chrome and the downgraded date
+        // scope that go with viewing a past year. It is also force-listed
+        // among the selectable years, so the year picker cannot end up
+        // disagreeing with what is actually on screen if the manifest has
+        // already dropped the pinned season.
+        let effectiveDefault = pinnedYear ?? manifest.defaultYear
+        if let pinnedYear, !years.contains(pinnedYear) {
+            years = (years + [pinnedYear]).sorted()
+        }
+        defaultYear = effectiveDefault
 
-        if selectedYear != manifest.defaultYear {
-            selectedYear = manifest.defaultYear
+        if selectedYear != effectiveDefault {
+            selectedYear = effectiveDefault
             if let cached = await repository.cachedSnapshot(year: selectedYear) {
                 snapshot = cached
                 phase = .ready
@@ -1561,14 +1593,28 @@ final class AppModel {
     /// exactly as if the flag were never wired up.
     static func launchNow() -> @Sendable () -> Date {
         #if DEBUG
-        let arguments = ProcessInfo.processInfo.arguments
-        if let flagIndex = arguments.firstIndex(of: "-uitest-freeze-now"),
-           arguments.index(after: flagIndex) < arguments.endIndex,
-           let frozen = ChqTime.parse(arguments[arguments.index(after: flagIndex)]) {
+        if let frozen = parsedFrozenNow(from: ProcessInfo.processInfo.arguments) {
             return { frozen }
         }
         #endif
         return { Date() }
+    }
+
+    /// The dataset year `ChqCalendarApp` hands to its `init` as
+    /// `pinnedYear`. In Release this is always `nil` — real launches always
+    /// take the year the server's manifest names. In DEBUG, honors
+    /// `-uitest-pin-year <year>` so an App Store capture run keeps rendering
+    /// the 2026 season however many seasons the manifest has moved on by
+    /// (#222); see `pinnedYear`'s own doc comment for why the clock pin
+    /// alone does not achieve that. A missing flag, or a value that is not
+    /// an integer, falls back to `nil` exactly as if the flag were never
+    /// wired up.
+    static func launchPinnedYear() -> Int? {
+        #if DEBUG
+        return parsedPinYear(from: ProcessInfo.processInfo.arguments)
+        #else
+        return nil
+        #endif
     }
 
     #if DEBUG
@@ -1579,6 +1625,53 @@ final class AppModel {
     /// screenshot-based verification when `xcrun simctl` can't synthesize a
     /// tap (see task-12 brief). This whole section compiles out of Release
     /// builds.
+
+    /// The value following `flag` in `arguments`, or `nil` if the flag is
+    /// absent or trailing (nothing follows it to read).
+    ///
+    /// The two launch pins parse their own value out of this rather than
+    /// each re-deriving "the argument after the flag" — and they take
+    /// `arguments` rather than reading `ProcessInfo` themselves so the parse
+    /// is testable without re-launching the test process under different
+    /// arguments. Worth doing now that *every* shot in the screenshot plan
+    /// depends on the clock parse, not just the one off-season shot it was
+    /// originally written for.
+    static func launchArgumentValue(_ flag: String, in arguments: [String]) -> String? {
+        guard let flagIndex = arguments.firstIndex(of: flag) else { return nil }
+        let valueIndex = arguments.index(after: flagIndex)
+        guard valueIndex < arguments.endIndex else { return nil }
+        return arguments[valueIndex]
+    }
+
+    /// The `-uitest-freeze-now` value in `arguments`, parsed as NY
+    /// wall-clock — `nil` if the flag is absent, trailing, or followed by
+    /// something `ChqTime.parse` rejects.
+    static func parsedFrozenNow(from arguments: [String]) -> Date? {
+        launchArgumentValue("-uitest-freeze-now", in: arguments).flatMap { ChqTime.parse($0) }
+    }
+
+    /// The `-uitest-pin-year` value in `arguments` — `nil` if the flag is
+    /// absent, trailing, or followed by a non-integer.
+    ///
+    /// Deliberately does **not** bound the year to something plausible,
+    /// though review has asked for it twice. Note first that no bound exists
+    /// today: `Int("-5")` succeeds, so `-uitest-pin-year -5` pins year -5 and
+    /// the app goes looking for `all-events--5.json`. That fails visibly —
+    /// the operator sees an empty app and goes looking at the flag they just
+    /// typed. Rejecting the value here would instead return `nil`, and `nil`
+    /// does not mean "bad pin", it means *no pin*: the app quietly renders
+    /// the current season and looks entirely correct while ignoring the
+    /// argument it was handed. For a hook whose only job is to make a launch
+    /// depict something other than now, failing loudly beats failing into
+    /// today.
+    ///
+    /// The plausibility check therefore lives where a run can actually be
+    /// stopped and a reason printed — `capture-screenshots.sh`, which
+    /// requires a 4-digit year before booting a simulator. That is the only
+    /// such check in the system, not a second line of defense.
+    static func parsedPinYear(from arguments: [String]) -> Int? {
+        launchArgumentValue("-uitest-pin-year", in: arguments).flatMap { Int($0) }
+    }
 
     /// Set by `CalendarView` on launch when `-uitest-show-filters` is
     /// present. Its original consumer — the four-row `FilterBarView` — is

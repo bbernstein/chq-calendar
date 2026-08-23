@@ -10,6 +10,33 @@
 # Usage:  ios/Scripts/capture-screenshots.sh [device-key ...]
 #         (no args = every device in screenshot-plan.json)
 #
+# screenshot-plan.json top-level "capture" block (run-wide, #222):
+#   "frozenNow"        - "yyyy-MM-dd HH:mm:ss" NY wall-clock the whole run is
+#                        pinned to, via the app's DEBUG-only
+#                        -uitest-freeze-now hook. THIS IS THE ONE KNOB for
+#                        "what day do the screenshots show" — change it here
+#                        and every shot moves together.
+#   "pinYear"          - dataset year the whole run is pinned to, via the
+#                        DEBUG-only -uitest-pin-year hook. Necessary as well
+#                        as frozenNow, not instead of it: the app takes its
+#                        year from the server's years.json manifest, not from
+#                        the clock, so once that manifest names a later
+#                        default season a clock-only pin would render the
+#                        *next* season's events under a summer-2026 clock.
+#                        Only useful while all-events-<pinYear>.json is still
+#                        being served from CloudFront.
+#   Both are prepended to every automated shot's args, EXCEPT where the shot
+#   already passes that same flag itself (see 01-season and 07-my-day, whose
+#   dates are coupled to specific event data and are documented in their
+#   "note").
+#
+#   Both keys are REQUIRED. There is no unpinned mode: a capture that takes
+#   the real clock is the failure this file exists to prevent, and it is the
+#   silent kind — the run completes and the quality checks pass. An earlier
+#   version of this header offered omission as a way to "disable" a pin,
+#   which made `"capture": null` (and a deleted block, and a typo'd key)
+#   quietly mean "shoot today" rather than "stop."
+#
 # screenshot-plan.json shot schema (per shot):
 #   "note"             - optional operational caveat, printed for this shot
 #                        regardless of whether it's automated or manual (e.g.
@@ -57,6 +84,129 @@ if (( BASH_VERSINFO[0] < 4 )); then
   exit 1
 fi
 
+# Run-wide launch pins (see the "capture" block notes at the top of this
+# file). Both are required, so everything below this point may assume they
+# are present and well-formed — the merge in the capture loop injects them
+# unconditionally, guarding only on whether a shot overrides the flag itself.
+#
+# `.capture` must exist and be an object, checked before either key is read.
+# jq indexes `null` happily, so a `"capture": null` block — or a deleted one,
+# or a mistyped key — would otherwise resolve both pins to the empty string
+# and run unpinned without saying anything. `// empty` below is what turns a
+# missing key into an empty variable for the required-check to catch; it is
+# not an opt-out.
+capture_type=$(jq -r '.capture | type' "$PLAN")
+if [ "$capture_type" != "object" ]; then
+  echo "error: screenshot-plan.json has no \"capture\" object (found: $capture_type)" >&2
+  echo "       Add: \"capture\": { \"frozenNow\": \"yyyy-MM-dd HH:mm:ss\", \"pinYear\": <year> }" >&2
+  exit 1
+fi
+
+FROZEN_NOW=$(jq -r '.capture.frozenNow // empty' "$PLAN")
+PIN_YEAR=$(jq -r '.capture.pinYear // empty' "$PLAN")
+
+if [ -z "$FROZEN_NOW" ] || [ -z "$PIN_YEAR" ]; then
+  echo "error: both capture.frozenNow and capture.pinYear are required." >&2
+  [ -n "$FROZEN_NOW" ] || echo "       capture.frozenNow is missing — every shot would take the real clock." >&2
+  [ -n "$PIN_YEAR" ] || echo "       capture.pinYear is missing — the app would take whatever season years.json calls default." >&2
+  exit 1
+fi
+
+# Validate every pin value in the plan before touching a simulator.
+#
+# This is a hard gate rather than a nicety because of how the app fails, in
+# either of two ways, neither of them loud:
+#   - A value the app's parser rejects makes
+#     `AppModel.launchNow()`/`launchPinnedYear()` fall back to the real clock
+#     and the server's default season *exactly as if the flag were never
+#     passed*. The run completes, the dimension and quality checks pass, and
+#     it silently produces screenshots of "now" — the precise failure this
+#     whole mechanism exists to prevent, in its least visible form.
+#   - Worse, the app's parsers are not the backstop they look like. Swift's
+#     `Int("-5")` *succeeds*, so `-uitest-pin-year -5` pins year -5 and the
+#     app goes looking for `all-events--5.json`. Nothing downstream of the
+#     flag has an opinion about whether a year is plausible.
+# Either way a typo has to stop the run here, where there is somewhere to
+# print an error to. These regexes are the only plausibility check in the
+# system, not a second one.
+#
+# The date pattern is deliberately stricter than `ChqTime.parse`, which
+# accepts variable-width numeric fields (see that function's doc comment:
+# "2026-8-9" parses as August 9th, and "26-08-09" as year *26*). Ambiguous
+# input that would parse to something other than what it looks like is
+# rejected here rather than captured. It is a shape check, not a calendar
+# check — "2026-02-31 09:41:00" passes this and is left to the app.
+FROZEN_NOW_PATTERN='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'
+
+# Every value following `$1` in the plan's shots.
+#
+# Scans exactly what a launch receives, for every device the plan declares:
+# `launchArgs + (deviceLaunchArgs[key] // [])`, once per key in `.devices`.
+# That mirrors the merge in the capture loop below argument for argument,
+# which is the only correspondence that makes this check mean anything.
+#
+# Two narrower shapes were tried and are wrong, both in the same way — they
+# validate a list no launch ever receives:
+#   - Scanning `launchArgs` and each `deviceLaunchArgs` array *separately*
+#     rejects a flag/value pair that straddles the join, which the app reads
+#     fine because it only ever sees the concatenation.
+#   - Merging only the devices a shot actually mentions skips the base-only
+#     list that every *unmentioned* device launches with. Most shots here
+#     override `ipad-13` alone, so that list is the common case, not an edge
+#     one: a flag left dangling at the end of `launchArgs` would be rescued
+#     by iPad's appended value and validate clean, while iPhone launched with
+#     the dangling flag and silently took the real clock.
+# A value in `launchArgs` is therefore checked once per device. Re-checking a
+# good value costs nothing.
+#
+# A flag with nothing after it in the merged list yields the sentinel below,
+# so it fails the format check with a message rather than reading as `null`.
+plan_values_after() {
+  jq -r --arg flag "$1" '
+    [ (.devices // [])[].key ] as $keys
+    | [ (.shots // [])[]
+        | (.launchArgs // []) as $base
+        | (.deviceLaunchArgs // {}) as $dev
+        | (if ($keys | length) == 0 then [$base]
+           else [ $keys[] | $base + ($dev[.] // []) ]
+           end)
+        | .[]
+      ]
+    | map(. as $a | [ range(0; ($a|length))
+                      | select($a[.] == $flag)
+                      | ($a[.+1] // "<nothing follows the flag>") ]) | add // []
+    | .[]' "$PLAN"
+}
+
+check_frozen_now() {
+  local value="$1" where="$2"
+  [[ "$value" =~ $FROZEN_NOW_PATTERN ]] && return 0
+  echo "error: $where is not \"yyyy-MM-dd HH:mm:ss\": '$value'" >&2
+  echo "       This shape is enforced more strictly than the app parses, on purpose." >&2
+  echo "       A value the app rejects silently captures the REAL clock; one it" >&2
+  echo "       accepts may not mean what it reads as (\"26-08-09\" is year 26)." >&2
+  exit 1
+}
+
+check_pin_year() {
+  local value="$1" where="$2"
+  [[ "$value" =~ ^[0-9]{4}$ ]] && return 0
+  echo "error: $where is not a 4-digit year: '$value'" >&2
+  echo "       Nothing downstream of this flag checks: Swift's Int(\"-5\") succeeds," >&2
+  echo "       so the app would pin year -5 and fetch all-events--5.json. Only a" >&2
+  echo "       value Int() cannot read at all falls back to the server's season." >&2
+  exit 1
+}
+
+check_frozen_now "$FROZEN_NOW" "capture.frozenNow"
+check_pin_year "$PIN_YEAR" "capture.pinYear"
+while read -r value; do
+  check_frozen_now "$value" "a shot's own -uitest-freeze-now"
+done < <(plan_values_after "-uitest-freeze-now")
+while read -r value; do
+  check_pin_year "$value" "a shot's own -uitest-pin-year"
+done < <(plan_values_after "-uitest-pin-year")
+
 device_keys=("$@")
 if [ ${#device_keys[@]} -eq 0 ]; then
   mapfile -t device_keys < <(jq -r '.devices[].key' "$PLAN")
@@ -91,6 +241,7 @@ for key in "${device_keys[@]}"; do
   [ -n "$udid" ] || { echo "error: no simulator named '$sim' found (check 'xcrun simctl list devices available')" >&2; exit 1; }
 
   echo "==> $key ($sim, $udid)"
+  echo "    clock pinned to $FROZEN_NOW, dataset year pinned to $PIN_YEAR"
   out_dir="$OUT_ROOT/$key"
   mkdir -p "$out_dir"
 
@@ -175,13 +326,27 @@ for key in "${device_keys[@]}"; do
     id=$(jq -r '.id' <<<"$shot")
     settle=$(jq -r '.settleSeconds' <<<"$shot")
     needs_calendar=$(jq -r '.needsCalendarAccess // false' <<<"$shot")
-    # Merge the device-agnostic launchArgs with this device's
-    # deviceLaunchArgs[key] (if any) — see the schema note at the top of
-    # this file. `--arg k "$key"` keys into the per-device map; `// []`
-    # makes the field fully optional so shots that don't need it need not
-    # mention it at all.
-    mapfile -t args < <(jq -r --arg k "$key" \
-      '(.launchArgs // []) + (.deviceLaunchArgs[$k] // []) | .[]' <<<"$shot")
+    # Merge the run-wide capture pins with the device-agnostic launchArgs
+    # and this device's deviceLaunchArgs[key] (if any) — see the schema
+    # notes at the top of this file. `--arg k "$key"` keys into the
+    # per-device map; `// []` makes the field fully optional so shots that
+    # don't need it need not mention it at all.
+    #
+    # A pin is injected only when the shot does not already carry that flag
+    # itself, in EITHER list — `$explicit` is the concatenation of both, so
+    # a per-device override suppresses the run-wide default just as a
+    # per-shot one does. That is what keeps 01-season's and 07-my-day's own
+    # `-uitest-freeze-now` values (each tied to specific event data — see
+    # their notes in the plan) authoritative while every other shot follows
+    # the single run-wide knob.
+    mapfile -t args < <(jq -r --arg k "$key" --arg frozen "$FROZEN_NOW" --arg pin "$PIN_YEAR" '
+        ((.launchArgs // []) + (.deviceLaunchArgs[$k] // [])) as $explicit
+      | (if ($explicit | index("-uitest-freeze-now")) == null
+         then ["-uitest-freeze-now", $frozen] else [] end)
+      + (if ($explicit | index("-uitest-pin-year")) == null
+         then ["-uitest-pin-year", $pin] else [] end)
+      + $explicit
+      | .[]' <<<"$shot")
 
     if [ "$needs_calendar" = "true" ]; then
       xcrun simctl privacy "$udid" grant calendar "$BUNDLE_ID"

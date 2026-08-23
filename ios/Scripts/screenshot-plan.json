@@ -1,4 +1,8 @@
 {
+  "capture": {
+    "frozenNow": "2026-08-04 09:41:00",
+    "pinYear": 2026
+  },
   "devices": [
     { "key": "iphone-6.9", "simulator": "iPhone 17 Pro Max", "width": 1320, "height": 2868 },
     { "key": "ipad-13", "simulator": "iPad Pro 13-inch (M5)", "width": 2064, "height": 2752 }
@@ -13,7 +17,7 @@
       ],
       "settleSeconds": 12,
       "deviceLaunchArgs": { "ipad-13": ["-uitest-select-event-index", "1"] },
-      "note": "`-uitest-freeze-now` pins the clock, but the feed and the article-links sidecar still come from production, so which events on 2026-07-30 carry a linked article is NOT reproducible the way the clock pin is. On iPad, the detail column is populated by `AppModel.uiTestLinkedEvent(at: 1, dayKey: \"2026-07-30\")` — day-scoped, per #255 — and if that day ever holds fewer than 2 linked events, the call returns nil (by design, no season-wide fallback) and the detail column silently shows its 'Select an event' placeholder (AppModel.swift ~1743-1752) instead of an event. A recapture that shows a blank/placeholder detail pane on iPad means the linked-event count for 2026-07-30 dropped, not that the mechanism broke."
+      "note": "Keeps its own `-uitest-freeze-now` rather than taking the run-wide `capture.frozenNow`, because its `-uitest-go-to-day 2026-07-30` is tied to a specific day's data (see below) and the shot only reads right while that day is still ahead of \"now\". Move both together or neither. `-uitest-freeze-now` pins the clock, but the feed and the article-links sidecar still come from production, so which events on 2026-07-30 carry a linked article is NOT reproducible the way the clock pin is. On iPad, the detail column is populated by `AppModel.uiTestLinkedEvent(at: 1, dayKey: \"2026-07-30\")` — day-scoped, per #255 — and if that day ever holds fewer than 2 linked events, the call returns nil (by design, no season-wide fallback) and the detail column silently shows its 'Select an event' placeholder (AppModel.swift ~1743-1752) instead of an event. A recapture that shows a blank/placeholder detail pane on iPad means the linked-event count for 2026-07-30 dropped, not that the mechanism broke."
     },
     {
       "id": "02-filters",
@@ -48,7 +52,8 @@
         "-uitest-seed-favorites", "101207,99511,96951",
         "-uitest-tab", "my-day"
       ],
-      "settleSeconds": 8
+      "settleSeconds": 8,
+      "note": "Keeps its own `-uitest-freeze-now` rather than taking the run-wide `capture.frozenNow`: the three seeded favorite event ids all live on 2026-07-27, and My Day opens on the day the starred events are actually on. The 07:00 hour is deliberate too — it puts the whole day's plan ahead of \"now\" instead of half-past it. Changing the run-wide date does not move this shot; changing this shot means re-picking event ids on the new day."
     },
     {
       "id": "08-map",
@@ -68,7 +73,7 @@
       "launchArgs": [],
       "settleSeconds": 6,
       "manual": true,
-      "manualNote": "Not automatable via plain simctl launch args (widgets live on SpringBoard, not in the app). On each capture simulator: install a SIGNED build (CODE_SIGNING_ALLOWED=NO strips the App Group entitlement and the widgets render empty), launch the app once so the App Group cache populates, star 2-3 events, then long-press the Home Screen -> Edit -> Add Widget -> 'CHQ Calendar' and place the small Next Up widget and the small Starred widget side by side. Set the status bar first (xcrun simctl status_bar <udid> override --time 9:41 --batteryState charged --batteryLevel 100 --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3), then capture with 'xcrun simctl io <udid> screenshot' (raw device resolution is already the required 1320x2868 iPhone / 2064x2752 iPad) into ios/Scripts/out/raw/<device-key>/10-widget.png and re-run compose-screenshots.py."
+      "manualNote": "Not automatable via plain simctl launch args (widgets live on SpringBoard, not in the app). The run-wide `capture` pins do not reach this shot either, for two independent reasons: the app is launched by hand from SpringBoard rather than through `simctl launch`, so no `-uitest-*` argument reaches it; and the widget's own timeline is built in the widget extension against `Date()` (see NextUpWidget/StarredWidget), which nothing in the app can pin. So this shot shows \"next up\" relative to the real clock and the real default season. Accepted as-is — a widget showing a couple of starred event titles carries no visible date chrome that dates the shot — but it does mean this one capture has to be taken while the season being advertised is still the current one on the server. On each capture simulator: install a SIGNED build (CODE_SIGNING_ALLOWED=NO strips the App Group entitlement and the widgets render empty), launch the app once so the App Group cache populates, star 2-3 events, then long-press the Home Screen -> Edit -> Add Widget -> 'CHQ Calendar' and place the small Next Up widget and the small Starred widget side by side. Set the status bar first (xcrun simctl status_bar <udid> override --time 9:41 --batteryState charged --batteryLevel 100 --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3), then capture with 'xcrun simctl io <udid> screenshot' (raw device resolution is already the required 1320x2868 iPhone / 2064x2752 iPad) into ios/Scripts/out/raw/<device-key>/10-widget.png and re-run compose-screenshots.py."
     }
   ]
 }
