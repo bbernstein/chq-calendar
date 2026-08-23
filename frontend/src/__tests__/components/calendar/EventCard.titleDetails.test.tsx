@@ -340,3 +340,54 @@ describe('EventCard expanded panel body', () => {
     expect(firstParagraph.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+/**
+ * Two defects Copilot caught on PR #264, both introduced by #244 itself.
+ */
+describe('EventCard panel layout regressions (#264 review)', () => {
+  /** The chips live in the panel's only `flex flex-wrap` container. */
+  const chipContainers = (panel: HTMLElement) => panel.querySelectorAll('div.flex.flex-wrap');
+
+  it('renders no empty category container when the panel has only a url', () => {
+    // Before #244 a url alone never opened a panel, so an always-rendered
+    // category div cost nothing. Now it does: this panel holds the link only,
+    // and an empty `mb-2` container above it is a visible gap.
+    renderCard({ event: { ...bareEvent, url: 'https://www.chq.org/event/x' }, isExpanded: true });
+    const panel = document.getElementById(titleButton(/Bare Event/).getAttribute('aria-controls')!)!;
+    expect(chipContainers(panel)).toHaveLength(0);
+  });
+
+  it('renders no empty category container when the event has only Week N categories', () => {
+    renderCard({
+      event: { ...bareEvent, url: 'https://www.chq.org/event/x', categories: [{ name: 'Week 5' }] },
+      isExpanded: true,
+    });
+    const panel = document.getElementById(titleButton(/Bare Event/).getAttribute('aria-controls')!)!;
+    expect(chipContainers(panel)).toHaveLength(0);
+  });
+
+  it('still renders the container when there is at least one non-week category', () => {
+    renderCard({ event: { ...baseEvent, categories: [{ name: 'Lecture' }] }, isExpanded: true });
+    const panel = document.getElementById(titleButton().getAttribute('aria-controls')!)!;
+    expect(chipContainers(panel)).toHaveLength(1);
+    expect(within(panel).getByRole('button', { name: 'Lecture' })).toBeTruthy();
+  });
+
+  it('does not turn a cancelled title blue on hover', () => {
+    // The <h4> greys and strikes through a cancelled event; a blue hover on the
+    // button inside it overrides that treatment on the way past.
+    renderCard({
+      event: { ...baseEvent, url: 'https://www.chq.org/event/x', status: 'cancelled' },
+    });
+    const control = titleButton();
+    expect(control.className).not.toMatch(/hover:text-blue/);
+    // The cancelled treatment itself is untouched, and still lives on the <h4>.
+    expect(control.closest('h4')!.className).toMatch(/line-through/);
+    expect(control.closest('h4')!.className).toMatch(/text-gray-500/);
+  });
+
+  it('keeps the blue hover on a title that is not cancelled', () => {
+    renderCard({ event: { ...baseEvent, url: 'https://www.chq.org/event/x' } });
+    expect(titleButton().className).toMatch(/hover:text-blue-700/);
+  });
+});

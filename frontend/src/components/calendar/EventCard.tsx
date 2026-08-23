@@ -138,7 +138,11 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                 onClick={() => onToggleDescription(event.id)}
                 aria-expanded={isExpanded}
                 aria-controls={detailPanelId}
-                className="text-left w-full hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                className={`text-left w-full transition-colors ${
+                  event.status === 'cancelled'
+                    ? ''
+                    : 'hover:text-blue-700 dark:hover:text-blue-300'
+                }`}
               >
                 {event.title}
                 {hintGlyphs}
@@ -192,21 +196,23 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                 </div>
               )}
 
-              <div className="mb-2 flex flex-wrap gap-1">
-                {detailCategories.map((category, catIndex) => (
-                  <button
-                    key={`${event.id}-category-${catIndex}`}
-                    onClick={() => onToggleTag(category.name)}
-                    className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                      isTagSelected(category.name)
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {getCategoryDisplayName(category.name)}
-                  </button>
-                ))}
-              </div>
+              {detailCategories.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {detailCategories.map((category, catIndex) => (
+                    <button
+                      key={`${event.id}-category-${catIndex}`}
+                      onClick={() => onToggleTag(category.name)}
+                      className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
+                        isTagSelected(category.name)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      {getCategoryDisplayName(category.name)}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {programLinks && programLinks.length > 0 && (
                 <div className="mb-2">
