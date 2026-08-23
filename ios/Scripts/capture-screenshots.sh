@@ -111,25 +111,38 @@ FROZEN_NOW_PATTERN='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'
 
 # Every value following `$1` in the plan's shots.
 #
-# Scans exactly what a launch receives: `launchArgs + deviceLaunchArgs[key]`,
-# once per device key (or the bare `launchArgs` for a shot that declares no
-# per-device args). Scanning the two lists *separately* would be both too
-# strict and too loose — it would reject a pair that happens to straddle the
-# join (which the app reads fine, since it only ever sees the concatenation)
-# while still needing its own answer for a flag left dangling at the very
-# end. A value appearing in `launchArgs` is therefore checked once per
-# device; re-checking a good value costs nothing.
+# Scans exactly what a launch receives, for every device the plan declares:
+# `launchArgs + (deviceLaunchArgs[key] // [])`, once per key in `.devices`.
+# That mirrors the merge in the capture loop below argument for argument,
+# which is the only correspondence that makes this check mean anything.
+#
+# Two narrower shapes were tried and are wrong, both in the same way — they
+# validate a list no launch ever receives:
+#   - Scanning `launchArgs` and each `deviceLaunchArgs` array *separately*
+#     rejects a flag/value pair that straddles the join, which the app reads
+#     fine because it only ever sees the concatenation.
+#   - Merging only the devices a shot actually mentions skips the base-only
+#     list that every *unmentioned* device launches with. Most shots here
+#     override `ipad-13` alone, so that list is the common case, not an edge
+#     one: a flag left dangling at the end of `launchArgs` would be rescued
+#     by iPad's appended value and validate clean, while iPhone launched with
+#     the dangling flag and silently took the real clock.
+# A value in `launchArgs` is therefore checked once per device. Re-checking a
+# good value costs nothing.
 #
 # A flag with nothing after it in the merged list yields the sentinel below,
 # so it fails the format check with a message rather than reading as `null`.
 plan_values_after() {
   jq -r --arg flag "$1" '
-    [ (.shots // [])[]
-      | (.launchArgs // []) as $base
-      | ((.deviceLaunchArgs // {}) | [ .[] ]) as $devs
-      | (if ($devs | length) == 0 then [$base] else ($devs | map($base + .)) end)
-      | .[]
-    ]
+    [ (.devices // [])[].key ] as $keys
+    | [ (.shots // [])[]
+        | (.launchArgs // []) as $base
+        | (.deviceLaunchArgs // {}) as $dev
+        | (if ($keys | length) == 0 then [$base]
+           else [ $keys[] | $base + ($dev[.] // []) ]
+           end)
+        | .[]
+      ]
     | map(. as $a | [ range(0; ($a|length))
                       | select($a[.] == $flag)
                       | ($a[.+1] // "<nothing follows the flag>") ]) | add // []
@@ -140,7 +153,9 @@ check_frozen_now() {
   local value="$1" where="$2"
   [[ "$value" =~ $FROZEN_NOW_PATTERN ]] && return 0
   echo "error: $where is not \"yyyy-MM-dd HH:mm:ss\": '$value'" >&2
-  echo "       The app would reject it and silently capture the REAL clock." >&2
+  echo "       This shape is enforced more strictly than the app parses, on purpose." >&2
+  echo "       A value the app rejects silently captures the REAL clock; one it" >&2
+  echo "       accepts may not mean what it reads as (\"26-08-09\" is year 26)." >&2
   exit 1
 }
 
@@ -148,7 +163,9 @@ check_pin_year() {
   local value="$1" where="$2"
   [[ "$value" =~ ^[0-9]{4}$ ]] && return 0
   echo "error: $where is not a 4-digit year: '$value'" >&2
-  echo "       The app would ignore it and silently capture the server's default season." >&2
+  echo "       Nothing downstream of this flag checks: Swift's Int(\"-5\") succeeds," >&2
+  echo "       so the app would pin year -5 and fetch all-events--5.json. Only a" >&2
+  echo "       value Int() cannot read at all falls back to the server's season." >&2
   exit 1
 }
 

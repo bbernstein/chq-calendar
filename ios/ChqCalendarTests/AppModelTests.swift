@@ -2306,11 +2306,19 @@ struct AppModelTests {
     /// The control for the test above: without the pin, the same manifest
     /// moves the app to 2027. If this ever stops holding, the test above
     /// proves nothing.
+    ///
+    /// Both years are seeded deliberately, so this lands on the same warm-
+    /// cache path the pinned test does and the two differ in exactly one
+    /// input — the pin. Seeding only 2026 would still assert the right
+    /// years, but by way of a cache-miss refresh against an unscripted
+    /// `MockAPI`: an offline model that happens to hold the right numbers,
+    /// which is a weaker thing to compare a `.ready` model against.
     @Test func startWithoutAPinFollowsTheManifestDefault() async throws {
         let fixedNow = try #require(ChqTime.parse("2026-08-04 09:41:00"))
         let cache = MockCache()
         cache.write("years", data: yearsManifest(defaultYear: 2027, years: [2026, 2027]), etag: "y1", fetchedAt: Date())
         cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: fixedNow)
+        cache.write("events-2027", data: fixtureData("events-sample"), etag: "e2", fetchedAt: fixedNow)
         let api = MockAPI()
         let model = AppModel(
             repository: EventRepository(api: api, cache: cache),
@@ -2322,6 +2330,8 @@ struct AppModelTests {
 
         #expect(model.selectedYear == 2027)
         #expect(model.defaultYear == 2027)
+        #expect(model.phase == .ready)
+        #expect(model.snapshot?.year == 2027)
     }
 
     /// A manifest that has dropped the pinned year entirely must still leave
