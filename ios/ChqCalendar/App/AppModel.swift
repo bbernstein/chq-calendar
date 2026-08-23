@@ -1652,6 +1652,23 @@ final class AppModel {
 
     /// The `-uitest-pin-year` value in `arguments` — `nil` if the flag is
     /// absent, trailing, or followed by a non-integer.
+    ///
+    /// Deliberately does **not** bound the year to something plausible,
+    /// though review has asked for it twice. Note first that no bound exists
+    /// today: `Int("-5")` succeeds, so `-uitest-pin-year -5` pins year -5 and
+    /// the app goes looking for `all-events--5.json`. That fails visibly —
+    /// the operator sees an empty app and goes looking at the flag they just
+    /// typed. Rejecting the value here would instead return `nil`, and `nil`
+    /// does not mean "bad pin", it means *no pin*: the app quietly renders
+    /// the current season and looks entirely correct while ignoring the
+    /// argument it was handed. For a hook whose only job is to make a launch
+    /// depict something other than now, failing loudly beats failing into
+    /// today.
+    ///
+    /// The plausibility check therefore lives where a run can actually be
+    /// stopped and a reason printed — `capture-screenshots.sh`, which
+    /// requires a 4-digit year before booting a simulator. That is the only
+    /// such check in the system, not a second line of defense.
     static func parsedPinYear(from arguments: [String]) -> Int? {
         launchArgumentValue("-uitest-pin-year", in: arguments).flatMap { Int($0) }
     }

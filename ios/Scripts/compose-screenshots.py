@@ -162,8 +162,17 @@ def depicted_pins(plan: dict) -> dict:
     manifest so a later reader can tell *what date these shots show* without
     re-deriving it from the pixels. Metadata about the run, not about any one
     file — note that 01-season and 07-my-day override the clock locally, so
-    this is the run-wide default, not a promise about every frame."""
-    capture = plan.get("capture", {})
+    this is the run-wide default, not a promise about every frame.
+
+    Tolerates a missing or malformed "capture" block rather than raising:
+    capture-screenshots.sh is where a plan that cannot pin a run is rejected
+    (loudly, before a simulator boots), and composition runs over raw PNGs
+    that may well have been captured by an older plan. Aborting a
+    composition over metadata would trade a complete set of images for a
+    traceback."""
+    capture = plan.get("capture")
+    if not isinstance(capture, dict):
+        return {}
     return {key: capture[key] for key in ("frozenNow", "pinYear") if key in capture}
 
 

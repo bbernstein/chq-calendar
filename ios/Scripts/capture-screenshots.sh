@@ -28,7 +28,14 @@
 #   Both are prepended to every automated shot's args, EXCEPT where the shot
 #   already passes that same flag itself (see 01-season and 07-my-day, whose
 #   dates are coupled to specific event data and are documented in their
-#   "note"). Omit either key to disable that pin run-wide.
+#   "note").
+#
+#   Both keys are REQUIRED. There is no unpinned mode: a capture that takes
+#   the real clock is the failure this file exists to prevent, and it is the
+#   silent kind — the run completes and the quality checks pass. An earlier
+#   version of this header offered omission as a way to "disable" a pin,
+#   which made `"capture": null` (and a deleted block, and a typo'd key)
+#   quietly mean "shoot today" rather than "stop."
 #
 # screenshot-plan.json shot schema (per shot):
 #   "note"             - optional operational caveat, printed for this shot
@@ -80,8 +87,25 @@ fi
 # Run-wide launch pins (see the "capture" block notes at the top of this
 # file). `// empty` leaves the variable empty when the key is absent, which
 # the merge below reads as "don't inject this pin."
+# `.capture` must exist and be an object. jq indexes `null` happily, so a
+# `"capture": null` block — or a deleted one — would otherwise resolve both
+# pins to the empty string and run unpinned without saying anything.
+capture_type=$(jq -r '.capture | type' "$PLAN")
+if [ "$capture_type" != "object" ]; then
+  echo "error: screenshot-plan.json has no \"capture\" object (found: $capture_type)" >&2
+  echo "       Add: \"capture\": { \"frozenNow\": \"yyyy-MM-dd HH:mm:ss\", \"pinYear\": <year> }" >&2
+  exit 1
+fi
+
 FROZEN_NOW=$(jq -r '.capture.frozenNow // empty' "$PLAN")
 PIN_YEAR=$(jq -r '.capture.pinYear // empty' "$PLAN")
+
+if [ -z "$FROZEN_NOW" ] || [ -z "$PIN_YEAR" ]; then
+  echo "error: both capture.frozenNow and capture.pinYear are required." >&2
+  [ -n "$FROZEN_NOW" ] || echo "       capture.frozenNow is missing — every shot would take the real clock." >&2
+  [ -n "$PIN_YEAR" ] || echo "       capture.pinYear is missing — the app would take whatever season years.json calls default." >&2
+  exit 1
+fi
 
 # Validate every pin value in the plan before touching a simulator.
 #
@@ -169,8 +193,8 @@ check_pin_year() {
   exit 1
 }
 
-[ -z "$FROZEN_NOW" ] || check_frozen_now "$FROZEN_NOW" "capture.frozenNow"
-[ -z "$PIN_YEAR" ] || check_pin_year "$PIN_YEAR" "capture.pinYear"
+check_frozen_now "$FROZEN_NOW" "capture.frozenNow"
+check_pin_year "$PIN_YEAR" "capture.pinYear"
 while read -r value; do
   check_frozen_now "$value" "a shot's own -uitest-freeze-now"
 done < <(plan_values_after "-uitest-freeze-now")
@@ -212,7 +236,7 @@ for key in "${device_keys[@]}"; do
   [ -n "$udid" ] || { echo "error: no simulator named '$sim' found (check 'xcrun simctl list devices available')" >&2; exit 1; }
 
   echo "==> $key ($sim, $udid)"
-  echo "    clock pinned to ${FROZEN_NOW:-<real clock>}, dataset year pinned to ${PIN_YEAR:-<server default>}"
+  echo "    clock pinned to $FROZEN_NOW, dataset year pinned to $PIN_YEAR"
   out_dir="$OUT_ROOT/$key"
   mkdir -p "$out_dir"
 
@@ -312,9 +336,9 @@ for key in "${device_keys[@]}"; do
     # the single run-wide knob.
     mapfile -t args < <(jq -r --arg k "$key" --arg frozen "$FROZEN_NOW" --arg pin "$PIN_YEAR" '
         ((.launchArgs // []) + (.deviceLaunchArgs[$k] // [])) as $explicit
-      | (if $frozen != "" and ($explicit | index("-uitest-freeze-now")) == null
+      | (if ($explicit | index("-uitest-freeze-now")) == null
          then ["-uitest-freeze-now", $frozen] else [] end)
-      + (if $pin != "" and ($explicit | index("-uitest-pin-year")) == null
+      + (if ($explicit | index("-uitest-pin-year")) == null
          then ["-uitest-pin-year", $pin] else [] end)
       + $explicit
       | .[]' <<<"$shot")

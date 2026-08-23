@@ -49,8 +49,8 @@ default, a capture run renders **2027 events under a summer-2026 clock**.
    its `launchArgs` or its `deviceLaunchArgs`. This is the single knob for
    "what day does the listing depict."
 
-3. **`capture-screenshots.sh` validates every pin value before touching a
-   simulator** — the run-wide pair and each shot's own override alike. This
+3. **Both pins are required, and `capture-screenshots.sh` validates them
+   before touching a simulator** — the run-wide pair and each shot's own override alike. This
    is a hard gate rather than a nicety because of *how* a bad value fails:
    the app falls back to the real clock and the server's default season
    exactly as if the flag were never passed, the run completes, the quality
@@ -58,6 +58,12 @@ default, a capture run renders **2027 events under a summer-2026 clock**.
    failure this whole mechanism exists to prevent, in its least visible
    form. The date pattern is deliberately stricter than `ChqTime.parse`,
    which accepts variable-width fields ("26-08-09" reads as year *26*).
+
+   There is no unpinned mode. An earlier draft let a missing key "disable" a
+   pin, which quietly turned `"capture": null`, a deleted block, and a
+   mistyped key into "shoot today" — the failure the gate exists to catch,
+   arriving through the one door the gate had no value to inspect.
+   `.capture` must now be an object and must carry both keys.
 
 4. **`compose-screenshots.py` records the pins** as a `depicts` block in
    `screenshots.manifest.json`, and treats a change to it as a manifest
