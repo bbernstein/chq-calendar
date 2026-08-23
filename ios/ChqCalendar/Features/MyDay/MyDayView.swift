@@ -453,7 +453,12 @@ struct MyDayView: View {
 ///
 /// The visible chip stays narrow — the count lives in the accessibility
 /// label, not on screen.
-private struct MyDayExpandControl: View {
+/// Internal rather than `private` so `DayRailDynamicTypeTests` can name it:
+/// #261 found the rail's accessibility audit is structurally blind to this
+/// control (an icon-only button presents no text for a Dynamic Type audit to
+/// measure), so the guard on its frame growing had to move to a measured unit
+/// test — and a test cannot host a `private` view.
+struct MyDayExpandControl: View {
     enum Direction { case earlier, later }
 
     let direction: Direction
@@ -463,28 +468,15 @@ private struct MyDayExpandControl: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.subheadline.weight(.semibold))
-                // `.primary`, not the default accent tint (accessibility
-                // follow-up to #245): the accent colour against the opaque
-                // `dayRailControlBackground` measures under 4.5:1, caught
-                // by an on-device audit.
-                .foregroundStyle(.primary)
-                // Width's minimum is 44pt to meet the HIG minimum tap
-                // target. The horizontal axis is the mis-tap-prone one
-                // here — this chip sits at the end of a
-                // horizontally-scrolling strip flanked by 8pt spacing and
-                // other chips, and is tapped side-to-side, not
-                // top-to-bottom. Height's minimum stays 62 to match
-                // `DayChip`. The neighbouring chips (`minWidth: 58`)
-                // already clear 44pt. Both are minimums, not fixed sizes
-                // (accessibility follow-up to #245): a fixed frame clipped
-                // the chevron at large Dynamic Type sizes, caught by an
-                // on-device audit. At the default text size the icon is
-                // far smaller than either minimum, so nothing changes
-                // there.
-                .frame(minWidth: 44, minHeight: 62)
-                .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
+            // Tint, frame and background all live in
+            // `DayRailEndControlLabel`, shared with the Events tab's `⟳ Now`
+            // — see its doc comment for why each of them is load-bearing and
+            // why a second copy here was a drift risk. At the default text
+            // size the chevron is far smaller than either minimum, so the
+            // frame only starts doing work at large Dynamic Type sizes.
+            DayRailEndControlLabel {
+                Image(systemName: symbol)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)

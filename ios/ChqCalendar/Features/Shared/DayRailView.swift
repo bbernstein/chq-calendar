@@ -707,6 +707,71 @@ private struct WeekBandSegmentView: View {
     }
 }
 
+/// The chrome the rail's two fixed end controls share: `⟳ Now` on the Events
+/// tab (`EventListView.nowButton`) and My Day's earlier/later expand controls
+/// (`MyDayExpandControl`). Only the icon differs between them — one is a
+/// `Label(…).labelStyle(.iconOnly)`, the other a bare `Image(systemName:)` —
+/// so the icon stays at the call site and everything wrapped around it lives
+/// here once.
+///
+/// **Why one type rather than the two identical modifier stacks this
+/// replaces.** Both call sites carried the same decisions, each with its own
+/// copy of the same comment explaining it, and every one of them is an
+/// accessibility fix that was paid for on-device (follow-ups to #245): the
+/// `.primary` tint, because the default accent against
+/// `dayRailControlBackground` measures under 4.5:1; and the *minimum* frame,
+/// because a fixed one clipped the glyph at large Dynamic Type sizes. That is
+/// exactly the drift risk `RailMetrics` already exists to prevent for the
+/// gutter — two copies of a number agree only until one of them is tuned.
+///
+/// **It is also what makes those decisions testable.**
+/// `DayRailDynamicTypeTests` measures this view against the glyph it has to
+/// hold, which is the guard that was missing: #261 showed the rail's
+/// `performAccessibilityAudit` could not see a fixed frame here at all,
+/// because an icon-only control presents no text for a Dynamic Type audit to
+/// measure. A test cannot name `MyDayExpandControl`'s or `nowButton`'s label
+/// without this type — one was `private`, the other a method body — and
+/// re-declaring the same modifier stack inside the test would gate a copy
+/// nothing renders.
+enum DayRailEndControl {
+    /// The glyph's text style. Named here rather than written inline below so
+    /// `DayRailDynamicTypeTests` can measure the icon on its own against the
+    /// chrome that has to hold it, using the *same* value the chrome renders
+    /// with — the reason `WeekBandRun.unreachableFillOpacity` is a named
+    /// constant too: a copy of it in the test would gate a font nothing draws.
+    static let iconFont: Font = .subheadline.weight(.semibold)
+}
+
+struct DayRailEndControlLabel<Icon: View>: View {
+    @ViewBuilder let icon: Icon
+
+    var body: some View {
+        icon
+            // `.primary`, not the default accent tint (accessibility
+            // follow-up to #245): the accent colour against the opaque
+            // `dayRailControlBackground` measures under 4.5:1, caught by an
+            // on-device audit.
+            .font(DayRailEndControl.iconFont)
+            .foregroundStyle(.primary)
+            // Minimums, never fixed sizes (accessibility follow-up to #245):
+            // a fixed frame clipped the glyph at large Dynamic Type sizes.
+            // 44pt is the HIG tap-target minimum — and the horizontal axis is
+            // the mis-tap-prone one for a control at the end of a
+            // horizontally-scrolling strip, tapped side-to-side rather than
+            // top-to-bottom. 62pt matches `DayChip`'s height at the default
+            // text size, where these render at exactly 44x62; the
+            // neighbouring chips (`minWidth: 58`) already clear 44pt.
+            //
+            // Both minimums are load-bearing at large sizes and neither is
+            // slack: at `.accessibility5` the `arrow.clockwise` glyph measures
+            // ≈52.3x61.7, so it has outgrown the width minimum outright and
+            // clears the height one by about a third of a point.
+            // `DayRailDynamicTypeTests` measures exactly that.
+            .frame(minWidth: 44, minHeight: 62)
+            .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 /// One selectable day chip in `MyDayView`'s strip (#192).
 ///
 /// All labelling lives in `MyDayChipContent` so it can be tested without a

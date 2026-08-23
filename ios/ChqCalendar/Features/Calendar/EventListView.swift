@@ -473,21 +473,14 @@ struct EventListView: View {
         Button {
             selectDay(todayKey)
         } label: {
-            Label("Now", systemImage: "arrow.clockwise")
-                .labelStyle(.iconOnly)
-                .font(.subheadline.weight(.semibold))
-                // `.primary`, not the default accent tint (accessibility
-                // follow-up to #245): the accent colour against the opaque
-                // `dayRailControlBackground` measures under 4.5:1, caught
-                // by an on-device audit.
-                .foregroundStyle(.primary)
-                // Minimum, not fixed (accessibility follow-up to #245): a
-                // fixed frame clipped the symbol at large Dynamic Type
-                // sizes. 44pt still meets the HIG tap-target minimum; at
-                // the default text size this renders at exactly 44x62,
-                // matching `DayChip`.
-                .frame(minWidth: 44, minHeight: 62)
-                .background(Color.dayRailControlBackground, in: RoundedRectangle(cornerRadius: 12))
+            // Tint, frame and background all live in
+            // `DayRailEndControlLabel`, shared with My Day's expand controls
+            // — see its doc comment for why each of them is load-bearing and
+            // why a second copy here was a drift risk.
+            DayRailEndControlLabel {
+                Label("Now", systemImage: "arrow.clockwise")
+                    .labelStyle(.iconOnly)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(stepLabel(for: todayKey, nav: nav))
