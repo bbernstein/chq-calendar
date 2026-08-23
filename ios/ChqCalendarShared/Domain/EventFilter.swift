@@ -86,7 +86,9 @@ nonisolated enum EventFilter {
         // noon (#257). Weeks therefore overlap by one calendar day and are not
         // a partition. `SeasonWeek.contains` — the noon split — is still the
         // right question for "which week is it *now*" (`currentWeekNumber(at:)`,
-        // `WeekStripState`, `ViewWindow`, `WeekBands`), which needs one answer.
+        // `WeekStripState`, `ViewWindow`), which needs one answer. `WeekBands`
+        // is NOT in that list: it already reads the day-granular
+        // `weekNumbers(spanningDayOf:in:)`, same as this stage now does.
         // The `in:` overload reuses the `weeks` built once above rather than
         // rebuilding all 9 structs per event.
         if !sel.selectedWeeks.isEmpty {
