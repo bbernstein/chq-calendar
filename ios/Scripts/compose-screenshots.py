@@ -169,7 +169,13 @@ def depicted_pins(plan: dict) -> dict:
     (loudly, before a simulator boots), and composition runs over raw PNGs
     that may well have been captured by an older plan. Aborting a
     composition over metadata would trade a complete set of images for a
-    traceback."""
+    traceback.
+
+    An empty result means "this plan does not say", NOT "these shots are
+    unpinned" — the two are indistinguishable from here, and the raw PNGs
+    were almost certainly captured under a plan that did say. See main(),
+    which keeps whatever the manifest already recorded rather than
+    overwriting it with this."""
     capture = plan.get("capture")
     if not isinstance(capture, dict):
         return {}
@@ -245,6 +251,19 @@ def main() -> int:
             existing = json.loads(MANIFEST_PATH.read_text())
         except Exception as exc:
             print(f"warning: could not parse existing manifest, will rewrite: {exc}", file=sys.stderr)
+
+    # A plan with no usable `capture` block cannot tell us these shots were
+    # unpinned — only that it does not know. Recording `{}` over a manifest
+    # that already names the pins would erase the one record of what the
+    # images depict, which is worse than the traceback the dict guard in
+    # `depicted_pins` was added to avoid. Keep what is there and say so.
+    if not pins:
+        inherited = (existing or {}).get("depicts") or {}
+        if inherited:
+            print(f"warning: screenshot-plan.json declares no capture pins; keeping the "
+                  f"manifest's existing depicts {inherited} rather than recording these "
+                  f"shots as unpinned.", file=sys.stderr)
+            pins = inherited
 
     # `depicts` joins the fingerprint check even though it is metadata: it
     # describes the *inputs* the shots were taken under, so it going stale

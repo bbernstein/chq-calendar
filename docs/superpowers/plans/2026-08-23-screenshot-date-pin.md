@@ -70,6 +70,13 @@ default, a capture run renders **2027 events under a summer-2026 clock**.
    `screenshots.manifest.json`, and treats a change to it as a manifest
    change even when the images happen to be byte-identical.
 
+   It never *erases* one. A plan with no readable `capture` block cannot
+   tell composition that the shots were unpinned — only that it does not
+   know, and the raw PNGs it is composing were almost certainly captured
+   under a plan that did know. So an empty read keeps whatever the manifest
+   already recorded, with a warning, rather than overwriting the one record
+   of what the images depict.
+
 ## The chosen instant: `2026-08-04 09:41:00`
 
 Tuesday of Week 6 of the 2026 season (which runs Sat 2026-06-27 noon →
