@@ -3,6 +3,17 @@ import Testing
 import UIKit
 @testable import ChqCalendar
 
+/// Both end controls are the same chrome around a different glyph since they
+/// were unified into `DayRailEndControlLabel`, so measuring that chrome with
+/// each real symbol covers `EventListView.nowButton` and both directions of
+/// `MyDayExpandControl`.
+///
+/// `nonisolated`, at file scope rather than on the test type:
+/// `@Test(arguments:)` evaluates its argument list outside the actor, so
+/// neither a `@MainActor` type nor this module's default main-actor isolation
+/// can hold it.
+private nonisolated let endControlSymbols = ["arrow.clockwise", "chevron.left", "chevron.right"]
+
 /// Pins the day rail's Dynamic Type behaviour by *measuring the real views*
 /// instead of by `performAccessibilityAudit` (#261) — the same move
 /// `DayChipContrastTests` made for contrast, for the same reason, and against
@@ -12,7 +23,7 @@ import UIKit
 /// `.dynamicType` over the rail and, on every attempt of every run, reported
 /// only issues whose element carried an empty `identifier` — all of which its
 /// own filter then dropped as unattributable. Three defects injected into app
-/// code (a chip narrowed until its text truncated, `day-rail-now`'s minimum
+/// code (a chip narrowed to a fixed width, `day-rail-now`'s minimum
 /// frame made fixed, its font made non-scaling) all passed. The reason is
 /// structural, and it covers the whole rail rather than just the chips:
 ///
@@ -51,17 +62,6 @@ import UIKit
 /// text rather than clipping it — is what is gated, and that is where every
 /// defect this rail has actually shipped has lived (see `DayChip.body` and
 /// `DayRailEndControlLabel`'s comments, all of them frame or fill decisions).
-/// Both end controls are the same chrome around a different glyph since they
-/// were unified into `DayRailEndControlLabel`, so measuring that chrome with
-/// each real symbol covers `EventListView.nowButton` and both directions of
-/// `MyDayExpandControl`.
-///
-/// `nonisolated`, at file scope rather than on the test type:
-/// `@Test(arguments:)` evaluates its argument list outside the actor, so
-/// neither a `@MainActor` type nor this module's default main-actor isolation
-/// can hold it.
-private nonisolated let endControlSymbols = ["arrow.clockwise", "chevron.left", "chevron.right"]
-
 @MainActor
 struct DayRailDynamicTypeTests {
 
