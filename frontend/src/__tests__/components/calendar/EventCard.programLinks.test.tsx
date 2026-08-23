@@ -50,18 +50,18 @@ describe('EventCard program links', () => {
     expect(link.rel).toContain('noreferrer');
   });
 
-  it('collapsed card shows the 📖 badge inside the Show more control', () => {
+  it('collapsed card shows the 📖 badge inside the title control', () => {
     renderCard({ programLinks: PROGRAM_LINKS });
-    const showMore = screen.getByRole('button', { name: /Show more/ });
-    expect(within(showMore).getByTitle('Digital program')).toBeTruthy();
+    const title = screen.getByRole('button', { name: /Interfaith Lecture/ });
+    expect(within(title).getByTitle('Digital program')).toBeTruthy();
   });
 
-  it('event with no description, categories, or articleLinks but WITH programLinks still gets the disclosure widget', () => {
+  it('event with no description, categories, or articleLinks but WITH programLinks still gets an expandable title', () => {
     renderCard({
       event: { ...baseEvent, description: undefined, categories: undefined },
       programLinks: PROGRAM_LINKS,
     });
-    expect(screen.getByText(/Show more/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Interfaith Lecture/ })).toBeTruthy();
   });
 
   it('expanded card with both programLinks and articleLinks renders "Digital Program" before "In the Chautauquan Daily" in document order', () => {
