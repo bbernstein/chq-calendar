@@ -56,12 +56,15 @@ nonisolated enum AppGroup {
     /// Broken out as a pure function of two `Bool`s — rather than reading
     /// `isAppProcess`/`containerURL()` live inline at each call site — so
     /// both branches of the gate are directly testable even though neither
-    /// live value can be flipped from within the unit-test host: it has no
-    /// real App Group entitlement, so `containerURL()` is always `nil`
-    /// there (see `AppGroupTests.containerURLIsNilInTheUnitTestHost`), and
-    /// `isAppProcess` itself is always `true` there (see `isAppProcess`'s
-    /// own doc comment on why `Bundle.main` can't distinguish a test run
-    /// from a real app launch).
+    /// live value can be *flipped* from within the unit-test host:
+    /// `isAppProcess` is always `true` there (see `isAppProcess`'s own doc
+    /// comment on why `Bundle.main` can't distinguish a test run from a
+    /// real app launch), and `containerURL()` is whatever the host
+    /// environment makes it — `nil` on a simulator that has never had the
+    /// App Group container provisioned, non-`nil` on one that has. Neither
+    /// is a property of this code, so neither is asserted by a test; the
+    /// decision matrix is pinned against the pure function instead, by
+    /// `AppGroupTests.shouldRunAppOnlyMigrationRequiresBothAppProcessAndGroupContainer`.
     static func shouldRunAppOnlyMigration(isAppProcess: Bool, hasGroupContainer: Bool) -> Bool {
         isAppProcess && hasGroupContainer
     }

@@ -110,10 +110,16 @@ struct DiskCacheTests {
     // MARK: - triggerMigrationIfNeeded isAppProcess gate (F1, "for symmetry")
 
     /// Same rationale as `UserStateStoreTests`'s pair of the same name:
-    /// `AppGroup.containerURL()` is `nil` in the unit test host regardless
-    /// of `isAppProcess`, so both branches are no-ops here — this just pins
-    /// that the parameterized trigger is callable and total for both
-    /// values.
+    /// whether either branch actually migrates anything depends on the
+    /// host environment (`AppGroup.containerURL()` is `nil` on a simulator
+    /// with no provisioned App Group container, non-`nil` on one that has
+    /// it; `isAppProcess` is always `true` in this app-hosted test target),
+    /// so on a provisioned simulator the `isAppProcess: true` call really
+    /// does reach `AppGroup.migrateIfNeeded` against the test host's own
+    /// legacy cache directory — harmlessly, since that migration copies
+    /// rather than moves and is skipped entirely once the group directory
+    /// is non-empty. These two pin only that the parameterized trigger is
+    /// callable and total for both values.
     @Test func triggerMigrationIfNeededReturnsTrueWhenIsAppProcessIsTrue() {
         #expect(DiskCache.triggerMigrationIfNeeded(isAppProcess: true))
     }

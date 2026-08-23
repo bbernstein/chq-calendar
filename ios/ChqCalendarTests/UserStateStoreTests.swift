@@ -341,15 +341,27 @@ struct UserStateStoreTests {
 
     // MARK: - triggerMigrationIfNeeded isAppProcess gate (F1)
 
-    /// Neither branch touches the real `UserDefaults.standard` in the unit
-    /// test host, since `AppGroup.containerURL()` is `nil` there regardless
-    /// of `isAppProcess` — but both must be callable (independent of the
-    /// once-per-process `didMigrateDefaults` static let, which this
-    /// parameterized function exists separately from) and return `true`
-    /// without crashing. `AppGroup.shouldRunAppOnlyMigrationTests` pins the
-    /// actual `isAppProcess`-vs-`hasGroupContainer` decision matrix; this
-    /// just confirms the trigger wires that decision through correctly for
-    /// both values it's given.
+    /// What these two pin is only that the trigger is *total*: callable
+    /// (independent of the once-per-process `didMigrateDefaults` static
+    /// let, which this parameterized function exists separately from) and
+    /// returning `true` for either input without crashing.
+    ///
+    /// They deliberately assert nothing about whether a migration actually
+    /// ran, because that depends on the host environment rather than on
+    /// this code: `AppGroup.containerURL()` is `nil` on a simulator that
+    /// has never had the App Group container provisioned, but non-`nil` on
+    /// one that has — and `isAppProcess` is always `true` in this
+    /// app-hosted test target. So on a provisioned simulator the
+    /// `isAppProcess: true` call really does reach
+    /// `AppGroup.migrateDefaultsIfNeeded` against the test host's own
+    /// `.standard` suite. That is harmless — the migration is copy-only
+    /// (it never mutates or deletes the source), never overwrites a key
+    /// the destination already has, and is guarded by a one-shot
+    /// `chq-group-migrated` flag — but it is not something to assert on.
+    /// `AppGroupTests.shouldRunAppOnlyMigrationRequiresBothAppProcessAndGroupContainer`
+    /// pins the actual `isAppProcess`-vs-`hasGroupContainer` decision
+    /// matrix against the pure gate; these two just confirm the trigger
+    /// wires that decision through for both values it is given.
     @Test func triggerMigrationIfNeededReturnsTrueWhenIsAppProcessIsTrue() {
         #expect(UserStateStore.triggerMigrationIfNeeded(isAppProcess: true))
     }
