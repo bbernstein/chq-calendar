@@ -35,10 +35,12 @@ final class AuditSampleTallyTests: XCTestCase {
     /// Every possible sequence of sample outcomes, for every plausible
     /// `attempts`, must produce the identical verdict with and without the
     /// early exit. This is the claim the change rests on — that it is a
-    /// pure cost reduction — and enumerating 1..8 attempts covers 510
-    /// sequences in well under a second.
+    /// pure cost reduction — and enumerating 0...8 attempts covers 511
+    /// sequences in well under a second. Zero is included because it is the
+    /// one case the loop cannot reach by early exit; see
+    /// `testZeroAttemptsReportsNothing`.
     func testEarlyExitNeverChangesTheVerdictForAnySampleSequence() {
-        for attempts in 1...8 {
+        for attempts in 0...8 {
             for bits in 0..<(1 << attempts) {
                 let samples = (0..<attempts).map { bits & (1 << $0) != 0 }
                 let expected = referenceReportsIssues(samples)
@@ -91,6 +93,18 @@ final class AuditSampleTallyTests: XCTestCase {
     func testOneSpuriousSampleAmongCleanOnesIsAbsorbed() {
         XCTAssertFalse(earlyExit([true, false, false, false, false]).reportsIssues)
         XCTAssertFalse(earlyExit([false, false, true, false, false]).reportsIssues)
+    }
+
+    /// The degenerate case, pinned because it is the one path on which
+    /// `railIssues`' closing `guard tally.foundMajority` is still live logic
+    /// rather than an invariant: with no attempts the loop never runs, nothing
+    /// is tallied, and an empty tally must read as "nothing found" rather than
+    /// as a majority of zero samples.
+    func testZeroAttemptsReportsNothing() {
+        let result = earlyExit([])
+        XCTAssertFalse(result.reportsIssues)
+        XCTAssertEqual(result.taken, 0)
+        XCTAssertFalse(AuditSampleTally(attempts: 0).foundMajority)
     }
 
     /// A majority is strict: with an even `attempts`, a tie does not report.

@@ -205,14 +205,17 @@ final class DayRailAccessibilityUITests: XCTestCase {
     /// same hierarchy, same frames — because the query form was resolving
     /// against this very tree, once per element, instead of once.
     ///
-    /// A failure to snapshot returns `.null`, which `CGRect.contains` answers
-    /// `false` for. That cannot silently pass a broken audit: every
-    /// bounds-matched issue would be dropped, but nil-element issues are
-    /// still counted (see the type's doc comment), and the audit's own throw
-    /// would surface first in practice.
+    /// A snapshot failure throws rather than degrading to `.null`. `.null`
+    /// answers `false` to `CGRect.contains` for every element, so swallowing
+    /// the error would drop every bounds-matched issue and let the audit pass
+    /// having checked nothing — the precise "green test that checks nothing"
+    /// shape this file exists to prevent. `snapshot()` and
+    /// `performAccessibilityAudit` are independent calls, so an earlier draft's
+    /// reasoning that "the audit's own throw would surface first" did not hold:
+    /// nothing guarantees the audit fails just because the snapshot did.
     @MainActor
-    private func railBounds(in app: XCUIApplication) -> CGRect {
-        guard let root = try? app.snapshot() else { return .null }
+    private func railBounds(in app: XCUIApplication) throws -> CGRect {
+        let root = try app.snapshot()
         var box = CGRect.null
         var pending = [root]
         while let node = pending.popLast() {
@@ -273,7 +276,7 @@ final class DayRailAccessibilityUITests: XCTestCase {
         var tally = AuditSampleTally(attempts: attempts)
         for attempt in 0..<attempts {
             if attempt > 0 { settleRailAnimation() }
-            let bounds = railBounds(in: app)
+            let bounds = try railBounds(in: app)
             var found: [XCUIAccessibilityAuditIssue] = []
             try app.performAccessibilityAudit(for: auditTypes) { issue in
                 if let element = issue.element {
@@ -304,6 +307,13 @@ final class DayRailAccessibilityUITests: XCTestCase {
             tally.record(foundIssues: !found.isEmpty)
             if tally.isSettledEmpty { return [] }
         }
+        // Reachable only when `attempts == 0` (the loop never runs, so nothing
+        // is ever tallied). For every `attempts >= 1` this is an invariant, not
+        // live logic: falling out of the loop means the final iteration found
+        // `isSettledEmpty == false` with no samples remaining, which — with
+        // `remaining == 0` — is exactly `foundMajority`. Kept rather than
+        // dropped so the degenerate case still returns `[]` instead of reading
+        // a majority off an empty tally.
         guard tally.foundMajority else { return [] }
         // Report the richest sample so a failure message is as complete as
         // possible.
