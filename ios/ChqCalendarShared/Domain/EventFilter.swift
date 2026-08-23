@@ -90,11 +90,15 @@ nonisolated enum EventFilter {
         // is NOT in that list: it already reads the day-granular
         // `weekNumbers(spanningDayOf:in:)`, same as this stage now does.
         // The `in:` overload reuses the `weeks` built once above rather than
-        // rebuilding all 9 structs per event.
+        // rebuilding all 9 structs per event. The intersection is spelled as
+        // `contains(where:)` over the 1-2 returned numbers rather than
+        // `Set(...).isDisjoint(with:)`, which would allocate a `Set` per event
+        // to hold at most two elements; `sel.selectedWeeks` is already a
+        // `Set<Int>`, so each membership test is a hashed lookup either way.
         if !sel.selectedWeeks.isEmpty {
             result = result.filter { event in
-                !Set(SeasonCalendar.weekNumbers(spanningDayOf: event.start, in: weeks))
-                    .isDisjoint(with: sel.selectedWeeks)
+                SeasonCalendar.weekNumbers(spanningDayOf: event.start, in: weeks)
+                    .contains(where: sel.selectedWeeks.contains)
             }
         }
 

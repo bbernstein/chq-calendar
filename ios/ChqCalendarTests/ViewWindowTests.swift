@@ -416,9 +416,10 @@ struct EventFilterWindowTests {
         // `inWeek2` sits a full day past the week 1/2 boundary rather than an
         // hour past it: since #257 the weeks stage is day-granular, so an
         // event on the boundary Saturday itself belongs to weeks 1 AND 2 and
-        // would be kept by `selectedWeeks: [1]` — which would make this test
-        // pass for the wrong reason (nothing about window expansion) or fail
-        // for one. The `w2` event has to be on a day only week 2 spans.
+        // would be kept by `selectedWeeks: [1]`. That would make this test
+        // pass or fail for reasons having nothing to do with window
+        // expansion, which is the only thing it exists to check. The `w2`
+        // event has to be on a day only week 2 spans.
         let weeks = SeasonCalendar.weeks(forYear: 2026)
         let now = weeks[0].start.addingTimeInterval(3600)
         let inWeek1 = makeEvent(id: "w1", start: now.addingTimeInterval(600))
