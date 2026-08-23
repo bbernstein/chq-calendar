@@ -26,6 +26,28 @@ Related documents:
   build number — screenshots and previews should reflect what the submitted
   build actually looks like.
 
+  **The screenshots are date-pinned, and the pin is one knob.**
+  `ios/Scripts/screenshot-plan.json`'s top-level `capture` block freezes the
+  whole run to a fixed instant and a fixed dataset year — currently
+  `2026-08-04 09:41:00` (a Tuesday in Week 6 of the 2026 season) and
+  `2026`. That is what makes a capture run taken off-season, or in a later
+  year, produce the same mid-summer story as one taken in August 2026. To
+  move what day the listing depicts, change `capture.frozenNow` and
+  recapture; every shot follows it except `01-season` and `07-my-day`,
+  which pin their own dates because their args are tied to specific event
+  data (each says so in its `note`). Both pins are DEBUG-only launch
+  arguments and are inert in the Release build that ships.
+
+  Two caveats worth knowing before a capture in a later season:
+  - The pin only holds while the server still serves
+    `all-events-2026.json` (and its `article-links-2026.json` /
+    `program-links-2026.json` sidecars) from CloudFront. The clock pin is
+    self-contained; the year pin is a request for data that has to still
+    be there.
+  - Event *copy* still comes from live production, so which events carry a
+    linked Daily article on a given day is not reproducible the way the
+    date is.
+
   **A preview was recorded on 2026-08-01** and lives at
   `ios/Scripts/out/preview/`. Recording is deliberately not scripted
   end-to-end: `record-preview.sh` handles the capture and the encode, but

@@ -156,8 +156,20 @@ def content_fingerprint(entries: list[dict]) -> list[tuple]:
     return sorted(tuple(entry[field] for field in CONTENT_FIELDS) for entry in entries)
 
 
+def depicted_pins(plan: dict) -> dict:
+    """The run-wide clock/dataset-year pins the captures were taken under
+    (screenshot-plan.json's "capture" block, #222), recorded into the
+    manifest so a later reader can tell *what date these shots show* without
+    re-deriving it from the pixels. Metadata about the run, not about any one
+    file — note that 01-season and 07-my-day override the clock locally, so
+    this is the run-wide default, not a promise about every frame."""
+    capture = plan.get("capture", {})
+    return {key: capture[key] for key in ("frozenNow", "pinYear") if key in capture}
+
+
 def main() -> int:
     plan = json.loads(PLAN_PATH.read_text())
+    pins = depicted_pins(plan)
     REVIEW_ROOT.mkdir(parents=True, exist_ok=True)
     entries, missing = [], []
 
@@ -225,13 +237,20 @@ def main() -> int:
         except Exception as exc:
             print(f"warning: could not parse existing manifest, will rewrite: {exc}", file=sys.stderr)
 
-    if existing is not None and content_fingerprint(existing.get("screenshots", [])) == content_fingerprint(entries):
+    # `depicts` joins the fingerprint check even though it is metadata: it
+    # describes the *inputs* the shots were taken under, so it going stale
+    # while the images stay byte-identical would be a lie rather than a
+    # harmless omission.
+    if (existing is not None
+            and content_fingerprint(existing.get("screenshots", [])) == content_fingerprint(entries)
+            and existing.get("depicts", {}) == pins):
         print(f"\nManifest unchanged ({len(entries)} screenshots identical): {MANIFEST_PATH.relative_to(REPO_ROOT)}")
         return 0
 
     MANIFEST_PATH.write_text(json.dumps({
         "capturedOn": date.today().isoformat(),
         "appCommit": git_sha(),
+        "depicts": pins,
         "screenshots": entries,
     }, indent=2) + "\n")
     print(f"\nManifest: {MANIFEST_PATH.relative_to(REPO_ROOT)} ({len(entries)} screenshots)")

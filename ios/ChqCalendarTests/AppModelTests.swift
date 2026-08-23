@@ -2213,4 +2213,136 @@ struct AppModelTests {
         await model.select(year: 2026)
         #expect(model.filter.selectedLocations == ["Sports Club, Waterfront"])
     }
+
+    // MARK: - Launch pins: clock + dataset year (#222)
+
+    /// A years manifest naming `defaultYear`, as bytes — the shape
+    /// `EventRepository.availableYears()` decodes. Built inline rather than
+    /// as a fixture because these tests need a manifest that disagrees with
+    /// the pin, and `Fixtures/years.json` deliberately agrees with it
+    /// (`defaultYear: 2026`).
+    private func yearsManifest(defaultYear: Int, years: [Int]) -> Data {
+        let list = years.map(String.init).joined(separator: ",")
+        return Data("""
+        {"years":[\(list)],"defaultYear":\(defaultYear),"generated":"2027-03-01T00:00:00Z"}
+        """.utf8)
+    }
+
+    @Test func frozenNowParsesTheFlagsValue() throws {
+        let parsed = AppModel.parsedFrozenNow(from: ["ChqCalendar", "-uitest-freeze-now", "2026-08-04 09:41:00"])
+        #expect(parsed == ChqTime.parse("2026-08-04 09:41:00"))
+    }
+
+    @Test func frozenNowIsNilWhenTheFlagIsAbsentOrUnusable() {
+        #expect(AppModel.parsedFrozenNow(from: ["ChqCalendar"]) == nil)
+        // Flag present but last — nothing follows it to parse.
+        #expect(AppModel.parsedFrozenNow(from: ["ChqCalendar", "-uitest-freeze-now"]) == nil)
+        #expect(AppModel.parsedFrozenNow(from: ["ChqCalendar", "-uitest-freeze-now", "not-a-date"]) == nil)
+    }
+
+    @Test func pinYearParsesTheFlagsValue() {
+        #expect(AppModel.parsedPinYear(from: ["ChqCalendar", "-uitest-pin-year", "2026"]) == 2026)
+    }
+
+    @Test func pinYearIsNilWhenTheFlagIsAbsentOrUnusable() {
+        #expect(AppModel.parsedPinYear(from: ["ChqCalendar"]) == nil)
+        #expect(AppModel.parsedPinYear(from: ["ChqCalendar", "-uitest-pin-year"]) == nil)
+        #expect(AppModel.parsedPinYear(from: ["ChqCalendar", "-uitest-pin-year", "twenty-twenty-six"]) == nil)
+    }
+
+    /// The two launch entry points on a process that carries neither flag —
+    /// i.e. every real launch, and this test process. Proves the pins are
+    /// opt-in: absent the flags, `launchNow()` hands back the real clock and
+    /// `launchPinnedYear()` hands back no pin, which is exactly the (only)
+    /// behavior a Release build compiles.
+    @Test func aLaunchWithoutTheFlagsTakesNeitherPin() {
+        #expect(AppModel.launchPinnedYear() == nil)
+        #expect(abs(AppModel.launchNow()().timeIntervalSinceNow) < 5)
+    }
+
+    /// The pin has to bind at construction, not when `start()` first sees a
+    /// manifest: the launching UI reads `selectedYear` before any manifest
+    /// exists, so a pin that only took effect in `start()` would let a
+    /// capture render the placeholder year first.
+    @Test func aPinBindsBeforeStartEverRuns() {
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: MockCache()),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            pinnedYear: 2025
+        )
+
+        #expect(model.selectedYear == 2025)
+        #expect(model.defaultYear == 2025)
+    }
+
+    /// The pin's whole reason to exist: capturing 2026 screenshots after the
+    /// server manifest has moved on to a later season.
+    @Test func startKeepsThePinnedYearWhenTheManifestNamesALaterDefault() async throws {
+        let fixedNow = try #require(ChqTime.parse("2026-08-04 09:41:00"))
+        let cache = MockCache()
+        cache.write("years", data: yearsManifest(defaultYear: 2027, years: [2026, 2027]), etag: "y1", fetchedAt: Date())
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: fixedNow)
+        let api = MockAPI()
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: makeDefaults(), now: { fixedNow }),
+            now: { fixedNow },
+            pinnedYear: 2026
+        )
+
+        await model.start()
+
+        #expect(model.selectedYear == 2026)
+        #expect(model.defaultYear == 2026)
+        // The pinned year has to read as *the* current season, not as an
+        // archived one — otherwise the shots carry an "archived season"
+        // banner and the `.next` date scope downgrades.
+        #expect(model.isCurrentYear)
+        #expect(model.snapshot?.year == 2026)
+        let fetched = await api.calls.map(\.resource.cacheKey)
+        #expect(!fetched.contains("events-2027"))
+    }
+
+    /// The control for the test above: without the pin, the same manifest
+    /// moves the app to 2027. If this ever stops holding, the test above
+    /// proves nothing.
+    @Test func startWithoutAPinFollowsTheManifestDefault() async throws {
+        let fixedNow = try #require(ChqTime.parse("2026-08-04 09:41:00"))
+        let cache = MockCache()
+        cache.write("years", data: yearsManifest(defaultYear: 2027, years: [2026, 2027]), etag: "y1", fetchedAt: Date())
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: fixedNow)
+        let api = MockAPI()
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: makeDefaults(), now: { fixedNow }),
+            now: { fixedNow }
+        )
+
+        await model.start()
+
+        #expect(model.selectedYear == 2027)
+        #expect(model.defaultYear == 2027)
+    }
+
+    /// A manifest that has dropped the pinned year entirely must still leave
+    /// the year picker showing the year the app is actually displaying —
+    /// `years` is what `landingState` offers as selectable.
+    @Test func startListsThePinnedYearEvenWhenTheManifestOmitsIt() async throws {
+        let fixedNow = try #require(ChqTime.parse("2026-08-04 09:41:00"))
+        let cache = MockCache()
+        cache.write("years", data: yearsManifest(defaultYear: 2028, years: [2027, 2028]), etag: "y1", fetchedAt: Date())
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: fixedNow)
+        let api = MockAPI()
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: makeDefaults(), now: { fixedNow }),
+            now: { fixedNow },
+            pinnedYear: 2026
+        )
+
+        await model.start()
+
+        #expect(model.years == [2026, 2027, 2028])
+        #expect(model.selectedYear == 2026)
+    }
 }

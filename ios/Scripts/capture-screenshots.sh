@@ -10,6 +10,26 @@
 # Usage:  ios/Scripts/capture-screenshots.sh [device-key ...]
 #         (no args = every device in screenshot-plan.json)
 #
+# screenshot-plan.json top-level "capture" block (run-wide, #222):
+#   "frozenNow"        - "yyyy-MM-dd HH:mm:ss" NY wall-clock the whole run is
+#                        pinned to, via the app's DEBUG-only
+#                        -uitest-freeze-now hook. THIS IS THE ONE KNOB for
+#                        "what day do the screenshots show" — change it here
+#                        and every shot moves together.
+#   "pinYear"          - dataset year the whole run is pinned to, via the
+#                        DEBUG-only -uitest-pin-year hook. Necessary as well
+#                        as frozenNow, not instead of it: the app takes its
+#                        year from the server's years.json manifest, not from
+#                        the clock, so once that manifest names a later
+#                        default season a clock-only pin would render the
+#                        *next* season's events under a summer-2026 clock.
+#                        Only useful while all-events-<pinYear>.json is still
+#                        being served from CloudFront.
+#   Both are prepended to every automated shot's args, EXCEPT where the shot
+#   already passes that same flag itself (see 01-season and 07-my-day, whose
+#   dates are coupled to specific event data and are documented in their
+#   "note"). Omit either key to disable that pin run-wide.
+#
 # screenshot-plan.json shot schema (per shot):
 #   "note"             - optional operational caveat, printed for this shot
 #                        regardless of whether it's automated or manual (e.g.
@@ -57,6 +77,12 @@ if (( BASH_VERSINFO[0] < 4 )); then
   exit 1
 fi
 
+# Run-wide launch pins (see the "capture" block notes at the top of this
+# file). `// empty` leaves the variable empty when the key is absent, which
+# the merge below reads as "don't inject this pin."
+FROZEN_NOW=$(jq -r '.capture.frozenNow // empty' "$PLAN")
+PIN_YEAR=$(jq -r '.capture.pinYear // empty' "$PLAN")
+
 device_keys=("$@")
 if [ ${#device_keys[@]} -eq 0 ]; then
   mapfile -t device_keys < <(jq -r '.devices[].key' "$PLAN")
@@ -91,6 +117,7 @@ for key in "${device_keys[@]}"; do
   [ -n "$udid" ] || { echo "error: no simulator named '$sim' found (check 'xcrun simctl list devices available')" >&2; exit 1; }
 
   echo "==> $key ($sim, $udid)"
+  echo "    clock pinned to ${FROZEN_NOW:-<real clock>}, dataset year pinned to ${PIN_YEAR:-<server default>}"
   out_dir="$OUT_ROOT/$key"
   mkdir -p "$out_dir"
 
@@ -175,13 +202,27 @@ for key in "${device_keys[@]}"; do
     id=$(jq -r '.id' <<<"$shot")
     settle=$(jq -r '.settleSeconds' <<<"$shot")
     needs_calendar=$(jq -r '.needsCalendarAccess // false' <<<"$shot")
-    # Merge the device-agnostic launchArgs with this device's
-    # deviceLaunchArgs[key] (if any) — see the schema note at the top of
-    # this file. `--arg k "$key"` keys into the per-device map; `// []`
-    # makes the field fully optional so shots that don't need it need not
-    # mention it at all.
-    mapfile -t args < <(jq -r --arg k "$key" \
-      '(.launchArgs // []) + (.deviceLaunchArgs[$k] // []) | .[]' <<<"$shot")
+    # Merge the run-wide capture pins with the device-agnostic launchArgs
+    # and this device's deviceLaunchArgs[key] (if any) — see the schema
+    # notes at the top of this file. `--arg k "$key"` keys into the
+    # per-device map; `// []` makes the field fully optional so shots that
+    # don't need it need not mention it at all.
+    #
+    # A pin is injected only when the shot does not already carry that flag
+    # itself, in EITHER list — `$explicit` is the concatenation of both, so
+    # a per-device override suppresses the run-wide default just as a
+    # per-shot one does. That is what keeps 01-season's and 07-my-day's own
+    # `-uitest-freeze-now` values (each tied to specific event data — see
+    # their notes in the plan) authoritative while every other shot follows
+    # the single run-wide knob.
+    mapfile -t args < <(jq -r --arg k "$key" --arg frozen "$FROZEN_NOW" --arg pin "$PIN_YEAR" '
+        ((.launchArgs // []) + (.deviceLaunchArgs[$k] // [])) as $explicit
+      | (if $frozen != "" and ($explicit | index("-uitest-freeze-now")) == null
+         then ["-uitest-freeze-now", $frozen] else [] end)
+      + (if $pin != "" and ($explicit | index("-uitest-pin-year")) == null
+         then ["-uitest-pin-year", $pin] else [] end)
+      + $explicit
+      | .[]' <<<"$shot")
 
     if [ "$needs_calendar" = "true" ]; then
       xcrun simctl privacy "$udid" grant calendar "$BUNDLE_ID"
