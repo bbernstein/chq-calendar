@@ -103,14 +103,37 @@ struct DayRailDynamicTypeTests {
             action: {})
     }
 
+    /// Each control's icon built the way *its own call site* builds it:
+    /// `EventListView.nowButton` passes a
+    /// `Label("Now", systemImage:).labelStyle(.iconOnly)`, while
+    /// `MyDayExpandControl` passes a bare `Image(systemName:)`.
+    ///
+    /// An earlier version measured every symbol through `Image`, on the
+    /// unstated assumption that `.labelStyle(.iconOnly)` sizes identically to
+    /// a bare `Image`. It does today — both measure 52.33pt wide at
+    /// `.accessibility5` — but that is an Apple implementation detail this
+    /// file has no business resting on, and it would silently stop covering
+    /// the real Now button if it ever changed. Building each icon the way
+    /// production builds it costs one branch and removes the assumption.
+    @ViewBuilder
+    private func productionIcon(_ symbol: String) -> some View {
+        if symbol == Self.nowSymbol {
+            Label("Now", systemImage: symbol).labelStyle(.iconOnly)
+        } else {
+            Image(systemName: symbol)
+        }
+    }
+
+    private static let nowSymbol = "arrow.clockwise"
+
     private func endControl(_ symbol: String) -> some View {
-        DayRailEndControlLabel { Image(systemName: symbol) }
+        DayRailEndControlLabel { productionIcon(symbol) }
     }
 
     /// The bare glyph the chrome has to hold, drawn in the chrome's own font
     /// (`DayRailEndControl.iconFont`, not a copy of it).
     private func endControlGlyph(_ symbol: String) -> some View {
-        Image(systemName: symbol).font(DayRailEndControl.iconFont)
+        productionIcon(symbol).font(DayRailEndControl.iconFont)
     }
 
     // MARK: - The chip grows with Dynamic Type
@@ -297,6 +320,39 @@ struct DayRailDynamicTypeTests {
         #expect(
             chrome.width < glyph.width,
             "a fixed 44pt width must clip the Now glyph at accessibility5 (glyph \(glyph.width) vs frame \(chrome.width)), or this self-check proves nothing")
+    }
+
+    /// The chrome tests above measure `DayRailEndControlLabel` directly. This
+    /// measures the real `MyDayExpandControl` — the actual call-site view,
+    /// in all four of its states — so the chain from production view to
+    /// chrome is checked rather than assumed. (`EventListView.nowButton` has
+    /// no equivalent here: it is a private method needing a `NavMatching` to
+    /// build its accessibility label, so its icon construction is mirrored by
+    /// `productionIcon(_:)` instead.)
+    ///
+    /// 44x62 is asserted as a floor at every size rather than an equality,
+    /// because the frame is a minimum: if a future chevron outgrew it, growing
+    /// is the correct behaviour and this must not call it a regression.
+    @Test func theRealMyDayExpandControlMeetsTheChromesContract() {
+        for direction in [MyDayExpandControl.Direction.earlier, .later] {
+            for isExpanded in [false, true] {
+                let control = MyDayExpandControl(
+                    direction: direction, isExpanded: isExpanded, hiddenCount: 3, action: {})
+                let state = "\(direction)/expanded=\(isExpanded)"
+
+                let atDefault = measure(control, at: .large)
+                #expect(
+                    atDefault.width == 44 && atDefault.height == 62,
+                    "\(state) should render at 44x62 by default, measured \(atDefault)")
+
+                for size in DynamicTypeSize.allCases {
+                    let measured = measure(control, at: size)
+                    #expect(
+                        measured.width >= 44 && measured.height >= 62,
+                        "\(state) fell below the 44x62 minimum at \(size): \(measured)")
+                }
+            }
+        }
     }
 
     /// The default-size rendering `DayRailEndControlLabel`'s comment states as
