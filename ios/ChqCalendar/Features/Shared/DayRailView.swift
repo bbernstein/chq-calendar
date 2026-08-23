@@ -743,10 +743,15 @@ enum DayRailEndControl {
 }
 
 struct DayRailEndControlLabel<Icon: View>: View {
-    @ViewBuilder let icon: Icon
+    /// A builder closure rather than a stored `Icon`, matching
+    /// `DayRailView`'s own `leading`/`trailing` above. Both forms compile and
+    /// both support the trailing-closure call sites — the memberwise
+    /// initializer carries the `@ViewBuilder` either way — so this is the
+    /// file's convention, not a correctness fix.
+    @ViewBuilder let icon: () -> Icon
 
     var body: some View {
-        icon
+        icon()
             // `.primary`, not the default accent tint (accessibility
             // follow-up to #245): the accent colour against the opaque
             // `dayRailControlBackground` measures under 4.5:1, caught by an

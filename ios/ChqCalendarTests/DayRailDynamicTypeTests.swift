@@ -19,6 +19,14 @@ private nonisolated let endControlSymbols = ["arrow.clockwise", "chevron.left", 
 /// `DayChipContrastTests` made for contrast, for the same reason, and against
 /// the same wall.
 ///
+/// The shared precedent is the *strategy* — when the audit is structurally
+/// blind to a property, gate that property exactly, against the real thing —
+/// not the technique. `DayChipContrastTests` needs no view host at all: a
+/// contrast ratio is computable from two asset-catalog colours. A layout
+/// question is not, so this file hosts and measures. Don't come here looking
+/// for a literal pattern to copy from that file; the thing they share is the
+/// reasoning.
+///
 /// **Why the audit could not do this job.** `DayRailAccessibilityUITests` ran
 /// `.dynamicType` over the rail and, on every attempt of every run, reported
 /// only issues whose element carried an empty `identifier` — all of which its
