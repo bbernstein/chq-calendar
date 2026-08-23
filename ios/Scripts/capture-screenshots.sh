@@ -83,6 +83,61 @@ fi
 FROZEN_NOW=$(jq -r '.capture.frozenNow // empty' "$PLAN")
 PIN_YEAR=$(jq -r '.capture.pinYear // empty' "$PLAN")
 
+# Validate every pin value in the plan before touching a simulator.
+#
+# This is a hard gate rather than a nicety because of how the app fails: a
+# value `ChqTime.parse` rejects, or a year `Int()` rejects, makes
+# `AppModel.launchNow()`/`launchPinnedYear()` fall back to the real clock and
+# the server's default season *exactly as if the flag were never passed*. The
+# run then completes, the dimension and quality checks pass, and it silently
+# produces screenshots of "now" — which is the precise failure this whole
+# mechanism exists to prevent, in its least visible form. A typo has to stop
+# the run here, where there is somewhere to print an error to.
+#
+# The date pattern is deliberately stricter than `ChqTime.parse`, which
+# accepts variable-width numeric fields (see that function's doc comment:
+# "2026-8-9" parses as August 9th, and "26-08-09" as year *26*). Ambiguous
+# input that would parse to something other than what it looks like is
+# rejected here rather than captured. It is a shape check, not a calendar
+# check — "2026-02-31 09:41:00" passes this and is left to the app.
+FROZEN_NOW_PATTERN='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'
+
+# Every value following `$1` anywhere in the plan's shots — per-shot
+# `launchArgs` and every device's `deviceLaunchArgs` alike. Scans within each
+# list separately, matching the rule that a flag and its value must stay
+# together in whichever list they start in (see the schema notes above).
+plan_values_after() {
+  jq -r --arg flag "$1" '
+    [ (.shots // [])[] | [(.launchArgs // [])] + [((.deviceLaunchArgs // {}) | to_entries[] | .value)] | .[] ]
+    | map(. as $a | [ range(0; ($a|length)) | select($a[.] == $flag) | $a[.+1] ]) | add // []
+    | .[]' "$PLAN"
+}
+
+check_frozen_now() {
+  local value="$1" where="$2"
+  [[ "$value" =~ $FROZEN_NOW_PATTERN ]] && return 0
+  echo "error: $where is not \"yyyy-MM-dd HH:mm:ss\": '$value'" >&2
+  echo "       The app would reject it and silently capture the REAL clock." >&2
+  exit 1
+}
+
+check_pin_year() {
+  local value="$1" where="$2"
+  [[ "$value" =~ ^[0-9]{4}$ ]] && return 0
+  echo "error: $where is not a 4-digit year: '$value'" >&2
+  echo "       The app would ignore it and silently capture the server's default season." >&2
+  exit 1
+}
+
+[ -z "$FROZEN_NOW" ] || check_frozen_now "$FROZEN_NOW" "capture.frozenNow"
+[ -z "$PIN_YEAR" ] || check_pin_year "$PIN_YEAR" "capture.pinYear"
+while read -r value; do
+  check_frozen_now "$value" "a shot's own -uitest-freeze-now"
+done < <(plan_values_after "-uitest-freeze-now")
+while read -r value; do
+  check_pin_year "$value" "a shot's own -uitest-pin-year"
+done < <(plan_values_after "-uitest-pin-year")
+
 device_keys=("$@")
 if [ ${#device_keys[@]} -eq 0 ]; then
   mapfile -t device_keys < <(jq -r '.devices[].key' "$PLAN")

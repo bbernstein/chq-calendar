@@ -49,7 +49,17 @@ default, a capture run renders **2027 events under a summer-2026 clock**.
    its `launchArgs` or its `deviceLaunchArgs`. This is the single knob for
    "what day does the listing depict."
 
-3. **`compose-screenshots.py` records the pins** as a `depicts` block in
+3. **`capture-screenshots.sh` validates every pin value before touching a
+   simulator** — the run-wide pair and each shot's own override alike. This
+   is a hard gate rather than a nicety because of *how* a bad value fails:
+   the app falls back to the real clock and the server's default season
+   exactly as if the flag were never passed, the run completes, the quality
+   checks pass, and it silently ships screenshots of "now". That is the
+   failure this whole mechanism exists to prevent, in its least visible
+   form. The date pattern is deliberately stricter than `ChqTime.parse`,
+   which accepts variable-width fields ("26-08-09" reads as year *26*).
+
+4. **`compose-screenshots.py` records the pins** as a `depicts` block in
    `screenshots.manifest.json`, and treats a change to it as a manifest
    change even when the images happen to be byte-identical.
 
@@ -95,6 +105,9 @@ Both now say so in their `note` in the plan file.
 
 ## Verification
 
+- Each of the four script validation paths (run-wide clock, run-wide year,
+  a shot's own clock, a shot's own year) was falsified against a deliberately
+  corrupted copy of the plan, and the real plan verified to pass.
 - `AppModelTests` gained 9 tests: the two parsers (present / absent /
   trailing / unparseable), the two launch entry points on an unflagged
   process, construction-time binding, the pin surviving a manifest that names
