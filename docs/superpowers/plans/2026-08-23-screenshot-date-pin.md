@@ -50,14 +50,15 @@ default, a capture run renders **2027 events under a summer-2026 clock**.
    "what day does the listing depict."
 
 3. **Both pins are required, and `capture-screenshots.sh` validates them
-   before touching a simulator** — the run-wide pair and each shot's own override alike. This
-   is a hard gate rather than a nicety because of *how* a bad value fails:
-   the app falls back to the real clock and the server's default season
-   exactly as if the flag were never passed, the run completes, the quality
-   checks pass, and it silently ships screenshots of "now". That is the
-   failure this whole mechanism exists to prevent, in its least visible
-   form. The date pattern is deliberately stricter than `ChqTime.parse`,
-   which accepts variable-width fields ("26-08-09" reads as year *26*).
+   before touching a simulator** — the run-wide pair and each shot's own
+   override alike. This is a hard gate rather than a nicety because of *how*
+   a bad value fails: the app falls back to the real clock and the server's
+   default season exactly as if the flag were never passed, the run
+   completes, the quality checks pass, and it silently ships screenshots of
+   "now". That is the failure this whole mechanism exists to prevent, in its
+   least visible form. The date pattern is deliberately stricter than
+   `ChqTime.parse`, which accepts variable-width fields ("26-08-09" reads as
+   year *26*).
 
    There is no unpinned mode. An earlier draft let a missing key "disable" a
    pin, which quietly turned `"capture": null`, a deleted block, and a
