@@ -85,11 +85,16 @@ if (( BASH_VERSINFO[0] < 4 )); then
 fi
 
 # Run-wide launch pins (see the "capture" block notes at the top of this
-# file). `// empty` leaves the variable empty when the key is absent, which
-# the merge below reads as "don't inject this pin."
-# `.capture` must exist and be an object. jq indexes `null` happily, so a
-# `"capture": null` block — or a deleted one — would otherwise resolve both
-# pins to the empty string and run unpinned without saying anything.
+# file). Both are required, so everything below this point may assume they
+# are present and well-formed — the merge in the capture loop injects them
+# unconditionally, guarding only on whether a shot overrides the flag itself.
+#
+# `.capture` must exist and be an object, checked before either key is read.
+# jq indexes `null` happily, so a `"capture": null` block — or a deleted one,
+# or a mistyped key — would otherwise resolve both pins to the empty string
+# and run unpinned without saying anything. `// empty` below is what turns a
+# missing key into an empty variable for the required-check to catch; it is
+# not an opt-out.
 capture_type=$(jq -r '.capture | type' "$PLAN")
 if [ "$capture_type" != "object" ]; then
   echo "error: screenshot-plan.json has no \"capture\" object (found: $capture_type)" >&2
