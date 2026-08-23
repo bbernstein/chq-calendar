@@ -107,10 +107,20 @@ Both now say so in their `note` in the plan file.
 
 - Every script validation path was falsified against a deliberately
   corrupted copy of the plan, and the real plan verified to pass: run-wide
-  clock, run-wide year, a shot's own clock, a shot's own year, a value
-  living in `deviceLaunchArgs`, a flag left dangling at the end, and a
-  flag/value pair straddling the `launchArgs`/`deviceLaunchArgs` join (which
-  must be *accepted*, since the app only ever sees the concatenation).
+  clock, run-wide year, a shot's own clock, a shot's own year, a value living
+  in `deviceLaunchArgs`, a flag left dangling at the end, a flag dangling in
+  `launchArgs` that only *one* device's args happen to supply a value for,
+  and a flag/value pair straddling the `launchArgs`/`deviceLaunchArgs` join
+  with every device covered — the last of which must be **accepted**, since
+  the app only ever sees the concatenation.
+
+  Both of the wrong shapes that got there first validated a list no launch
+  ever receives: scanning the two lists separately (rejects a straddling
+  pair) and merging only the devices a shot mentions (skips the base-only
+  list every unmentioned device launches with — the common case here, since
+  most shots override `ipad-13` alone). The scan mirrors the capture loop's
+  own merge argument for argument, which is the only correspondence that
+  makes the check mean anything.
 - `AppModelTests` gained 9 tests: the two parsers (present / absent /
   trailing / unparseable), the two launch entry points on an unflagged
   process, construction-time binding, the pin surviving a manifest that names
