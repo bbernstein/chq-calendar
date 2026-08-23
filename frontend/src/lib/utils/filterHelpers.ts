@@ -32,34 +32,46 @@ export function filterEvents(events: Event[], options: FilterOptions): Event[] {
     filtered = searchEvents(filtered, options.searchTerm);
   }
 
-  // The date stage. One half-open range check for every scope — the four
+  // The date and week stages, as one pass over the events.
+  //
+  // They are two independent, ANDed predicates and read as two stages, but
+  // both need the event's start instant and `parseEventDate` is the most
+  // expensive thing either of them does — a regex plus, for the feed's naive
+  // wall-time strings, ~3 `Intl.formatToParts` round-trips. Run separately
+  // they parsed the same event twice whenever both were active, over a
+  // ~1,470-event corpus that `page.tsx` filters twice per filter change.
+  // Merging them is worth the small loss in readability; nothing else in the
+  // pipeline needs the parsed date, so this is the only place it happens.
+  //
+  // The date half: one half-open range check for every scope — the four
   // scope-specific predicates this replaced (isToday, isThisWeek, the
   // inline 'next' arithmetic, and 'all' doing nothing) all reduce to this
   // once the scope has been turned into a window.
-  const dateWindow = options.viewWindow;
-  filtered = filtered.filter((event) => windowContains(dateWindow, parseEventDate(event.startDate)));
-
-  // Week filter (independent of date filter). Day-granular, matching the
-  // day header's `Wk 5/6` badge: a boundary Saturday belongs to both adjacent
-  // weeks in full, so filtering to week 5 no longer hands back only the half
-  // of that Saturday before noon (#257).
   //
-  // Each selected week is turned into its day-granular instant range ONCE,
-  // here, and every event is then a pair of numeric comparisons. Deriving the
+  // The week half: day-granular, matching the day header's `Wk 5/6` badge —
+  // a boundary Saturday belongs to both adjacent weeks in full, so filtering
+  // to week 5 no longer hands back only the half of that Saturday before noon
+  // (#257). Each selected week becomes its day-granular instant range once,
+  // below, leaving a pair of numeric comparisons per event; deriving the
   // event's week numbers per event instead would be the same answer at ~7
-  // extra `Intl.formatToParts` round-trips each, over a corpus this runs
-  // twice per filter change. `parseEventDate` likewise runs once per event,
-  // not once per selected week as the pre-#257 predicate did.
-  if (options.selectedWeeks.length > 0) {
-    const spans = options.selectedWeeks
-      .map(n => options.seasonWeeks[n - 1])
-      .filter((w): w is SeasonWeek => w !== undefined)
-      .map(calendarDaySpanOfWeek);
-    filtered = filtered.filter(event => {
-      const at = parseEventDate(event.startDate);
-      return spans.some(s => at >= s.start && at < s.end);
-    });
-  }
+  // extra `Intl.formatToParts` round-trips each.
+  const dateWindow = options.viewWindow;
+  // `null` (rather than an empty array) means "no week narrowing at all". An
+  // *empty* array is a real, different answer: it is what a selection of week
+  // numbers the season does not have reduces to, and it must match nothing.
+  const weekSpans = options.selectedWeeks.length > 0
+    ? options.selectedWeeks
+        .map(n => options.seasonWeeks[n - 1])
+        .filter((w): w is SeasonWeek => w !== undefined)
+        .map(calendarDaySpanOfWeek)
+    : null;
+
+  filtered = filtered.filter((event) => {
+    const at = parseEventDate(event.startDate);
+    if (!windowContains(dateWindow, at)) return false;
+    if (weekSpans === null) return true;
+    return weekSpans.some(s => at >= s.start && at < s.end);
+  });
 
   // Location filter - case insensitive
   if (options.selectedLocationsLowerSet.size > 0) {
