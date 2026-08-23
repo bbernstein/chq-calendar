@@ -105,9 +105,12 @@ Both now say so in their `note` in the plan file.
 
 ## Verification
 
-- Each of the four script validation paths (run-wide clock, run-wide year,
-  a shot's own clock, a shot's own year) was falsified against a deliberately
-  corrupted copy of the plan, and the real plan verified to pass.
+- Every script validation path was falsified against a deliberately
+  corrupted copy of the plan, and the real plan verified to pass: run-wide
+  clock, run-wide year, a shot's own clock, a shot's own year, a value
+  living in `deviceLaunchArgs`, a flag left dangling at the end, and a
+  flag/value pair straddling the `launchArgs`/`deviceLaunchArgs` join (which
+  must be *accepted*, since the app only ever sees the concatenation).
 - `AppModelTests` gained 9 tests: the two parsers (present / absent /
   trailing / unparseable), the two launch entry points on an unflagged
   process, construction-time binding, the pin surviving a manifest that names

@@ -102,14 +102,30 @@ PIN_YEAR=$(jq -r '.capture.pinYear // empty' "$PLAN")
 # check — "2026-02-31 09:41:00" passes this and is left to the app.
 FROZEN_NOW_PATTERN='^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'
 
-# Every value following `$1` anywhere in the plan's shots — per-shot
-# `launchArgs` and every device's `deviceLaunchArgs` alike. Scans within each
-# list separately, matching the rule that a flag and its value must stay
-# together in whichever list they start in (see the schema notes above).
+# Every value following `$1` in the plan's shots.
+#
+# Scans exactly what a launch receives: `launchArgs + deviceLaunchArgs[key]`,
+# once per device key (or the bare `launchArgs` for a shot that declares no
+# per-device args). Scanning the two lists *separately* would be both too
+# strict and too loose — it would reject a pair that happens to straddle the
+# join (which the app reads fine, since it only ever sees the concatenation)
+# while still needing its own answer for a flag left dangling at the very
+# end. A value appearing in `launchArgs` is therefore checked once per
+# device; re-checking a good value costs nothing.
+#
+# A flag with nothing after it in the merged list yields the sentinel below,
+# so it fails the format check with a message rather than reading as `null`.
 plan_values_after() {
   jq -r --arg flag "$1" '
-    [ (.shots // [])[] | [(.launchArgs // [])] + [((.deviceLaunchArgs // {}) | to_entries[] | .value)] | .[] ]
-    | map(. as $a | [ range(0; ($a|length)) | select($a[.] == $flag) | $a[.+1] ]) | add // []
+    [ (.shots // [])[]
+      | (.launchArgs // []) as $base
+      | ((.deviceLaunchArgs // {}) | [ .[] ]) as $devs
+      | (if ($devs | length) == 0 then [$base] else ($devs | map($base + .)) end)
+      | .[]
+    ]
+    | map(. as $a | [ range(0; ($a|length))
+                      | select($a[.] == $flag)
+                      | ($a[.+1] // "<nothing follows the flag>") ]) | add // []
     | .[]' "$PLAN"
 }
 
