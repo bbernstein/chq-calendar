@@ -79,9 +79,21 @@ nonisolated enum EventFilter {
         else { return [] }
         result = result.filter { window.contains($0.start) }
 
+        // The weeks stage is day-granular, matching the `Wk 5/6` badge the day
+        // headers render from the same helper: a Saturday on an in-season week
+        // boundary belongs to BOTH adjacent weeks in full, so filtering to
+        // week 5 no longer hands back only the half of that Saturday before
+        // noon (#257). Weeks therefore overlap by one calendar day and are not
+        // a partition. `SeasonWeek.contains` — the noon split — is still the
+        // right question for "which week is it *now*" (`currentWeekNumber(at:)`,
+        // `WeekStripState`, `ViewWindow`, `WeekBands`), which needs one answer.
+        // The `in:` overload reuses the `weeks` built once above rather than
+        // rebuilding all 9 structs per event.
         if !sel.selectedWeeks.isEmpty {
-            let selected = weeks.filter { sel.selectedWeeks.contains($0.number) }
-            result = result.filter { event in selected.contains { $0.contains(event.start) } }
+            result = result.filter { event in
+                !Set(SeasonCalendar.weekNumbers(spanningDayOf: event.start, in: weeks))
+                    .isDisjoint(with: sel.selectedWeeks)
+            }
         }
 
         // Lowercased once per call rather than per event — mirrors the web's
