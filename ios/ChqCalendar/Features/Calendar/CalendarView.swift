@@ -242,20 +242,30 @@ struct CalendarView: View {
             model.uiTestShowWeekTheme = true
         }
 
-        // `-uitest-delay-pending-scroll` — see `AppModel.uiTestPendingScrollDelay`
-        // for why a UI test needs this to exercise the day rail's pending-
-        // scroll staleness check at all. 3 seconds is comfortably longer
-        // than opening the date sheet and tapping a scope chip takes.
-        if arguments.contains("-uitest-delay-pending-scroll") {
-            model.uiTestPendingScrollDelay = 3
+        // The two scroll hooks — `-uitest-delay-pending-scroll` (see
+        // `AppModel.uiTestPendingScrollDelay`) and `-uitest-drop-scrolls <n>`
+        // (see `AppModel.uiTestScrollsToDrop`) — parse together because they
+        // are mutually exclusive: `UITestScrollHooks.parse` throws when a
+        // launch passes both (#252). Crashing here, by name, is deliberate.
+        // This is a DEBUG-only launch path reached solely from an automated
+        // run, and the alternative — arming one hook and silently dropping
+        // the other — is exactly the confusing, twenty-minutes-later red the
+        // issue was filed about. Either flag alone behaves as before.
+        let scrollHooks: (delay: TimeInterval, dropCount: Int)
+        do {
+            scrollHooks = try UITestScrollHooks.parse(arguments)
+        } catch {
+            preconditionFailure(String(describing: error))
         }
-
-        // `-uitest-drop-scrolls <n>` — see `AppModel.uiTestScrollsToDrop` for
-        // why a UI test needs to be able to make a `scrollTo` do nothing.
-        if let flagIndex = arguments.firstIndex(of: "-uitest-drop-scrolls"),
-           arguments.index(after: flagIndex) < arguments.endIndex,
-           let count = Int(arguments[arguments.index(after: flagIndex)]), count > 0 {
-            model.uiTestScrollsToDrop = count
+        // Assigned only when non-inert: `AppModel` is `@Observable`, whose
+        // generated setter fires a mutation for *every* write, equal value or
+        // not, so writing a 0 over the default 0 would be a real (if small)
+        // behaviour change on every non-scroll UI-test launch.
+        if scrollHooks.delay > 0 {
+            model.uiTestPendingScrollDelay = scrollHooks.delay
+        }
+        if scrollHooks.dropCount > 0 {
+            model.uiTestScrollsToDrop = scrollHooks.dropCount
         }
 
         if arguments.contains("-uitest-show-about") {

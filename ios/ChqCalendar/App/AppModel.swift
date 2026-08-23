@@ -1714,6 +1714,11 @@ final class AppModel {
     /// app as idle and hands control back to the test immediately after the
     /// tap, giving it a real window to act in. `0` (the default, and the
     /// value in every real launch) keeps this path fully inert.
+    ///
+    /// Mutually exclusive with `uiTestScrollsToDrop` below: a delay shorter
+    /// than the drop-retry window is swallowed by it, so the pair produces a
+    /// failure unrelated to whatever the test is probing (#252).
+    /// `UITestScrollHooks.parse` rejects a launch that passes both flags.
     var uiTestPendingScrollDelay: TimeInterval = 0
 
     /// How many of the next `proxy.scrollTo` calls `EventListView.issueScroll`
@@ -1738,6 +1743,10 @@ final class AppModel {
     /// function.
     ///
     /// `0` (the default, and every real launch) keeps this fully inert.
+    ///
+    /// Mutually exclusive with `uiTestPendingScrollDelay` above — the
+    /// retry chain and a deferred `resolvePendingScroll` interfere (#252) —
+    /// and `UITestScrollHooks.parse` rejects a launch that passes both flags.
     var uiTestScrollsToDrop = 0
 
     /// The first `(day, week)` pairing — in `days` display order — whose
