@@ -1079,16 +1079,48 @@ final class AppModel {
     /// the week strip are two ways of expressing one date range, never two
     /// ranges to intersect.
     ///
-    /// Re-tapping the active scope is a no-op. The web toggles back to
-    /// "all" here, but it has no All button; iOS does, so the scope row
-    /// behaves as a radio group instead.
+    /// Re-tapping the active scope *resets* it: any scope-local date state
+    /// — a window widened by "Show next day", a window grown by day-rail
+    /// navigation, a browsed day — is cleared, leaving exactly what a fresh
+    /// selection of that scope would give. Only a re-tap with nothing left
+    /// to clear is a no-op. The web toggles back to "all" here, but it has
+    /// no All button; iOS does, so the scope row behaves as a radio group
+    /// instead.
+    ///
+    /// The rail is the *likeliest* source of that state since #258, not an
+    /// afterthought: `goToDay` writes `windowStartDayKey` and
+    /// `windowEndDayKey`, and every rail chip tap reaches it through
+    /// `EventListView.selectDay` — including the rail's own `⟳ Now`. So the
+    /// common path into this reset is navigate the rail → open Filters →
+    /// re-tap the active chip, and the accumulated expansion collapses.
+    /// `expandWindowEnd` ("Show next day") is only the other writer.
+    ///
+    /// The guard therefore tests "nothing would change", not "same scope"
+    /// (#234). Its purpose is unchanged — not writing `filter`, and so not
+    /// firing its `didSet` or a `persistFilter`, when genuinely nothing
+    /// changes — but the old one-liner made the early return the single path
+    /// into this method that skipped `clearScopeLocalDateState()`, so
+    /// "Show next day" ×2 → Now kept the widened window.
+    ///
+    /// This is the *only* "put me back" gesture in the app, which is why it
+    /// has to actually reset. The rail's `⟳ Now` is not a second one: #258
+    /// deleted `AppModel.resetToNow()` precisely so that control could be
+    /// pure navigation — the spec has it "not touch scope, weeks,
+    /// categories, or search," and `AppModelTests.nowLeavesAnyAccumulated`
+    /// `ExpansionInPlace` pins that it leaves a widened window alone. The
+    /// two controls share a name, not a job (#258 finding 2).
     ///
     /// Also drops the two pieces of state that only mean something under a
     /// scope the user is leaving, via `clearScopeLocalDateState()` — see
     /// that method for why both belong to the scope rather than to the
     /// selection as a whole (#156, #197).
     func selectScope(_ scope: DateScope) {
-        guard filter.dateScope != scope || !filter.selectedWeeks.isEmpty else { return }
+        let unchanged = filter.dateScope == scope
+            && filter.selectedWeeks.isEmpty
+            && filter.windowStartDayKey == nil
+            && filter.windowEndDayKey == nil
+            && filter.selectedDayKey == nil
+        guard !unchanged else { return }
         filter.dateScope = scope
         filter.selectedWeeks = []
         clearScopeLocalDateState()
