@@ -307,19 +307,28 @@ struct DayRailDynamicTypeTests {
     }
 
     /// Falsification, and the one that matters most here: this is defect #2
-    /// from #261 — `day-rail-now`'s `.frame(minWidth: 44, minHeight: 62)` made
-    /// fixed, the exact defect the code comment says an on-device audit once
-    /// caught, and which the automated audit was proven to pass. Pinned to
-    /// 44×62, the chrome is narrower than the `arrow.clockwise` glyph at
-    /// `.accessibility5`, and the check above fails.
+    /// from #261 — `day-rail-now`'s `.frame(minWidth: 44, minHeight: 62)`
+    /// made fixed, the exact defect the code comment says an on-device audit
+    /// once caught, and which the automated audit was proven to pass.
+    ///
+    /// Pins the real chrome view rather than a bare glyph in a frame: the
+    /// point is that the *control* stops being able to hold its content, so
+    /// the constraint belongs on the control. Constrained to a fixed 44x62,
+    /// `DayRailEndControlLabel` is narrower at `.accessibility5` than the
+    /// glyph it is wrapping, which is precisely what
+    /// `theEndControlChromeAlwaysHoldsItsGlyph` checks for.
+    ///
+    /// This is a stand-in for the defect, applied from outside. The defect
+    /// itself was also injected directly into `DayRailEndControlLabel`'s own
+    /// `.frame` and confirmed to fail that test — see the PR for #261.
     @Test func aFixedEndControlFrameClipsTheGlyphAndIsCaught() {
-        let pinned = endControlGlyph("arrow.clockwise").frame(width: 44, height: 62)
-        let chrome = measure(pinned, at: .accessibility5)
-        let glyph = measure(endControlGlyph("arrow.clockwise"), at: .accessibility5)
+        let pinnedChrome = measure(
+            endControl(Self.nowSymbol).frame(width: 44, height: 62), at: .accessibility5)
+        let glyph = measure(endControlGlyph(Self.nowSymbol), at: .accessibility5)
 
         #expect(
-            chrome.width < glyph.width,
-            "a fixed 44pt width must clip the Now glyph at accessibility5 (glyph \(glyph.width) vs frame \(chrome.width)), or this self-check proves nothing")
+            pinnedChrome.width < glyph.width,
+            "a fixed 44pt width must clip the Now glyph at accessibility5 (glyph \(glyph.width) vs frame \(pinnedChrome.width)), or this self-check proves nothing")
     }
 
     /// The chrome tests above measure `DayRailEndControlLabel` directly. This
