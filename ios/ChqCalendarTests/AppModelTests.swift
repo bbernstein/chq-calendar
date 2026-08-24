@@ -1515,6 +1515,28 @@ struct AppModelTests {
             for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
     }
 
+    /// One user action = one derived-data rebuild. `selectScope` and
+    /// `browseDay` mutate several `filter` fields; written field-by-field,
+    /// each changed field fires `filter`'s `didSet` and a full
+    /// `rebuildDerivedCounts()` pass (#267 review finding). Pinned through
+    /// the same DEBUG counter `windowExpansionDoesNotRecomputeIt` uses,
+    /// against actions arranged so at least two `Key`-visible fields really
+    /// change (from a default selection most of the writes are no-ops and
+    /// even the unbatched code fired once).
+    @Test func scopeAndBrowseActionsRebuildNavMatchingOncePerAction() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.setWeekSelection([3])
+
+        var before = model.navMatchingRebuildCount
+        model.selectScope(.thisWeek)
+        #expect(model.navMatchingRebuildCount == before + 1)
+
+        model.expandWindowEnd()
+        before = model.navMatchingRebuildCount
+        model.browseDay("2026-08-06")
+        #expect(model.navMatchingRebuildCount == before + 1)
+    }
+
     // MARK: - renderedDays (#254)
 
     /// `renderedDays.window` must be the window the days were actually

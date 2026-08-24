@@ -1118,9 +1118,14 @@ final class AppModel {
     /// selection as a whole (#156, #197).
     func selectScope(_ scope: DateScope) {
         guard filter.dateScope != scope || !filter.selectedWeeks.isEmpty else { return }
-        filter.dateScope = scope
-        filter.selectedWeeks = []
-        clearScopeLocalDateState()
+        // Copy-modify-assign, like `goToDay`: `filter`'s `didSet` runs a
+        // full `rebuildDerivedCounts()` per changed assignment, so the
+        // action batches its writes into one (#267 review finding).
+        var next = filter
+        next.dateScope = scope
+        next.selectedWeeks = []
+        clearScopeLocalDateState(in: &next)
+        filter = next
         persistFilter()
     }
 
@@ -1142,13 +1147,19 @@ final class AppModel {
     ///   `DateFilterLabel` would have to describe (#197 item 5).
     ///
     /// `browseDay` deliberately does *not* call this: it is the one writer
-    /// that sets `selectedDayKey` and clears the window fields in the same
-    /// assignment, in that order.
-    private func clearScopeLocalDateState() {
+    /// that *sets* `selectedDayKey` while clearing the window fields, in
+    /// its own single batched assignment.
+    ///
+    /// Operates on the caller's pending copy rather than on `filter`
+    /// directly, so the caller's whole action lands in one assignment and
+    /// `filter`'s `didSet` rebuilds derived data once, not once per field
+    /// (#267 review finding). Still bumps the reset epoch itself — the
+    /// bump belongs to the reset, wherever it is applied from.
+    private func clearScopeLocalDateState(in next: inout FilterSelection) {
         scopeResetCount += 1
-        filter.selectedDayKey = nil
-        filter.windowStartDayKey = nil
-        filter.windowEndDayKey = nil
+        next.selectedDayKey = nil
+        next.windowStartDayKey = nil
+        next.windowEndDayKey = nil
     }
 
     /// Monotonic count of scope-local date resets — every
@@ -1174,9 +1185,12 @@ final class AppModel {
     /// `clearScopeLocalDateState()` cleanup `selectScope` does — this is the
     /// other route out of `.day` and out of a `.next`-widened window.
     func setWeekSelection(_ weeks: Set<Int>) {
-        filter.dateScope = .all
-        filter.selectedWeeks = weeks
-        clearScopeLocalDateState()
+        // Copy-modify-assign — see `selectScope` (#267 review finding).
+        var next = filter
+        next.dateScope = .all
+        next.selectedWeeks = weeks
+        clearScopeLocalDateState(in: &next)
+        filter = next
         persistFilter()
     }
 
@@ -1204,16 +1218,23 @@ final class AppModel {
     func browseDay(_ dayKey: String) {
         guard let parsed = ChqTime.parse("\(dayKey) 00:00:00") else { return }
         // The inlined scope-local reset below owes the same epoch bump as
-        // `clearScopeLocalDateState()`: re-browsing the day already browsed
-        // changes no `PendingDayScroll.Key` field, and without the bump a
-        // pinned highlight or pending scroll from before the re-browse
-        // survived the window reset (#254 scope addition).
+        // `clearScopeLocalDateState(in:)`: re-browsing the day already
+        // browsed changes no `PendingDayScroll.Key` field, and without the
+        // bump a pinned highlight or pending scroll from before the
+        // re-browse survived the window reset (#254 scope addition). Bumped
+        // BEFORE the assignment so the `didSet`'s rebuild captures the
+        // fresh epoch in `NavMatchingInputs`.
         scopeResetCount += 1
-        filter.dateScope = .day
-        filter.selectedDayKey = ChqTime.dayKey(for: parsed)
-        filter.selectedWeeks = []
-        filter.windowStartDayKey = nil
-        filter.windowEndDayKey = nil
+        // One batched assignment — the day is set while the window fields
+        // clear, and `filter`'s `didSet` rebuilds derived data once for the
+        // whole action (#267 review finding; `goToDay` set the pattern).
+        var next = filter
+        next.dateScope = .day
+        next.selectedDayKey = ChqTime.dayKey(for: parsed)
+        next.selectedWeeks = []
+        next.windowStartDayKey = nil
+        next.windowEndDayKey = nil
+        filter = next
         persistFilter()
     }
 
