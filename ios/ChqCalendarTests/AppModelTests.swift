@@ -1472,6 +1472,30 @@ struct AppModelTests {
             for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
     }
 
+    /// `clearAll()` replaces the whole selection — window fields included —
+    /// without going through `clearScopeLocalDateState()`. From an `.all`
+    /// selection whose only non-default state is a window expansion, that
+    /// replacement changes no `Key` filter field, so the epoch is the only
+    /// thing that can stale a target (or pinned highlight) armed before it.
+    /// No current writer produces that armed state through the UI — which
+    /// is exactly the #192 "can't happen until the next task adds a caller"
+    /// trap this test refuses to rely on.
+    @Test func clearAllStalesATargetArmedUnderIt() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.selectScope(.all)
+        model.filter.windowEndDayKey = "2026-08-06"
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        model.clearAll()
+
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
     /// The load-bearing property the epoch must not break: window *growth* —
     /// the very thing a pending deep-link scroll is waiting for — never
     /// stales the target. `expandWindowEnd()` is the real growth writer;

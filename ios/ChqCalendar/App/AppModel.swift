@@ -1074,6 +1074,10 @@ final class AppModel {
     /// also calls `select(year:)` is the future path if pre-season archive
     /// browsing is wanted; not implemented here (follow-up).
     func browseArchiveSeason() {
+        // No `scopeResetCount` bump needed: only reachable from
+        // `OffSeasonLandingView`, which renders solely under
+        // `filter.isDefault` — so this always changes `dateScope`
+        // (`.next` → `.season`), a `PendingDayScroll.Key` field (#254).
         filter = FilterSelection(dateScope: .season)
     }
 
@@ -1094,6 +1098,9 @@ final class AppModel {
     func previewNextSeason() async {
         guard case .postSeason(_, let nextSeasonYear?, _, _) = landingState else { return }
         await select(year: nextSeasonYear)
+        // No `scopeResetCount` bump needed: same `OffSeasonLandingView`-only
+        // reachability as `browseArchiveSeason()`, and `select(year:)` above
+        // changes `Key.year` on every path this runs (#254).
         filter = FilterSelection(dateScope: .all)
     }
 
@@ -1333,6 +1340,14 @@ final class AppModel {
     /// row and individually removable, so leaving it behind after "Clear
     /// all" would be the surprising behavior.
     func clearAll() {
+        // A whole-selection replacement is a scope-local reset too: from an
+        // `.all` selection whose only non-default state is a window
+        // expansion, this clears ONLY the window fields, which
+        // `PendingDayScroll.Key` excludes — the epoch is what stales a
+        // target or pinned highlight armed before it (#254). Harmless in
+        // every other case: this method can never fire on pure window
+        // growth.
+        scopeResetCount += 1
         filter = FilterSelection(dateScope: .all)
         persistFilter()
     }
