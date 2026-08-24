@@ -15,13 +15,9 @@
  * Run against a dev server, or any deploy: `URL=https://… node <this>`.
  */
 import { chromium } from 'playwright';
+import { check, finish } from './results.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
-const results = [];
-const check = (name, ok, detail) => {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
-};
 
 const browser = await chromium.launch();
 
@@ -392,9 +388,4 @@ const fixedGhosts = p => p.evaluate(() =>
 }
 
 await browser.close();
-const failed = results.filter(r => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
-if (failed.length) {
-  console.log('FAILED:\n' + failed.map(f => `  - ${f.name}: ${f.detail ?? ''}`).join('\n'));
-  process.exit(1);
-}
+finish();

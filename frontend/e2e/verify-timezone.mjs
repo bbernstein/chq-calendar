@@ -9,15 +9,10 @@
  */
 import { chromium } from 'playwright';
 import { pinClock } from './fixedNow.mjs';
+import { check, finish } from './results.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 const ZONES = ['America/New_York', 'UTC', 'America/Los_Angeles', 'Asia/Tokyo'];
-
-const results = [];
-function check(name, ok, detail) {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
-}
 const browser = await chromium.launch();
 
 async function readUnder(timezoneId) {
@@ -79,10 +74,4 @@ for (const { zone, got } of zoneResults) {
 }
 
 await browser.close();
-const failed = results.filter(r => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
-if (failed.length) {
-  console.log('FAILED:');
-  for (const f of failed) console.log(`  - ${f.name}: ${f.detail}`);
-  process.exit(1);
-}
+finish();
