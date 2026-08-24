@@ -9,6 +9,25 @@ nonisolated struct DayGroup: Identifiable, Sendable {
     let events: [Event]
 }
 
+/// What one render of the event list is built from: the grouped days and
+/// the window they were filtered by, computed together in one pass
+/// (`AppModel.renderedDays`) so no caller can pair a day list from one
+/// render pass with a window from another. That pairing — a live window
+/// read against a render-captured `days` array — is the defect class
+/// behind #254's four scroll bugs: they disagree exactly once, on the
+/// update that mounts the list and consumes a day deep link in the same
+/// pass, when the window has already grown while the captured days are
+/// still pre-growth.
+///
+/// `window` is `nil` when no snapshot has loaded or the scope resolves to
+/// no window at all; `days` is empty in both of those states too, though
+/// it can also be empty under a non-nil window when the filters simply
+/// match nothing.
+nonisolated struct RenderedDays: Sendable {
+    let days: [DayGroup]
+    let window: ViewWindow?
+}
+
 /// Groups events into `DayGroup`s by NY calendar day.
 nonisolated enum EventGrouping {
     /// Groups `events` by NY calendar day. Groups are returned in ascending

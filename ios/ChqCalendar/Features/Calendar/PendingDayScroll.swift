@@ -22,10 +22,22 @@ import Foundation
 /// pending scroll stale. Everything else changing — scope, weeks, the named
 /// day, search text, venues, categories, favorites-only, or the selected
 /// year — means the reader has left the context the tap was made under.
+///
+/// Excluding the window fields left one gap (#254 scope addition): a reset
+/// that clears ONLY the window — re-browsing the day already browsed, or
+/// re-tapping the active scope — changes no `Key` field, so a target (or a
+/// pinned rail highlight, which shares `Key`) armed before the reset could
+/// never go stale and survived pointing outside the freshly reset window.
+/// `scopeResets` closes it: `AppModel` bumps a monotonic counter on every
+/// scope-local date reset and it rides in the key, so a reset stales what
+/// was armed before it while window *growth* — which never bumps the
+/// counter — still never does.
 nonisolated enum PendingDayScroll {
     /// Everything a pending target must still match to be honored. Two
     /// `FilterSelection`s that differ only in `windowStartDayKey`/
-    /// `windowEndDayKey` produce the same `Key` — that's the whole point.
+    /// `windowEndDayKey` produce the same `Key` — that's the whole point —
+    /// unless a scope-local reset happened in between, which `scopeResets`
+    /// records (see the enum doc above).
     struct Key: Equatable, Sendable {
         let searchText: String
         let dateScope: DateScope
@@ -35,6 +47,7 @@ nonisolated enum PendingDayScroll {
         let selectedCategories: [String]
         let showFavoritesOnly: Bool
         let year: Int
+        let scopeResets: Int
     }
 
     /// A day the reader tapped, stamped with the filter identity it was
@@ -44,7 +57,10 @@ nonisolated enum PendingDayScroll {
         let key: Key
     }
 
-    static func key(for selection: FilterSelection, year: Int) -> Key {
+    /// `scopeResets` is the model's live `AppModel.scopeResetCount` —
+    /// deliberately not defaulted, so no call site can silently opt out of
+    /// reset staleness by forgetting it.
+    static func key(for selection: FilterSelection, year: Int, scopeResets: Int) -> Key {
         Key(
             searchText: selection.searchText,
             dateScope: selection.dateScope,
@@ -53,7 +69,8 @@ nonisolated enum PendingDayScroll {
             selectedLocations: selection.selectedLocations,
             selectedCategories: selection.selectedCategories,
             showFavoritesOnly: selection.showFavoritesOnly,
-            year: year)
+            year: year,
+            scopeResets: scopeResets)
     }
 
     /// Whether `target` — armed under `target.key` — should be dropped

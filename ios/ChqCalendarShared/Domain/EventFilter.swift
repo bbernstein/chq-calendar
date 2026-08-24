@@ -5,14 +5,12 @@ import Foundation
 /// search → dateScope → weeks → locations → categories → favorites. Each
 /// stage narrows the set produced by the previous one.
 nonisolated enum EventFilter {
-    /// Runs the full pipeline. `now`/`year`/`isCurrentYear` govern the
-    /// date-relative stages: `now` is the reference instant, `year` selects
-    /// the season used for week math, and `isCurrentYear == false` forces
-    /// any time-relative `dateScope` (`.next`/`.today`/`.thisWeek`) to
-    /// behave as `.all` — a past/future season has no "now". `.day` is
-    /// excluded from that downgrade: it names an absolute date rather than a
-    /// window relative to "now", so it is just as meaningful off the current
-    /// year.
+    /// Runs the full pipeline with the date window supplied by the caller —
+    /// the entry point `AppModel.renderedDays` uses so the exact window the
+    /// events were filtered by can be stamped onto the grouped days (#254).
+    /// The convenience overload below computes the window itself and
+    /// delegates here; the two select identical events (see its doc), which
+    /// is what `EventFilterTests`' equivalence cases pin.
     ///
     /// `SeasonCalendar.weeks(forYear:)` is computed once here, for the weeks
     /// filter below — it rebuilds all 9 `SeasonWeek` structs, so
@@ -21,17 +19,13 @@ nonisolated enum EventFilter {
     /// read it (`.season`, `.thisWeek`), not on every call — and it isn't
     /// shared with the copy here, since threading a `[SeasonWeek]` across
     /// that boundary would trade one cheap 9-struct build for coupling the
-    /// two call sites together. `bounds` below is `DayWindow.bounds`'s
-    /// cheaper season-only range on the common path, not
-    /// `navigableBounds`'s O(n) per-event scan — see the comment at its
-    /// call site for why that scan is skippable here.
+    /// two call sites together.
     static func apply(
         _ sel: FilterSelection,
         to events: [Event],
         favorites: Set<String>,
-        now: Date,
         year: Int,
-        isCurrentYear: Bool
+        window: ViewWindow?
     ) -> [Event] {
         var result = events
 
@@ -58,25 +52,10 @@ nonisolated enum EventFilter {
         // `ViewWindow.base` gives it a seven-day fallback and never returns
         // `nil` for it.
         //
-        // `navigableBounds` is an O(n) scan over every event (via
-        // `ChqTime.dayKey(for:)`) to build the season-and-starred-and-event
-        // widened bounds. `EventFilter` reads only `window.contains(_:)`
-        // below, never `startDay`/`endDay`, so those bounds matter only to
-        // clamp `ViewWindow.make`'s expansion inputs — and those inputs are
-        // `nil` on almost every call, since expansion only happens once the
-        // user has actually navigated. When neither is set, the cheaper
-        // season-only `DayWindow.bounds` is enough: it can't disagree with
-        // `navigableBounds` about anything this function reads, only about
-        // the `.all` scope's (here-unused) day-key projection — see
-        // `ViewWindow.make`'s doc for that.
-        let hasExpansion = sel.windowStartDayKey != nil || sel.windowEndDayKey != nil
-        let bounds = hasExpansion
-            ? ViewWindow.navigableBounds(year: year, events: events, starredDays: [])
-            : DayWindow.bounds(year: year, starredDays: [])
-        guard let window = ViewWindow.make(
-            selection: sel, events: events, now: now,
-            year: year, isCurrentYear: isCurrentYear, bounds: bounds)
-        else { return [] }
+        // Only `window.contains(_:)` is read here — never `startDay`/
+        // `endDay` — which is what lets the convenience overload below get
+        // away with cheaper bounds when it computes this window itself.
+        guard let window else { return [] }
         result = result.filter { window.contains($0.start) }
 
         // The weeks stage is day-granular, matching the `Wk 5/6` badge the day
@@ -124,6 +103,47 @@ nonisolated enum EventFilter {
         }
 
         return result
+    }
+
+    /// The self-contained form: computes the date window and runs the
+    /// pipeline above. `now`/`year`/`isCurrentYear` govern the date-relative
+    /// stages: `now` is the reference instant, `year` selects the season
+    /// used for week math, and `isCurrentYear == false` forces any
+    /// time-relative `dateScope` (`.next`/`.today`/`.thisWeek`) to behave
+    /// as `.all` — a past/future season has no "now". `.day` is excluded
+    /// from that downgrade: it names an absolute date rather than a window
+    /// relative to "now", so it is just as meaningful off the current year.
+    ///
+    /// `bounds` below is `DayWindow.bounds`'s cheaper season-only range on
+    /// the common path, not `navigableBounds`'s O(n) per-event scan: that
+    /// scan builds the season-and-starred-and-event widened bounds, which
+    /// matter only to clamp `ViewWindow.make`'s expansion inputs — `nil` on
+    /// almost every call, since expansion only happens once the user has
+    /// actually navigated — and to the `.all` scope's day-key projection,
+    /// which the pipeline never reads (it reads `window.contains(_:)`
+    /// only). So the window computed here can differ from a caller-computed
+    /// `navigableBounds` one in `startDay`/`endDay` for `.all`, but never
+    /// in which events it selects — `EventFilterTests` pins that
+    /// equivalence. A caller that needs the day projection to be honest
+    /// about what a rendered list covers (`AppModel.renderedDays`) must
+    /// compute the window itself against `navigableBounds` and use the
+    /// window-taking entry point above, not this one.
+    static func apply(
+        _ sel: FilterSelection,
+        to events: [Event],
+        favorites: Set<String>,
+        now: Date,
+        year: Int,
+        isCurrentYear: Bool
+    ) -> [Event] {
+        let hasExpansion = sel.windowStartDayKey != nil || sel.windowEndDayKey != nil
+        let bounds = hasExpansion
+            ? ViewWindow.navigableBounds(year: year, events: events, starredDays: [])
+            : DayWindow.bounds(year: year, starredDays: [])
+        let window = ViewWindow.make(
+            selection: sel, events: events, now: now,
+            year: year, isCurrentYear: isCurrentYear, bounds: bounds)
+        return apply(sel, to: events, favorites: favorites, year: year, window: window)
     }
 
     /// Relevance score for `event` against `term` (already free-form, not

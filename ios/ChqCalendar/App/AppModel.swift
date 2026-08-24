@@ -300,11 +300,33 @@ final class AppModel {
 
     // MARK: - Derived
 
-    /// The events currently shown, filtered then grouped by NY calendar day.
-    /// Recomputed on every access rather than cached — at ~1.6k events this
-    /// is cheap enough that memoization isn't worth the extra state.
+    /// The events currently shown, filtered then grouped by NY calendar
+    /// day, stamped with the window they were filtered by — one value per
+    /// render pass, so a view that binds it once can never pair a day list
+    /// from one pass with a window from another (#254). Recomputed on every
+    /// access rather than cached — at ~1.6k events this is cheap enough
+    /// that memoization isn't worth the extra state.
+    ///
+    /// The stamp is `currentWindow` — the same value the rail's model-side
+    /// callers read — and the filter pass here uses that exact window via
+    /// `EventFilter`'s window-taking entry point, so the stamp *is* the
+    /// filtering window rather than a second computation that could drift.
+    /// `currentWindow` reads `navigableBounds`, which is cached in
+    /// `navMatching`, so this costs no per-render O(n) bounds scan.
+    var renderedDays: RenderedDays {
+        guard let snapshot else { return RenderedDays(days: [], window: nil) }
+        let window = currentWindow
+        let events = EventFilter.apply(
+            filter, to: snapshot.events, favorites: favorites,
+            year: selectedYear, window: window)
+        return RenderedDays(
+            days: EventGrouping.byDay(events, year: selectedYear), window: window)
+    }
+
+    /// `renderedDays` without the stamp, for callers that only need the
+    /// days. Costs the same full filter+group pass — bind it once.
     var dayGroups: [DayGroup] {
-        EventGrouping.byDay(filteredEvents(filter), year: selectedYear)
+        renderedDays.days
     }
 
     /// How many events the current selection matches — the same number as
@@ -1052,6 +1074,10 @@ final class AppModel {
     /// also calls `select(year:)` is the future path if pre-season archive
     /// browsing is wanted; not implemented here (follow-up).
     func browseArchiveSeason() {
+        // No `scopeResetCount` bump needed: only reachable from
+        // `OffSeasonLandingView`, which renders solely under
+        // `filter.isDefault` — so this always changes `dateScope`
+        // (`.next` → `.season`), a `PendingDayScroll.Key` field (#254).
         filter = FilterSelection(dateScope: .season)
     }
 
@@ -1072,6 +1098,9 @@ final class AppModel {
     func previewNextSeason() async {
         guard case .postSeason(_, let nextSeasonYear?, _, _) = landingState else { return }
         await select(year: nextSeasonYear)
+        // No `scopeResetCount` bump needed: same `OffSeasonLandingView`-only
+        // reachability as `browseArchiveSeason()`, and `select(year:)` above
+        // changes `Key.year` on every path this runs (#254).
         filter = FilterSelection(dateScope: .all)
     }
 
@@ -1122,9 +1151,14 @@ final class AppModel {
             && filter.windowEndDayKey == nil
             && filter.selectedDayKey == nil
         guard !unchanged else { return }
-        filter.dateScope = scope
-        filter.selectedWeeks = []
-        clearScopeLocalDateState()
+        // Copy-modify-assign, like `goToDay`: `filter`'s `didSet` runs a
+        // full `rebuildDerivedCounts()` per changed assignment, so the
+        // action batches its writes into one (#267 review finding).
+        var next = filter
+        next.dateScope = scope
+        next.selectedWeeks = []
+        clearScopeLocalDateState(in: &next)
+        filter = next
         persistFilter()
     }
 
@@ -1146,13 +1180,32 @@ final class AppModel {
     ///   `DateFilterLabel` would have to describe (#197 item 5).
     ///
     /// `browseDay` deliberately does *not* call this: it is the one writer
-    /// that sets `selectedDayKey` and clears the window fields in the same
-    /// assignment, in that order.
-    private func clearScopeLocalDateState() {
-        filter.selectedDayKey = nil
-        filter.windowStartDayKey = nil
-        filter.windowEndDayKey = nil
+    /// that *sets* `selectedDayKey` while clearing the window fields, in
+    /// its own single batched assignment.
+    ///
+    /// Operates on the caller's pending copy rather than on `filter`
+    /// directly, so the caller's whole action lands in one assignment and
+    /// `filter`'s `didSet` rebuilds derived data once, not once per field
+    /// (#267 review finding). Still bumps the reset epoch itself — the
+    /// bump belongs to the reset, wherever it is applied from.
+    private func clearScopeLocalDateState(in next: inout FilterSelection) {
+        scopeResetCount += 1
+        next.selectedDayKey = nil
+        next.windowStartDayKey = nil
+        next.windowEndDayKey = nil
     }
+
+    /// Monotonic count of scope-local date resets — every
+    /// `clearScopeLocalDateState()` call plus `browseDay`'s inlined
+    /// equivalent. Rides in `PendingDayScroll.Key` so a reset that clears
+    /// ONLY the window-expansion fields (re-browsing the same day; #266's
+    /// re-tap of the active scope) still stales a pending scroll or pinned
+    /// rail highlight armed before it — those fields are excluded from the
+    /// key by design, so without this epoch such a reset changed nothing
+    /// the key could see (#254 scope addition). Window *growth*
+    /// (`goToDay`/`expandWindowEnd`) never bumps it: a pending deep-link
+    /// scroll is literally waiting for that growth, so it must never stale.
+    private(set) var scopeResetCount = 0
 
     /// Replaces the week selection wholesale — the strip owns tap/drag
     /// semantics (`WeekStripDrag.commit`); the model just stores the result.
@@ -1165,9 +1218,12 @@ final class AppModel {
     /// `clearScopeLocalDateState()` cleanup `selectScope` does — this is the
     /// other route out of `.day` and out of a `.next`-widened window.
     func setWeekSelection(_ weeks: Set<Int>) {
-        filter.dateScope = .all
-        filter.selectedWeeks = weeks
-        clearScopeLocalDateState()
+        // Copy-modify-assign — see `selectScope` (#267 review finding).
+        var next = filter
+        next.dateScope = .all
+        next.selectedWeeks = weeks
+        clearScopeLocalDateState(in: &next)
+        filter = next
         persistFilter()
     }
 
@@ -1194,11 +1250,24 @@ final class AppModel {
     /// date state.
     func browseDay(_ dayKey: String) {
         guard let parsed = ChqTime.parse("\(dayKey) 00:00:00") else { return }
-        filter.dateScope = .day
-        filter.selectedDayKey = ChqTime.dayKey(for: parsed)
-        filter.selectedWeeks = []
-        filter.windowStartDayKey = nil
-        filter.windowEndDayKey = nil
+        // The inlined scope-local reset below owes the same epoch bump as
+        // `clearScopeLocalDateState(in:)`: re-browsing the day already
+        // browsed changes no `PendingDayScroll.Key` field, and without the
+        // bump a pinned highlight or pending scroll from before the
+        // re-browse survived the window reset (#254 scope addition). Bumped
+        // BEFORE the assignment so the `didSet`'s rebuild captures the
+        // fresh epoch in `NavMatchingInputs`.
+        scopeResetCount += 1
+        // One batched assignment — the day is set while the window fields
+        // clear, and `filter`'s `didSet` rebuilds derived data once for the
+        // whole action (#267 review finding; `goToDay` set the pattern).
+        var next = filter
+        next.dateScope = .day
+        next.selectedDayKey = ChqTime.dayKey(for: parsed)
+        next.selectedWeeks = []
+        next.windowStartDayKey = nil
+        next.windowEndDayKey = nil
+        filter = next
         persistFilter()
     }
 
@@ -1325,6 +1394,14 @@ final class AppModel {
     /// row and individually removable, so leaving it behind after "Clear
     /// all" would be the surprising behavior.
     func clearAll() {
+        // A whole-selection replacement is a scope-local reset too: from an
+        // `.all` selection whose only non-default state is a window
+        // expansion, this clears ONLY the window fields, which
+        // `PendingDayScroll.Key` excludes — the epoch is what stales a
+        // target or pinned highlight armed before it (#254). Harmless in
+        // every other case: this method can never fire on pure window
+        // growth.
+        scopeResetCount += 1
         filter = FilterSelection(dateScope: .all)
         persistFilter()
     }
@@ -1494,8 +1571,10 @@ final class AppModel {
         // The expensive case this guard exists for is `expandWindowEnd()`
         // firing repeatedly as the reader scrolls — window-only changes, which
         // the key excludes and which are therefore correctly skipped. What
-        // remains is one redundant pass per deliberate scope tap, which no
-        // reader can perceive. A narrower, purpose-built fingerprint would
+        // remains is one redundant pass per deliberate scope tap — and,
+        // since the key now carries `scopeResetCount` (#254), one per
+        // same-day re-browse or same-scope re-tap — which no reader can
+        // perceive. A narrower, purpose-built fingerprint would
         // save that pass and introduce a far worse failure mode: omit one
         // input that does matter (weeks, venues, categories, favourites-only,
         // search) and `navMatching` goes silently stale, which shows up as a
@@ -1505,7 +1584,8 @@ final class AppModel {
         let inputs = NavMatchingInputs(
             snapshotFetchedAt: snapshot.fetchedAt,
             favorites: favorites,
-            filterKey: PendingDayScroll.key(for: filter, year: selectedYear))
+            filterKey: PendingDayScroll.key(
+                for: filter, year: selectedYear, scopeResets: scopeResetCount))
         guard inputs != lastNavMatchingInputs else { return }
         lastNavMatchingInputs = inputs
         rebuildNavMatching()
@@ -1790,7 +1870,7 @@ final class AppModel {
     /// latter has anything to open. `nil` when nothing in the current
     /// selection has a themed week.
     ///
-    /// Takes the caller's already-computed `days` — `EventListView.list(days:)`'s
+    /// Takes the caller's already-computed `days` — `EventListView.list(rendered:)`'s
     /// own `days` parameter — rather than reading `dayGroups` itself.
     /// `dayGroups` is deliberately uncached (see the comment above) and
     /// re-runs the whole filter+group pipeline on every access, so this used

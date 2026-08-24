@@ -480,4 +480,71 @@ struct EventFilterTests {
 
         #expect(result.map(\.id) == ["a", "b"])
     }
+
+    // MARK: - apply(window:) equivalence — #254
+
+    /// The convenience `apply` computes its own window (with the cheaper
+    /// season-only bounds on the no-expansion path); the window-taking entry
+    /// point filters by whatever the caller computed against
+    /// `navigableBounds`. The two must select identical events — that
+    /// equivalence is what lets `AppModel.renderedDays` stamp the
+    /// navigable-bounds window onto the days as "the window these were
+    /// filtered by". The expansion target here lies past the season's end
+    /// but inside the event-widened navigable bounds, so a bounds choice
+    /// that clamps differently cannot hide.
+    @Test func windowTakingApplyMatchesTheConvenienceApplyWithExpansionBeyondTheSeason() throws {
+        let now = try #require(ChqTime.parse("2026-08-01 09:00:00"))
+        // 50 events inside `.next`'s one-hour grace so `adaptiveEndDate`
+        // settles on day 0 — the expansion below is then what carries the
+        // window past the season's end, not the sparse-snapshot fallback.
+        let from = now.addingTimeInterval(-3600)
+        var events: [Event] = try (0..<50).map { i in
+            makeEvent(
+                id: "seed\(i)",
+                start: try #require(ChqTime.calendar.date(byAdding: .minute, value: i, to: from)))
+        }
+        events.append(
+            makeEvent(id: "past-season", start: try #require(ChqTime.parse("2026-09-15 10:00:00"))))
+        var sel = FilterSelection()
+        sel.dateScope = .next
+        sel.windowEndDayKey = "2026-09-15"
+
+        let convenience = EventFilter.apply(
+            sel, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+
+        let window = ViewWindow.make(
+            selection: sel, events: events, now: now, year: 2026, isCurrentYear: true,
+            bounds: ViewWindow.navigableBounds(year: 2026, events: events, starredDays: []))
+        let windowTaking = EventFilter.apply(
+            sel, to: events, favorites: [], year: 2026, window: window)
+
+        // The expansion genuinely reached past the season: a bounds choice
+        // that clamped it to the season's edge would drop this event.
+        #expect(convenience.contains { $0.id == "past-season" })
+        #expect(windowTaking.map(\.id) == convenience.map(\.id))
+    }
+
+    /// The `.all` no-expansion path — where the convenience form's internal
+    /// window carries a season-only day projection while the caller-computed
+    /// one is event-widened. `contains` must not notice the difference.
+    @Test func windowTakingApplyMatchesTheConvenienceApplyForAllScope() throws {
+        let now = try #require(ChqTime.parse("2026-08-01 09:00:00"))
+        let events = [
+            makeEvent(id: "in-season", start: try #require(ChqTime.parse("2026-08-02 10:00:00"))),
+            makeEvent(id: "past-season", start: try #require(ChqTime.parse("2026-09-15 10:00:00"))),
+        ]
+        var sel = FilterSelection()
+        sel.dateScope = .all
+
+        let convenience = EventFilter.apply(
+            sel, to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+        let window = ViewWindow.make(
+            selection: sel, events: events, now: now, year: 2026, isCurrentYear: true,
+            bounds: ViewWindow.navigableBounds(year: 2026, events: events, starredDays: []))
+        let windowTaking = EventFilter.apply(
+            sel, to: events, favorites: [], year: 2026, window: window)
+
+        #expect(convenience.map(\.id) == ["in-season", "past-season"])
+        #expect(windowTaking.map(\.id) == convenience.map(\.id))
+    }
 }

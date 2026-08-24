@@ -1521,6 +1521,162 @@ struct AppModelTests {
         #expect(eventCalls.isEmpty)
     }
 
+    // MARK: - scope-local resets stale pending targets (#254 scope addition)
+
+    /// Entrance (2), live on `main`: `browseDay` of the day already browsed
+    /// clears only the window-expansion fields, leaving every filter field
+    /// of `PendingDayScroll.Key` unchanged — so before the reset epoch was
+    /// part of the key, a target armed before the re-browse could never go
+    /// stale and its pinned highlight survived pointing outside the freshly
+    /// reset window.
+    @Test func reBrowsingTheSameDayStalesATargetArmedUnderIt() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.browseDay("2026-08-03")
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        // Growth toward the target must not stale it while we wait.
+        model.filter.windowEndDayKey = "2026-08-06"
+        #expect(!PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+
+        model.browseDay("2026-08-03")
+
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
+    /// Entrance (1)'s state transition — a reset that clears ONLY the window
+    /// fields while every `Key` filter field stays identical. Written against
+    /// `clearScopeLocalDateState()`'s public route that exists on this base
+    /// (`setWeekSelection([])` under an unchanged `.all`/no-weeks selection)
+    /// rather than against #266's `selectScope` re-tap guard, which merges
+    /// before this branch and calls the same reset — the epoch bump inside
+    /// the reset covers it identically. Two selections differing only in
+    /// window fields produce equal `Key` filter fields BY DESIGN (growth must
+    /// never stale), so the reset epoch is the only thing that can mark this
+    /// transition.
+    @Test func aWindowOnlyResetStalesATargetThroughTheResetEpochAlone() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.selectScope(.all)
+        model.filter.windowEndDayKey = "2026-08-06"
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        // Same scope (.all), same (empty) weeks: only the window is cleared.
+        model.setWeekSelection([])
+
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
+    /// `clearAll()` replaces the whole selection — window fields included —
+    /// without going through `clearScopeLocalDateState()`. From an `.all`
+    /// selection whose only non-default state is a window expansion, that
+    /// replacement changes no `Key` filter field, so the epoch is the only
+    /// thing that can stale a target (or pinned highlight) armed before it.
+    /// No current writer produces that armed state through the UI — which
+    /// is exactly the #192 "can't happen until the next task adds a caller"
+    /// trap this test refuses to rely on.
+    @Test func clearAllStalesATargetArmedUnderIt() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.selectScope(.all)
+        model.filter.windowEndDayKey = "2026-08-06"
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        model.clearAll()
+
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
+    /// The load-bearing property the epoch must not break: window *growth* —
+    /// the very thing a pending deep-link scroll is waiting for — never
+    /// stales the target. `expandWindowEnd()` is the real growth writer;
+    /// `windowStartDayKey` is set directly since no start-edge writer exists
+    /// yet.
+    @Test func windowGrowthAloneNeverStalesAPendingTarget() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        model.expandWindowEnd()
+        model.filter.windowStartDayKey = "2026-08-01"
+
+        #expect(!PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
+    /// One user action = one derived-data rebuild. `selectScope` and
+    /// `browseDay` mutate several `filter` fields; written field-by-field,
+    /// each changed field fires `filter`'s `didSet` and a full
+    /// `rebuildDerivedCounts()` pass (#267 review finding). Pinned through
+    /// the same DEBUG counter `windowExpansionDoesNotRecomputeIt` uses,
+    /// against actions arranged so at least two `Key`-visible fields really
+    /// change (from a default selection most of the writes are no-ops and
+    /// even the unbatched code fired once).
+    @Test func scopeAndBrowseActionsRebuildNavMatchingOncePerAction() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.setWeekSelection([3])
+
+        var before = model.navMatchingRebuildCount
+        model.selectScope(.thisWeek)
+        #expect(model.navMatchingRebuildCount == before + 1)
+
+        model.expandWindowEnd()
+        before = model.navMatchingRebuildCount
+        model.browseDay("2026-08-06")
+        #expect(model.navMatchingRebuildCount == before + 1)
+    }
+
+    // MARK: - renderedDays (#254)
+
+    /// `renderedDays.window` must be the window the days were actually
+    /// filtered by — with expansion set, the path where the filter's
+    /// internal window computation and `currentWindow` could historically
+    /// diverge. The days are recomputed here through the same
+    /// window-taking `EventFilter` entry point with the stamped window, so
+    /// a `renderedDays` that filtered with one window and stamped another
+    /// cannot pass.
+    @Test func renderedDaysStampsTheWindowTheDaysWereFilteredBy() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.expandWindowEnd()
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
+
+        let rendered = model.renderedDays
+
+        let window = try #require(rendered.window)
+        // The stamped window reflects the expansion the days were built under…
+        #expect(window.endDay == "2026-08-06")
+        // …and is the same value the rail's model-side callers read.
+        #expect(rendered.window == model.currentWindow)
+
+        // The days are exactly what filtering by the stamped window yields.
+        let snapshot = try #require(model.snapshot)
+        let expected = EventGrouping.byDay(
+            EventFilter.apply(
+                model.filter, to: snapshot.events, favorites: model.favorites,
+                year: model.selectedYear, window: window),
+            year: model.selectedYear)
+        #expect(rendered.days.map(\.id) == expected.map(\.id))
+        #expect(rendered.days.map { $0.events.map(\.id) } == expected.map { $0.events.map(\.id) })
+        // The expansion actually reached the list this window was stamped on.
+        #expect(rendered.days.last?.id == "2026-08-06")
+    }
+
     // MARK: - expandWindowEnd
 
     /// The correction phase 2 learned, applied to the model: a step lands on

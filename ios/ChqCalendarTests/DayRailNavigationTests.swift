@@ -91,6 +91,45 @@ struct DayRailNavigationTests {
         #expect(DayRailNavigation.shouldAbandonScroll(target: "2026-07-15", window: nil))
     }
 
+    // MARK: - shouldAbandonScroll(rendered:) — #254
+
+    /// The pre-growth render: the update that consumes a day deep link can
+    /// run against a day list built before `goToDay` grew the window. With
+    /// the window stamped onto that same list, the rule sees the *pre-growth*
+    /// window, which does not cover the target — so the scroll keeps
+    /// waiting for the grown render instead of being dropped as an "empty
+    /// day". This is the exact one-render disagreement #250 guarded around.
+    @Test func aRenderBuiltBeforeTheWindowGrewKeepsItsPendingScroll() {
+        let preGrowth = RenderedDays(
+            days: [
+                DayGroup(dayKey: "2026-07-10", title: "Friday, July 10", weekNumbers: [2], events: []),
+            ],
+            window: window("2026-07-10", "2026-07-20"))
+
+        #expect(!DayRailNavigation.shouldAbandonScroll(
+            target: "2026-08-21", rendered: preGrowth))
+    }
+
+    /// The post-growth render: the stamped window covers the target and the
+    /// list built from that same window still has no section for it — an
+    /// ordinary empty day, so the wait ends.
+    @Test func aRenderWhoseWindowCoversTheTargetWithNoSectionAbandons() {
+        let postGrowth = RenderedDays(
+            days: [
+                DayGroup(dayKey: "2026-07-10", title: "Friday, July 10", weekNumbers: [2], events: []),
+            ],
+            window: window("2026-07-10", "2026-08-21"))
+
+        #expect(DayRailNavigation.shouldAbandonScroll(
+            target: "2026-08-21", rendered: postGrowth))
+    }
+
+    /// Same rule as the window overload: no window to land in ends the wait.
+    @Test func aRenderWithNoWindowAbandons() {
+        let rendered = RenderedDays(days: [], window: nil)
+        #expect(DayRailNavigation.shouldAbandonScroll(target: "2026-07-15", rendered: rendered))
+    }
+
     // MARK: - stepTargets
 
     /// A chevron steps to the nearest day that has something to show, not the
