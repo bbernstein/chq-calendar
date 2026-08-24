@@ -57,9 +57,9 @@ nonisolated enum AppGroup {
     /// The gate behind both app-only migration triggers
     /// (`UserStateStore.didMigrateDefaults`, `DiskCache.didMigrate`): a
     /// migration should only actually run when the process is the app
-    /// (not the widget extension) *and* the App Group entitlement is
-    /// present (a real device/simulator build, not an un-entitled unit-test
-    /// host).
+    /// (not the widget extension) *and* the App Group container is actually
+    /// available to it — i.e. `containerURL()` is non-`nil`. There is
+    /// nothing to migrate *into* otherwise.
     ///
     /// Broken out as a pure function of two `Bool`s — rather than reading
     /// `isAppProcess`/`containerURL()` live inline at each call site — so
