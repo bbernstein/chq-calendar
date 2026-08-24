@@ -259,7 +259,8 @@ struct EventListView: View {
     /// a day that was in range when it was tapped).
     private func pinnedSelectionDay(in nav: NavMatching) -> String? {
         guard let pinnedSelection else { return nil }
-        let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
+        let currentKey = PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)
         guard !PendingDayScroll.isStale(pinnedSelection, currentKey: currentKey) else { return nil }
         guard nav.bounds.contains(pinnedSelection.day) else { return nil }
         return pinnedSelection.day
@@ -520,7 +521,8 @@ struct EventListView: View {
         anchorDay = dayKey
         let target = PendingDayScroll.Target(
             day: dayKey,
-            key: PendingDayScroll.key(for: model.filter, year: model.selectedYear))
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
         pendingScroll = target
         pinnedSelection = target
         // Reset, not stamped: a fresh arm must not inherit whatever deadline
@@ -662,7 +664,8 @@ struct EventListView: View {
             existing: scrollRetryDeadline, now: Date(), window: Self.scrollRetryWindow)
         scrollRetryDeadline = retryDeadline
 
-        let currentKey = PendingDayScroll.key(for: model.filter, year: model.selectedYear)
+        let currentKey = PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)
         if PendingDayScroll.isStale(pending, currentKey: currentKey) {
             clearPendingScroll()
             return

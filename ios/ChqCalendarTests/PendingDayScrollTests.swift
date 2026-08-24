@@ -36,9 +36,9 @@ struct PendingDayScrollTests {
     /// The steady-state case: nothing about the filter has changed since the
     /// tap, so the target is still waiting, not stale.
     @Test func sameKeyIsNotStale() {
-        let armed = PendingDayScroll.key(for: selection(), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(), year: 2026)
+        let current = PendingDayScroll.key(for: selection(), year: 2026, scopeResets: 0)
         #expect(!PendingDayScroll.isStale(target, currentKey: current))
     }
 
@@ -47,9 +47,9 @@ struct PendingDayScrollTests {
     /// window ever covering the tapped day, so `shouldAbandonScroll` alone
     /// never fires. The stamped key must catch it instead.
     @Test func scopeChangeIsStale() {
-        let armed = PendingDayScroll.key(for: selection(dateScope: .next), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(dateScope: .next), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(dateScope: .thisWeek), year: 2026)
+        let current = PendingDayScroll.key(for: selection(dateScope: .thisWeek), year: 2026, scopeResets: 0)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 
@@ -57,9 +57,9 @@ struct PendingDayScrollTests {
     /// and replaces the week set) — the key must catch a bare week-set
     /// change too, independent of `dateScope`.
     @Test func weekSelectionChangeIsStale() {
-        let armed = PendingDayScroll.key(for: selection(selectedWeeks: [3]), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(selectedWeeks: [3]), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(selectedWeeks: [3, 4]), year: 2026)
+        let current = PendingDayScroll.key(for: selection(selectedWeeks: [3, 4]), year: 2026, scopeResets: 0)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 
@@ -70,48 +70,48 @@ struct PendingDayScrollTests {
     /// requested landed.
     @Test func pureWindowExpansionIsNotStale() {
         let armed = PendingDayScroll.key(
-            for: selection(windowStartDayKey: nil, windowEndDayKey: nil), year: 2026)
+            for: selection(windowStartDayKey: nil, windowEndDayKey: nil), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
         let current = PendingDayScroll.key(
             for: selection(windowStartDayKey: "2026-06-27", windowEndDayKey: "2026-08-21"),
-            year: 2026)
+            year: 2026, scopeResets: 0)
         #expect(!PendingDayScroll.isStale(target, currentKey: current))
     }
 
     @Test func searchTextChangeIsStale() {
-        let armed = PendingDayScroll.key(for: selection(searchText: "opera"), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(searchText: "opera"), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(searchText: "jazz"), year: 2026)
+        let current = PendingDayScroll.key(for: selection(searchText: "jazz"), year: 2026, scopeResets: 0)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 
     @Test func venueSelectionChangeIsStale() {
-        let armed = PendingDayScroll.key(for: selection(selectedLocations: ["Amp"]), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(selectedLocations: ["Amp"]), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(selectedLocations: []), year: 2026)
+        let current = PendingDayScroll.key(for: selection(selectedLocations: []), year: 2026, scopeResets: 0)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 
     @Test func categorySelectionChangeIsStale() {
-        let armed = PendingDayScroll.key(for: selection(selectedCategories: ["Lecture"]), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(selectedCategories: ["Lecture"]), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(selectedCategories: []), year: 2026)
+        let current = PendingDayScroll.key(for: selection(selectedCategories: []), year: 2026, scopeResets: 0)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 
     @Test func favoritesOnlyChangeIsStale() {
-        let armed = PendingDayScroll.key(for: selection(showFavoritesOnly: false), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(showFavoritesOnly: false), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(showFavoritesOnly: true), year: 2026)
+        let current = PendingDayScroll.key(for: selection(showFavoritesOnly: true), year: 2026, scopeResets: 0)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 
     /// A year switch is a full snapshot swap — a target armed under 2026
     /// must not survive into 2027.
     @Test func yearChangeIsStale() {
-        let armed = PendingDayScroll.key(for: selection(), year: 2026)
+        let armed = PendingDayScroll.key(for: selection(), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
-        let current = PendingDayScroll.key(for: selection(), year: 2027)
+        let current = PendingDayScroll.key(for: selection(), year: 2027, scopeResets: 0)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 
@@ -119,10 +119,22 @@ struct PendingDayScrollTests {
     /// `dateScope` alone changing — the key must catch that route too.
     @Test func selectedDayKeyChangeIsStale() {
         let armed = PendingDayScroll.key(
-            for: selection(dateScope: .day, selectedDayKey: "2026-07-04"), year: 2026)
+            for: selection(dateScope: .day, selectedDayKey: "2026-07-04"), year: 2026, scopeResets: 0)
         let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
         let current = PendingDayScroll.key(
-            for: selection(dateScope: .day, selectedDayKey: "2026-07-05"), year: 2026)
+            for: selection(dateScope: .day, selectedDayKey: "2026-07-05"), year: 2026, scopeResets: 0)
+        #expect(PendingDayScroll.isStale(target, currentKey: current))
+    }
+
+    /// The counterpart boundary to `pureWindowExpansionIsNotStale`: a
+    /// scope-local reset (re-browsing the same day, re-tapping the active
+    /// scope) changes no filter field at all — the reset epoch is the only
+    /// thing that can mark it (#254 scope addition). `AppModelTests` covers
+    /// the model routes that bump it.
+    @Test func aScopeResetEpochBumpAloneIsStale() {
+        let armed = PendingDayScroll.key(for: selection(), year: 2026, scopeResets: 0)
+        let target = PendingDayScroll.Target(day: "2026-08-21", key: armed)
+        let current = PendingDayScroll.key(for: selection(), year: 2026, scopeResets: 1)
         #expect(PendingDayScroll.isStale(target, currentKey: current))
     }
 

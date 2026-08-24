@@ -1138,10 +1138,23 @@ final class AppModel {
     /// that sets `selectedDayKey` and clears the window fields in the same
     /// assignment, in that order.
     private func clearScopeLocalDateState() {
+        scopeResetCount += 1
         filter.selectedDayKey = nil
         filter.windowStartDayKey = nil
         filter.windowEndDayKey = nil
     }
+
+    /// Monotonic count of scope-local date resets — every
+    /// `clearScopeLocalDateState()` call plus `browseDay`'s inlined
+    /// equivalent. Rides in `PendingDayScroll.Key` so a reset that clears
+    /// ONLY the window-expansion fields (re-browsing the same day; #266's
+    /// re-tap of the active scope) still stales a pending scroll or pinned
+    /// rail highlight armed before it — those fields are excluded from the
+    /// key by design, so without this epoch such a reset changed nothing
+    /// the key could see (#254 scope addition). Window *growth*
+    /// (`goToDay`/`expandWindowEnd`) never bumps it: a pending deep-link
+    /// scroll is literally waiting for that growth, so it must never stale.
+    private(set) var scopeResetCount = 0
 
     /// Replaces the week selection wholesale — the strip owns tap/drag
     /// semantics (`WeekStripDrag.commit`); the model just stores the result.
@@ -1183,6 +1196,12 @@ final class AppModel {
     /// date state.
     func browseDay(_ dayKey: String) {
         guard let parsed = ChqTime.parse("\(dayKey) 00:00:00") else { return }
+        // The inlined scope-local reset below owes the same epoch bump as
+        // `clearScopeLocalDateState()`: re-browsing the day already browsed
+        // changes no `PendingDayScroll.Key` field, and without the bump a
+        // pinned highlight or pending scroll from before the re-browse
+        // survived the window reset (#254 scope addition).
+        scopeResetCount += 1
         filter.dateScope = .day
         filter.selectedDayKey = ChqTime.dayKey(for: parsed)
         filter.selectedWeeks = []
@@ -1483,8 +1502,10 @@ final class AppModel {
         // The expensive case this guard exists for is `expandWindowEnd()`
         // firing repeatedly as the reader scrolls — window-only changes, which
         // the key excludes and which are therefore correctly skipped. What
-        // remains is one redundant pass per deliberate scope tap, which no
-        // reader can perceive. A narrower, purpose-built fingerprint would
+        // remains is one redundant pass per deliberate scope tap — and,
+        // since the key now carries `scopeResetCount` (#254), one per
+        // same-day re-browse or same-scope re-tap — which no reader can
+        // perceive. A narrower, purpose-built fingerprint would
         // save that pass and introduce a far worse failure mode: omit one
         // input that does matter (weeks, venues, categories, favourites-only,
         // search) and `navMatching` goes silently stale, which shows up as a
@@ -1494,7 +1515,8 @@ final class AppModel {
         let inputs = NavMatchingInputs(
             snapshotFetchedAt: snapshot.fetchedAt,
             favorites: favorites,
-            filterKey: PendingDayScroll.key(for: filter, year: selectedYear))
+            filterKey: PendingDayScroll.key(
+                for: filter, year: selectedYear, scopeResets: scopeResetCount))
         guard inputs != lastNavMatchingInputs else { return }
         lastNavMatchingInputs = inputs
         rebuildNavMatching()

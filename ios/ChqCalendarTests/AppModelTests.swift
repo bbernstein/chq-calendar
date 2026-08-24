@@ -1416,6 +1416,81 @@ struct AppModelTests {
         #expect(eventCalls.isEmpty)
     }
 
+    // MARK: - scope-local resets stale pending targets (#254 scope addition)
+
+    /// Entrance (2), live on `main`: `browseDay` of the day already browsed
+    /// clears only the window-expansion fields, leaving every filter field
+    /// of `PendingDayScroll.Key` unchanged — so before the reset epoch was
+    /// part of the key, a target armed before the re-browse could never go
+    /// stale and its pinned highlight survived pointing outside the freshly
+    /// reset window.
+    @Test func reBrowsingTheSameDayStalesATargetArmedUnderIt() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.browseDay("2026-08-03")
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        // Growth toward the target must not stale it while we wait.
+        model.filter.windowEndDayKey = "2026-08-06"
+        #expect(!PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+
+        model.browseDay("2026-08-03")
+
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
+    /// Entrance (1)'s state transition — a reset that clears ONLY the window
+    /// fields while every `Key` filter field stays identical. Written against
+    /// `clearScopeLocalDateState()`'s public route that exists on this base
+    /// (`setWeekSelection([])` under an unchanged `.all`/no-weeks selection)
+    /// rather than against #266's `selectScope` re-tap guard, which merges
+    /// before this branch and calls the same reset — the epoch bump inside
+    /// the reset covers it identically. Two selections differing only in
+    /// window fields produce equal `Key` filter fields BY DESIGN (growth must
+    /// never stale), so the reset epoch is the only thing that can mark this
+    /// transition.
+    @Test func aWindowOnlyResetStalesATargetThroughTheResetEpochAlone() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.selectScope(.all)
+        model.filter.windowEndDayKey = "2026-08-06"
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        // Same scope (.all), same (empty) weeks: only the window is cleared.
+        model.setWeekSelection([])
+
+        #expect(model.filter.dateScope == .all)
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
+    /// The load-bearing property the epoch must not break: window *growth* —
+    /// the very thing a pending deep-link scroll is waiting for — never
+    /// stales the target. `expandWindowEnd()` is the real growth writer;
+    /// `windowStartDayKey` is set directly since no start-edge writer exists
+    /// yet.
+    @Test func windowGrowthAloneNeverStalesAPendingTarget() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        let armed = PendingDayScroll.Target(
+            day: "2026-08-06",
+            key: PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount))
+
+        model.expandWindowEnd()
+        model.filter.windowStartDayKey = "2026-08-01"
+
+        #expect(!PendingDayScroll.isStale(armed, currentKey: PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)))
+    }
+
     // MARK: - renderedDays (#254)
 
     /// `renderedDays.window` must be the window the days were actually
