@@ -1,0 +1,212 @@
+import { render, screen, waitFor, fireEvent } from '@testing-library/preact';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import Home from '@/app/page';
+import { installFetchMock, type FetchMock } from './helpers/fetchMock';
+import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
+import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
+import { chqDateAt } from '@/lib/utils/chqTime';
+
+/**
+ * The branch #269 is about: with no events left in the default window, does
+ * the reader get a screen that explains why, or "No events found"?
+ *
+ * The clock is pinned per-test rather than derived from the real date. Every
+ * case here is a statement about a specific point in the season, and a suite
+ * whose answers changed with the calendar would be exactly the defect this
+ * feature fixes.
+ */
+const SEASON_YEAR = 2026;
+
+function eventsPayload() {
+  return {
+    data: [
+      {
+        id: 'e1',
+        title: 'Morning Lecture',
+        startDate: `${SEASON_YEAR}-07-06T10:45:00`,
+        endDate: `${SEASON_YEAR}-07-06T11:45:00`,
+        location: 'Amphitheater',
+        description: 'A lecture.',
+        // `Array<{ name: string }>`, per `Event` in lib/types. A bare string
+        // array makes `useEventData` throw on `cat.name` while parsing, which
+        // it swallows into a console.error — events stay empty and the page
+        // renders as though the feed were down. Silent, and it cost a
+        // debugging session.
+        categories: [{ name: 'Lecture' }],
+      },
+      {
+        id: 'e2',
+        title: 'Evening Concert',
+        startDate: `${SEASON_YEAR}-07-07T20:15:00`,
+        endDate: `${SEASON_YEAR}-07-07T22:00:00`,
+        location: 'Amphitheater',
+        description: 'A concert.',
+        categories: [{ name: 'Music' }],
+      },
+    ],
+  };
+}
+
+let mock: FetchMock;
+let io: ReturnType<typeof installIntersectionObserverMock>;
+let ro: ReturnType<typeof installResizeObserverMock>;
+
+function pin(now: Date) {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(now);
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  io = installIntersectionObserverMock();
+  ro = installResizeObserverMock();
+  mock = installFetchMock({ allowUnhandled: true });
+  mock.on('GET', /years\.json/, { years: [2025, 2026, 2027], defaultYear: 2026, generated: '' });
+  mock.on('GET', /all-events-\d{4}\.json/, eventsPayload());
+  // The sidecars. Routed explicitly rather than left to `allowUnhandled`, so
+  // a genuinely missing route still shows up as noise worth reading.
+  mock.on('GET', /weekly-themes/, { data: [] });
+  mock.on('GET', /article-links-\d{4}\.json/, { data: [] });
+  mock.on('GET', /program-links-\d{4}\.json/, { data: [] });
+  mock.on('GET', /publisher-events-\d{4}\.json/, { data: [] });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  mock.uninstall();
+  vi.unstubAllGlobals();
+  localStorage.clear();
+});
+
+async function renderPage() {
+  render(<Home />);
+  await waitFor(() =>
+    expect(document.querySelector('[data-day-rail]')).toBeTruthy()
+  );
+}
+
+describe('page.tsx — the off-season landing', () => {
+  it('explains the empty screen after the season has ended', async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+    expect(screen.getByRole('heading', { name: 'See you next season' })).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+  });
+
+  // Pre-season is reachable ONLY while the year's feed is still empty, and
+  // that is not an artefact of the fixture. With events published, the `next`
+  // scope's adaptive window reaches forward until it has accumulated 50 of
+  // them — from March it lands in late June — so the list is not empty and
+  // `in-season` is the correct answer. The countdown belongs to the window
+  // between a year being announced in the manifest and its programme going
+  // up, which is exactly when a visitor has nothing else to be told.
+  it('counts down before an announced season has been published', async () => {
+    mock.reset();
+    mock.on('GET', /years\.json/, { years: [2026, 2027], defaultYear: 2026, generated: '' });
+    mock.on('GET', /all-events-\d{4}\.json/, { data: [] });
+    pin(chqDateAt(2026, 3, 1, 10));
+    render(<Home />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+    expect(screen.getByRole('heading', { name: 'Almost showtime' })).toBeInTheDocument();
+    expect(screen.getByTestId('off-season-countdown').textContent)
+      .toMatch(/^The 2026 season begins June \d{1,2}$/);
+  });
+
+  // The same empty feed, six weeks later: past the season start, "no data" is
+  // the honest reading and the generic empty state is the honest screen. The
+  // only difference between this and the test above is the clock, which is
+  // the whole of rule 1 versus rule 3 in `determineLandingState`.
+  it('does not count down once that same empty year has opened', async () => {
+    mock.reset();
+    mock.on('GET', /years\.json/, { years: [2026, 2027], defaultYear: 2026, generated: '' });
+    mock.on('GET', /all-events-\d{4}\.json/, { data: [] });
+    pin(chqDateAt(2026, 8, 1, 10));
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+  });
+
+  // The case a naive implementation gets wrong. "Try adjusting your filters"
+  // is true advice here and "See you next season" is not — the reader's own
+  // search is why the list is empty.
+  it('keeps the generic empty state when the READER emptied the list', async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+      dateFilter: 'all', searchTerm: 'zzzznothingmatchesthis',
+      selectedTags: [], selectedLocations: [], selectedWeeks: [],
+      expandedDescriptions: [], recentLocations: [], recentCategories: [],
+      showFavoritesOnly: false, lastSaved: Date.now(),
+    }));
+    await renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+  });
+
+  // Rule 3 from landingState.ts, reaching the screen. A July visitor whose
+  // feed failed must never be told the season is over.
+  it('keeps the generic empty state when the feed came back empty mid-season', async () => {
+    mock.reset();
+    mock.on('GET', /years\.json/, { years: [2026], defaultYear: 2026, generated: '' });
+    mock.on('GET', /all-events-\d{4}\.json/, { data: [] });
+    pin(chqDateAt(2026, 7, 15, 10));
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+  });
+
+  it('shows the list, and no landing, when the window has events', async () => {
+    pin(chqDateAt(2026, 7, 5, 10));
+    await renderPage();
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0)
+    );
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+  });
+
+  it('browsing the archive puts the season on screen', async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse the 2026 season' }));
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0)
+    );
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+  });
+
+  it('previewing next season switches the year and opens the date scope', async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview the 2027 season' }));
+
+    await waitFor(() => {
+      const requested = mock.calls(/all-events-/).map(r => new URL(r.url).pathname);
+      expect(requested.some(p => p.endsWith('all-events-2027.json'))).toBe(true);
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'All Year' }).getAttribute('aria-pressed')
+      ).toBe('true')
+    );
+  });
+});
