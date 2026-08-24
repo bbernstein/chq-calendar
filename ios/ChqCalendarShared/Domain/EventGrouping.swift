@@ -20,7 +20,9 @@ nonisolated struct DayGroup: Identifiable, Sendable {
 /// still pre-growth.
 ///
 /// `window` is `nil` when no snapshot has loaded or the scope resolves to
-/// no window at all — the same conditions under which `days` is empty.
+/// no window at all; `days` is empty in both of those states too, though
+/// it can also be empty under a non-nil window when the filters simply
+/// match nothing.
 nonisolated struct RenderedDays: Sendable {
     let days: [DayGroup]
     let window: ViewWindow?

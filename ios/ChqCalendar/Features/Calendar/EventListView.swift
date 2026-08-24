@@ -673,26 +673,21 @@ struct EventListView: View {
 
         if days.contains(where: { $0.id == pending.day }) {
             issueScroll(proxy, to: pending.day)
-        } else if !visibleDays.isEmpty,
-                  DayRailNavigation.shouldAbandonScroll(
-                    target: pending.day, rendered: rendered) {
+        } else if DayRailNavigation.shouldAbandonScroll(
+            target: pending.day, rendered: rendered) {
             // The abandon rule reads the window stamped onto `rendered` —
             // the same render pass that produced `days` — never live model
             // state. On the cold-launch update that mounts the list and
             // consumes a day deep link in one pass, the live window has
             // already grown while the captured days are still pre-growth;
             // reading the live window there dropped the target as an
-            // "ordinary empty day" (#250, ~3 failures in 8 runs). With the
-            // stamped window the rule sees the pre-growth window, which
-            // does not cover the target, so the wait correctly continues
-            // until the grown render's own trigger fires. #254 has the full
-            // history of the four bugs sharing this signature.
-            //
-            // `!visibleDays.isEmpty` was #250's symptom guard for exactly
-            // that disagreement and is no longer load-bearing now that the
-            // window and days come from one pass; it is removed in the
-            // follow-up commit once the deep-link UI tests prove the
-            // stamped path on its own.
+            // "ordinary empty day" (#250, ~3 failures in 8 runs; a
+            // `!visibleDays.isEmpty` guard treated that symptom until the
+            // stamp made it unrepresentable). With the stamped window the
+            // rule sees the pre-growth window, which does not cover the
+            // target, so the wait correctly continues until the grown
+            // render's own trigger fires. #254 has the full history of the
+            // four bugs sharing this signature.
             clearPendingScroll()
             return
         }
