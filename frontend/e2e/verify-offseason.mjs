@@ -104,6 +104,15 @@ console.log(`feed: default year ${edges.year}, events ${edges.first} … ${edges
 check('0 feed has a season to reason about', !!edges.first && !!edges.last,
   `${edges.first} … ${edges.last}`);
 
+// Stop here rather than carrying an undefined edge into `shift()`, which
+// throws and aborts the run with a stack trace instead of a PASS/FAIL summary.
+// The process exits non-zero either way, so this is about a temporarily
+// unavailable feed reading as an actionable failure rather than as a crash.
+if (!edges.first || !edges.last) {
+  await browser.close();
+  finish();
+}
+
 // ------------------------------------------------- 1. post-season, just after
 {
   const day = shift(edges.last, 5);

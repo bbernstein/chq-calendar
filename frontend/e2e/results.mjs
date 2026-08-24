@@ -8,10 +8,18 @@
  */
 const results = [];
 
-/** Record a check. `detail` is the measured value, and is worth printing. */
+/**
+ * Record a check. `detail` is the measured value, and is worth printing.
+ *
+ * Tested for `!= null` rather than for truthiness: a measurement of `0` is
+ * meaningful — often the most meaningful thing a check can report — and a
+ * truthy test drops it silently. No current call site passes one, but this is
+ * the utility every suite depends on to explain itself, and a diagnostic that
+ * quietly omits its own evidence is the failure mode this whole PR is about.
+ */
 export function check(name, ok, detail) {
   results.push({ name, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail != null ? ` — ${detail}` : ''}`);
 }
 
 /**
@@ -52,6 +60,7 @@ export function finish() {
   if (failed.length) {
     console.log('FAILED:\n' + failed.map(f => `  - ${f.name}: ${f.detail ?? ''}`).join('\n'));
   }
+
   if (failed.length || passed.length === 0) {
     if (passed.length === 0) console.log('No check passed — nothing was proved.');
     process.exit(1);

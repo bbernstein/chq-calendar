@@ -38,6 +38,13 @@ export function OffSeasonLanding({
   // this year's when it has not started yet.
   const openingYear =
     state.kind === 'post-season' ? state.nextSeasonYear : chqYearOf(state.opening);
+  // Hoisted to a local `const` so the `!== null` guard below narrows it for
+  // the click handler too. Narrowing a property access does NOT survive into
+  // a closure — TypeScript cannot know `state.nextSeasonYear` is unchanged by
+  // the time the handler runs — so the earlier version needed an `as number`
+  // cast, and a cast is exactly the thing that would hide the field's type
+  // widening later. A `const` cannot be reassigned, so the narrowing holds.
+  const nextSeasonYear = state.kind === 'post-season' ? state.nextSeasonYear : null;
 
   return (
     <div data-testid="off-season-landing" className="text-center py-12 px-4">
@@ -65,13 +72,13 @@ export function OffSeasonLanding({
 
       {state.kind === 'post-season' && (
         <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mb-6">
-          {state.nextSeasonYear !== null && (
+          {nextSeasonYear !== null && (
             <button
               type="button"
-              onClick={() => onPreviewNextSeason(state.nextSeasonYear as number)}
+              onClick={() => onPreviewNextSeason(nextSeasonYear)}
               className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
             >
-              Preview the {state.nextSeasonYear} season
+              Preview the {nextSeasonYear} season
             </button>
           )}
           <button
