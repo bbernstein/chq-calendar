@@ -19,7 +19,7 @@
     "about:screenshots:ios": "node scripts/prepare-about-screenshots.mjs",
     "about:screenshots:web": "node scripts/capture-web-screenshots.mjs",
     "about:screenshots": "npm run about:screenshots:ios && npm run about:screenshots:web",
-    "test:browser": "node e2e/verify-rail.mjs && node e2e/verify-filter-reveal.mjs && node e2e/verify-timezone.mjs"
+    "test:browser": "node e2e/verify-rail.mjs && node e2e/verify-filter-reveal.mjs && node e2e/verify-timezone.mjs && node e2e/verify-offseason.mjs"
   },
   "dependencies": {
     "preact": "^10.28.4"

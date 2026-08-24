@@ -9,15 +9,11 @@
  */
 import { chromium } from 'playwright';
 import { pinClock } from './fixedNow.mjs';
+import { check, finish } from './results.mjs';
+import { enterList } from './regime.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 const ZONES = ['America/New_York', 'UTC', 'America/Los_Angeles', 'Asia/Tokyo'];
-
-const results = [];
-function check(name, ok, detail) {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
-}
 const browser = await chromium.launch();
 
 async function readUnder(timezoneId) {
@@ -25,7 +21,10 @@ async function readUnder(timezoneId) {
   const page = await ctx.newPage();
   await pinClock(page);
   await page.goto(URL, { waitUntil: 'networkidle' });
-  await page.waitForSelector('[data-day-key]', { timeout: 30000 });
+  // Off-season the default screen is the landing, not a day list; see
+  // `regime.mjs`. Every zone goes in the same way, so the cross-zone
+  // comparison below still compares like with like.
+  await enterList(page);
   const out = await page.evaluate(() => ({
     days: [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey).slice(0, 6),
     headers: [...document.querySelectorAll('[data-day-header]')].map(e => e.textContent.trim()).slice(0, 6),
@@ -79,10 +78,4 @@ for (const { zone, got } of zoneResults) {
 }
 
 await browser.close();
-const failed = results.filter(r => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
-if (failed.length) {
-  console.log('FAILED:');
-  for (const f of failed) console.log(`  - ${f.name}: ${f.detail}`);
-  process.exit(1);
-}
+finish();

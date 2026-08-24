@@ -30,6 +30,8 @@ import { CountdownBanner } from '@/components/layout/CountdownBanner';
 import { IosAppBanner } from '@/components/layout/IosAppBanner';
 import { LoadingSpinner } from '@/components/layout/LoadingSpinner';
 import { EmptyState } from '@/components/layout/EmptyState';
+import { OffSeasonLanding } from '@/components/layout/OffSeasonLanding';
+import { determineLandingState } from '@/lib/utils/landingState';
 import { SearchBar } from '@/components/filters/SearchBar';
 import { DateFilter } from '@/components/filters/DateFilter';
 import { LocationFilter } from '@/components/filters/LocationFilter';
@@ -145,6 +147,34 @@ function HomeContent() {
     [nonDateFilterOpts, dateWindow]
   );
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
+
+  // Why the default screen is empty, when it is. Only consulted in the empty
+  // branch below. `events` rather than `filteredEvents` is the input on
+  // purpose — see rule 3 in `determineLandingState`: a failed feed fetch
+  // during the season must not be reported as "See you next season".
+  const landingState = useMemo(
+    () => determineLandingState({
+      now: new Date(),
+      selectedYear,
+      availableYears,
+      yearHasEvents: events.length > 0,
+    }),
+    [selectedYear, availableYears, events]
+  );
+
+  // The landing's two ways forward. Both mirror iOS's `AppModel`: previewing
+  // opens the date scope right up, because `next`'s adaptive window has
+  // nothing to adapt to that far ahead; browsing the archive deliberately
+  // does NOT touch the year, since the year on screen is already the one
+  // that ended.
+  const previewNextSeason = useCallback((year: number) => {
+    setSelectedYear(year);
+    filters.setDateFilter('all');
+  }, [setSelectedYear, filters.setDateFilter]);
+
+  const browseArchiveSeason = useCallback(() => {
+    filters.setDateFilter('season');
+  }, [filters.setDateFilter]);
 
   // Everything the *non-date* filters admit, anywhere in the navigable
   // bounds — the same filter re-run with the date stage wide open. This is
@@ -617,7 +647,29 @@ function HomeContent() {
         <div ref={filtersSentinelRef} aria-hidden="true" />
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
-            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? <EmptyState /> : (
+            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? (
+              /*
+                `hasNonDefaultFilters`, NOT `hasFilters`: the app starts on
+                the `next` scope, which is a date filter, so `hasFilters` is
+                true before the reader touches anything and the landing would
+                never show. See `useFilterState` for what "default" means per
+                year — note it counts `all` as a default too, since that is
+                the archived year's own starting scope.
+
+                The consequence is deliberate: a reader on "All Year" with
+                zero results gets the landing rather than "No events found".
+                That can only happen when the year genuinely has no events —
+                an announced-but-empty next season, say — where the countdown
+                is the better screen.
+              */
+              landingState.kind !== 'in-season' && !filters.hasNonDefaultFilters ? (
+                <OffSeasonLanding
+                  state={landingState}
+                  onPreviewNextSeason={previewNextSeason}
+                  onBrowseArchiveSeason={browseArchiveSeason}
+                />
+              ) : <EmptyState />
+            ) : (
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
