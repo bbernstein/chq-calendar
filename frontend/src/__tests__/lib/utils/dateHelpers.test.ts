@@ -1,4 +1,5 @@
-import { getAdaptiveEndDate, getChautauquaSeasonWeeks, isInChautauquaWeek } from '@/lib/utils/dateHelpers';
+import { getAdaptiveEndDate, getChautauquaSeasonWeeks, weekNumbersForCalendarDate } from '@/lib/utils/dateHelpers';
+import { parseEventDate } from '@/lib/utils/chqTime';
 import type { Event } from '@/lib/types';
 
 function makeEvent(dateStr: string, id?: string): Event {
@@ -134,11 +135,29 @@ describe('season weeks in Institution time', () => {
     }
   });
 
-  it('places an event by its Institution instant', () => {
+  it('places a boundary Saturday in both adjacent weeks, whole (#257)', () => {
     const weeks = getChautauquaSeasonWeeks(2026);
-    // 11:00 on the Saturday is still the previous week; 13:00 is the next.
-    expect(isInChautauquaWeek('2026-07-04 11:00:00', 1, weeks)).toBe(true);
-    expect(isInChautauquaWeek('2026-07-04 13:00:00', 1, weeks)).toBe(false);
-    expect(isInChautauquaWeek('2026-07-04 13:00:00', 2, weeks)).toBe(true);
+    // Jul 4 is the week 1/2 boundary. The noon bounds still decide which
+    // weeks the DAY intersects, but the whole day belongs to both of them —
+    // 11:00 and 13:00 answer identically. This replaced `isInChautauquaWeek`,
+    // which split the Saturday at noon (11:00 → week 1 only, 13:00 → week 2
+    // only) and so handed back half a day when you filtered to a week.
+    expect(weekNumbersForCalendarDate(parseEventDate('2026-07-04 11:00:00'), weeks)).toEqual([1, 2]);
+    expect(weekNumbersForCalendarDate(parseEventDate('2026-07-04 13:00:00'), weeks)).toEqual([1, 2]);
+  });
+
+  it('places a mid-week day in exactly one week', () => {
+    const weeks = getChautauquaSeasonWeeks(2026);
+    expect(weekNumbersForCalendarDate(parseEventDate('2026-07-01 11:00:00'), weeks)).toEqual([1]);
+  });
+
+  it('places the season edges in the first and last weeks', () => {
+    const weeks = getChautauquaSeasonWeeks(2026);
+    // The opening Saturday morning precedes `weeks[0].start` and the closing
+    // Saturday afternoon follows `weeks[8].end`, but both days are labelled
+    // Week 1 and Week 9 by the calendar, and now filter that way too.
+    expect(weekNumbersForCalendarDate(parseEventDate('2026-06-27 10:00:00'), weeks)).toEqual([1]);
+    expect(weekNumbersForCalendarDate(parseEventDate('2026-08-29 15:00:00'), weeks)).toEqual([9]);
+    expect(weekNumbersForCalendarDate(parseEventDate('2026-06-26 10:00:00'), weeks)).toEqual([]);
   });
 });

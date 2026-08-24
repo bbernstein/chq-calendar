@@ -1,6 +1,7 @@
 import type { Event, SeasonWeek } from '@/lib/types';
 import { dayKeyOf } from '@/lib/utils/dayWindow';
-import { chqDateAt, chqParts, formatChqDayLabel, parseEventDate } from '@/lib/utils/chqTime';
+import { formatChqDayLabel, parseEventDate } from '@/lib/utils/chqTime';
+import { weekNumbersForCalendarDate } from '@/lib/utils/dateHelpers';
 
 // Lookup table for common HTML entities found in event data
 const HTML_ENTITY_MAP: Record<string, string> = {
@@ -91,21 +92,6 @@ export interface DayGroup {
   /** Season week numbers that span any portion of this calendar date (1-2 entries). */
   weekNumbers: number[];
   events: Event[];
-}
-
-function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): number[] {
-  const { year, month, day } = chqParts(date);
-  const dayStart = chqDateAt(year, month, day, 0, 0, 0, 0);
-  // Half-open against the next Institution midnight, so a DST day of 23 or
-  // 25 hours needs no special case.
-  const dayEnd = chqDateAt(year, month, day + 1, 0, 0, 0, 0);
-  const numbers: number[] = [];
-  for (const w of seasonWeeks) {
-    if (w.start < dayEnd && w.end > dayStart) {
-      numbers.push(w.number);
-    }
-  }
-  return numbers;
 }
 
 export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): DayGroup[] {
