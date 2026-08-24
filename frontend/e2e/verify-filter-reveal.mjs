@@ -15,7 +15,9 @@
  * Run against a dev server, or any deploy: `URL=https://… node <this>`.
  */
 import { chromium } from 'playwright';
-import { check, finish } from './results.mjs';
+import { pinClock } from './fixedNow.mjs';
+import { check, skip, finish } from './results.mjs';
+import { enterList } from './regime.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -36,19 +38,29 @@ async function phone({ reducedMotion } = {}) {
   // The identical stale paragraph in `verify-rail.mjs` outlived its truth long
   // enough to convince a later reader there was an unfixed product bug, which
   // is why this copy is corrected rather than left to do the same. This suite
-  // is not hour-sensitive, so unlike that one it needs no pinned clock.
+  // is not hour-sensitive; it is pinned below all the same, so that `E2E_NOW`
+  // can reach it and its off-season branch is testable on any date.
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
     timezoneId: 'America/New_York',
     ...(reducedMotion ? { reducedMotion: 'reduce' } : {}),
   });
   const page = await ctx.newPage();
+  // Pinned even though this suite is not hour-sensitive, and the earlier note
+  // here saying it therefore needs no clock is now out of date. Without a pin
+  // `E2E_NOW` cannot reach this suite at all, which leaves its off-season
+  // branch — the one #269 is about — unreachable for testing eleven months of
+  // the year. `setFixedTime` changes nothing the checks below measure; see
+  // `fixedNow.mjs` for what is pinned and, more importantly, what is not.
+  await pinClock(page);
   // Tie the context's lifetime to the page's. Callers only ever `page.close()`,
   // so without this every check leaks a whole `BrowserContext` — roughly twenty
   // of them across a run, each holding its own browser process resources.
   page.once('close', () => { ctx.close().catch(() => {}); });
   await page.goto(URL, { waitUntil: 'networkidle' });
-  await page.waitForSelector('[data-day-key]');
+  // Off-season the default screen is the landing, not a day list; see
+  // `regime.mjs` for what this does about it.
+  await enterList(page);
   return page;
 }
 
@@ -111,8 +123,20 @@ const fixedGhosts = p => p.evaluate(() =>
 
   // A filter change must NOT dismiss — picking a venue, a category and a week
   // is one intent. This is the guard against keying dismissal off `scroll`.
+  //
+  // `All Season`, not `Today`, and the difference is regime, not taste.
+  // Off-season `Today` matches nothing: the list empties, the document
+  // collapses from ~11,000px to ~985px, the "scrolled past" signal resets and
+  // the rail's Filters toggle goes with it — so the panel is gone for a
+  // reason that has nothing to do with dismissal, and checks 10, 11 and 15
+  // all failed on a correct app. Measured off-season, pinned to 2026-09-15:
+  // days 4 → 0, docH 11042 → 985, toggle true → false.
+  //
+  // `All Season` is the same kind of thing — a date scope the reader picked —
+  // and leaves a populated list in either regime, so the check keeps its
+  // subject year-round instead of being skipped for three weeks of it.
   await p.evaluate(() => [...document.querySelectorAll('button')]
-    .find(b => b.textContent.trim() === 'Today')?.click());
+    .find(b => b.textContent.trim() === 'All Season')?.click());
   await p.waitForTimeout(700);
   check('10 a filter change does NOT dismiss', await searchVisible(p));
 
@@ -130,6 +154,7 @@ const fixedGhosts = p => p.evaluate(() =>
   // check measures the gesture rather than the correction.
   const refKey = await pickRef(p);
   const before = refKey ? await refTop(p, refKey) : null;
+  const mountedBefore = await p.evaluate(() => document.querySelectorAll('[data-day-key]').length);
   const WHEEL = 120;
   await p.mouse.move(195, 700);
   await p.mouse.wheel(0, WHEEL);
@@ -137,10 +162,33 @@ const fixedGhosts = p => p.evaluate(() =>
   check('12 a real wheel dismisses the panel', !(await searchVisible(p)));
   if (refKey && before !== null) {
     const moved = (await refTop(p, refKey)) - before;
-    // Expected: -WHEEL (the reader's own scroll) and nothing more. An extra
-    // ~281px would be the panel's height leaking in — the bug this guards.
-    check('13 dismissal moves the reader by the gesture only, not the panel height',
-      Math.abs(moved + WHEEL) <= 4, `moved ${moved}px, wheel was ${WHEEL}px`);
+    const mountedAfter = await p.evaluate(() => document.querySelectorAll('[data-day-key]').length);
+    if (mountedAfter !== mountedBefore) {
+      // The render window mounted or unmounted day sections while the wheel
+      // was in flight, so the reader's movement is no longer attributable to
+      // the dismissal and this measurement cannot mean anything either way.
+      //
+      // Conditional on the confounder rather than on the regime, deliberately.
+      // It fires off-season because switching scope leaves only a few days
+      // mounted with the reader near the document's end, where a 120px wheel
+      // triggers an expansion — measured pinned to 2026-09-15: sections 3 → 5,
+      // document 6,606 → 12,485px, reader moved 449px against a 120px gesture.
+      // It does not fire in season, where far more is mounted below.
+      //
+      // Counted in day sections rather than document height, and that matters:
+      // a height threshold guesses at a magnitude, and the first one tried
+      // (8px) stood the check down in season on a 53px reflow that had
+      // produced a perfect -120px result. Mounting is the mechanism, so
+      // mounting is what to watch.
+      skip('13 dismissal moves the reader by the gesture only, not the panel height',
+        `the render window changed during the wheel (${mountedBefore} → ${mountedAfter} day sections), ` +
+        `so the ${moved}px the reader moved is not attributable to the dismissal`);
+    } else {
+      // Expected: -WHEEL (the reader's own scroll) and nothing more. An extra
+      // ~281px would be the panel's height leaking in — the bug this guards.
+      check('13 dismissal moves the reader by the gesture only, not the panel height',
+        Math.abs(moved + WHEEL) <= 4, `moved ${moved}px, wheel was ${WHEEL}px`);
+    }
   }
   check('14 no fixed ghost left behind after the exit', (await fixedGhosts(p)) === 0,
     `${await fixedGhosts(p)} fixed panel(s)`);

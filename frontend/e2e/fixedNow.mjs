@@ -16,10 +16,36 @@
  * means; two copies of this rule would eventually disagree.
  */
 
-/** Mid-morning Institution time on the run's own calendar day. */
-export const FIXED_NOW = new Date(
-  `${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())}T14:00:00Z`
-);
+/**
+ * Mid-morning Institution time on the run's own calendar day — or on
+ * `E2E_NOW`'s day, when it is set.
+ *
+ * `E2E_NOW` exists so the off-season regime can be exercised on any date, and
+ * not only during the three weeks a year it happens by itself (#269). It
+ * takes either a bare `yyyy-mm-dd`, pinned to the same mid-morning rule
+ * above, or a full instant, used exactly as given. Unset — which is every CI
+ * run of these three suites — behaviour is what it always was.
+ */
+function resolveFixedNow() {
+  const override = process.env.E2E_NOW;
+  if (override && /^\d{4}-\d{2}-\d{2}$/.test(override)) {
+    return new Date(`${override}T14:00:00Z`);
+  }
+  if (override) {
+    const parsed = new Date(override);
+    // Loudly. A silently-ignored pin would run the in-season branch while the
+    // log said otherwise, which is worse than not having the override.
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(`E2E_NOW is not a date: ${override}`);
+    }
+    return parsed;
+  }
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' })
+    .format(new Date());
+  return new Date(`${today}T14:00:00Z`);
+}
+
+export const FIXED_NOW = resolveFixedNow();
 
 /**
  * Pins `page`'s clock. Call before `goto`.

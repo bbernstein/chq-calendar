@@ -10,7 +10,8 @@
  */
 import { chromium } from 'playwright';
 import { pinClock } from './fixedNow.mjs';
-import { check, finish } from './results.mjs';
+import { check, skip, finish } from './results.mjs';
+import { enterList, currentRegime } from './regime.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -70,7 +71,9 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
     await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
   }
   await page.goto(URL, { waitUntil: 'networkidle' });
-  await page.waitForSelector('[data-day-key]', { timeout: 30000 });
+  // Off-season the default screen is the landing, not a day list; see
+  // `regime.mjs` for what this does about it.
+  await enterList(page);
   return page;
 }
 
@@ -163,7 +166,19 @@ const railHeight = p => p.evaluate(() =>
 }
 
 // ------------------------------------------- 3. persisted 'this-week' migration
-{
+//
+// The guard sits OUTSIDE `newPage()` on purpose. With `this-week` persisted
+// the reader has a non-default filter, so off-season they get the generic
+// empty state rather than the landing — `enterList` has no branch that could
+// rescue this page, and correctly refuses it.
+//
+// `currentRegime()` throws if nothing has bootstrapped yet, which makes the
+// dependency on checks 1-2 running first loud rather than silent.
+if (currentRegime() === 'off-season') {
+  skip('3 persisted this-week migration',
+    "off-season 'this-week' resolves to no window at all, by design — the rail " +
+    'hides and no day section mounts, so 3b would assert against the contract');
+} else {
   const page = await newPage({
     storage: ['chq-calendar-user-state', JSON.stringify({
       dateFilter: 'this-week', selectedWeeks: [], searchTerm: '',
@@ -295,7 +310,12 @@ for (const scrolled of [false, true]) {
 }
 
 // ------------------------------------------------------------------ 11. ⟳ Now
-{
+if (currentRegime() === 'off-season') {
+  skip('11 ⟳ Now',
+    'today is outside navBounds off-season, so reachableTodayKey is null and ' +
+    'the button is correctly absent (page.tsx) — there is no navigation back ' +
+    'to today left to test');
+} else {
   const page = await newPage();
   // Same tappable-target rule as check 9 — the old blind index landed on an
   // aria-disabled chip in the season's tail and the tap was a no-op, so ⟳
