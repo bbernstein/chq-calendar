@@ -135,10 +135,21 @@ const fixedGhosts = p => p.evaluate(() =>
   // `All Season` is the same kind of thing — a date scope the reader picked —
   // and leaves a populated list in either regime, so the check keeps its
   // subject year-round instead of being skipped for three weeks of it.
-  await p.evaluate(() => [...document.querySelectorAll('button')]
-    .find(b => b.textContent.trim() === 'All Season')?.click());
+  // Reports whether the button was actually there, and check 10 is conjoined
+  // with it. `?.click()` alone is a silent no-op when the button is missing or
+  // renamed — the panel then stays open because nothing happened, and the
+  // check PASSES having proved nothing about dismissal. That is the vacuous
+  // pass this whole PR is otherwise about, sitting in the middle of it.
+  const filterChanged = await p.evaluate(() => {
+    const btn = [...document.querySelectorAll('button')]
+      .find(b => b.textContent.trim() === 'All Season');
+    btn?.click();
+    return !!btn;
+  });
   await p.waitForTimeout(700);
-  check('10 a filter change does NOT dismiss', await searchVisible(p));
+  check('10 a filter change does NOT dismiss',
+    filterChanged && await searchVisible(p),
+    filterChanged ? 'clicked All Season' : 'NO All Season button found — the click was a no-op');
 
   // Scrolling the panel's own overflow must not dismiss either.
   await p.evaluate(() => {
