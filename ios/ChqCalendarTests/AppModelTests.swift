@@ -1030,10 +1030,10 @@ struct AppModelTests {
     /// scope and silently re-widen the window when the user comes back to
     /// Now.
     /// Both window-expansion fields belong to the scope being left, not
-    /// just `windowEndDayKey` — `windowStartDayKey` has no writer today
-    /// (there is no `expandWindowStart()` yet), so it's set directly here
-    /// to pin that `clearScopeLocalDateState()` clears it too rather than
-    /// only the field the UI happens to exercise.
+    /// just `windowEndDayKey`. `expandWindowEnd` grows only the end edge, so
+    /// the start edge is seeded directly here — the point is to pin that
+    /// `clearScopeLocalDateState()` clears both, not only the one this path
+    /// writes.
     @Test func selectScopeResetsWindowExpansion() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         #expect(model.filter.dateScope == .next)
@@ -1132,10 +1132,11 @@ struct AppModelTests {
     /// a name, not a job — the chip resets its scope, the rail control
     /// travels without touching the filter.
     ///
-    /// `windowStartDayKey` still has no writer of its own, so it is set
-    /// directly here for the same reason `selectScopeResetsWindowExpansion`
-    /// does it: to pin that both window fields are cleared, not only the one
-    /// the UI happens to exercise.
+    /// `expandWindowEnd` grows only the end edge, so the start edge is
+    /// seeded directly here — the point is to verify the reset on *both*
+    /// window fields, not just the one this particular path writes.
+    /// `reTappingTheActiveScopeClearsAWindowGrownByTheDayRail` below covers
+    /// the same reset with both edges driven through `goToDay` instead.
     @Test func reTappingTheActiveScopeClearsItsWidenedWindow() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         #expect(model.filter.dateScope == .next)
