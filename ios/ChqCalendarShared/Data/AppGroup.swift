@@ -4,11 +4,19 @@ import Foundation
 /// which lets the main app and a future widget extension read the same
 /// disk cache and `UserDefaults` state.
 ///
-/// Every function here degrades gracefully when the App Group entitlement
-/// is absent — unit-test hosts and un-entitled builds fall back to the
-/// pre-App-Group legacy paths (`Library/Caches/chq-data` and
-/// `UserDefaults.standard`), so nothing here changes behavior for a build
-/// that hasn't picked up the entitlement yet.
+/// Every function here degrades gracefully when the App Group container is
+/// unavailable — un-entitled builds fall back to the pre-App-Group legacy
+/// paths (`Library/Caches/chq-data` and `UserDefaults.standard`), so
+/// nothing here changes behavior for a build that hasn't picked up the
+/// entitlement yet.
+///
+/// A unit-test host is **not** reliably in that category, despite the
+/// obvious guess (#235). The test bundle is hosted inside `ChqCalendar.app`
+/// and inherits its entitlement, so `containerURL()` returns a real URL on
+/// any simulator where the group container has been provisioned, and `nil`
+/// only on one where it never has. Which of the two a given machine is, is
+/// an environment fact: branch on the value, and never treat "running in
+/// tests" as a synonym for "no group container".
 nonisolated enum AppGroup {
     static let identifier = "group.org.chqcal.app"
 
@@ -49,26 +57,39 @@ nonisolated enum AppGroup {
     /// The gate behind both app-only migration triggers
     /// (`UserStateStore.didMigrateDefaults`, `DiskCache.didMigrate`): a
     /// migration should only actually run when the process is the app
-    /// (not the widget extension) *and* the App Group entitlement is
-    /// present (a real device/simulator build, not an un-entitled unit-test
-    /// host).
+    /// (not the widget extension) *and* the App Group container is actually
+    /// available to it — i.e. `containerURL()` is non-`nil`. There is
+    /// nothing to migrate *into* otherwise.
     ///
     /// Broken out as a pure function of two `Bool`s — rather than reading
     /// `isAppProcess`/`containerURL()` live inline at each call site — so
     /// both branches of the gate are directly testable even though neither
-    /// live value can be flipped from within the unit-test host: it has no
-    /// real App Group entitlement, so `containerURL()` is always `nil`
-    /// there (see `AppGroupTests.containerURLIsNilInTheUnitTestHost`), and
-    /// `isAppProcess` itself is always `true` there (see `isAppProcess`'s
-    /// own doc comment on why `Bundle.main` can't distinguish a test run
-    /// from a real app launch).
+    /// live value can be *flipped* from within the unit-test host:
+    /// `isAppProcess` is always `true` there (see `isAppProcess`'s own doc
+    /// comment on why `Bundle.main` can't distinguish a test run from a
+    /// real app launch), and `containerURL()` is whatever the host
+    /// environment makes it — `nil` on a simulator that has never had the
+    /// App Group container provisioned, non-`nil` on one that has.
+    ///
+    /// That container value is an environment fact rather than a property of
+    /// this code, so no test asserts it (#235 deleted the one that did).
+    /// `isAppProcess` is the opposite case — it is fixed for this target,
+    /// and `AppGroupTests.isAppProcessIsTrueInsideTheAppHostedUnitTestTarget`
+    /// pins it. The decision matrix itself is pinned against this pure
+    /// function, by
+    /// `AppGroupTests.shouldRunAppOnlyMigrationRequiresBothAppProcessAndGroupContainer`.
     static func shouldRunAppOnlyMigration(isAppProcess: Bool, hasGroupContainer: Bool) -> Bool {
         isAppProcess && hasGroupContainer
     }
 
-    /// The shared container for the App Group, or `nil` if the running
+    /// The shared container for the App Group, or `nil` when the running
     /// process lacks the `com.apple.security.application-groups`
-    /// entitlement (unit-test hosts, un-entitled builds).
+    /// entitlement (un-entitled builds) or the container has never been
+    /// provisioned on this device/simulator.
+    ///
+    /// A unit-test host is not automatically a `nil` case — see this type's
+    /// own doc comment: it inherits the app host's entitlement, so this
+    /// answers per-simulator rather than per-configuration (#235).
     static func containerURL() -> URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
     }

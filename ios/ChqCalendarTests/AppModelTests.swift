@@ -1030,10 +1030,10 @@ struct AppModelTests {
     /// scope and silently re-widen the window when the user comes back to
     /// Now.
     /// Both window-expansion fields belong to the scope being left, not
-    /// just `windowEndDayKey` — `windowStartDayKey` has no writer today
-    /// (there is no `expandWindowStart()` yet), so it's set directly here
-    /// to pin that `clearScopeLocalDateState()` clears it too rather than
-    /// only the field the UI happens to exercise.
+    /// just `windowEndDayKey`. `expandWindowEnd` grows only the end edge, so
+    /// the start edge is seeded directly here — the point is to pin that
+    /// `clearScopeLocalDateState()` clears both, not only the one this path
+    /// writes.
     @Test func selectScopeResetsWindowExpansion() throws {
         let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
         #expect(model.filter.dateScope == .next)
@@ -1120,11 +1120,116 @@ struct AppModelTests {
         #expect(model.filter.windowEndDayKey == nil)
     }
 
-    @Test func reselectingTheActiveScopeIsANoOp() throws {
+    /// #234: the early return was the one path into `selectScope` that
+    /// skipped `clearScopeLocalDateState()`, so "Show next day" ×2 → Now
+    /// left the window two days wider than a fresh `.next` selection —
+    /// re-tapping the scope you are already on means "reset it".
+    ///
+    /// Note this does *not* make the scope chip agree with the rail's
+    /// `⟳ Now`: `nowLeavesAnyAccumulatedExpansionInPlace` below pins the
+    /// opposite for that control, deliberately (#258 deleted
+    /// `AppModel.resetToNow()` to make `⟳ Now` pure navigation). They share
+    /// a name, not a job — the chip resets its scope, the rail control
+    /// travels without touching the filter.
+    ///
+    /// `expandWindowEnd` grows only the end edge, so the start edge is
+    /// seeded directly here — the point is to verify the reset on *both*
+    /// window fields, not just the one this particular path writes.
+    /// `reTappingTheActiveScopeClearsAWindowGrownByTheDayRail` below covers
+    /// the same reset with both edges driven through `goToDay` instead.
+    @Test func reTappingTheActiveScopeClearsItsWidenedWindow() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        #expect(model.filter.dateScope == .next)
+        model.expandWindowEnd()
+        // The next day with events in the fixture, per expandWindowEnd's step
+        // rule — not a hardcoded calendar step. The point is that the re-tap
+        // throws it away, regardless of which day it landed on.
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
+        model.filter.windowStartDayKey = "2026-08-01"
+
+        model.selectScope(.next)
+
+        #expect(model.filter.dateScope == .next)
+        #expect(model.filter.windowStartDayKey == nil)
+        #expect(model.filter.windowEndDayKey == nil)
+    }
+
+    /// The same reset, driven by the writer that actually produces most of
+    /// this state in the field. `expandWindowEnd` (the test above) is the
+    /// "Show next day" button; since #258 the day rail is the busier source
+    /// — every chip tap goes `EventListView.selectDay` → `AppModel.goToDay`,
+    /// which writes `windowStartDayKey`/`windowEndDayKey` directly. So the
+    /// realistic path into #234 is: navigate the rail, open Filters, re-tap
+    /// the chip you are already on.
+    ///
+    /// Both edges are grown here, each by a `goToDay` in its own direction,
+    /// and each is asserted before the re-tap — a `goToDay` that silently
+    /// refused its target would otherwise let this pass while pinning
+    /// nothing.
+    @Test func reTappingTheActiveScopeClearsAWindowGrownByTheDayRail() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        #expect(model.filter.dateScope == .next)
+
+        // Before the fixture's "now" (2026-08-03 12:00), so the start edge
+        // has to grow to reach it — 08-03 itself is already inside a fresh
+        // `.next` window and `goToDay` would correctly write nothing.
+        #expect(model.goToDay("2026-08-01"))
+        #expect(model.filter.windowStartDayKey == "2026-08-01")
+        #expect(model.goToDay("2026-08-09"))
+        #expect(model.filter.windowEndDayKey == "2026-08-09")
+
+        model.selectScope(.next)
+
+        #expect(model.filter.dateScope == .next)
+        #expect(model.filter.windowStartDayKey == nil)
+        #expect(model.filter.windowEndDayKey == nil)
+    }
+
+    /// Re-tapping `.day` clears `selectedDayKey`, leaving `.day` with no day.
+    /// That is deliberate, not an oversight, on two counts.
+    ///
+    /// First it is a *total* state, not a broken one: the #192 exemption trio
+    /// all route through `EffectiveScope.resolve`, which downgrades `.day`
+    /// with a `nil` key to `.all` (`ViewWindow` does the same via
+    /// `dayWindow(forDayScope:)`), so the list, the date label and the chip
+    /// state agree on "All Year" — a reset, which is what a re-tap now means.
+    ///
+    /// Second it is unreachable from the UI anyway. `selectScope`'s only
+    /// caller is `FilterSheet`'s chip row, whose `visibleScopes` is
+    /// `[.next, .today, .season, .all]` on the current year and `[.all]`
+    /// otherwise; `.day` is never offered (see `DateScope.day`: "Derived, not
+    /// pickable"), and neither is `.thisWeek`, which the week strip owns.
+    /// `.day` arrives only from `browseDay`, which sets the scope and the day
+    /// in one assignment and is therefore never a re-tap.
+    @Test func reTappingDayScopeClearsItsBrowsedDayAndFallsBackToAll() throws {
         let model = try makeInSeasonModel(defaults: makeDefaults())
+        model.browseDay("2026-08-09")
+        #expect(model.filter.dateScope == .day)
+
+        model.selectScope(.day)
+
+        #expect(model.filter.selectedDayKey == nil)
+        #expect(EffectiveScope.resolve(model.filter, isCurrentYear: true) == .all)
+    }
+
+    /// The guard's *original* purpose survives: when there is genuinely
+    /// nothing to clear, `filter` is never written, so its `didSet` never
+    /// fires and no save happens. Asserting only `dateScope == .today` would
+    /// have passed just as well with the guard deleted outright — the erased
+    /// payload below is what makes this able to fail.
+    @Test func reselectingTheActiveScopeIsANoOp() throws {
+        let defaults = makeDefaults()
+        let model = try makeInSeasonModel(defaults: defaults)
         model.selectScope(.today)
+        #expect(defaults.data(forKey: "chq-filters") != nil)
+        // Erase what that first, real selection persisted: anything present
+        // afterwards can only have been written by the re-tap.
+        defaults.removeObject(forKey: "chq-filters")
+
         model.selectScope(.today)
+
         #expect(model.filter.dateScope == .today)
+        #expect(defaults.data(forKey: "chq-filters") == nil)
     }
 
     @Test func selectingTheCurrentWeekIsAnOrdinaryWeekSelection() throws {

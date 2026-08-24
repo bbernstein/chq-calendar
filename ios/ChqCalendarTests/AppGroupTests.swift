@@ -187,16 +187,6 @@ struct AppGroupTests {
         #expect(AppGroup.isAppProcess)
     }
 
-    /// `AppGroup.containerURL()` is `nil` in the unit test host — there is
-    /// no real App Group entitlement applied to an unsigned
-    /// (`CODE_SIGNING_ALLOWED=NO`) test run — regardless of `isAppProcess`.
-    /// Pins the assumption `UserStateStoreTests`'/`DiskCacheTests`' own
-    /// `triggerMigrationIfNeeded` tests rely on: neither `isAppProcess`
-    /// branch can reach the real migration call from this target.
-    @Test func containerURLIsNilInTheUnitTestHost() {
-        #expect(AppGroup.containerURL() == nil)
-    }
-
     @Test func shouldRunAppOnlyMigrationRequiresBothAppProcessAndGroupContainer() {
         #expect(AppGroup.shouldRunAppOnlyMigration(isAppProcess: true, hasGroupContainer: true))
         #expect(!AppGroup.shouldRunAppOnlyMigration(isAppProcess: true, hasGroupContainer: false))
