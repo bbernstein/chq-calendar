@@ -300,11 +300,33 @@ final class AppModel {
 
     // MARK: - Derived
 
-    /// The events currently shown, filtered then grouped by NY calendar day.
-    /// Recomputed on every access rather than cached — at ~1.6k events this
-    /// is cheap enough that memoization isn't worth the extra state.
+    /// The events currently shown, filtered then grouped by NY calendar
+    /// day, stamped with the window they were filtered by — one value per
+    /// render pass, so a view that binds it once can never pair a day list
+    /// from one pass with a window from another (#254). Recomputed on every
+    /// access rather than cached — at ~1.6k events this is cheap enough
+    /// that memoization isn't worth the extra state.
+    ///
+    /// The stamp is `currentWindow` — the same value the rail's model-side
+    /// callers read — and the filter pass here uses that exact window via
+    /// `EventFilter`'s window-taking entry point, so the stamp *is* the
+    /// filtering window rather than a second computation that could drift.
+    /// `currentWindow` reads `navigableBounds`, which is cached in
+    /// `navMatching`, so this costs no per-render O(n) bounds scan.
+    var renderedDays: RenderedDays {
+        guard let snapshot else { return RenderedDays(days: [], window: nil) }
+        let window = currentWindow
+        let events = EventFilter.apply(
+            filter, to: snapshot.events, favorites: favorites,
+            year: selectedYear, window: window)
+        return RenderedDays(
+            days: EventGrouping.byDay(events, year: selectedYear), window: window)
+    }
+
+    /// `renderedDays` without the stamp, for callers that only need the
+    /// days. Costs the same full filter+group pass — bind it once.
     var dayGroups: [DayGroup] {
-        EventGrouping.byDay(filteredEvents(filter), year: selectedYear)
+        renderedDays.days
     }
 
     /// How many events the current selection matches — the same number as
@@ -1748,7 +1770,7 @@ final class AppModel {
     /// latter has anything to open. `nil` when nothing in the current
     /// selection has a themed week.
     ///
-    /// Takes the caller's already-computed `days` — `EventListView.list(days:)`'s
+    /// Takes the caller's already-computed `days` — `EventListView.list(rendered:)`'s
     /// own `days` parameter — rather than reading `dayGroups` itself.
     /// `dayGroups` is deliberately uncached (see the comment above) and
     /// re-runs the whole filter+group pipeline on every access, so this used

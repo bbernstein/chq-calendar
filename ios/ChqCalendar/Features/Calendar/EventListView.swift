@@ -138,7 +138,7 @@ struct EventListView: View {
     /// which keeps this whole path inert.
     ///
     /// A *deadline* rather than a countdown consumed by the first caller:
-    /// `list(days:)` wires two independent triggers onto `landPendingScroll`
+    /// `list(rendered:)` wires two independent triggers onto `landPendingScroll`
     /// (`days.map(\.id)` and `pendingScroll` itself), and a distant tap can
     /// fire both in the same SwiftUI commit. A one-shot delay let whichever
     /// trigger ran second see it already spent and resolve synchronously —
@@ -155,7 +155,7 @@ struct EventListView: View {
     /// landing one.
     ///
     /// Measured from the first *attempt*, not from `selectDay` arming the
-    /// target — `list(days:)`, where every attempt happens, is not mounted
+    /// target — `list(rendered:)`, where every attempt happens, is not mounted
     /// when `model.dayGroups` is empty (a favourites-only filter with
     /// nothing upcoming, say). A deadline stamped at arm time would burn down
     /// in real time while the list is unmounted and nothing can even try;
@@ -185,7 +185,7 @@ struct EventListView: View {
     /// arm time. `selectDay` only resets this to `nil`. The two used to be
     /// the same moment, and that was itself a bug fixed on this branch
     /// (`resolvePendingScroll`'s `!visibleDays.isEmpty` guard, for #250): a
-    /// deep link consumed while `list(days:)` is unmounted (a
+    /// deep link consumed while `list(rendered:)` is unmounted (a
     /// favourites-only filter with nothing upcoming, showing
     /// `noMatchesView`) has no `resolvePendingScroll` call to stamp anything
     /// — arming at `selectDay` would burn the whole window in real time
@@ -203,14 +203,14 @@ struct EventListView: View {
     /// stops being true.
     ///
     /// A deadline rather than an attempt counter for the same reason
-    /// `pendingScrollDeadline` is one: `list(days:)` wires several
+    /// `pendingScrollDeadline` is one: `list(rendered:)` wires several
     /// independent triggers onto `landPendingScroll`, more than one can fire
     /// from a single commit, and two concurrent retry chains sharing a
     /// counter would burn the budget at twice the rate. Sharing a wall-clock
     /// deadline, they simply stop at the same moment.
     @State private var scrollRetryDeadline: Date?
 
-    /// Bumped by a scheduled re-check so `list(days:)` re-runs
+    /// Bumped by a scheduled re-check so `list(rendered:)` re-runs
     /// `landPendingScroll` — see its `.onChange(of: scrollRetryTick)`.
     ///
     /// The retry goes through view state rather than re-entering
@@ -225,7 +225,7 @@ struct EventListView: View {
     /// flight at once.
     ///
     /// `resolvePendingScroll` runs once per triggering `.onChange`, and
-    /// `list(days:)` wires several independent triggers onto
+    /// `list(rendered:)` wires several independent triggers onto
     /// `landPendingScroll` — more than one can fire from a single SwiftUI
     /// commit (see `scrollRetryDeadline`'s doc). Before this guard, each of
     /// those calls that failed to land its target scheduled its own
@@ -292,7 +292,7 @@ struct EventListView: View {
             // launch sets `phase = .ready` immediately and never changes it
             // again when the background refresh replaces the snapshot.
             //
-            // **On `body`, deliberately — not inside `list(days:)`.** `content`
+            // **On `body`, deliberately — not inside `list(rendered:)`.** `content`
             // only builds the list when `model.dayGroups` is non-empty, so
             // triggers hosted there are unmounted in exactly the states a
             // pending link most needs resolving: a persisted favourites-only
@@ -304,7 +304,7 @@ struct EventListView: View {
             // always mounted, which is also where the `.event` resolver has
             // always lived (`CalendarView`). Nothing here needs the list:
             // `selectDay` takes no `ScrollViewProxy` (it arms `pendingScroll`,
-            // which `list(days:)` resolves whenever it does mount), and
+            // which `list(rendered:)` resolves whenever it does mount), and
             // `resolvePendingDayDeepLinkIfPossible` already gates on
             // `snapshot != nil`.
             .onChange(of: model.pendingDeepLink) { _, _ in
@@ -356,7 +356,7 @@ struct EventListView: View {
     }
 
     /// Non-nil only for the single badge `-uitest-show-week-theme` targets
-    /// (`target`, computed once per render by `list(days:)` via
+    /// (`target`, computed once per render by `list(rendered:)` via
     /// `AppModel.uiTestFirstThemedWeek(in:)`) — every other badge in
     /// `dayHeader` gets `nil` and behaves exactly as it did before this hook
     /// existed. See `WeekThemeBadge.uiTestAutoShow` for how the binding is
@@ -506,7 +506,7 @@ struct EventListView: View {
     }
 
     /// A day rail chip was tapped. Grows at most one edge of the window if
-    /// the day lies past it, then queues a scroll for `list(days:)` to land
+    /// the day lies past it, then queues a scroll for `list(rendered:)` to land
     /// once the day mounts. Refused targets (outside the navigable bounds)
     /// leave `pendingScroll` untouched, so no scroll is queued for a day
     /// that will never arrive.
@@ -610,7 +610,7 @@ struct EventListView: View {
     /// document grew 1020px beneath it, and the tap landed ~1058px short of
     /// its target. Growing content plus a smooth scroll is a race the scroll
     /// loses.
-    private func landPendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
+    private func landPendingScroll(_ proxy: ScrollViewProxy, rendered: RenderedDays) {
         guard pendingScroll != nil else { return }
 
         #if DEBUG
@@ -620,25 +620,26 @@ struct EventListView: View {
                 // Re-enter this same function once the deadline is actually
                 // up, rather than resolving unconditionally — any number of
                 // calls landing here before then (the two triggers on
-                // `list(days:)` can both fire from one commit) just
+                // `list(rendered:)` can both fire from one commit) just
                 // re-schedule against the same still-future deadline and
                 // return, so none of them can jump the line.
                 DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [self] in
-                    landPendingScroll(proxy, days: days)
+                    landPendingScroll(proxy, rendered: rendered)
                 }
                 return
             }
             pendingScrollDeadline = nil
         }
         #endif
-        resolvePendingScroll(proxy, days: days)
+        resolvePendingScroll(proxy, rendered: rendered)
     }
 
     /// The actual staleness/mount decision, factored out of `landPendingScroll`
     /// so `-uitest-delay-pending-scroll` can defer *when* this runs without
     /// duplicating *what* it does.
-    private func resolvePendingScroll(_ proxy: ScrollViewProxy, days: [DayGroup]) {
+    private func resolvePendingScroll(_ proxy: ScrollViewProxy, rendered: RenderedDays) {
         guard let pending = pendingScroll else { return }
+        let days = rendered.days
 
         // The retry window starts here, on the first real attempt at this
         // target — not back when `selectDay` armed it. `selectDay` only
@@ -671,33 +672,24 @@ struct EventListView: View {
             issueScroll(proxy, to: pending.day)
         } else if !visibleDays.isEmpty,
                   DayRailNavigation.shouldAbandonScroll(
-                    target: pending.day, window: model.currentWindow) {
-            // `!visibleDays.isEmpty` is the fix for #250, and it is load-
-            // bearing. `shouldAbandonScroll` reads `model.currentWindow` —
-            // live state — while `days` is whatever array the enclosing
-            // render captured. On a cold launch consuming a day deep link
-            // those two disagree exactly once, and fatally: `content` builds
-            // `list(days:)` the moment `snapshot` lands, then `body`'s
-            // `.onChange(of: model.pendingDeepLink)` runs `selectDay` in that
-            // same update, so `goToDay` has already grown the window by the
-            // time the freshly-mounted list's `.onAppear` fires — carrying
-            // the *pre-growth* `days`. The rule then reads "the window covers
-            // this day and it has no section", concludes it is an ordinary
-            // empty day, and drops the target. The two `.onChange` triggers
-            // arrive with correct data about two milliseconds later and are
-            // swallowed by `landPendingScroll`'s `pendingScroll != nil`
-            // guard, because there is no longer anything pending. Measured
-            // on an iPhone 17 Pro / iOS 26.1 simulator: 5 failures in 18
-            // runs, every one of them logging that single stale-`days` call
-            // and nothing after it; 12 for 12 with this guard, with 9 of
-            // those runs still hitting the stale call.
+                    target: pending.day, rendered: rendered) {
+            // The abandon rule reads the window stamped onto `rendered` —
+            // the same render pass that produced `days` — never live model
+            // state. On the cold-launch update that mounts the list and
+            // consumes a day deep link in one pass, the live window has
+            // already grown while the captured days are still pre-growth;
+            // reading the live window there dropped the target as an
+            // "ordinary empty day" (#250, ~3 failures in 8 runs). With the
+            // stamped window the rule sees the pre-growth window, which
+            // does not cover the target, so the wait correctly continues
+            // until the grown render's own trigger fires. #254 has the full
+            // history of the four bugs sharing this signature.
             //
-            // An empty `visibleDays` means the list has not rendered a single
-            // day header yet, which is true only of that first-mount call —
-            // and is precisely when `days` cannot be trusted to correspond to
-            // the current window. Any settled render (every chip tap, which
-            // is what this rule was written for) has headers on screen and
-            // still abandons immediately.
+            // `!visibleDays.isEmpty` was #250's symptom guard for exactly
+            // that disagreement and is no longer load-bearing now that the
+            // window and days come from one pass; it is removed in the
+            // follow-up commit once the deep-link UI tests prove the
+            // stamped path on its own.
             clearPendingScroll()
             return
         }
@@ -727,7 +719,7 @@ struct EventListView: View {
         scrollRetryDeadline = nil
     }
 
-    /// Ask `list(days:)` to run `landPendingScroll` again shortly, with the
+    /// Ask `list(rendered:)` to run `landPendingScroll` again shortly, with the
     /// `days` of whatever render is current by then — see `scrollRetryTick`.
     ///
     /// Guarded by the same `pendingScroll != nil` check `landPendingScroll`
@@ -781,24 +773,30 @@ struct EventListView: View {
             }
         } else {
             // Bound once here rather than read separately by an `.isEmpty`
-            // check and then `list`: `model.dayGroups` reruns the whole
+            // check and then `list`: `model.renderedDays` reruns the whole
             // filter+group pipeline on every access (six `EventFilter`
             // stages over ~1,637 events plus `EventGrouping.byDay`), so
-            // reading it twice would cost two full passes per render.
-            let days = model.dayGroups
-            if days.isEmpty {
+            // reading it twice would cost two full passes per render. The
+            // single read also carries the #254 invariant: the window
+            // stamped on `rendered` is the one these days were filtered by,
+            // and everything downstream (`list`, `landPendingScroll`,
+            // `resolvePendingScroll`) reads this one value rather than
+            // re-reading live model state.
+            let rendered = model.renderedDays
+            if rendered.days.isEmpty {
                 if model.filter.isDefault && model.landingState != .inSeason {
                     OffSeasonLandingView(model: model)
                 } else {
                     noMatchesView
                 }
             } else {
-                list(days: days)
+                list(rendered: rendered)
             }
         }
     }
 
-    private func list(days: [DayGroup]) -> some View {
+    private func list(rendered: RenderedDays) -> some View {
+        let days = rendered.days
         let filtered = days.reduce(0) { $0 + $1.events.count }
 
         #if DEBUG
@@ -876,7 +874,7 @@ struct EventListView: View {
             // is what tells the retry a commit actually landed without
             // paying for a second filter+group pass.
             .onChange(of: days.map(\.id)) { _, _ in
-                landPendingScroll(proxy, days: days)
+                landPendingScroll(proxy, rendered: rendered)
             }
             // A tap that lands inside the window already (no expansion
             // needed) never changes `days`, so the trigger above never
@@ -888,7 +886,7 @@ struct EventListView: View {
             // `pendingScroll != nil` guard makes that second call a no-op,
             // so this cannot re-arm itself in a loop.
             .onChange(of: pendingScroll) { _, _ in
-                landPendingScroll(proxy, days: days)
+                landPendingScroll(proxy, rendered: rendered)
             }
             // The third trigger. The two above each fire at most once per
             // arm and `.onAppear` fires exactly once, so between them a
@@ -904,10 +902,10 @@ struct EventListView: View {
             // unchecked assumption, and `testADayDeepLinkSurvivesADroppedScroll`
             // pins it.
             .onChange(of: scrollRetryTick) { _, _ in
-                landPendingScroll(proxy, days: days)
+                landPendingScroll(proxy, rendered: rendered)
             }
             .onAppear {
-                landPendingScroll(proxy, days: days)
+                landPendingScroll(proxy, rendered: rendered)
             }
         }
     }

@@ -57,6 +57,17 @@ nonisolated enum DayRailNavigation {
         return target >= window.startDay && target <= window.endDay
     }
 
+    /// The render-pass form of the rule above: decides against the window
+    /// stamped onto the very day list the caller is inspecting, so live
+    /// model state can never be paired with a render-captured list. During
+    /// the one update where the live window has grown but the captured days
+    /// are still pre-growth, the stamped window is the *pre-growth* one —
+    /// it does not cover the target yet, so the scroll correctly keeps
+    /// waiting instead of being dropped as an "empty day" (#254).
+    static func shouldAbandonScroll(target: String, rendered: RenderedDays) -> Bool {
+        shouldAbandonScroll(target: target, window: rendered.window)
+    }
+
     /// The nearest day with events on either side of `anchor`.
     ///
     /// `eventDays` is every day that has an event under the current

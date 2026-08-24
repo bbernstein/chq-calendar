@@ -184,7 +184,7 @@ struct PendingDayScrollTests {
     /// gets its full window measured from *that* moment.
     ///
     /// This is the fix: the deadline used to be stamped by `selectDay` at arm
-    /// time, but every attempt happens inside `EventListView.list(days:)`,
+    /// time, but every attempt happens inside `EventListView.list(rendered:)`,
     /// which is not mounted while `dayGroups` is empty. A deep link consumed
     /// against an unmounted list burned its whole window in real time before
     /// one attempt could run — and the first attempt after the list finally

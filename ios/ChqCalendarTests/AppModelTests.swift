@@ -1416,6 +1416,41 @@ struct AppModelTests {
         #expect(eventCalls.isEmpty)
     }
 
+    // MARK: - renderedDays (#254)
+
+    /// `renderedDays.window` must be the window the days were actually
+    /// filtered by — with expansion set, the path where the filter's
+    /// internal window computation and `currentWindow` could historically
+    /// diverge. The days are recomputed here through the same
+    /// window-taking `EventFilter` entry point with the stamped window, so
+    /// a `renderedDays` that filtered with one window and stamped another
+    /// cannot pass.
+    @Test func renderedDaysStampsTheWindowTheDaysWereFilteredBy() throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        model.expandWindowEnd()
+        #expect(model.filter.windowEndDayKey == "2026-08-06")
+
+        let rendered = model.renderedDays
+
+        let window = try #require(rendered.window)
+        // The stamped window reflects the expansion the days were built under…
+        #expect(window.endDay == "2026-08-06")
+        // …and is the same value the rail's model-side callers read.
+        #expect(rendered.window == model.currentWindow)
+
+        // The days are exactly what filtering by the stamped window yields.
+        let snapshot = try #require(model.snapshot)
+        let expected = EventGrouping.byDay(
+            EventFilter.apply(
+                model.filter, to: snapshot.events, favorites: model.favorites,
+                year: model.selectedYear, window: window),
+            year: model.selectedYear)
+        #expect(rendered.days.map(\.id) == expected.map(\.id))
+        #expect(rendered.days.map { $0.events.map(\.id) } == expected.map { $0.events.map(\.id) })
+        // The expansion actually reached the list this window was stamped on.
+        #expect(rendered.days.last?.id == "2026-08-06")
+    }
+
     // MARK: - expandWindowEnd
 
     /// The correction phase 2 learned, applied to the model: a step lands on
