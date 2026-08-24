@@ -79,17 +79,32 @@ export function determineLandingState(input: {
   now: Date;
   selectedYear: number;
   availableYears: number[];
-  upcomingDefaultCount: number;
+  /** `events.length > 0` — the selected year's full, unfiltered event set. */
+  yearHasEvents: boolean;
 }): LandingState;
 ```
 
-Three rules, in the same priority order as iOS:
+Three rules:
 
-1. `upcomingDefaultCount > 0` → `in-season`. The default filter has
-   something to show, whatever the calendar says.
-2. Else, `now < seasonStart(selectedYear)` → `pre-season`.
-3. Else → `post-season`, describing the lowest year in `availableYears`
-   greater than `selectedYear`, or all-`null` when there is no later year.
+1. `now < seasonStart(selectedYear)` → `pre-season`. An announced-but-empty
+   future year and a fully-loaded future year both belong here; the countdown
+   is the right screen either way.
+2. Else, `yearHasEvents` → `post-season`, describing the lowest year in
+   `availableYears` greater than `selectedYear`, or all-`null` when there is
+   no later year.
+3. Else → `in-season`, which renders the generic `EmptyState`.
+
+**Rule 3 is a deliberate divergence from iOS and it is load-bearing.** iOS
+takes `upcomingDefaultCount` and returns `.inSeason` when it is positive.
+That parameter would be dead on web: the landing is reached only from inside
+the `filteredEvents.length === 0` branch, so the count is always zero there
+and iOS's rule 1 could never fire. Discriminating on the *year's* event set
+instead is what catches the case iOS handles separately via `AppModel`'s
+`guard snapshot != nil`: a failed or empty feed fetch during the season gives
+`events: []` and `now >= seasonStart`, and a naive port would tell a July
+visitor "See you next season." With rule 3 that visitor gets the generic
+empty state, which is the honest screen for "we have no data", and the
+landing is reserved for "we have the data and the season is genuinely over."
 
 Season start is `getChautauquaSeasonWeeks(year)[0].start`, which already
 computes the 4th Sunday of June in Institution time. Day counts go through
@@ -172,10 +187,15 @@ precedent.
 
 `landingState.test.ts`:
 - each of the three rules
-- `now` exactly at the season opening instant (boundary, not `<`)
+- `now` exactly at the season opening instant → `post-season`, not
+  `pre-season` (the comparison is `<`, so the opening instant is in season)
+- **`yearHasEvents: false` with `now` past the season start → `in-season`**,
+  the failed-fetch case rule 3 exists for
+- `yearHasEvents: false` with `now` before the season start → `pre-season`,
+  the announced-but-empty future year
 - a `from`/`to` pair straddling the DST transition, asserting calendar-day
-  counting
-- `post-season` with no later year in `availableYears` → all four associated
+  counting rather than 24-hour buckets
+- `post-season` with no later year in `availableYears` → all three optional
   values `null`
 - `availableYears` unsorted, and containing years below `selectedYear`
 
@@ -190,7 +210,8 @@ precedent.
 - empty + default filters + off-season → landing
 - empty + reader-applied filters + off-season → `EmptyState` (the case a
   naive implementation gets wrong)
-- empty + default filters + in-season → `EmptyState`
+- empty + default filters + feed failed to load (`events: []`) mid-season →
+  `EmptyState`, never "See you next season"
 - non-empty → `EventList`, landing absent
 
 ## Part B — the harness

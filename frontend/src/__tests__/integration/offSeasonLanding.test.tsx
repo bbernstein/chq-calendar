@@ -48,8 +48,6 @@ function eventsPayload() {
 }
 
 let mock: FetchMock;
-let io: ReturnType<typeof installIntersectionObserverMock>;
-let ro: ReturnType<typeof installResizeObserverMock>;
 
 function pin(now: Date) {
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -58,8 +56,11 @@ function pin(now: Date) {
 
 beforeEach(() => {
   localStorage.clear();
-  io = installIntersectionObserverMock();
-  ro = installResizeObserverMock();
+  // Installed for their side effect only — jsdom has neither observer, and
+  // page.tsx's hooks construct both on mount. Nothing here drives them, so
+  // unlike filterHeader.test.tsx the handles are not kept.
+  installIntersectionObserverMock();
+  installResizeObserverMock();
   mock = installFetchMock({ allowUnhandled: true });
   mock.on('GET', /years\.json/, { years: [2025, 2026, 2027], defaultYear: 2026, generated: '' });
   mock.on('GET', /all-events-\d{4}\.json/, eventsPayload());

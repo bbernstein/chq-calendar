@@ -97,10 +97,22 @@ check('0 feed has a season to reason about', !!edges.first && !!edges.last,
 
   // The affordance `enterList` falls back to. If this fails, that fallback is
   // dead and only the rail-chip route is holding the browser checks up.
-  await page.getByRole('button', { name: /^Browse the \d{4} season$/ }).click();
-  await page.waitForSelector('[data-day-key]', { timeout: 15000 }).catch(() => {});
-  const after = await page.evaluate(() => document.querySelectorAll('[data-day-key]').length);
-  check('1d browsing the archive mounts the season', after > 0, `${after} day sections`);
+  //
+  // Guarded rather than clicked outright: an unconditional `.click()` throws
+  // when the button is absent, which aborts the whole suite and takes entries
+  // 2-5 down with it. These harnesses report every check on purpose — a run
+  // that fails one still has to say what the others did, because the failures
+  // cluster. Falsified by disabling the landing branch in page.tsx: the click
+  // timed out and entries 2-5 never ran.
+  const archive = page.getByRole('button', { name: /^Browse the \d{4} season$/ });
+  if (await archive.count() === 0) {
+    check('1d browsing the archive mounts the season', false, 'no archive button to click');
+  } else {
+    await archive.click();
+    await page.waitForSelector('[data-day-key]', { timeout: 15000 }).catch(() => {});
+    const after = await page.evaluate(() => document.querySelectorAll('[data-day-key]').length);
+    check('1d browsing the archive mounts the season', after > 0, `${after} day sections`);
+  }
   await page.close();
 }
 
@@ -138,7 +150,14 @@ check('0 feed has a season to reason about', !!edges.first && !!edges.last,
   // No year-aware "browse a past season" action exists, so pre-season offers
   // no buttons — a button labelled with last year would apply the scope to
   // this one. Mirrors LandingState.archiveYear == nil for .preSeason on iOS.
-  check('3d no buttons pre-season', s.buttons.length === 0, s.buttons.join(' | '));
+  //
+  // Conjoined with `s.landing` so it cannot pass vacuously: "no buttons" is
+  // trivially true when there is no landing at all, and falsifying 3a-3c by
+  // disabling the branch in page.tsx left this one green on a page that had
+  // nothing on it. A check that survives its own subject being deleted is
+  // not a check.
+  check('3d no buttons pre-season', s.landing && s.buttons.length === 0,
+    `landing=${s.landing} buttons=${s.buttons.join(' | ') || 'none'}`);
   await page.close();
 }
 
