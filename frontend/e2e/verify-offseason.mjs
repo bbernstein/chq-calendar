@@ -41,13 +41,33 @@ function json(body) {
 }
 
 /**
+ * A minimal published season for `year`, for the entries that must not depend
+ * on what production happens to be serving. Mid-July is inside the season in
+ * every year — it runs from the Saturday before the 4th Sunday of June for
+ * nine weeks — so these always fall within the scope's reach.
+ */
+function seasonFixture(year) {
+  return {
+    data: [1, 2, 3].map(n => ({
+      id: `fixture-${year}-${n}`,
+      title: `Fixture Lecture ${n}`,
+      startDate: `${year}-07-1${n} 10:45:00`,
+      endDate: `${year}-07-1${n} 11:45:00`,
+      location: 'Amphitheater',
+      description: 'A fixture event.',
+      categories: [{ name: 'Lecture' }],
+    })),
+  };
+}
+
+/**
  * Open the app with the clock pinned to `day` at mid-morning Institution time.
  *
- * `manifest` and `emptyEvents` replace what the CDN would serve. Both are
+ * `manifest` and `routeEvents` replace what the CDN would serve. Both are
  * narrow on purpose — everything not named here stays live production data,
  * which is what makes the other assertions worth anything.
  */
-async function pinnedPage(day, { manifest, emptyEvents } = {}) {
+async function pinnedPage(day, { manifest, routeEvents } = {}) {
   const ctx = await browser.newContext({
     viewport: { width: 900, height: 900 },
     timezoneId: 'America/New_York',
@@ -55,7 +75,7 @@ async function pinnedPage(day, { manifest, emptyEvents } = {}) {
   const page = await ctx.newPage();
   page.once('close', () => { ctx.close().catch(() => {}); });
   if (manifest) await page.route('**/years.json', r => r.fulfill(json(manifest)));
-  if (emptyEvents) await page.route('**/all-events-*.json', r => r.fulfill(json({ data: [] })));
+  if (routeEvents) await page.route(routeEvents.glob, r => r.fulfill(json(routeEvents.body)));
   await page.clock.setFixedTime(new Date(`${day}T14:00:00Z`));
   await page.goto(URL, { waitUntil: 'networkidle' });
   return page;
@@ -140,7 +160,9 @@ check('0 feed has a season to reason about', !!edges.first && !!edges.last,
 // in it yet. So that is what is served.
 {
   const day = shift(edges.first, -60);
-  const page = await pinnedPage(day, { emptyEvents: true });
+  const page = await pinnedPage(day, {
+    routeEvents: { glob: '**/all-events-*.json', body: { data: [] } },
+  });
   const s = await screenState(page);
   check('3a landing before an announced season is published', s.landing && s.days === 0,
     `day=${day} landing=${s.landing} days=${s.days}`);
@@ -189,11 +211,24 @@ check('0 feed has a season to reason about', !!edges.first && !!edges.last,
       defaultYear: nextYear,
       generated: '',
     },
+    // Next year's events are stubbed rather than taken from production, and
+    // that is the difference between a deterministic check and a seasonal
+    // one. Leaving them live made 5a assert that the next season is already
+    // published on chqcal.org — true today, but a fact about production data
+    // rather than about this code. In the very window #269 is about, a year
+    // can roll over in the manifest before its programme goes up; production
+    // would then correctly show "Almost showtime" and 5a would go red on
+    // every PR merged in those weeks, for a reason having nothing to do with
+    // the change under review. That is #269's own class of quiet wrongness
+    // inverted — a false red instead of a false green — and it would sit on
+    // the default CI path, since test:browser has no path filtering.
+    routeEvents: { glob: `**/all-events-${nextYear}.json`, body: seasonFixture(nextYear) },
   });
   const s = await screenState(page);
   // Once the manifest points at a year that has events, `next`'s adaptive
   // window reaches forward to them however far off they are, and the reader
-  // gets a list again. That IS the self-heal.
+  // gets a list again. That IS the self-heal, and with the feed stubbed the
+  // check now proves it rather than inheriting it from production.
   check('5a rolling the manifest forward ends the empty screen', s.days > 0 && !s.landing,
     `day=${day} defaultYear=${nextYear} days=${s.days} landing=${s.landing} heading=${s.heading}`);
   // Whatever the next year's feed holds, it must never claim that year's
