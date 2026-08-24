@@ -42,10 +42,65 @@ confirmed to have reached readers. A check that passes on a build known to
 be broken is a check that cannot fail — production is the control that
 proves it can.
 
+## Regimes
+
+The calendar has three: before the season opens, during it, and after the last
+event until the years manifest rolls over on October 1. Only the middle one
+puts a day list on the default screen.
+
+Every suite therefore bootstraps through `enterList` (`regime.mjs`) rather
+than `waitForSelector('[data-day-key]')`. It races the day section against the
+off-season landing and the generic empty state, and off-season taps a
+mid-season rail chip to widen the view window into the season, then returns
+the reader to the top so downstream checks cannot tell which regime they are
+in. It prints one `regime:` line per run.
+
+Two `verify-rail` checks have no subject off-season and skip with a printed
+reason: check 3 (a persisted `this-week` resolves to no window at all, by
+design) and check 11 (today is outside `navBounds`, so `⟳ Now` is correctly
+absent). `verify-filter-reveal`'s check 13 stands down when the render window
+mounts sections mid-wheel, which makes the reader's movement unattributable —
+that one is conditional on the confounder rather than on the regime, so it
+still runs in season.
+
+A suite where **no check passed** exits non-zero: an all-skip run has proved
+nothing and must not report success.
+
+Pin the clock to any date with `E2E_NOW`, which takes a `yyyy-mm-dd` or a full
+instant:
+
+```bash
+# five days past the season's last event day
+E2E_NOW=2026-09-15 URL=http://localhost:3000/ node e2e/verify-rail.mjs
+```
+
+`verify-offseason.mjs` runs a five-entry matrix over pinned instants derived
+from the feed — post-season, the September 30 edge, pre-season, mid-season,
+and the October manifest rollover. It exists because the off-season path is
+unreachable eleven months of the year and would otherwise rot between
+Septembers.
+
+Two of its entries replace what the CDN serves, and both stubs are load-bearing
+rather than convenient:
+
+- **The rollover entry stubs `years.json`.** `defaultYear` is
+  server-generated — `useAvailableYears` reads it from the manifest, and
+  `getDefaultYear()` in `constants.ts` is only the failed-fetch fallback — so
+  pinning the clock past October 1 does not reproduce the rollover at all.
+- **The pre-season entry stubs the events feed empty.** With events published,
+  the `next` scope's adaptive window keeps reaching forward until it has 50 of
+  them however far off they are, so the list is never empty and `in-season` is
+  the correct answer. The countdown belongs to a year that has been announced
+  but whose programme is not up yet, which is a year with no events in it.
+
+Everything not named in those two stubs stays live production data.
+
 ## In CI
 
-`.github/workflows/build-and-test.yml` runs both against a preview server
-built from the branch. There is no path filtering — they run on every push
+`.github/workflows/build-and-test.yml` runs all four (via
+`npm run test:browser`) against a preview server built from the branch. That
+server proxies `/cache` to production, which is how the pinned regime matrix
+reaches the live feed. There is no path filtering — they run on every push
 and every fork PR, like the rest of that workflow. Chromium only: these are
 geometry checks against one engine, not a browser-support matrix.
 
