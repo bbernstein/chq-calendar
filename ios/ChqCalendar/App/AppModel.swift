@@ -1106,9 +1106,10 @@ final class AppModel {
     /// has to actually reset. The rail's `⟳ Now` is not a second one: #258
     /// deleted `AppModel.resetToNow()` precisely so that control could be
     /// pure navigation — the spec has it "not touch scope, weeks,
-    /// categories, or search," and `AppModelTests.nowLeavesAnyAccumulated`
-    /// `ExpansionInPlace` pins that it leaves a widened window alone. The
-    /// two controls share a name, not a job (#258 finding 2).
+    /// categories, or search," and
+    /// `AppModelTests.nowLeavesAnyAccumulatedExpansionInPlace` pins that it
+    /// leaves a widened window alone. The two controls share a name, not a
+    /// job (#258 finding 2).
     ///
     /// Also drops the two pieces of state that only mean something under a
     /// scope the user is leaving, via `clearScopeLocalDateState()` — see

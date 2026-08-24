@@ -19,7 +19,11 @@ import Foundation
 ///
 /// Pure and `nonisolated` so the rejection is unit-testable without booting
 /// the app: `CalendarView` is the only caller and turns a thrown
-/// `HookConflict` into an immediate `preconditionFailure`.
+/// `HookConflict` into a `preconditionFailure`. It calls this at the very
+/// top of its `.task`, *before* `await model.start()` — "at launch" in #252
+/// means before the app can spend a cold install's network round-trip on a
+/// run that is already known-bad. Applying the values stays where it was,
+/// in `applyUITestHooks`, after the model settles.
 ///
 /// Compiles out of Release builds along with its only call site.
 nonisolated enum UITestScrollHooks {

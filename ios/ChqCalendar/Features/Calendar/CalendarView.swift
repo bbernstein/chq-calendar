@@ -66,6 +66,26 @@ struct CalendarView: View {
             if committed != searchDraft { searchDraft = committed }
         }
         .task {
+            #if DEBUG
+            // Validated *before* `model.start()`, deliberately. #252 asks for
+            // an incompatible pair of scroll hooks to be rejected "at
+            // launch", and `start()` is not instant — on a cold install it
+            // reaches the network for `availableYears()` — so validating
+            // after it would put an arbitrary wait, and a loading spinner, in
+            // front of a launch that is already known-bad. Parsing is pure
+            // and reads only `ProcessInfo`, so it has nothing to wait for.
+            //
+            // Only the *check* moves. The parsed values are applied in
+            // `applyUITestHooks` below, after the model settles, exactly
+            // where they were — so a launch with valid flags (or none) is
+            // unaffected in both what happens and when.
+            let scrollHooks: (delay: TimeInterval, dropCount: Int)
+            do {
+                scrollHooks = try UITestScrollHooks.parse(ProcessInfo.processInfo.arguments)
+            } catch {
+                preconditionFailure(String(describing: error))
+            }
+            #endif
             await model.start()
             // Covers the case where a deep link arrived (setting
             // `pendingDeepLink`) before this `.task` ran, and `start()`
@@ -75,7 +95,7 @@ struct CalendarView: View {
             // changes if a cached snapshot loads directly into `.ready`.
             consumePendingDeepLinkIfPossible()
             #if DEBUG
-            await applyUITestHooks()
+            await applyUITestHooks(scrollHooks: scrollHooks)
             #endif
         }
         // Scene-level concerns — `.onOpenURL`, Spotlight's
@@ -215,7 +235,7 @@ struct CalendarView: View {
     /// identical launches of the same build, back to back, differed only in
     /// whether this raced. The retry below forces one more full refresh
     /// before giving up, which is enough to clear it in practice.
-    private func applyUITestHooks() async {
+    private func applyUITestHooks(scrollHooks: (delay: TimeInterval, dropCount: Int)) async {
         let arguments = ProcessInfo.processInfo.arguments
 
         // Any `-uitest-*` launch is a screenshot/automation context, so a
@@ -244,19 +264,12 @@ struct CalendarView: View {
 
         // The two scroll hooks — `-uitest-delay-pending-scroll` (see
         // `AppModel.uiTestPendingScrollDelay`) and `-uitest-drop-scrolls <n>`
-        // (see `AppModel.uiTestScrollsToDrop`) — parse together because they
-        // are mutually exclusive: `UITestScrollHooks.parse` throws when a
-        // launch passes both (#252). Crashing here, by name, is deliberate.
-        // This is a DEBUG-only launch path reached solely from an automated
-        // run, and the alternative — arming one hook and silently dropping
-        // the other — is exactly the confusing, twenty-minutes-later red the
-        // issue was filed about. Either flag alone behaves as before.
-        let scrollHooks: (delay: TimeInterval, dropCount: Int)
-        do {
-            scrollHooks = try UITestScrollHooks.parse(arguments)
-        } catch {
-            preconditionFailure(String(describing: error))
-        }
+        // (see `AppModel.uiTestScrollsToDrop`) — arrive already parsed and
+        // already validated: they are mutually exclusive, and the `.task`
+        // above rejected the pair before `model.start()` was even awaited
+        // (#252). Only the application is left to do here, at the same point
+        // in the launch as every other hook below.
+        //
         // Assigned only when non-inert: `AppModel` is `@Observable`, whose
         // generated setter fires a mutation for *every* write, equal value or
         // not, so writing a 0 over the default 0 would be a real (if small)

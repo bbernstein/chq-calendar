@@ -22,7 +22,7 @@ struct UITestScrollHooksTests {
     }
 
     /// The exact shape `DayRailUITests.testADayDeepLinkSurvivesADroppedScroll`
-    /// launches with — this pair of assertions is what pins that that test's
+    /// launches with — this pair of assertions is what pins that the test's
     /// single-flag path is untouched by the mutual-exclusion check.
     @Test func dropFlagAloneParsesItsCount() throws {
         let hooks = try UITestScrollHooks.parse(["ChqCalendar", "-uitest-drop-scrolls", "3"])
