@@ -17,6 +17,22 @@ export function formatArticleMeta(kind: ArticleLink['kind'], pubDate: string): s
   return `(${kind} ${m}/${d})`;
 }
 
+/**
+ * Whether `url` points at chq.org or one of its subdomains, which is what
+ * decides between the "Open on chq.org" and "Open event page" labels.
+ * Publisher-feed events carry the publisher's own URL, so the label is derived
+ * from the host rather than from `sourcePublisherId` — that stays right even
+ * when a publisher links back to chq.org. A malformed URL is not chq.org.
+ */
+export function isChqOrgUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'chq.org' || host.endsWith('.chq.org');
+  } catch {
+    return false;
+  }
+}
+
 interface EventCardProps {
   event: Event;
   index: number;
@@ -42,6 +58,30 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
       onDownloadICS(event);
     }
   };
+
+  const detailCategories = event.categories?.filter(cat => !cat.name.startsWith('Week ')) ?? [];
+  const hasProgramLinks = Boolean(programLinks && programLinks.length > 0);
+  const hasArticleLinks = Boolean(articleLinks && articleLinks.length > 0);
+  /**
+   * The event name is the disclosure control only when there is something
+   * behind it. An event with nothing but a title and a time should not offer a
+   * control that opens an empty box.
+   */
+  const hasDetails = Boolean(
+    event.description ||
+    detailCategories.length > 0 ||
+    hasProgramLinks ||
+    hasArticleLinks ||
+    event.url,
+  );
+  const detailPanelId = `event-details-${event.id}`;
+
+  const hintGlyphs = (
+    <>
+      {hasProgramLinks && <span className="ml-1" title="Digital program">📖</span>}
+      {hasArticleLinks && <span className="ml-1" title="Chautauquan Daily coverage">📰</span>}
+    </>
+  );
 
   return (
     <div data-event-id={event.id} className={`event-card py-2 sm:py-3 ${index > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors`}>
@@ -92,15 +132,24 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
                 : 'text-gray-900 dark:text-white'
             }`}
           >
-            {event.url && event.status !== 'cancelled' ? (
-              <a
-                href={event.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+            {hasDetails ? (
+              <button
+                type="button"
+                onClick={() => onToggleDescription(event.id)}
+                aria-expanded={isExpanded}
+                aria-controls={detailPanelId}
+                className={`text-left w-full transition-colors ${
+                  event.status === 'cancelled'
+                    ? ''
+                    : 'hover:text-blue-700 dark:hover:text-blue-300'
+                }`}
               >
-                {event.title} 🔗
-              </a>
+                {event.title}
+                {hintGlyphs}
+                <span className="ml-1 text-xs align-middle text-gray-400 dark:text-gray-500" aria-hidden="true">
+                  {isExpanded ? '▾' : '▸'}
+                </span>
+              </button>
             ) : (
               event.title
             )}
@@ -129,111 +178,102 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
             </div>
           )}
 
-          {/* Description with disclosure widget */}
-          {(event.description ||
-            (event.categories && event.categories.filter(cat => !cat.name.startsWith('Week ')).length > 0) ||
-            (articleLinks && articleLinks.length > 0) ||
-            (programLinks && programLinks.length > 0)) && (
-            <div className="mb-2">
-              {isExpanded ? (
-                <div>
-                  <button
-                    onClick={() => onToggleDescription(event.id)}
-                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-xs font-medium flex items-center gap-1"
-                  >
-                    <span className="text-xs">▼</span> Show less
-                  </button>
-
-                  {event.description && (
-                    <div className="text-gray-600 dark:text-gray-300 text-sm mb-2">
-                      {event.description
-                        .split(/\r?\n/)
-                        .map(line => line.trim())
-                        .filter(line => line.length > 0)
-                        .map((paragraph, index) => (
-                          <p key={index} className={index > 0 ? 'mt-2' : ''}>
-                            {paragraph}
-                          </p>
-                        ))}
-                    </div>
-                  )}
-
-                  <div className="mb-2 flex flex-wrap gap-1">
-                    {event.categories?.filter(cat => !cat.name.startsWith('Week ')).map((category, catIndex) => (
-                      <button
-                        key={`${event.id}-category-${catIndex}`}
-                        onClick={() => onToggleTag(category.name)}
-                        className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
-                          isTagSelected(category.name)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {getCategoryDisplayName(category.name)}
-                      </button>
+          {/* Detail panel, opened by the event name above. Left unmounted when
+              collapsed rather than hidden — the list renders ~1,470 events. */}
+          {hasDetails && isExpanded && (
+            <div id={detailPanelId} className="mb-2">
+              {event.description && (
+                <div className="text-gray-600 dark:text-gray-300 text-sm mb-2">
+                  {event.description
+                    .split(/\r?\n/)
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0)
+                    .map((paragraph, index) => (
+                      <p key={index} className={index > 0 ? 'mt-2' : ''}>
+                        {paragraph}
+                      </p>
                     ))}
-                  </div>
-
-                  {programLinks && programLinks.length > 0 && (
-                    <div className="mb-2">
-                      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
-                        Digital Program
-                      </div>
-                      <ul className="space-y-0.5">
-                        {programLinks.map((link) => (
-                          <li key={link.url} className="text-sm">
-                            <a
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
-                            >
-                              📖 {link.title}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {articleLinks && articleLinks.length > 0 && (
-                    <div className="mb-2">
-                      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
-                        In the Chautauquan Daily
-                      </div>
-                      <ul className="space-y-0.5">
-                        {articleLinks.map((link) => (
-                          <li key={link.url} className="text-sm">
-                            <a
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
-                            >
-                              📰 {link.title}
-                            </a>
-                            <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
-                              {formatArticleMeta(link.kind, link.pubDate)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                 </div>
-              ) : (
-                <button
-                  onClick={() => onToggleDescription(event.id)}
-                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-xs font-medium flex items-center gap-1"
-                >
-                  {programLinks && programLinks.length > 0 && (
-                    <span title="Digital program">📖</span>
-                  )}
-                  {articleLinks && articleLinks.length > 0 && (
-                    <span title="Chautauquan Daily coverage">📰</span>
-                  )}
-                  <span className="text-xs">▶</span> Show more
-                </button>
+              )}
+
+              {detailCategories.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {detailCategories.map((category, catIndex) => (
+                    <button
+                      key={`${event.id}-category-${catIndex}`}
+                      onClick={() => onToggleTag(category.name)}
+                      className={`px-1 py-0.5 sm:px-2 sm:py-1 rounded-full text-xs transition-colors cursor-pointer hover:opacity-80 ${
+                        isTagSelected(category.name)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      {getCategoryDisplayName(category.name)}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {programLinks && programLinks.length > 0 && (
+                <div className="mb-2">
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                    Digital Program
+                  </div>
+                  <ul className="space-y-0.5">
+                    {programLinks.map((link) => (
+                      <li key={link.url} className="text-sm">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                        >
+                          📖 {link.title}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {articleLinks && articleLinks.length > 0 && (
+                <div className="mb-2">
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                    In the Chautauquan Daily
+                  </div>
+                  <ul className="space-y-0.5">
+                    {articleLinks.map((link) => (
+                      <li key={link.url} className="text-sm">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                        >
+                          📰 {link.title}
+                        </a>
+                        <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
+                          {formatArticleMeta(link.kind, link.pubDate)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* Kept for cancelled events too: chq.org is where a
+                  cancellation is confirmed. */}
+              {event.url && (
+                <div className="mb-1">
+                  <a
+                    href={event.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                  >
+                    {isChqOrgUrl(event.url) ? 'Open on chq.org' : 'Open event page'}
+                    <span aria-hidden="true">↗</span>
+                  </a>
+                </div>
               )}
             </div>
           )}

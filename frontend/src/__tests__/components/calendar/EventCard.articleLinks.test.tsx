@@ -42,12 +42,12 @@ describe('EventCard article links', () => {
     expect(screen.queryByText('In the Chautauquan Daily')).toBeNull();
   });
 
-  it('collapsed card shows the hint glyph inside the Show more control, not the titled links', () => {
+  it('collapsed card shows the hint glyph on the title line, not the titled links', () => {
     renderCard({ articleLinks: LINKS });
-    // The glyph now sits inside the "Show more" disclosure control, signalling
-    // that expanding reveals the articles (not up in the time/location line).
-    const showMore = screen.getByRole('button', { name: /Show more/ });
-    expect(within(showMore).getByTitle('Chautauquan Daily coverage')).toBeTruthy();
+    // The glyph sits inside the title control — the event name is what expands
+    // the card — signalling that opening it reveals the articles.
+    const title = screen.getByRole('button', { name: /Interfaith Lecture/ });
+    expect(within(title).getByTitle('Chautauquan Daily coverage')).toBeTruthy();
     expect(screen.queryByText('In the Chautauquan Daily')).toBeNull();
   });
 
@@ -62,12 +62,12 @@ describe('EventCard article links', () => {
     expect(screen.getByText('(preview 7/13)')).toBeTruthy();
   });
 
-  it('event with article links but no description still gets the disclosure widget', () => {
+  it('event with article links but no description still gets an expandable title', () => {
     renderCard({
       event: { ...baseEvent, description: undefined, categories: undefined },
       articleLinks: LINKS,
     });
-    expect(screen.getByText(/Show more/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Interfaith Lecture/ })).toBeTruthy();
   });
 });
 

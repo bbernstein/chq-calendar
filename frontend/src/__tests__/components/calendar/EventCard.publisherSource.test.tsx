@@ -59,24 +59,32 @@ describe('EventCard publisher attribution and status', () => {
     expect(screen.queryByText(/Rescheduled/i)).toBeNull();
   });
 
-  it('suppresses the title link when status=cancelled even if url is set', () => {
+  it('never makes the title a link, even when url is set', () => {
+    render(<EventCard event={baseEvent({ url: 'https://example.com/event' })} {...noopProps} />);
+    expect(screen.queryByRole('link', { name: /Test/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Test/ })).toBeInTheDocument();
+  });
+
+  it('keeps the panel and its link available when status=cancelled and url is set', () => {
     render(
       <EventCard
         event={baseEvent({ url: 'https://example.com/event', status: 'cancelled' })}
         {...noopProps}
+        isExpanded={true}
       />,
     );
-    const link = screen.queryByRole('link', { name: /Test/ });
-    expect(link).toBeNull();
+    expect(screen.getByRole('button', { name: /Test/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open event page/ })).toBeInTheDocument();
   });
 
-  it('keeps the title link when status=rescheduled and url is set', () => {
+  it('keeps the panel and its link available when status=rescheduled and url is set', () => {
     render(
       <EventCard
         event={baseEvent({ url: 'https://example.com/event', status: 'rescheduled' })}
         {...noopProps}
+        isExpanded={true}
       />,
     );
-    expect(screen.getByRole('link', { name: /Test/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open event page/ })).toBeInTheDocument();
   });
 });
