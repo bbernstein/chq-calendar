@@ -1108,16 +1108,49 @@ final class AppModel {
     /// the week strip are two ways of expressing one date range, never two
     /// ranges to intersect.
     ///
-    /// Re-tapping the active scope is a no-op. The web toggles back to
-    /// "all" here, but it has no All button; iOS does, so the scope row
-    /// behaves as a radio group instead.
+    /// Re-tapping the active scope *resets* it: any scope-local date state
+    /// — a window widened by "Show next day", a window grown by day-rail
+    /// navigation, a browsed day — is cleared, leaving exactly what a fresh
+    /// selection of that scope would give. Only a re-tap with nothing left
+    /// to clear is a no-op. The web toggles back to "all" here, but it has
+    /// no All button; iOS does, so the scope row behaves as a radio group
+    /// instead.
+    ///
+    /// The rail is the *likeliest* source of that state since #258, not an
+    /// afterthought: `goToDay` writes `windowStartDayKey` and
+    /// `windowEndDayKey`, and every rail chip tap reaches it through
+    /// `EventListView.selectDay` — including the rail's own `⟳ Now`. So the
+    /// common path into this reset is navigate the rail → open Filters →
+    /// re-tap the active chip, and the accumulated expansion collapses.
+    /// `expandWindowEnd` ("Show next day") is only the other writer.
+    ///
+    /// The guard therefore tests "nothing would change", not "same scope"
+    /// (#234). Its purpose is unchanged — not writing `filter`, and so not
+    /// firing its `didSet` or a `persistFilter`, when genuinely nothing
+    /// changes — but the old one-liner made the early return the single path
+    /// into this method that skipped `clearScopeLocalDateState()`, so
+    /// "Show next day" ×2 → Now kept the widened window.
+    ///
+    /// This is the *only* "put me back" gesture in the app, which is why it
+    /// has to actually reset. The rail's `⟳ Now` is not a second one: #258
+    /// deleted `AppModel.resetToNow()` precisely so that control could be
+    /// pure navigation — the spec has it "not touch scope, weeks,
+    /// categories, or search," and
+    /// `AppModelTests.nowLeavesAnyAccumulatedExpansionInPlace` pins that it
+    /// leaves a widened window alone. The two controls share a name, not a
+    /// job (#258 finding 2).
     ///
     /// Also drops the two pieces of state that only mean something under a
     /// scope the user is leaving, via `clearScopeLocalDateState()` — see
     /// that method for why both belong to the scope rather than to the
     /// selection as a whole (#156, #197).
     func selectScope(_ scope: DateScope) {
-        guard filter.dateScope != scope || !filter.selectedWeeks.isEmpty else { return }
+        let unchanged = filter.dateScope == scope
+            && filter.selectedWeeks.isEmpty
+            && filter.windowStartDayKey == nil
+            && filter.windowEndDayKey == nil
+            && filter.selectedDayKey == nil
+        guard !unchanged else { return }
         // Copy-modify-assign, like `goToDay`: `filter`'s `didSet` runs a
         // full `rebuildDerivedCounts()` per changed assignment, so the
         // action batches its writes into one (#267 review finding).
@@ -1794,6 +1827,11 @@ final class AppModel {
     /// app as idle and hands control back to the test immediately after the
     /// tap, giving it a real window to act in. `0` (the default, and the
     /// value in every real launch) keeps this path fully inert.
+    ///
+    /// Mutually exclusive with `uiTestScrollsToDrop` below: a delay shorter
+    /// than the drop-retry window is swallowed by it, so the pair produces a
+    /// failure unrelated to whatever the test is probing (#252).
+    /// `UITestScrollHooks.parse` rejects a launch that passes both flags.
     var uiTestPendingScrollDelay: TimeInterval = 0
 
     /// How many of the next `proxy.scrollTo` calls `EventListView.issueScroll`
@@ -1818,6 +1856,10 @@ final class AppModel {
     /// function.
     ///
     /// `0` (the default, and every real launch) keeps this fully inert.
+    ///
+    /// Mutually exclusive with `uiTestPendingScrollDelay` above — the
+    /// retry chain and a deferred `resolvePendingScroll` interfere (#252) —
+    /// and `UITestScrollHooks.parse` rejects a launch that passes both flags.
     var uiTestScrollsToDrop = 0
 
     /// The first `(day, week)` pairing — in `days` display order — whose

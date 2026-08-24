@@ -66,6 +66,26 @@ struct CalendarView: View {
             if committed != searchDraft { searchDraft = committed }
         }
         .task {
+            #if DEBUG
+            // Validated *before* `model.start()`, deliberately. #252 asks for
+            // an incompatible pair of scroll hooks to be rejected "at
+            // launch", and `start()` is not instant — on a cold install it
+            // reaches the network for `availableYears()` — so validating
+            // after it would put an arbitrary wait, and a loading spinner, in
+            // front of a launch that is already known-bad. Parsing is pure
+            // and reads only `ProcessInfo`, so it has nothing to wait for.
+            //
+            // Only the *check* moves. The parsed values are applied in
+            // `applyUITestHooks` below, after the model settles, exactly
+            // where they were — so a launch with valid flags (or none) is
+            // unaffected in both what happens and when.
+            let scrollHooks: (delay: TimeInterval, dropCount: Int)
+            do {
+                scrollHooks = try UITestScrollHooks.parse(ProcessInfo.processInfo.arguments)
+            } catch {
+                preconditionFailure(String(describing: error))
+            }
+            #endif
             await model.start()
             // Covers the case where a deep link arrived (setting
             // `pendingDeepLink`) before this `.task` ran, and `start()`
@@ -75,7 +95,7 @@ struct CalendarView: View {
             // changes if a cached snapshot loads directly into `.ready`.
             consumePendingDeepLinkIfPossible()
             #if DEBUG
-            await applyUITestHooks()
+            await applyUITestHooks(scrollHooks: scrollHooks)
             #endif
         }
         // Scene-level concerns — `.onOpenURL`, Spotlight's
@@ -215,7 +235,7 @@ struct CalendarView: View {
     /// identical launches of the same build, back to back, differed only in
     /// whether this raced. The retry below forces one more full refresh
     /// before giving up, which is enough to clear it in practice.
-    private func applyUITestHooks() async {
+    private func applyUITestHooks(scrollHooks: (delay: TimeInterval, dropCount: Int)) async {
         let arguments = ProcessInfo.processInfo.arguments
 
         // Any `-uitest-*` launch is a screenshot/automation context, so a
@@ -242,20 +262,23 @@ struct CalendarView: View {
             model.uiTestShowWeekTheme = true
         }
 
-        // `-uitest-delay-pending-scroll` — see `AppModel.uiTestPendingScrollDelay`
-        // for why a UI test needs this to exercise the day rail's pending-
-        // scroll staleness check at all. 3 seconds is comfortably longer
-        // than opening the date sheet and tapping a scope chip takes.
-        if arguments.contains("-uitest-delay-pending-scroll") {
-            model.uiTestPendingScrollDelay = 3
+        // The two scroll hooks — `-uitest-delay-pending-scroll` (see
+        // `AppModel.uiTestPendingScrollDelay`) and `-uitest-drop-scrolls <n>`
+        // (see `AppModel.uiTestScrollsToDrop`) — arrive already parsed and
+        // already validated: they are mutually exclusive, and the `.task`
+        // above rejected the pair before `model.start()` was even awaited
+        // (#252). Only the application is left to do here, at the same point
+        // in the launch as every other hook below.
+        //
+        // Assigned only when non-inert: `AppModel` is `@Observable`, whose
+        // generated setter fires a mutation for *every* write, equal value or
+        // not, so writing a 0 over the default 0 would be a real (if small)
+        // behaviour change on every non-scroll UI-test launch.
+        if scrollHooks.delay > 0 {
+            model.uiTestPendingScrollDelay = scrollHooks.delay
         }
-
-        // `-uitest-drop-scrolls <n>` — see `AppModel.uiTestScrollsToDrop` for
-        // why a UI test needs to be able to make a `scrollTo` do nothing.
-        if let flagIndex = arguments.firstIndex(of: "-uitest-drop-scrolls"),
-           arguments.index(after: flagIndex) < arguments.endIndex,
-           let count = Int(arguments[arguments.index(after: flagIndex)]), count > 0 {
-            model.uiTestScrollsToDrop = count
+        if scrollHooks.dropCount > 0 {
+            model.uiTestScrollsToDrop = scrollHooks.dropCount
         }
 
         if arguments.contains("-uitest-show-about") {

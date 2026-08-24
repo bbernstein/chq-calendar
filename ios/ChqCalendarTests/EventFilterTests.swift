@@ -180,7 +180,7 @@ struct EventFilterTests {
 
     // MARK: - apply: weeks filter
 
-    @Test func weeksFilterMatchesEventBySeasonWeekContainingStart() throws {
+    @Test func weeksFilterMatchesEventBySeasonWeekSpanningItsDay() throws {
         let event = makeEvent(id: "e1", start: try #require(ChqTime.parse("2026-07-08 12:00:00"))) // week 2
 
         let selMatching = FilterSelection(dateScope: .all, selectedWeeks: [2])
@@ -190,14 +190,93 @@ struct EventFilterTests {
         #expect(EventFilter.apply(selNonMatching, to: [event], favorites: [], now: Date(), year: 2026, isCurrentYear: true).isEmpty)
     }
 
-    @Test func noonBoundaryEventBelongsToIncomingWeekNotOutgoingWeek() throws {
-        let event = makeEvent(id: "boundary", start: try #require(ChqTime.parse("2026-07-04 12:00:00")))
+    // #257: the weeks stage is day-granular, matching the `Wk 5/6` badge the
+    // day headers already render via `SeasonCalendar.weekNumbers(spanningDayOf:)`.
+    // A boundary Saturday belongs to BOTH adjacent weeks in full — the noon
+    // split that used to hand back half of it is gone, so weeks overlap by one
+    // calendar day and are no longer a partition. `SeasonCalendar.weeks` keeps
+    // its noon bounds (the gate program's turnover) and `currentWeekNumber(at:)`
+    // stays single-valued; only which events a SELECTION returns changed.
 
-        let selWeek1 = FilterSelection(dateScope: .all, selectedWeeks: [1])
-        let selWeek2 = FilterSelection(dateScope: .all, selectedWeeks: [2])
+    /// Reference instant for the weeks-stage cases: mid-season, so no case
+    /// below depends on the wall clock.
+    private static func midSeasonNow() throws -> Date {
+        try #require(ChqTime.parse("2026-07-15 15:00:00"))
+    }
 
-        #expect(EventFilter.apply(selWeek1, to: [event], favorites: [], now: Date(), year: 2026, isCurrentYear: true).isEmpty)
-        #expect(EventFilter.apply(selWeek2, to: [event], favorites: [], now: Date(), year: 2026, isCurrentYear: true).count == 1)
+    private func weeksMatching(_ event: Event, _ week: Int, now: Date) -> Bool {
+        !EventFilter.apply(
+            FilterSelection(dateScope: .all, selectedWeeks: [week]),
+            to: [event], favorites: [], now: now, year: 2026, isCurrentYear: true
+        ).isEmpty
+    }
+
+    @Test func boundarySaturdayMorningBelongsToBothAdjacentWeeks() throws {
+        // Aug 1 2026 is the week 5/6 boundary Saturday.
+        let now = try Self.midSeasonNow()
+        let event = makeEvent(id: "sat-am", start: try #require(ChqTime.parse("2026-08-01 10:00:00")))
+
+        #expect(weeksMatching(event, 5, now: now))
+        #expect(weeksMatching(event, 6, now: now))
+    }
+
+    @Test func boundarySaturdayAfternoonBelongsToBothAdjacentWeeks() throws {
+        let now = try Self.midSeasonNow()
+        let event = makeEvent(id: "sat-pm", start: try #require(ChqTime.parse("2026-08-01 15:00:00")))
+
+        #expect(weeksMatching(event, 5, now: now))
+        #expect(weeksMatching(event, 6, now: now))
+    }
+
+    @Test func openingSaturdayMorningBelongsToWeekOne() throws {
+        // Before noon on Jun 27 sits ahead of `weeks[0].start`, so the old
+        // noon predicate put it in no week at all — on a day the app labels
+        // Week 1.
+        let now = try Self.midSeasonNow()
+        let event = makeEvent(id: "opening-am", start: try #require(ChqTime.parse("2026-06-27 10:00:00")))
+
+        #expect(weeksMatching(event, 1, now: now))
+    }
+
+    @Test func closingSaturdayAfternoonBelongsToWeekNine() throws {
+        let now = try Self.midSeasonNow()
+        let event = makeEvent(id: "closing-pm", start: try #require(ChqTime.parse("2026-08-29 15:00:00")))
+
+        #expect(weeksMatching(event, 9, now: now))
+    }
+
+    @Test func midWeekEventStillBelongsToExactlyOneWeek() throws {
+        let now = try Self.midSeasonNow()
+        let event = makeEvent(id: "midweek", start: try #require(ChqTime.parse("2026-07-29 10:00:00")))
+
+        #expect(weeksMatching(event, 5, now: now))
+        #expect(!weeksMatching(event, 4, now: now))
+        #expect(!weeksMatching(event, 6, now: now))
+    }
+
+    @Test func twoAdjacentWeeksReturnTheUnionOnceNotTwice() throws {
+        let now = try Self.midSeasonNow()
+        let events = [
+            makeEvent(id: "fri-wk5", start: try #require(ChqTime.parse("2026-07-31 10:00:00"))),
+            makeEvent(id: "sat-boundary", start: try #require(ChqTime.parse("2026-08-01 10:00:00"))),
+            makeEvent(id: "sun-wk6", start: try #require(ChqTime.parse("2026-08-02 10:00:00"))),
+        ]
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .all, selectedWeeks: [5, 6]),
+            to: events, favorites: [], now: now, year: 2026, isCurrentYear: true)
+
+        #expect(result.map(\.id) == ["fri-wk5", "sat-boundary", "sun-wk6"])
+    }
+
+    @Test func outOfSeasonEventMatchesNoWeek() throws {
+        let now = try Self.midSeasonNow()
+        let event = makeEvent(id: "off-season", start: try #require(ChqTime.parse("2026-09-15 10:00:00")))
+
+        let result = EventFilter.apply(
+            FilterSelection(dateScope: .all, selectedWeeks: Set(1...9)),
+            to: [event], favorites: [], now: now, year: 2026, isCurrentYear: true)
+
+        #expect(result.isEmpty)
     }
 
     // MARK: - season scope

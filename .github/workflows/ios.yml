@@ -171,11 +171,16 @@ jobs:
           # Interleaves xcodebuild's stdout/stderr in real time so a failure
           # appears next to the work that caused it in the job log.
           NSUnbufferedIO: YES
-        # CODE_SIGNING_ALLOWED=NO is required, not cosmetic. Without it,
-        # AppGroupTests.containerURLIsNilInTheUnitTestHost fails on a signed
-        # run: it asserts there is NO App Group entitlement, which is exactly
-        # the condition this flag creates. Its own doc comment names the flag.
-        # Dropping it turns a green tree red.
+        # CODE_SIGNING_ALLOWED=NO is required, not cosmetic: these runners
+        # have no signing identity and no provisioning profile, so a build
+        # that tries to sign fails outright. Simulator builds do not need
+        # signing, and this is how you say so.
+        #
+        # It used to be justified here by a test that asserted the App Group
+        # container was absent under an unsigned run. #235 deleted that test
+        # — the container's presence is a property of the simulator, not of
+        # this flag — so the signing-identity reason above is now the whole
+        # reason. Keep the flag; it was never the test's to justify.
         #
         # Both legs compile all three source trees: the ChqCalendar scheme
         # builds the ChqCalendarWidgets target too (it is embedded in the app),

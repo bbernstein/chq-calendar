@@ -52,10 +52,11 @@ function DateFilterButton({ label, title, isActive, onClick, ariaLabel }: {
  * mean nothing; the last two are absolute and are always offered, so an
  * archived season is never left without a scope control.
  *
- * There is deliberately no "This Week" button. `isThisWeek` and
- * `isInChautauquaWeek` compute identical bounds, so tapping the current week
- * on the strip has always been the same operation — iOS reached this
- * conclusion first and keeps `.thisWeek` out of `visibleScopes`. The
+ * There is deliberately no "This Week" button. Tapping the current week on
+ * the strip has always been the same operation — iOS reached this conclusion
+ * first and keeps `.thisWeek` out of `visibleScopes`. (Since #257 the week
+ * chip is the slightly wider of the two: `'this-week'` still runs noon to
+ * noon, while a week selection takes in both boundary Saturdays whole.) The
  * `'this-week'` value stays in the `DateFilter` union so a value persisted in
  * localStorage keeps working and renders as the current week highlighted on
  * the strip.
