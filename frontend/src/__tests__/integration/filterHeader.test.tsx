@@ -138,13 +138,22 @@ describe('page.tsx — the sticky filter header', () => {
   // Asking for the right file is not the same as the app being able to read
   // it, and the difference is invisible from everything else in this suite.
   //
-  // `useEventData` derives categories via `event.categories.map(c => c.name)`.
-  // A fixture using a bare string array yields `undefined`, `normalizeTag`
-  // then calls `.toLowerCase()` on it, and the whole parse throws into a
-  // `catch` that only logs — so `events` stays empty and the page renders as
-  // though the feed were down. Every other assertion in this file still
-  // passed, because they are all about header geometry, which renders with or
-  // without events. This file spent its life exercising a page that had none.
+  // A fixture using a bare string array for `categories` throws before the
+  // fetch result is ever stored. `useEventData` maps every raw event through
+  // `decodeEventHtmlEntities` first (`useEventData.ts`, before `setEvents`),
+  // and that reads `cat.name` — `undefined` on a string — then calls
+  // `.toLowerCase()` on it while building `_tagsLowerSet`
+  // (`eventHelpers.ts:63`, confirmed as the throw site by stack frame, not by
+  // reading). The outer `catch` only logs, so `events` stays empty and the
+  // page renders as though the feed were down.
+  //
+  // Note it is NOT `useEventData`'s own category/tag derivation that chokes —
+  // that code never runs on this path. An earlier version of this comment
+  // said it did, which would have sent the next reader to the wrong function.
+  //
+  // Every other assertion in this file still passed throughout, because they
+  // are all about header geometry, which renders with or without events. This
+  // file spent its life exercising a page that had none.
   //
   // The count comes from `ActiveFilters`, so it is the app's own reading of
   // how many events it holds. The denominator is pinned and the numerator is
