@@ -47,7 +47,9 @@ function eventsPayload() {
         endDate: `${YEAR}-07-06T11:45:00`,
         location: 'Amphitheater',
         description: 'A lecture.',
-        categories: ['Lecture'],
+        // `Array<{ name: string }>`, per `Event` in lib/types — NOT a bare
+        // string array. See the parse guard below for what that costs.
+        categories: [{ name: 'Lecture' }],
       },
       {
         id: 'e2',
@@ -56,7 +58,7 @@ function eventsPayload() {
         endDate: `${YEAR}-07-07T22:00:00`,
         location: 'Amphitheater',
         description: 'A concert.',
-        categories: ['Music'],
+        categories: [{ name: 'Music' }],
       },
     ],
   };
@@ -104,7 +106,11 @@ const toggleButton = () =>
 
 async function renderPage() {
   render(<Home />);
-  // The rail only exists once events have loaded.
+  // Waits for the first commit that has the header in it. Deliberately NOT
+  // described as "once events have loaded" any more, which is what it used to
+  // say and was never true: the rail is built from the season's navigable
+  // bounds, so it renders whether the feed brought anything back or not. That
+  // wording is part of why an empty fixture went unnoticed here for so long.
   await waitFor(() => expect(document.querySelector('[data-day-rail]')).toBeTruthy());
 }
 
@@ -127,6 +133,29 @@ describe('page.tsx — the sticky filter header', () => {
 
     expect(requested.length).toBeGreaterThan(0);
     expect(requested.every(p => p.endsWith(`all-events-${YEAR}.json`))).toBe(true);
+  });
+
+  // Asking for the right file is not the same as the app being able to read
+  // it, and the difference is invisible from everything else in this suite.
+  //
+  // `useEventData` derives categories via `event.categories.map(c => c.name)`.
+  // A fixture using a bare string array yields `undefined`, `normalizeTag`
+  // then calls `.toLowerCase()` on it, and the whole parse throws into a
+  // `catch` that only logs — so `events` stays empty and the page renders as
+  // though the feed were down. Every other assertion in this file still
+  // passed, because they are all about header geometry, which renders with or
+  // without events. This file spent its life exercising a page that had none.
+  //
+  // The count comes from `ActiveFilters`, so it is the app's own reading of
+  // how many events it holds. The denominator is pinned and the numerator is
+  // not: the fixture is dated mid-season, so how many fall inside the default
+  // scope depends on when the suite runs, but how many were LOADED does not.
+  it('parses the fixture into the page, rather than silently loading none', async () => {
+    await renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByText(/^Events \(\d+\/2\)$/)).toBeInTheDocument()
+    );
   });
 
   it('renders the filter card in flow at the top of the page, with no toggle', async () => {
