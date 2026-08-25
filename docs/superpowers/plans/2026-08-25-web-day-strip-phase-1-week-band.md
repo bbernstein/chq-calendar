@@ -1613,7 +1613,15 @@ export function WeekBandCell({
   );
 
   return (
-    <div data-band-cell={segment?.dayKey} className="relative h-[var(--rail-band-h)] shrink-0">
+    {/*
+      The attribute is emitted for EVERY day, carrying the key when the band
+      has something to say about it and empty when it does not. Dropping it
+      on an out-of-season day would break the invariant the browser check
+      rests on — one band cell per column — and `navigableBounds` widens past
+      the season whenever a pre- or post-season event exists, so that is a day
+      the rail really renders.
+    */}
+    <div data-band-cell={segment?.dayKey ?? ''} className="relative h-[var(--rail-band-h)] shrink-0">
       {steps.length > 0 && (
         <span
           data-band-run
