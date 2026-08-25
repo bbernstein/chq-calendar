@@ -5,6 +5,10 @@ import { installFetchMock, type FetchMock } from './helpers/fetchMock';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
 import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 import { getDefaultYear } from '@/lib/constants';
+import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
+import { weekDayKeySpans, weekBandDestinations } from '@/lib/utils/weekBands';
+import { addDays, dayKeyOf } from '@/lib/utils/dayWindow';
+import { chqDateAt } from '@/lib/utils/chqTime';
 
 /**
  * The first test that renders `page.tsx`.
@@ -79,6 +83,7 @@ beforeEach(() => {
 afterEach(() => {
   mock.uninstall();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   localStorage.clear();
 });
 
@@ -293,5 +298,91 @@ describe('page.tsx — the sticky filter header', () => {
     expect(toggle!.getAttribute('aria-label')).toBe('Filters');
     expect(toggle!.getAttribute('aria-expanded')).toBe('false');
     expect(toggle!.getAttribute('aria-controls')).toBe(card().id);
+  });
+});
+
+describe('page.tsx — a week band tap', () => {
+  // `[data-chip][aria-current]` — the obvious thing to assert here — is not
+  // usable as the "landed on the right day" signal: `useDayAnchor` derives it
+  // from scroll position via `getBoundingClientRect`, which jsdom stubs to an
+  // identical zero rect for every mounted section, so it always resolves to
+  // the LAST section in the window regardless of which day was tapped.
+  //
+  // Instead this fixture puts one event a full week before the band's
+  // destination and asserts its section is NOT pulled into the window by the
+  // tap. `goToDay` only ever grows the window's edge to the exact target it is
+  // given (`railTarget`), so a wire that passed the wrong day — e.g. the
+  // rail's very first day, as step 6's falsification injects — would grow the
+  // window past the earlier event too and this assertion would catch it.
+  // Asserting only that *something* changed would not: an over-wide
+  // expansion still contains the correct destination as a subset.
+  it("expands the window to that week's destination day, and no further", async () => {
+    const seasonWeeks = getChautauquaSeasonWeeks(YEAR);
+    const spans = weekDayKeySpans(seasonWeeks);
+    // Two days inside their weeks, not on a shared boundary Saturday — same
+    // rule `weekBandSegments` uses to keep a tap unambiguous.
+    const week1Day = addDays(spans[0].opening, 2);
+    const week2Day = addDays(spans[1].opening, 2);
+
+    mock.reset();
+    mock.on('GET', /all-events-\d{4}\.json/, {
+      data: [
+        {
+          id: 'w1', title: 'Week 1 Talk',
+          startDate: `${week1Day}T10:00:00`, endDate: `${week1Day}T11:00:00`,
+          location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+        },
+        {
+          id: 'w2', title: 'Week 2 Talk',
+          startDate: `${week2Day}T10:00:00`, endDate: `${week2Day}T11:00:00`,
+          location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+        },
+      ],
+    });
+
+    // Read from the pure model rather than assumed: the same function
+    // `page.tsx` itself calls, given the same inputs it would compute for
+    // this fixture (both fixture events fall inside the season, so
+    // `navigableBounds` would not widen past it here).
+    const bounds = {
+      startDay: dayKeyOf(seasonWeeks[0].start),
+      endDay: dayKeyOf(seasonWeeks[seasonWeeks.length - 1].end),
+    };
+    const expected = weekBandDestinations({
+      seasonWeeks,
+      eventDays: [week1Day, week2Day],
+      bounds,
+      countsByDay: new Map([[week1Day, 1], [week2Day, 1]]),
+    }).get(2);
+    expect(expected?.dayKey).toBe(week2Day);
+
+    // Pinned so the assertions hold regardless of which real-world day this
+    // suite happens to run on — the "next" scope's own window otherwise
+    // depends on it. Set after computing the fixture's days above, which are
+    // real-time-independent by construction.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(chqDateAt(YEAR, 8, 1, 10));
+
+    await renderPage();
+    await waitFor(() => expect(screen.getByText(/^Events \(\d+\/2\)$/)).toBeInTheDocument());
+
+    expect(document.querySelector(`[data-day-key="${week2Day}"]`)).toBeNull();
+    expect(document.querySelector(`[data-day-key="${week1Day}"]`)).toBeNull();
+
+    const band = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-week-band-button="2"]');
+      expect(el?.getAttribute('aria-disabled')).toBeNull();
+      return el!;
+    });
+
+    fireEvent.click(band);
+
+    await waitFor(() =>
+      expect(document.querySelector(`[data-day-key="${week2Day}"]`)).toBeInTheDocument()
+    );
+    // The window must not have grown any further back than week 2's own
+    // destination — in particular not all the way to the rail's very first
+    // day, a full week earlier, where the week 1 event lives.
+    expect(document.querySelector(`[data-day-key="${week1Day}"]`)).toBeNull();
   });
 });

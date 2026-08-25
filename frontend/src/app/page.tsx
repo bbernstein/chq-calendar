@@ -6,6 +6,7 @@ import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } fr
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import { navigableBounds, viewWindow, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
+import { weekBandDestinations, weekBandSegments } from '@/lib/utils/weekBands';
 import { renderResetKey } from '@/lib/utils/renderWindow';
 import { daySectionElement } from '@/lib/utils/daySections';
 import { useFilterState } from '@/hooks/useFilterState';
@@ -231,9 +232,32 @@ function HomeContent() {
   // The rail spans the navigable bounds, independent of the current scope:
   // it is a navigation surface, not a filter readout, so in Today scope it
   // still shows the week around you.
+  // Hoisted out of `railChips` because the week band needs the same list, and
+  // in the same order: the band's segments are matched to chips by index.
+  const railDayKeys = useMemo(
+    () => dayKeys(navBounds.startDay, navBounds.endDay),
+    [navBounds]
+  );
+
   const railChips = useMemo(
-    () => dayChips(dayKeys(navBounds.startDay, navBounds.endDay), navDayCounts),
-    [navBounds, navDayCounts]
+    () => dayChips(railDayKeys, navDayCounts),
+    [railDayKeys, navDayCounts]
+  );
+
+  // The band's segmentation depends only on the calendar, so it survives every
+  // filter change untouched.
+  const bandSegments = useMemo(
+    () => weekBandSegments(railDayKeys, seasonWeeks),
+    [railDayKeys, seasonWeeks]
+  );
+
+  // Reachability depends on the filters, so it does not. Kept separate from
+  // the segments for exactly that reason.
+  const weekDestinations = useMemo(
+    () => weekBandDestinations({
+      seasonWeeks, eventDays: navEventDays, bounds: navBounds, countsByDay: navDayCounts,
+    }),
+    [seasonWeeks, navEventDays, navBounds, navDayCounts]
   );
 
   // Every day the *view* window produced, not the render window's mounted
@@ -407,6 +431,20 @@ function HomeContent() {
   const goToToday = useCallback(() => {
     if (todayKey) goToDay(todayKey);
   }, [todayKey, goToDay]);
+
+  /**
+   * A week band tap.
+   *
+   * Two lookups, deliberately separate: `WeekBandCell` has already asked the
+   * *calendar* which week this day unambiguously means, and this asks the
+   * *filters* which day of that week can actually be reached. `goToDay` then
+   * does what a chip tap does, expansion included — a band tap is navigation,
+   * and it changes no scope, week, category or search.
+   */
+  const goToWeek = useCallback((week: number) => {
+    const destination = weekDestinations.get(week);
+    if (destination) goToDay(destination.dayKey);
+  }, [weekDestinations, goToDay]);
 
   const activeChips = useMemo(() => buildActiveChips({
     searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
@@ -604,6 +642,9 @@ function HomeContent() {
             onSelectDay={goToDay}
             onStepDay={stepDay}
             onGoToToday={goToToday}
+            bandSegments={bandSegments}
+            weekDestinations={weekDestinations}
+            onSelectWeek={goToWeek}
             rootRef={railRef}
             filtersToggle={{
               open: filtersOpen,
