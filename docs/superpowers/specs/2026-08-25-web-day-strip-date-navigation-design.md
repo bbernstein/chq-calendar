@@ -328,6 +328,22 @@ Any week of the season is reachable in **two** interactions from anywhere in
 the list: reveal the header is not needed — the chooser is on the sticky rail,
 so it is one tap to open the grid and one to pick the week.
 
+### Addendum, 2026-08-25 — how the popover was actually built
+
+Phase 2 built the grid from `WeekSelector`'s *behaviour*, extracted into
+`hooks/useWeekThemePopover.tsx`, rather than from its markup. The two controls
+share only "nine numbered buttons that can open a theme popover": a cell in the
+filter strip means selected/not and greys for being in the past, a cell in the
+chooser means reachable/not and greys for having no matching events, and the
+chooser adds a two-dimensional keyboard walk the strip never had. One component
+doing both would carry grid code down the filter path and drag code down the
+navigation path for two phases, and the drag half is deleted in phase 4 anyway.
+
+**Consequence for phase 4:** `components/filters/WeekSelector.tsx` is deleted
+outright, not preserved inside the chooser. `useWeekThemePopover` and
+`WeekThemePopover` are what keep week themes reachable once the week strip
+leaves the filter panel, together with `WeekBadge` on the day header.
+
 ---
 
 ## Phase 3 — Filters in the site header, panel as a fixed overlay
