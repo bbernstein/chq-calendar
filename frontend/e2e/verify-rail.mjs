@@ -1011,11 +1011,12 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 
 // ------------------------------------------- 21. axe over the open chooser
 //
-// The popover is a `role="dialog"` containing nine controls and, on the trigger
-// behind it, an `aria-hidden` icon made of nine decorative spans. Both are
-// shapes an audit has opinions about, and neither is checked by check 19, which
-// scopes itself to `[data-day-rail]` — the popover is portalled to
-// `document.body` and is not inside it.
+// This check scopes itself to `[data-week-chooser-popover]`: the `role="dialog"`
+// containing nine controls, portalled to `document.body`. Check 19 already
+// audits the trigger itself — including its `aria-hidden` icon of nine
+// decorative spans — because the trigger lives inside `[data-day-rail]`, which
+// is check 19's scope. Only the portalled popover is outside that scope and
+// needs its own pass here.
 {
   const { createRequire } = await import('node:module');
   const require = createRequire(import.meta.url);

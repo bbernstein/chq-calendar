@@ -53,10 +53,20 @@ describe('WeekChooser', () => {
   });
 
   it('draws a miniature of the grid it opens', () => {
-    // The icon is a legend, not decoration: nine cells, in the same wrap as the
-    // grid. If the grid ever reshapes, this catches an icon that did not.
+    // The icon is a legend, not decoration: same cell count, same row-by-row
+    // wrap as the grid it opens. `WeekChooser` and `WeekGrid` each derive their
+    // own shape from `weekGridColumns`/`weekGridRows` rather than sharing one
+    // computed value, so this compares the two independently-derived shapes
+    // rather than just counting nine cells — a count alone would still pass if
+    // one side reshaped (say, to 4 columns) and the other did not.
     renderChooser();
-    expect(document.querySelectorAll('[data-week-chooser-cell]')).toHaveLength(9);
+    fireEvent.click(trigger());
+    const iconRowSizes = Array.from(document.querySelectorAll('[data-week-chooser-icon] > span'))
+      .map(row => row.querySelectorAll('[data-week-chooser-cell]').length);
+    const gridRowSizes = Array.from(document.querySelectorAll('[data-week-row]'))
+      .map(row => row.querySelectorAll('[data-week-cell]').length);
+    expect(iconRowSizes.reduce((a, b) => a + b, 0)).toBe(9);
+    expect(iconRowSizes).toEqual(gridRowSizes);
   });
 
   it('opens on click and announces that it did', () => {
