@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 import { onProgrammaticScroll } from '@/lib/programmaticScroll';
-import { gestureScrollsPage, keyScrollsPage } from '@/lib/scrollGestures';
+import { dragScrollsPage, gestureScrollsPage, keyScrollsPage } from '@/lib/scrollGestures';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
@@ -210,10 +210,11 @@ export function useSiteHeaderReveal() {
      * merely crossing the page is not a scroll either.
      */
     const onGesture = (e: Event) => {
-      // A pointer merely crossing the page is not a scroll; a pointer moving
-      // with its button held is a scrollbar drag, the one way to scroll that
-      // fires no wheel, touch or key.
-      if (e.type === 'mousemove' && (e as MouseEvent).buttons === 0) return;
+      // A pointer merely crossing the page is not a scroll, and neither is
+      // every drag: `dragScrollsPage` keeps the scrollbar-drag case — the one
+      // way to scroll that fires no wheel, touch or key — while rejecting a
+      // drag that began on a control, such as the week strip's drag-select.
+      if (e.type === 'mousemove' && !dragScrollsPage(e as MouseEvent)) return;
       // Nor is a gesture the page never sees. The filter panel scrolls itself
       // while it overlays the list, and the day rail scrolls sideways.
       if (e.type !== 'keydown' && !gestureScrollsPage(e)) return;

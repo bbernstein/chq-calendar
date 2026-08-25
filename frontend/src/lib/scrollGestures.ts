@@ -172,3 +172,43 @@ export function gestureScrollsPage(event: Event): boolean {
   }
   return true;
 }
+
+/**
+ * Controls a drag can start on without the drag being a scroll.
+ *
+ * Deliberately broader than `ACTIVATED_BY_SPACE`: this is not about which key
+ * a control consumes, it is about a press-and-drag that means something to the
+ * control rather than to the page. `[data-chip]` is the day rail; the week
+ * strip's buttons are plain `<button>`s.
+ */
+const DRAGGABLE_CONTROL =
+  'button, a[href], input, select, textarea, summary, [role="button"], [data-chip]';
+
+/**
+ * Whether a drag beginning here would scroll the page.
+ *
+ * A scrollbar drag is the one way to scroll that fires no wheel, touch or key,
+ * which is why the pointer path exists at all. But "a button is held while the
+ * pointer moves" describes far more than that, and one of the other things it
+ * describes is the week-range selector: pressing a week and dragging across
+ * its neighbours refilters the list on every `mouseenter`, changing the
+ * document's height under the reader. The browser's correction for that would
+ * then arrive inside a window the drag had armed.
+ *
+ * Detecting the scrollbar itself was the obvious alternative and is not
+ * available: headless Chromium — like macOS by default — uses overlay
+ * scrollbars, where `document.documentElement.clientWidth === innerWidth`, so
+ * there is no gutter to test a coordinate against and no way to verify such a
+ * test here. Asking where the drag STARTED needs no platform knowledge.
+ *
+ * A drag over ordinary content is left counting, because it is a text
+ * selection, and dragging a selection past the viewport edge does scroll.
+ */
+export function dragScrollsPage(event: MouseEvent): boolean {
+  // Primary button only. `buttons` is a bitmask, so `!== 0` also matched
+  // right- and middle-button drags, neither of which scrolls anything.
+  if (event.buttons !== 1) return false;
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+  return !target.closest(DRAGGABLE_CONTROL);
+}

@@ -123,6 +123,12 @@ const gestureOn = (from: Element, type: string, init: object = {}) => act(() => 
   from.dispatchEvent(new Ctor(type, { bubbles: true, ...init }));
 });
 
+/** Press, move, and stay held — a drag in progress, from `from`. */
+const dragFrom = (from: Element, buttons = 1) => {
+  gestureOn(from, 'mousedown', { button: buttons === 1 ? 0 : 2, buttons });
+  gestureOn(from, 'mousemove', { buttons });
+};
+
 /** Jump the document to `y` through the announcing helper. */
 const jumpTo = (y: number) => {
   vi.spyOn(window, 'scrollBy').mockImplementation((() => {
@@ -953,6 +959,57 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
 
     expect(result.current.revealed).toBe(true);
+  });
+
+  // A drag is only a scrollbar drag if it started somewhere a drag scrolls.
+  //
+  // The week-range selector is the concrete case: pressing a week button and
+  // dragging across its neighbours refilters the list on every `mouseenter`,
+  // which changes the document's height under the reader — and the browser's
+  // correction for that would be admitted as reader-driven because the drag
+  // was emitting `mousemove` with a button held the whole time. The header
+  // moves while the reader is picking weeks.
+  it('does not count a drag that began on a control', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    dragFrom(el('<button type="button">Wk 5</button>'));
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // A drag over ordinary content is a text selection, and dragging a selection
+  // past the edge of the viewport really does scroll the page.
+  it('counts a drag that began on ordinary content', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    dragFrom(el('<p>an event description</p>'));
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // `buttons` is a bitmask, so the old `!== 0` admitted right- and
+  // middle-button drags too. Neither scrolls anything.
+  it('does not count a secondary-button drag', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    dragFrom(el('<p>an event description</p>'), 2);
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
   });
 
   // The pointer moving across the page is not a scroll, and counting it would
