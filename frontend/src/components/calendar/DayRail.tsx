@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { DayChip } from '@/lib/utils/dayWindow';
 import type { SeasonWeek } from '@/lib/types';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
@@ -243,6 +243,19 @@ export function DayRail({
   const { stripRef, contentRef, pillRef, clipRef, contentEl, resume } =
     useRailHighlight(chipKeys, windowDayKeys);
 
+  // Stable, so `WeekChooser`'s `memo` actually has something to compare.
+  // `resume` is itself a `useCallback` with an empty dependency array
+  // (`useRailHighlight`), so this only changes identity when `onSelectWeek`
+  // — DayRail's own prop, `page.tsx`'s `goToWeek` — does, which is rare.
+  // An inline arrow here would recreate on every render regardless of
+  // whether the reader touched the chooser, defeating the memo on exactly
+  // the renders it exists to skip (the filter panel opening and closing
+  // re-renders this whole row without changing anything about the chooser).
+  const handleSelectWeek = useCallback((week: number) => {
+    resume();
+    onSelectWeek(week);
+  }, [resume, onSelectWeek]);
+
   // Reachability, not adjacency: `chips` spans every calendar day in the
   // navigable bounds, so `anchorIdx ± 1` is enabled on days a step cannot
   // actually land on.
@@ -480,8 +493,8 @@ export function DayRail({
         // `resume()` for the same reason a band tap and a chip tap call it: the
         // highlight is scroll-linked and paused while the reader is dragging the
         // rail, and a jump has to hand control back to the scroll position it is
-        // about to land on.
-        onSelectWeek={(week) => { resume(); onSelectWeek(week); }}
+        // about to land on. Stabilized above so `WeekChooser`'s `memo` holds.
+        onSelectWeek={handleSelectWeek}
       />
 
       {filtersToggle?.visible && (
