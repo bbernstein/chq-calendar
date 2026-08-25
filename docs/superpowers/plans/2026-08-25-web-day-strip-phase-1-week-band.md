@@ -2517,6 +2517,16 @@ Append to `frontend/e2e/verify-rail.mjs`, before `await browser.close()`:
 
 - [ ] **Step 3: Carve the band out of the 44px check, honestly**
 
+First, one small production change in
+`frontend/src/components/calendar/WeekBandCell.tsx`: the labelled band button
+gains `data-week-band-target={destinations.get(labelled)?.dayKey}` alongside
+its existing `data-week-band-button`. Check 15b below needs the destination in
+the DOM, and the alternative — re-deriving it in the browser — would put a
+second copy of `weekBandDestinations`' rule in the check. Add a line to the
+existing `WeekBandCell` test asserting the attribute carries the destination
+day for a reachable week and is absent for an unreachable one.
+
+
 Replace check 15's `[...rail.querySelectorAll('button')]` with
 
 ```js
@@ -2533,24 +2543,37 @@ Replace check 15's `[...rail.querySelectorAll('button')]` with
 and rename the check to `15a`. Then add:
 
 ```js
-  // The carve-out's premise, asserted rather than assumed: every week the band
-  // offers is also reachable from a full-size control.
-  const weeksWithFullSizeChips = await page.evaluate(() => {
+  // The carve-out's premise, asserted rather than approximated: the band's
+  // 16px button is never the ONLY way to reach the day it goes to. Every
+  // reachable week names a destination day, and that day's own chip is a
+  // full-size control — so a thumb that cannot hit the band has a 44px route
+  // to exactly the same place.
+  //
+  // This needs the destination in the DOM, which is why the labelled band
+  // button carries `data-week-band-target`. Deriving it in the browser instead
+  // would mean re-implementing `weekBandDestinations` in the check — a second
+  // copy of the rule, which is the thing this whole design keeps refusing to
+  // have.
+  const carveOut = await page.evaluate(() => {
     const rail = document.querySelector('[data-day-rail]');
-    const offered = [...rail.querySelectorAll('[data-week-band-button]')]
+    const targets = [...rail.querySelectorAll('[data-week-band-button]')]
       .filter(b => b.getAttribute('aria-disabled') !== 'true')
-      .map(b => b.dataset.weekBandButton);
-    // A week's own days are the columns whose band cell paints any bar at all
-    // and whose labelled button, if present, names that week — approximated
-    // here by "the column under this label, and its neighbours in the run".
-    const chips = [...rail.querySelectorAll('[data-chip]')]
-      .map(c => c.getBoundingClientRect())
-      .filter(r => r.width >= 44 && r.height >= 44);
-    return { offered: offered.length, fullSizeChips: chips.length };
+      .map(b => b.dataset.weekBandTarget)
+      .filter(Boolean);
+    const missing = targets.filter(day => {
+      const chip = rail.querySelector(`[data-chip="${day}"]`);
+      if (!chip) return true;
+      const r = chip.getBoundingClientRect();
+      return r.width < 44 || r.height < 44;
+    });
+    return { offered: targets.length, missing };
   });
-  check('15b every offered week is also reachable from full-size day chips',
-    weeksWithFullSizeChips.offered > 0 && weeksWithFullSizeChips.fullSizeChips >= 7 * weeksWithFullSizeChips.offered,
-    `${weeksWithFullSizeChips.offered} weeks offered, ${weeksWithFullSizeChips.fullSizeChips} chips at ≥44px`);
+  check('15b every week the band offers has a 44px chip for the same day',
+    carveOut.offered > 0 && carveOut.missing.length === 0,
+    carveOut.offered === 0
+      ? 'no reachable week band button found'
+      : `${carveOut.offered} weeks offered, ${carveOut.missing.length} without a full-size chip` +
+        (carveOut.missing.length ? `: ${carveOut.missing.join(', ')}` : ''));
 ```
 
 - [ ] **Step 4: Run it**
