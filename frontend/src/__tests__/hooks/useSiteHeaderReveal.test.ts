@@ -117,16 +117,40 @@ const tallOrdinaryContent = () => {
   return inner;
 };
 
+/**
+ * A touch drag from `from`: the press, then a move of `dy` pixels.
+ *
+ * Finger moving UP the screen (negative `dy`) scrolls the content DOWN, which
+ * is why the direction has to be reconstructed rather than read off the event.
+ */
+const touchDrag = (from: Element, dy: number, startY = 400) => {
+  const touch = (y: number) => ({ clientY: y });
+  act(() => {
+    const start = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(start, 'touches', { value: [touch(startY)] });
+    from.dispatchEvent(start);
+    const move = new Event('touchmove', { bubbles: true });
+    Object.defineProperty(move, 'touches', { value: [touch(startY + dy)] });
+    from.dispatchEvent(move);
+  });
+};
+
 /** A pointer gesture dispatched FROM a particular element. */
 const gestureOn = (from: Element, type: string, init: object = {}) => act(() => {
   const Ctor = type === 'wheel' ? WheelEvent : type.startsWith('touch') ? Event : MouseEvent;
   from.dispatchEvent(new Ctor(type, { bubbles: true, ...init }));
 });
 
-/** Press, move, and stay held — a drag in progress, from `from`. */
-const dragFrom = (from: Element, buttons = 1) => {
+/**
+ * Press on `from`, then move over `over` with the button still held.
+ *
+ * The two are separate because that is where the bug was: a drag's origin and
+ * the element currently under the pointer are different things, and only the
+ * first one says what the drag means.
+ */
+const dragFrom = (from: Element, { over = from, buttons = 1 } = {}) => {
   gestureOn(from, 'mousedown', { button: buttons === 1 ? 0 : 2, buttons });
-  gestureOn(from, 'mousemove', { buttons });
+  gestureOn(over, 'mousemove', { buttons });
 };
 
 /** Jump the document to `y` through the announcing helper. */
@@ -185,6 +209,8 @@ const headerEl = (h: number) => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Object.defineProperty(document.documentElement, 'clientWidth', { value: 0, configurable: true });
+  Object.defineProperty(document.documentElement, 'clientHeight', { value: 0, configurable: true });
   document.documentElement.style.removeProperty('overflow-y');
   document.body.style.removeProperty('overflow-y');
   document.documentElement.style.removeProperty(OFFSET);
@@ -1012,6 +1038,40 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(true);
   });
 
+  // Touch gets the boundary rule too. On a phone the filter panel covers 70%
+  // of the screen, so "a swipe that starts over the panel" is most swipes —
+  // and with the panel already at its top, the chain moves `window` while
+  // every `touchmove` was being rejected. The header could not be revealed at
+  // all from the largest target on screen.
+  it('counts a swipe that chains past a scroller already at its top', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    // Finger down the screen = content scrolls up = the panel would go up,
+    // but it is already at its top, so the page takes it.
+    touchDrag(nestedScroller({ scrollTop: 0 }), 60);
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // Mid-scroll the panel really does take the swipe, and must still be ignored.
+  it('does not count a swipe a scroller can still act on', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    touchDrag(nestedScroller({ scrollTop: 150 }), 60);
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
   // A drag is only a scrollbar drag if it started somewhere a drag scrolls.
   //
   // The week-range selector is the concrete case: pressing a week button and
@@ -1031,6 +1091,85 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);
+  });
+
+  // The origin is what the drag MEANS, and the pointer leaves it. A week-range
+  // drag starts on a button and is dragged across the strip and off it: from
+  // that moment every `mousemove` targets ordinary content, so a rule reading
+  // the current target would arm on exactly the drag it had just refused.
+  it('does not count a drag that began on a control after it leaves that control', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    dragFrom(el('<button type="button">Wk 5</button>'), { over: el('<p>the list below</p>') });
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // And the drag ends when the button comes up: the next press decides afresh.
+  it('counts a fresh drag begun on content after one begun on a control ended', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    const control = el('<button type="button">Wk 5</button>');
+    gestureOn(control, 'mousedown', { button: 0, buttons: 1 });
+    gestureOn(control, 'mouseup', { button: 0, buttons: 0 });
+
+    dragFrom(el('<p>an event description</p>'));
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // The one press that IS a scroll. Clicking the scrollbar track pages the
+  // view and fires nothing else — no wheel, no key, no touch, no move — so
+  // without arming here, that way of scrolling could never bring the header
+  // back. Pinned at the hook, not only at the predicate: a predicate nobody
+  // consults is the same as no predicate.
+  it('counts a press in the scrollbar gutter, which pages the view', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    Object.defineProperty(document.documentElement, 'clientWidth', { value: 880, configurable: true });
+    Object.defineProperty(document.documentElement, 'clientHeight', { value: 680, configurable: true });
+    gestureOn(el('<div>the page</div>'), 'mousedown', { button: 0, buttons: 1, clientX: 890, clientY: 300 });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // A press ends the drag it started, so its origin must not outlive it. A
+  // drag that begins outside the window and enters it — pressing on the
+  // browser chrome, or on a scrollbar the page never sees the press for —
+  // arrives as a `mousemove` with a button held and no `mousedown` behind it.
+  // Judged against the LAST drag's origin, such a gesture inherits a verdict
+  // that has nothing to do with it.
+  it('does not judge a new drag by the origin of the one before it', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    const control = el('<button type="button">Wk 5</button>');
+    gestureOn(control, 'mousedown', { button: 0, buttons: 1 });
+    gestureOn(control, 'mouseup', { button: 0, buttons: 0 });
+
+    // No `mousedown`: the press happened where this listener could not see it.
+    gestureOn(el('<p>an event description</p>'), 'mousemove', { buttons: 1 });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
   });
 
   // A drag over ordinary content is a text selection, and dragging a selection
@@ -1057,7 +1196,7 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     jumpTo(12_929);
     advance(GESTURE_WINDOW_MS + 1);
 
-    dragFrom(el('<p>an event description</p>'), 2);
+    dragFrom(el('<p>an event description</p>'), { buttons: 2 });
     frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);

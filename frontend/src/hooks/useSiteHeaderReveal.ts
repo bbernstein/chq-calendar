@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 import { onProgrammaticScroll } from '@/lib/programmaticScroll';
-import { dragScrollsPage, gestureScrollsPage, keyScrollsPage } from '@/lib/scrollGestures';
+import { dragScrollsPage, gestureScrollsPage, keyScrollsPage, pressIsOnScrollbar } from '@/lib/scrollGestures';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
@@ -209,15 +209,55 @@ export function useSiteHeaderReveal() {
      * why the button state is checked rather than the event type: a pointer
      * merely crossing the page is not a scroll either.
      */
+    /**
+     * The element the current drag began on.
+     *
+     * Tracked from `mousedown` because a drag's origin is what it means, and
+     * the pointer leaves that origin immediately — the week strip's
+     * drag-select starts on a button and is pulled across the list. Recorded
+     * here rather than armed: a press still scrolls nothing, so this listener
+     * deliberately does not touch `lastGestureAt`.
+     */
+    let dragOrigin: Element | null = null;
+    /** Where the finger was, so a `touchmove` can be given a direction. */
+    let lastTouchY: number | null = null;
+    const onPress = (e: Event) => {
+      const target = e.target;
+      // A press in the scrollbar track pages the view and fires nothing else —
+      // no wheel, no key, no touch, no move. It is the one press that IS a
+      // scroll, which is why it arms while every other press does not.
+      if (e.type === 'mousedown' && pressIsOnScrollbar(e as MouseEvent)) {
+        lastGestureAt = performance.now();
+        settling = false;
+      }
+      dragOrigin = e.type === 'mousedown' && target instanceof Element ? target : null;
+      if (e.type === 'touchstart' || e.type === 'touchend') {
+        const y = (e as TouchEvent).touches?.[0]?.clientY;
+        lastTouchY = typeof y === 'number' ? y : null;
+      }
+    };
+
     const onGesture = (e: Event) => {
       // A pointer merely crossing the page is not a scroll, and neither is
       // every drag: `dragScrollsPage` keeps the scrollbar-drag case — the one
       // way to scroll that fires no wheel, touch or key — while rejecting a
       // drag that began on a control, such as the week strip's drag-select.
-      if (e.type === 'mousemove' && !dragScrollsPage(e as MouseEvent)) return;
+      if (e.type === 'mousemove' && !dragScrollsPage(e as MouseEvent, dragOrigin)) return;
       // Nor is a gesture the page never sees. The filter panel scrolls itself
       // while it overlays the list, and the day rail scrolls sideways.
-      if (e.type !== 'keydown' && !gestureScrollsPage(e)) return;
+      //
+      // A `touchmove` carries no direction of its own, so it is reconstructed
+      // from the previous touch position: a finger moving DOWN the screen
+      // pushes the content UP, which is a negative delta.
+      let touchDelta = 0;
+      if (e.type === 'touchmove') {
+        const y = (e as TouchEvent).touches?.[0]?.clientY;
+        if (typeof y === 'number') {
+          if (lastTouchY !== null) touchDelta = lastTouchY - y;
+          lastTouchY = y;
+        }
+      }
+      if (e.type !== 'keydown' && !gestureScrollsPage(e, touchDelta)) return;
       // Nor is typing. Every keystroke on the page reaches this listener,
       // search included — and search re-filtering is the largest layout change
       // above the reader the app makes.
@@ -226,6 +266,7 @@ export function useSiteHeaderReveal() {
       settling = false;
     };
     const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
+    const presses = ['mousedown', 'mouseup', 'touchstart', 'touchend'] as const;
 
     // Re-run the decision when the header's own height changes, not only when
     // something scrolls. Text zoom that grows the header around the reader's
@@ -239,11 +280,17 @@ export function useSiteHeaderReveal() {
     for (const type of gestures) {
       window.addEventListener(type, onGesture, { passive: true, capture: true });
     }
+    for (const type of presses) {
+      window.addEventListener(type, onPress, { passive: true, capture: true });
+    }
     return () => {
       window.removeEventListener('scroll', decide);
       decideRef.current = null;
       for (const type of gestures) {
         window.removeEventListener(type, onGesture, { capture: true });
+      }
+      for (const type of presses) {
+        window.removeEventListener(type, onPress, { capture: true });
       }
       stopListeningForJumps();
       document.documentElement.style.removeProperty(OFFSET);

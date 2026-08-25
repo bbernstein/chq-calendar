@@ -171,24 +171,29 @@ function canScrollBy(el: Element, deltaY: number): boolean {
  * A wheel with no vertical component is out for the same reason: the day rail
  * scrolls sideways, and moving it is not moving the page up or down.
  *
- * A wheel carries a direction, so an ancestor only counts as consuming it when
- * it can still move that way; otherwise the walk continues toward the
- * document, which is what the browser does. A touch drag carries no usable
- * direction on a single `touchmove`, so any scrollable ancestor claims it —
- * the conservative half of the rule, kept because reconstructing a drag's
- * direction means tracking `touchstart` state for a decision that is already
- * bounded by a 400ms window.
+ * An ancestor only counts as consuming the gesture when it can still move the
+ * way the gesture is pushing; otherwise the walk continues toward the
+ * document, which is what the browser does.
+ *
+ * `deltaY` is the direction, and the caller supplies it for touch. A wheel
+ * carries its own; a single `touchmove` does not, so the caller reconstructs
+ * it from the previous touch position. An earlier version skipped that and let
+ * any scrollable ancestor claim a swipe, described as "the conservative half
+ * of the rule" — on a phone the filter panel covers 70% of the screen, so that
+ * conservative half meant the header could not be revealed from the largest
+ * target on it.
  */
-export function gestureScrollsPage(event: Event): boolean {
-  const isWheel = event.type === 'wheel';
-  const deltaY = isWheel ? (event as WheelEvent).deltaY : 0;
-  if (isWheel && deltaY === 0) return false;
+export function gestureScrollsPage(event: Event, deltaY?: number): boolean {
+  const direction = event.type === 'wheel' ? (event as WheelEvent).deltaY : deltaY ?? 0;
+  // A wheel with no vertical component is the day rail moving sideways.
+  if (event.type === 'wheel' && direction === 0) return false;
   const target = event.target;
   if (!(target instanceof Element)) return true;
   for (let el: Element | null = target; el; el = el.parentElement) {
     if (!scrollsVertically(el)) continue;
     // At its boundary it chains to the page rather than consuming this.
-    if (isWheel && !canScrollBy(el, deltaY)) continue;
+    // Direction 0 means the caller could not tell, so the scroller keeps it.
+    if (direction !== 0 && !canScrollBy(el, direction)) continue;
     return false;
   }
   return true;
@@ -224,12 +229,53 @@ const DRAGGABLE_CONTROL =
  *
  * A drag over ordinary content is left counting, because it is a text
  * selection, and dragging a selection past the viewport edge does scroll.
+ *
+ * `origin` is the element the drag STARTED on, which the caller has to
+ * remember from `mousedown` — it is not `event.target`, and reading the
+ * current target instead was this function contradicting its own contract: a
+ * week drag begun on a button and pulled off the strip targets ordinary
+ * content from that moment on, so it armed on exactly the drag it had just
+ * refused.
  */
-export function dragScrollsPage(event: MouseEvent): boolean {
+export function dragScrollsPage(event: MouseEvent, origin: Element | null): boolean {
   // Primary button only. `buttons` is a bitmask, so `!== 0` also matched
   // right- and middle-button drags, neither of which scrolls anything.
   if (event.buttons !== 1) return false;
-  const target = event.target;
-  if (!(target instanceof Element)) return true;
-  return !target.closest(DRAGGABLE_CONTROL);
+  // No recorded press means the drag began before this hook was listening, or
+  // outside the document. Nothing says it was a control.
+  if (!origin) return true;
+  return !origin.closest(DRAGGABLE_CONTROL);
+}
+
+/**
+ * Whether a primary press landed in the document's scrollbar gutter.
+ *
+ * A press in the scrollbar track pages the view, and it is the one way of
+ * scrolling that fires no wheel, no key, no touch and no `mousemove` — so
+ * without this it never reaches a scroll-direction watcher at all, and
+ * clicking upward in the scrollbar cannot bring a hidden header back.
+ *
+ * The gutter is the strip between the viewport and the content box: it has
+ * width only when a classic scrollbar occupies it, so this cannot mistake a
+ * press on the page for one on the scrollbar. Where scrollbars are overlaid —
+ * macOS by default, and headless Chromium, measured at `clientWidth` 900 and
+ * `innerWidth` 900 — there is no gutter, nothing is ever in one, and this
+ * correctly finds nothing. That is also why it is pinned by unit tests rather
+ * than by the browser suite, which has no scrollbar to press.
+ *
+ * A non-primary press opens the scrollbar's context menu instead of paging.
+ */
+export function pressIsOnScrollbar(event: MouseEvent): boolean {
+  if (event.button !== 0) return false;
+  const root = document.documentElement;
+  // No measurable content box means no measurable gutter. Without this, an
+  // unlaid-out document reports `clientWidth: 0` and every press in it is
+  // "past the content", which is the whole page — the failure this predicate
+  // most needs to avoid, since it arms on a press that scrolls nothing.
+  if (root.clientWidth <= 0 || root.clientHeight <= 0) return false;
+  // No `innerWidth > clientWidth` test needed: where scrollbars are overlaid
+  // the two are equal, so nothing can be at or past the content edge anyway.
+  // The overlay case falls out of the comparison rather than needing its own
+  // branch — one that could not be made to fail was not worth keeping.
+  return event.clientX >= root.clientWidth || event.clientY >= root.clientHeight;
 }

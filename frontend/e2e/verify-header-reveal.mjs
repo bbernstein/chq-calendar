@@ -146,8 +146,20 @@ const settle = async (p, { stableSamples = 4, gapMs = 120, timeoutMs = 8000, lab
 const deepAndHidden = async (p, y = 6000) => {
   await p.evaluate((to) => window.scrollTo(0, to), y);
   await settle(p);
-  await wheel(p, 120);
-  await settle(p);
+  // Wheel until it is actually hidden, rather than assuming one tick does it.
+  //
+  // One tick is not a reliable unit of scrolling. WebKit on Linux splits a
+  // single tick across frames, and a correction still in flight can net
+  // against it — this block skipped in CI ("the header would not park") while
+  // passing three times in a row against macOS WebKit locally. A setup that
+  // depends on one tick landing is a setup that reports engine differences as
+  // failures of whatever it was testing.
+  for (let i = 0; i < 5; i++) {
+    const seen = await geometry(p);
+    if (seen.bottom <= 0) return seen;
+    await wheel(p, 120);
+    await settle(p);
+  }
   return geometry(p);
 };
 
