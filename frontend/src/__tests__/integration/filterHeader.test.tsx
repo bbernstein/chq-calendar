@@ -107,7 +107,7 @@ const sentinel = () =>
   document.querySelector('main > div[aria-hidden="true"]') as HTMLElement;
 
 const toggleButton = () =>
-  document.querySelector('[data-day-rail] button[aria-expanded]') as HTMLButtonElement | null;
+  document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]') as HTMLButtonElement | null;
 
 async function renderPage() {
   render(<Home />);
