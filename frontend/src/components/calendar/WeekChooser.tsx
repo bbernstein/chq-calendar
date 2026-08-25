@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SeasonWeek } from '@/lib/types';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
@@ -36,6 +36,15 @@ export function WeekChooser({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  // Whether `WeekGrid`'s theme popover is open. It portals to `document.body`
+  // — outside both refs above — so the outside-press handler below has to
+  // learn about it some other way. A ref rather than state: the handler only
+  // needs the current value at press time, and state here would re-run the
+  // effect below on every theme open/close for no benefit.
+  const themeOpenRef = useRef(false);
+  const handleThemeOpenChange = useCallback((isOpen: boolean) => {
+    themeOpenRef.current = isOpen;
+  }, []);
 
   const coords = useFloatingCoords(open, triggerRef, popoverRef, { mode: 'center' });
 
@@ -57,6 +66,13 @@ export function WeekChooser({
       const target = e.target as Node;
       if (popoverRef.current?.contains(target)) return;
       if (triggerRef.current?.contains(target)) return;
+      // Also defer to an open theme popover, the same way `WeekGrid`'s own
+      // Escape handler does (`themePopover.isOpen`) — it portals to
+      // `document.body`, outside both refs above, so without this a press on
+      // its "View on chq.org" link or its description text would tear the
+      // whole chooser down (and the theme popover with it) before the press
+      // could ever finish.
+      if (themeOpenRef.current) return;
       // Not `close()`: a press outside is not a request to move focus back into
       // the rail, and stealing it from whatever the reader pressed would be
       // worse than leaving it where they put it.
@@ -120,6 +136,7 @@ export function WeekChooser({
             themes={themes}
             onSelectWeek={onSelectWeek}
             onDismiss={close}
+            onThemeOpenChange={handleThemeOpenChange}
           />
         </div>,
         document.body,

@@ -22,6 +22,14 @@ export interface WeekGridProps {
   onSelectWeek: (week: number) => void;
   /** Escape, or a week having been chosen. The caller closes and refocuses. */
   onDismiss: () => void;
+  /**
+   * Reports whether this grid's own theme popover is open. It portals to
+   * `document.body`, outside the chooser's `popoverRef`/`triggerRef`, so
+   * `WeekChooser`'s outside-press handler cannot see it directly — this is
+   * how it learns to defer, the pointer-path mirror of the `isOpen` check
+   * this component's own Escape handler already makes below.
+   */
+  onThemeOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -38,7 +46,7 @@ export interface WeekGridProps {
  * have no visible edge — the same reason the chooser's icon rings its lit cell.
  */
 export function WeekGrid({
-  seasonWeeks, destinations, currentWeek, themes, onSelectWeek, onDismiss,
+  seasonWeeks, destinations, currentWeek, themes, onSelectWeek, onDismiss, onThemeOpenChange,
 }: WeekGridProps) {
   const weekNumbers = seasonWeeks.map(w => w.number);
   const columns = weekGridColumns(weekNumbers.length);
@@ -61,6 +69,20 @@ export function WeekGrid({
   };
 
   const themePopover = useWeekThemePopover({ themes, onActivate: activate });
+
+  // Mirrors `themePopover.isOpen` up to `WeekChooser`, whose outside-press
+  // handler cannot see the theme popover directly — it portals to
+  // `document.body`, outside the chooser's own refs.
+  // NOTE for humans, not a real eslint-disable: this repo has no
+  // eslint-plugin-react-hooks, so a literal `eslint-disable-next-line
+  // react-hooks/exhaustive-deps` comment here is a hard ESLint 9 error
+  // ("Definition for rule ... was not found"), not a silenced warning.
+  // `onThemeOpenChange` is deliberately left out of the dependency array: the
+  // caller passes a `useCallback`-stable function, and this effect only needs
+  // to re-fire when the boolean itself changes.
+  useEffect(() => {
+    onThemeOpenChange?.(themePopover.isOpen);
+  }, [themePopover.isOpen]);
 
   // Focus enters the grid on open, on the week the reader is already in. Doing
   // it here rather than in the caller keeps "which cell is the entry point" in
