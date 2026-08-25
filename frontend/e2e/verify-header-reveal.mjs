@@ -252,14 +252,15 @@ const deepAndHidden = async (p, y = 6000) => {
   // would pass on code with no resync at all. The first version of this check
   // did exactly that — it tapped the last chip, jumped 6,120 → 12,916, and
   // passed vacuously.
-  const first = (await chipKeys())[0];
-  const last = (await chipKeys()).slice(-1)[0];
+  const chips = await chipKeys();
+  const first = chips[0];
+  const last = chips[chips.length - 1];
   if (start.bottom > 0) {
     check('11 a rail chip tap does not reveal the header', false,
       `SETUP: the header would not hide before the tap (bottom=${start.bottom}, scrollY=${start.scrollY})`);
   } else if (!first || !last || first === last) {
     skip('11 a rail chip tap does not reveal the header',
-      `need two navigable chips, found ${(await chipKeys()).length}`);
+      `need two navigable chips, found ${chips.length}`);
   } else {
     await tapChip(last);
     await settle(p);
