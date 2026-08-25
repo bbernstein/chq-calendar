@@ -374,32 +374,73 @@ const fixedGhosts = p => p.evaluate(() =>
     await p.waitForTimeout(700);
     await toggle(p).click();
     await p.waitForTimeout(500);
-    // Diagnostic: confirm the panel actually opened (and isn't already
-    // mid-exit from a previous cycle) before the dismiss gesture fires, and
-    // record what the dismiss gesture is about to land on — `isExempt` in
-    // `useFilterPanel.ts` reads the event's `target`, so if this coordinate
-    // ever resolves inside the panel or the toggle, the gesture is exempt
-    // and nothing dismisses.
-    const beforeWheel = await p.evaluate(() => {
+    // Diagnostic, gathered in ONE round trip so it adds as little of its own
+    // delay as possible before the gesture: confirm the panel actually
+    // opened (and isn't already mid-exit from a previous cycle), record what
+    // the gesture is about to land on (`isExempt` in `useFilterPanel.ts`
+    // reads the event's `target` — a coordinate resolving inside the panel
+    // or the toggle would make the gesture exempt and nothing would
+    // dismiss), and arm a `MutationObserver` that timestamps the instant the
+    // exit's own DOM mutation (the `filter-panel-exit` class landing on the
+    // panel) is observed. That timestamp is what separates two different
+    // failures that read identically from the final computed style alone:
+    // the exit's React commit itself arriving late (main-thread contention
+    // delayed `beginExit`), versus the commit landing on time but the CSS
+    // transition not visibly advancing by the sample point (the browser
+    // never having painted the pre-exit frame the transition needs to
+    // animate from — the same class of bug the hook doc's "Exit animation"
+    // section describes for the FIRST dismissal).
+    const before = await p.evaluate(() => {
       const at = document.elementFromPoint(195, 700);
       const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
       const el = t && document.getElementById(t.getAttribute('aria-controls'));
+      window.__exitMutationAt = null;
+      if (el) {
+        const mo = new MutationObserver(() => {
+          if (window.__exitMutationAt == null && el.classList.contains('filter-panel-exit')) {
+            window.__exitMutationAt = performance.now();
+          }
+        });
+        mo.observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
+        window.__exitMo = mo;
+      }
       return {
         atPointTag: at?.tagName ?? null,
-        atPointAttrs: at ? Array.from(at.attributes).map(a => a.name).join(' ') : null,
         atPointInPanel: !!(el && at && el.contains(at)),
         atPointInToggle: !!(t && at && t.contains(at)),
         scrollY: window.scrollY,
+        ariaExpanded: t?.getAttribute('aria-expanded') ?? null,
+        exitingClass: el?.classList.contains('filter-panel-exit') ?? null,
+        position: el ? getComputedStyle(el).position : null,
+        beforeWheelAt: performance.now(),
       };
     });
-    const openedBefore = await panelState();
     await p.mouse.move(195, 700);
     await p.mouse.wheel(0, 100);
     await p.waitForTimeout(80);
     const r = await panelState();
-    const scrollYAfterWheel = await p.evaluate(() => window.scrollY);
+    const after = await p.evaluate(() => {
+      window.__exitMo?.disconnect();
+      return {
+        scrollY: window.scrollY,
+        exitMutationAt: window.__exitMutationAt,
+        sampleAt: performance.now(),
+      };
+    });
     await p.waitForTimeout(800);
-    return { ...r, openedBefore, beforeWheel, scrollYAfterWheel };
+    return {
+      ...r,
+      openedBefore: before,
+      scrollYAfterWheel: after.scrollY,
+      // Milliseconds from just-before-the-wheel to the exit's own DOM
+      // mutation landing, and from that mutation to this sample. `null` for
+      // the first means the mutation was never observed at all — the
+      // dismissal was missed outright, not merely slow to animate.
+      msToExitMutation: after.exitMutationAt == null ? null
+        : Math.round(after.exitMutationAt - before.beforeWheelAt),
+      msMutationToSample: after.exitMutationAt == null ? null
+        : Math.round(after.sampleAt - after.exitMutationAt),
+    };
   };
   const first = await sample();
   const second = await sample();
