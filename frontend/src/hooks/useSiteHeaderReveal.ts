@@ -34,6 +34,16 @@ const HEIGHT = '--site-header-h';
  */
 export const GESTURE_WINDOW_MS = 400;
 
+/**
+ * The longest gap between scroll events that still counts as one continuous
+ * movement of the page.
+ *
+ * Momentum arrives frame by frame, so consecutive frames stay tens of
+ * milliseconds apart even as a flick decays. A longer gap means the page came
+ * to rest, and whatever scrolls next is something else's doing.
+ */
+const MOMENTUM_GAP_MS = 200;
+
 
 /**
  * The offset while the header is showing.
@@ -164,8 +174,32 @@ export function useSiteHeaderReveal() {
      */
     let settling = false;
 
+    /**
+     * Whether the page is still coasting from the reader's last touch.
+     *
+     * A wheel fires for as long as the page is moving, so a window refreshed
+     * by gesture events covers the whole of a mouse scroll. A touch does not:
+     * `touchmove` stops at `touchend` while most of a flick's distance is
+     * still to come, and iOS coasts for up to a couple of seconds in silence.
+     *
+     * The coast IS the reader's scroll - the second half of the gesture they
+     * made - so while it runs each frame refreshes the window itself. It ends
+     * when the page stops moving, which is why the gap between frames closes
+     * it rather than a timer: momentum has no other signal that it finished.
+     */
+    let coasting = false;
+    let lastScrollAt = -Infinity;
+
     const decide = () => {
       const previous = stateRef.current;
+      const now = performance.now();
+      // A gap means the page had come to rest, so the coast is over and this
+      // scroll belongs to something else.
+      if (coasting && now - lastScrollAt > MOMENTUM_GAP_MS) coasting = false;
+      lastScrollAt = now;
+      // No `&& !settling` here: `readerDriven` below already requires it, and
+      // settling only ends at a gesture, which refreshes this anyway.
+      if (coasting) lastGestureAt = now;
       const readerDriven = !settling && performance.now() - lastGestureAt <= GESTURE_WINDOW_MS;
       // The top zone is a fact about where the header IS, not a decision about
       // where it should be — a sticky header cannot be parked above a position
@@ -230,6 +264,11 @@ export function useSiteHeaderReveal() {
         lastGestureAt = performance.now();
         settling = false;
       }
+      // Lifting the finger starts a coast. There is deliberately no
+      // `touchstart` clause to end one: the gap rule has already ended any
+      // coast a new touch could interrupt, so clearing it here would be a
+      // branch nothing could make fail.
+      if (e.type === 'touchend') coasting = true;
       dragOrigin = e.type === 'mousedown' && target instanceof Element ? target : null;
       if (e.type === 'touchstart' || e.type === 'touchend') {
         const y = (e as TouchEvent).touches?.[0]?.clientY;

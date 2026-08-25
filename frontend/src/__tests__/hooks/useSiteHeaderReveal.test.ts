@@ -57,6 +57,42 @@ beforeEach(() => {
  * one always does — and a fake without it is a horizontal wheel, which the
  * hook is right to ignore.
  */
+/**
+ * A flick: the finger goes down, moves a little, and lifts - then the page
+ * keeps scrolling on its own for a second with no touch events at all.
+ *
+ * This is what a swipe on iOS looks like from here, and it is nothing like a
+ * wheel. A wheel fires for as long as the page is moving; a flick's events
+ * stop at `touchend` while most of the scrolling is still to come.
+ */
+const flick = (from: Element, { fingerTo, coastTo, frameMs = 60 }: {
+  fingerTo: number; coastTo: number; frameMs?: number;
+}) => {
+  const startScrollY = window.scrollY;
+  const touch = (y: number) => ({ clientY: y });
+  act(() => {
+    const start = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(start, 'touches', { value: [touch(400)] });
+    from.dispatchEvent(start);
+  });
+  act(() => {
+    const move = new Event('touchmove', { bubbles: true });
+    Object.defineProperty(move, 'touches', { value: [touch(400 - (fingerTo - startScrollY))] });
+    from.dispatchEvent(move);
+  });
+  frameScrollTo(fingerTo);
+  act(() => {
+    const end = new Event('touchend', { bubbles: true });
+    Object.defineProperty(end, 'touches', { value: [] });
+    from.dispatchEvent(end);
+  });
+  const steps = 8;
+  for (let i = 1; i <= steps; i++) {
+    advance(frameMs);
+    frameScrollTo(Math.round(fingerTo + ((coastTo - fingerTo) * i) / steps));
+  }
+};
+
 const gesture = (type: string, init: object = {}) => act(() => {
   const Ctor = type === 'keydown' ? KeyboardEvent : type.startsWith('touch') ? Event : MouseEvent;
   const defaults = type === 'wheel' ? { deltaY: 1 } : {};
@@ -230,6 +266,152 @@ const mount = (h = 72) => {
   const growHeaderTo = (to: number) => { header.grow(to); observer.trigger(); };
   return { ...rendered, growHeaderTo };
 };
+
+/**
+ * A flick on a phone, where most of the scrolling happens after the gesture.
+ *
+ * Reported from the iPhone simulator: swiping through the event list, the
+ * header "sometimes does not scroll off the page and sometimes does not
+ * scroll back onto it". Both mechanisms that decide whose scroll it is were
+ * tuned against a wheel, which fires continuously for as long as the page
+ * moves. A touch does not: after `touchend` iOS coasts for up to a couple of
+ * seconds with no events at all - and the code said so in as many words,
+ * "there is no timer, because nothing but a gesture or another programmatic
+ * scroll can move the page anyway". On a phone that premise is false.
+ */
+describe('useSiteHeaderReveal - a flick, where the scrolling outlasts the touch', () => {
+  it('hides on the coast of a downward flick', () => {
+    const { result } = mount();
+    scrollTo(6_000);
+    scrollTo(5_600);
+    expect(result.current.revealed).toBe(true);
+
+    flick(el('<p>an event card</p>'), { fingerTo: 5_610, coastTo: 6_500 });
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  it('reveals on the coast of an upward flick', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+
+    flick(el('<p>an event card</p>'), { fingerTo: 29_990, coastTo: 29_100 });
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // The other half, and the one the report's "sometimes" points at. Scrolling
+  // mounts day sections, whose correction announces itself and opens a settle
+  // - and a settle only a gesture can end is never ended by a flick, because
+  // the flick's events are already over. Every remaining frame is discarded.
+  it('hides on the coast even when the app corrected during the touch', () => {
+    const { result } = mount();
+    scrollTo(6_000);
+    scrollTo(5_600);
+    expect(result.current.revealed).toBe(true);
+
+    vi.spyOn(window, 'scrollBy').mockImplementation((() => {}) as typeof window.scrollBy);
+    act(() => { scrollWindowBy(0); });
+
+    flick(el('<p>an event card</p>'), { fingerTo: 5_610, coastTo: 6_500 });
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // The correction lands DURING the coast, which is when it actually happens:
+  // the render window mounts day sections as the page flies past them, and
+  // `EventList`/`useDayAnchor` correct for that. The announce opens a settle
+  // that only a gesture can close - and the flick's gestures are already over,
+  // so every remaining frame of the reader's own scroll is discarded.
+  it('hides on the coast when the app corrects mid-coast', () => {
+    const { result } = mount();
+    scrollTo(6_000);
+    scrollTo(5_600);
+    expect(result.current.revealed).toBe(true);
+    vi.spyOn(window, 'scrollBy').mockImplementation((() => {}) as typeof window.scrollBy);
+
+    const target = el('<p>an event card</p>');
+    const touch = (y: number) => ({ clientY: y });
+    act(() => {
+      const start = new Event('touchstart', { bubbles: true });
+      Object.defineProperty(start, 'touches', { value: [touch(400)] });
+      target.dispatchEvent(start);
+    });
+    act(() => {
+      const move = new Event('touchmove', { bubbles: true });
+      Object.defineProperty(move, 'touches', { value: [touch(390)] });
+      target.dispatchEvent(move);
+    });
+    frameScrollTo(5_610);
+    act(() => {
+      const end = new Event('touchend', { bubbles: true });
+      Object.defineProperty(end, 'touches', { value: [] });
+      target.dispatchEvent(end);
+    });
+
+    // Two frames of coast, then a day section mounts and the app corrects.
+    advance(60); frameScrollTo(5_660);
+    act(() => { scrollWindowBy(0); });
+    // The rest of the reader's own flick.
+    for (const y of [5_760, 5_900, 6_100, 6_300, 6_500]) {
+      advance(60);
+      frameScrollTo(y);
+    }
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // THE REPORTED BUG, reproduced. A gentle flick: the finger moves about 5px
+  // and lifts, and the page then coasts 60px over 1.2 seconds. 60px is well
+  // over the 24px threshold, so the header should move - but only the first
+  // 400ms of that coast counted, and in that window the page had travelled
+  // about 18px. Under threshold, no decision, header stays put.
+  //
+  // A hard flick covers its distance inside the window and works; a gentle one
+  // does not. That is the "sometimes" in the report, in both directions.
+  it('reveals on a gentle flick whose travel lands after the gesture window', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+
+    flick(el('<p>an event card</p>'), { fingerTo: 29_995, coastTo: 29_935, frameMs: 150 });
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  it('hides on a gentle flick whose travel lands after the gesture window', () => {
+    const { result } = mount();
+    scrollTo(6_000);
+    scrollTo(5_600);
+    expect(result.current.revealed).toBe(true);
+
+    flick(el('<p>an event card</p>'), { fingerTo: 5_605, coastTo: 5_665, frameMs: 150 });
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // And momentum is not a blank cheque: once the page has come to rest, a
+  // scroll arriving later is the browser's, not the reader's.
+  it('stops trusting the coast once the page has come to rest', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+
+    // A flick up, which reveals.
+    flick(el('<p>an event card</p>'), { fingerTo: 29_990, coastTo: 29_900 });
+    expect(result.current.revealed).toBe(true);
+
+    // Long after the page stopped, the browser scrolls DOWN on its own — the
+    // direction that would hide the header if the coast were still trusted.
+    // Pushing it the way it was already set would have proved nothing, which
+    // is what the first version of this test did.
+    advance(5_000);
+    frameScrollTo(29_900 + REVEAL_THRESHOLD + 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+});
 
 describe('useSiteHeaderReveal', () => {
   it('starts revealed, with the header at its full height', () => {
