@@ -333,6 +333,18 @@ export function useSiteHeaderReveal() {
       // A touch whose control cancelled the pan scrolls nothing, whatever it
       // looks like from here.
       if (e.type === 'touchmove' && touchPanCancelled) return;
+      // A pinch usually begins as one finger. That first move arms the window
+      // and marks the touch as having scrolled, so merely rejecting the
+      // multi-touch frames that follow leaves the zoom holding authority the
+      // pan earned — and `touchend` would then open a coast for it. The whole
+      // touch is withdrawn instead, until a fresh one begins.
+      if (e.type === 'touchmove' && ((e as TouchEvent).touches?.length ?? 1) > 1) {
+        touchPanCancelled = true;
+        touchScrolledPage = false;
+        coasting = false;
+        lastGestureAt = -Infinity;
+        return;
+      }
       if (e.type !== 'keydown' && !gestureScrollsPage(e, touchDelta)) return;
       if (e.type === 'touchmove') touchScrolledPage = true;
       // Nor is typing. Every keystroke on the page reaches this listener,

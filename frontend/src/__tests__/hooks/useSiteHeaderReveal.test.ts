@@ -378,6 +378,49 @@ describe('useSiteHeaderReveal - a touch that was never a page scroll', () => {
     expect(result.current.revealed).toBe(false);
   });
 
+  // A pinch usually starts as one finger. That first move arms the window and
+  // marks the touch as having scrolled, and rejecting the LATER multi-touch
+  // frames does not take either back - so `touchend` opened a coast and the
+  // zoom's re-anchoring moved the header, even though a pinch is explicitly
+  // classified as not scrolling.
+  it('withdraws a touch\'s authority once it becomes a pinch', () => {
+    const { result } = mount();
+    scrollTo(6_000);
+    scrollTo(5_600);
+    expect(result.current.revealed).toBe(true);
+
+    const target = el('<p>an event card</p>');
+    const touch = (y: number) => ({ clientY: y });
+    act(() => {
+      const e = new Event('touchstart', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'touches', { value: [touch(400)] });
+      target.dispatchEvent(e);
+    });
+    // One finger, a real pan.
+    act(() => {
+      const e = new Event('touchmove', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [touch(395)] });
+      target.dispatchEvent(e);
+    });
+    frameScrollTo(5_605);
+    // A second finger lands: from here it is a zoom.
+    act(() => {
+      const e = new Event('touchmove', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [touch(395), touch(500)] });
+      target.dispatchEvent(e);
+    });
+    act(() => {
+      const e = new Event('touchend', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [] });
+      target.dispatchEvent(e);
+    });
+
+    // The zoom re-anchors the document. That is not the reader scrolling.
+    for (const y of [5_650, 5_720, 5_800]) { advance(60); frameScrollTo(y); }
+
+    expect(result.current.revealed).toBe(true);
+  });
+
   // Pinch-to-zoom is not scrolling. It re-anchors the document, so admitting
   // it lets a zoom move the header.
   it('does not count a pinch, which is two fingers rather than a scroll', () => {
