@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 import { onProgrammaticScroll } from '@/lib/programmaticScroll';
-import { dragScrollsPage, gestureScrollsPage, keyScrollsPage, pressIsOnScrollbar } from '@/lib/scrollGestures';
+import { dragScrollsPage, gestureScrollsPage, keyScrollsPage, originCanScrollPage, pressIsOnScrollbar } from '@/lib/scrollGestures';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
@@ -189,6 +189,9 @@ export function useSiteHeaderReveal() {
      */
     let coasting = false;
     let lastScrollAt = -Infinity;
+    /** The element the current touch began on, and whether it ever scrolled. */
+    let touchOrigin: Element | null = null;
+    let touchScrolledPage = false;
 
     const decide = () => {
       const previous = stateRef.current;
@@ -200,7 +203,13 @@ export function useSiteHeaderReveal() {
       // No `&& !settling` here: `readerDriven` below already requires it, and
       // settling only ends at a gesture, which refreshes this anyway.
       if (coasting) lastGestureAt = now;
-      const readerDriven = !settling && performance.now() - lastGestureAt <= GESTURE_WINDOW_MS;
+      // `coasting` outranks the settle. A settle is closed by a gesture, and a
+      // flick has none left to give — so a correction landing before the coast
+      // had accumulated its 24px used to discard every remaining frame of the
+      // reader's own scroll. The announcement has already taken the app's
+      // delta out of the baseline, so those frames measure real movement.
+      const readerDriven = (coasting || !settling)
+        && performance.now() - lastGestureAt <= GESTURE_WINDOW_MS;
       // The top zone is a fact about where the header IS, not a decision about
       // where it should be — a sticky header cannot be parked above a position
       // the page has not reached, so inside it the header is on screen whoever
@@ -264,11 +273,15 @@ export function useSiteHeaderReveal() {
         lastGestureAt = performance.now();
         settling = false;
       }
-      // Lifting the finger starts a coast. There is deliberately no
-      // `touchstart` clause to end one: the gap rule has already ended any
-      // coast a new touch could interrupt, so clearing it here would be a
-      // branch nothing could make fail.
-      if (e.type === 'touchend') coasting = true;
+      // Lifting the finger starts a coast — but only if that touch actually
+      // scrolled the page. A tap coasts nothing, and opening a coast for one
+      // handed the next correction the authority of a scroll nobody made.
+      if (e.type === 'touchstart') {
+        touchOrigin = target instanceof Element ? target : null;
+        touchScrolledPage = false;
+        coasting = false;
+      }
+      if (e.type === 'touchend') coasting = touchScrolledPage;
       dragOrigin = e.type === 'mousedown' && target instanceof Element ? target : null;
       if (e.type === 'touchstart' || e.type === 'touchend') {
         const y = (e as TouchEvent).touches?.[0]?.clientY;
@@ -296,7 +309,12 @@ export function useSiteHeaderReveal() {
           lastTouchY = y;
         }
       }
+      // A touch that began on a control is that control's, exactly as a mouse
+      // drag is — `WeekSelector` prevents the default on its touch handlers,
+      // so such a drag scrolls nothing whatever it looks like from here.
+      if (e.type === 'touchmove' && !originCanScrollPage(touchOrigin)) return;
       if (e.type !== 'keydown' && !gestureScrollsPage(e, touchDelta)) return;
+      if (e.type === 'touchmove') touchScrolledPage = true;
       // Nor is typing. Every keystroke on the page reaches this listener,
       // search included — and search re-filtering is the largest layout change
       // above the reader the app makes.

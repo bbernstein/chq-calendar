@@ -279,6 +279,96 @@ const mount = (h = 72) => {
  * "there is no timer, because nothing but a gesture or another programmatic
  * scroll can move the page anyway". On a phone that premise is false.
  */
+describe('useSiteHeaderReveal - a touch that was never a page scroll', () => {
+  const touchSeq = (from: Element, moves: number[], startY = 400) => {
+    const touch = (y: number) => ({ clientY: y });
+    act(() => {
+      const e = new Event('touchstart', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [touch(startY)] });
+      from.dispatchEvent(e);
+    });
+    for (const y of moves) {
+      act(() => {
+        const e = new Event('touchmove', { bubbles: true });
+        Object.defineProperty(e, 'touches', { value: [touch(y)] });
+        from.dispatchEvent(e);
+      });
+    }
+    act(() => {
+      const e = new Event('touchend', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [] });
+      from.dispatchEvent(e);
+    });
+  };
+
+  // The mouse path learned this; the touch path never did. `WeekSelector`
+  // calls `preventDefault()` on its touch handlers, so a slight drag over a
+  // themed week scrolls nothing at all - and then `touchend` refilters the
+  // list, whose correction would arrive holding a gesture's authority.
+  it('does not count a touch drag that began on a control', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    touchSeq(el('<button type="button">Wk 5</button>'), [390]);
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // A tap is not a flick. `touchend` used to open a coast for every touch,
+  // so a tap landing within the momentum gap of any earlier scrolling handed
+  // the next correction the authority of a scroll nobody made.
+  it('does not coast after a tap that scrolled nothing', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+
+    // A tap on a rail chip: press, no movement, release - then the app jumps.
+    touchSeq(el('<button data-chip="2026-08-24">24</button>'), []);
+    jumpTo(12_929);
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // Pinch-to-zoom is not scrolling. It re-anchors the document, so admitting
+  // it lets a zoom move the header.
+  it('does not count a pinch, which is two fingers rather than a scroll', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    const target = el('<p>an event card</p>');
+    act(() => {
+      const e = new Event('touchmove', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [{ clientY: 300 }, { clientY: 500 }] });
+      target.dispatchEvent(e);
+    });
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // Chromium reports a trackpad pinch as a wheel with `ctrlKey`.
+  it('does not count a ctrl-wheel, which zooms rather than scrolls', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(el('<p>an event card</p>'), 'wheel', { deltaY: -80, ctrlKey: true });
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+});
+
 describe('useSiteHeaderReveal - a flick, where the scrolling outlasts the touch', () => {
   it('hides on the coast of a downward flick', () => {
     const { result } = mount();
@@ -387,6 +477,55 @@ describe('useSiteHeaderReveal - a flick, where the scrolling outlasts the touch'
     expect(result.current.revealed).toBe(true);
 
     flick(el('<p>an event card</p>'), { fingerTo: 5_605, coastTo: 5_665, frameMs: 150 });
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // The same symptom as the reported bug, by a different route, and the case
+  // the existing mid-coast test misses: it has already accumulated 60px by the
+  // time the app corrects, so the decision was taken before the settle opened.
+  //
+  // Here the correction lands while the coast is still under the threshold.
+  // The settle can only be closed by a gesture, and a flick has none left to
+  // give - so every remaining frame of the reader's own scroll is discarded
+  // and the flick never decides. The announcement has already taken the app's
+  // own delta out of the baseline, so what those frames measure is real
+  // movement the reader asked for.
+  it('hides on the coast when the app corrects before the coast has decided', () => {
+    const { result } = mount();
+    scrollTo(6_000);
+    scrollTo(5_600);
+    expect(result.current.revealed).toBe(true);
+    vi.spyOn(window, 'scrollBy').mockImplementation((() => {}) as typeof window.scrollBy);
+
+    const target = el('<p>an event card</p>');
+    const touch = (y: number) => ({ clientY: y });
+    act(() => {
+      const e = new Event('touchstart', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [touch(400)] });
+      target.dispatchEvent(e);
+    });
+    act(() => {
+      const e = new Event('touchmove', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [touch(395)] });
+      target.dispatchEvent(e);
+    });
+    frameScrollTo(5_605);
+    act(() => {
+      const e = new Event('touchend', { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: [] });
+      target.dispatchEvent(e);
+    });
+
+    // One frame of coast - 10px, under the 24px threshold - then a day
+    // section mounts and the app corrects.
+    advance(60); frameScrollTo(5_615);
+    act(() => { scrollWindowBy(0); });
+    // The rest of the flick, which is most of it.
+    for (const y of [5_640, 5_680, 5_740, 5_820, 5_900]) {
+      advance(60);
+      frameScrollTo(y);
+    }
 
     expect(result.current.revealed).toBe(false);
   });
@@ -1114,11 +1253,11 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
   });
 
-  // `PageDown` with focus parked on a chip really is a page scroll — the rail
-  // does not intercept it. `useFilterPanel`'s exemption says so in as many
-  // words, and narrowing more than the rail actually consumes would be
-  // guessing rather than matching it.
-  it('counts PageDown on a chip, which the rail does not intercept', () => {
+  // Paging with focus parked on a chip really is a page scroll — the rail
+  // intercepts `Home` and nothing else. `useFilterPanel`'s exemption says so
+  // in as many words, and narrowing more than the rail actually consumes
+  // would be guessing rather than matching it.
+  it('counts PageUp on a chip, which the rail does not intercept', () => {
     const { result } = mount();
     scrollTo(30_000);
     expect(result.current.revealed).toBe(false);

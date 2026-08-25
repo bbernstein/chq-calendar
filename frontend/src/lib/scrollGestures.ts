@@ -184,6 +184,12 @@ function canScrollBy(el: Element, deltaY: number): boolean {
  * target on it.
  */
 export function gestureScrollsPage(event: Event, deltaY?: number): boolean {
+  // Zoom is not scrolling, and it moves the document under the reader — it
+  // re-anchors and re-lays-out, so admitting it lets a pinch move the header.
+  // Chromium reports a trackpad pinch as a wheel with `ctrlKey`; a touchscreen
+  // pinch is simply more than one finger.
+  if (event.type === 'wheel' && (event as WheelEvent).ctrlKey) return false;
+  if (event.type === 'touchmove' && ((event as TouchEvent).touches?.length ?? 1) > 1) return false;
   const direction = event.type === 'wheel' ? (event as WheelEvent).deltaY : deltaY ?? 0;
   // A wheel with no vertical component is the day rail moving sideways.
   if (event.type === 'wheel' && direction === 0) return false;
@@ -237,14 +243,26 @@ const DRAGGABLE_CONTROL =
  * content from that moment on, so it armed on exactly the drag it had just
  * refused.
  */
+/**
+ * Whether a gesture beginning on `origin` can scroll the page at all.
+ *
+ * Shared by the mouse and touch paths because they are asking one question.
+ * `WeekSelector` calls `preventDefault()` on its touch handlers, so a drag
+ * over a themed week scrolls nothing — and then `touchend` refilters the
+ * list, whose correction would arrive holding a gesture's authority.
+ */
+export function originCanScrollPage(origin: Element | null): boolean {
+  // No recorded press means the gesture began before this hook was listening,
+  // or outside the document. Nothing says it was a control.
+  if (!origin) return true;
+  return !origin.closest(DRAGGABLE_CONTROL);
+}
+
 export function dragScrollsPage(event: MouseEvent, origin: Element | null): boolean {
   // Primary button only. `buttons` is a bitmask, so `!== 0` also matched
   // right- and middle-button drags, neither of which scrolls anything.
   if (event.buttons !== 1) return false;
-  // No recorded press means the drag began before this hook was listening, or
-  // outside the document. Nothing says it was a control.
-  if (!origin) return true;
-  return !origin.closest(DRAGGABLE_CONTROL);
+  return originCanScrollPage(origin);
 }
 
 /**
