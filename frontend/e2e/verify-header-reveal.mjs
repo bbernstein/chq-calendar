@@ -95,6 +95,50 @@ const scrollY = p => p.evaluate(() => Math.round(window.scrollY));
 /** A wheel gesture at the middle of the list, away from the rail. */
 const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.wheel(0, dy); };
 
+/**
+ * Wait for the document to stop moving.
+ *
+ * Not a nicety — without it this suite was flaky 2 runs in 3, and it failed in
+ * CI. `window.scrollTo(0, 6000)` lands short (the render window has not
+ * mounted that far yet), the list then grows, and the app and the browser
+ * spend the best part of a second correcting for it in a long run of small
+ * scrolls. A wheel fired into the middle of that is measured NET of the
+ * correction: traced at 4,935 → 4,829, so a 120px wheel DOWN moved the reader
+ * 106px UP and the header stayed revealed, which the next check then reported
+ * as its own failure.
+ *
+ * Polls rather than sleeps for a fixed time, because the settle's length
+ * depends on how much list mounts — which depends on the day the suite runs.
+ */
+const settle = async (p, { stableSamples = 4, gapMs = 120, timeoutMs = 8000 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  let stable = 0;
+  while (Date.now() < deadline) {
+    const y = await p.evaluate(() => Math.round(window.scrollY));
+    stable = y === last ? stable + 1 : 0;
+    last = y;
+    if (stable >= stableSamples) return y;
+    await p.waitForTimeout(gapMs);
+  }
+  return last;
+};
+
+/**
+ * Get to the state nearly every check below starts from: deep in the list
+ * with the header hidden.
+ *
+ * Returns the geometry so callers can assert the precondition rather than
+ * assume it — every one of them does.
+ */
+const deepAndHidden = async (p, y = 6000) => {
+  await p.evaluate((to) => window.scrollTo(0, to), y);
+  await settle(p);
+  await wheel(p, 120);
+  await settle(p);
+  return geometry(p);
+};
+
 // ───────────────────────────────────────── hide on the way down, reveal coming back
 {
   const p = await phone();
@@ -103,10 +147,7 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
     atTop.top === 0 && atTop.bottom > 0 && !atTop.inert,
     `top=${atTop.top} bottom=${atTop.bottom} inert=${atTop.inert}`);
 
-  await p.evaluate(() => window.scrollTo(0, 6000));
-  await wheel(p, 120);
-  await p.waitForTimeout(900);
-  const deep = await geometry(p);
+  const deep = await deepAndHidden(p);
   check('2 header is parked out of sight once scrolled down',
     deep.bottom <= 0, `bottom=${deep.bottom} scrollY=${deep.scrollY}`);
   // AC: "the day rail remains flush with the top edge and keeps working
@@ -117,7 +158,7 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
   // The acceptance criterion this whole suite exists for: a SMALL upward
   // scroll, from deep in the document, brings the whole header back.
   await wheel(p, -40);
-  await p.waitForTimeout(900);
+  await settle(p);
   const revealed = await geometry(p);
   check('4 a small scroll up reveals the header from deep in the list',
     revealed.top === 0 && revealed.bottom > 0 && revealed.scrollY > 3000,
@@ -154,7 +195,7 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
 
   await p.keyboard.press('Escape');
   await wheel(p, 120);
-  await p.waitForTimeout(900);
+  await settle(p);
   const hiddenAgain = await geometry(p);
   check('8 scrolling down hides it again, rail flush once more',
     hiddenAgain.bottom <= 0 && Math.abs(hiddenAgain.railTop) <= 1,
@@ -166,7 +207,7 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
 {
   const p = await phone();
   await p.evaluate(() => window.scrollTo(0, 0));
-  await p.waitForTimeout(400);
+  await settle(p);
 
   // The measurement that found the original bug, repeated exactly: 40 slow
   // ticks of 60px. The failing shape was not "slower than expected" — it was
@@ -203,9 +244,7 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
     await p.waitForTimeout(1400);
   };
 
-  await p.evaluate(() => window.scrollTo(0, 6000));
-  await wheel(p, 120);
-  await p.waitForTimeout(900);
+  const start = await deepAndHidden(p);
 
   // The jump has to go UP, and that is the whole design of this check. A chip
   // tap that scrolls DOWN proves nothing: without the resync it reads as a
@@ -215,13 +254,15 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
   // passed vacuously.
   const first = (await chipKeys())[0];
   const last = (await chipKeys()).slice(-1)[0];
-  if (!first || !last || first === last) {
+  if (start.bottom > 0) {
+    check('11 a rail chip tap does not reveal the header', false,
+      `SETUP: the header would not hide before the tap (bottom=${start.bottom}, scrollY=${start.scrollY})`);
+  } else if (!first || !last || first === last) {
     skip('11 a rail chip tap does not reveal the header',
       `need two navigable chips, found ${(await chipKeys()).length}`);
   } else {
     await tapChip(last);
-    await wheel(p, 120);
-    await p.waitForTimeout(700);
+    await settle(p);
     const before = await geometry(p);
     // The rail re-windows around the day it landed on, so re-read it.
     const back = (await chipKeys())[0];
@@ -253,10 +294,7 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
 // ─────────────────────────────────────────── a parked header is out of reach
 {
   const p = await phone();
-  await p.evaluate(() => window.scrollTo(0, 6000));
-  await wheel(p, 120);
-  await p.waitForTimeout(900);
-  const hidden = await geometry(p);
+  const hidden = await deepAndHidden(p);
   check('12 the parked header is marked inert and hidden from screen readers',
     hidden.inert === true && hidden.ariaHidden === 'true',
     `inert=${hidden.inert} aria-hidden=${hidden.ariaHidden}`);
@@ -285,16 +323,14 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
   // term were added in one state and not the other they would overlap here and
   // nowhere else.
   const p = await phone();
-  await p.evaluate(() => window.scrollTo(0, 6000));
-  await wheel(p, 120);
-  await p.waitForTimeout(900);
+  await deepAndHidden(p);
   await wheel(p, -40);
-  await p.waitForTimeout(900);
+  await settle(p);
 
   const revealed = await geometry(p);
   const toggle = p.locator('[data-day-rail] button[aria-expanded]').first();
   if (revealed.bottom <= 0 || await toggle.count() === 0) {
-    skip('17 the filter panel opens below a revealed header',
+    skip('14 the filter panel opens below a revealed header',
       revealed.bottom <= 0 ? 'the header did not reveal' : 'no Filters toggle on the rail');
   } else {
     // A DOM click, not `locator.click()`. Playwright scrolls an element into
@@ -310,7 +346,7 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
       return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(window.innerHeight) };
     });
     const after = await geometry(p);
-    check('17 the filter panel opens below a revealed header, inside the viewport',
+    check('14 the filter panel opens below a revealed header, inside the viewport',
       panel !== null && after.bottom > 0 && panel.top >= after.bottom - 1 && panel.bottom <= panel.h,
       panel ? `header bottom=${after.bottom}, panel ${panel.top}→${panel.bottom}, viewport=${panel.h}` : 'no filter card');
   }
@@ -322,19 +358,16 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
   const p = await phone({ reducedMotion: true });
   const transitions = await p.evaluate(() =>
     getComputedStyle(document.documentElement).transitionProperty);
-  check('14 the reveal does not animate under prefers-reduced-motion',
+  check('15 the reveal does not animate under prefers-reduced-motion',
     !transitions.includes('--site-header-offset'), `transition-property=${transitions}`);
 
   // Not animating must still mean revealing. A reduced-motion reader gets the
   // header instantly, not never.
-  await p.evaluate(() => window.scrollTo(0, 6000));
-  await wheel(p, 120);
-  await p.waitForTimeout(700);
-  check('15 reduced motion still hides on the way down', (await geometry(p)).bottom <= 0);
+  check('16 reduced motion still hides on the way down', (await deepAndHidden(p)).bottom <= 0);
   await wheel(p, -40);
-  await p.waitForTimeout(700);
+  await settle(p);
   const shown = await geometry(p);
-  check('16 reduced motion still reveals on the way up',
+  check('17 reduced motion still reveals on the way up',
     shown.top === 0 && shown.bottom > 0, `top=${shown.top} bottom=${shown.bottom}`);
   await p.context().close();
 }

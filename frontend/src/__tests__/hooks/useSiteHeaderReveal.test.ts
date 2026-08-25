@@ -304,6 +304,41 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(true);
   });
 
+  // Typing is not scrolling. The listener is on `window` with `capture: true`,
+  // so every keystroke on the page reaches it — including the ones going into
+  // the search box, which re-filters the list and changes its height by
+  // thousands of pixels above the reader. The browser corrects for that, and
+  // an unfiltered `keydown` would hand each of those corrections the authority
+  // of a gesture: type three letters, watch the header appear.
+  //
+  // `useDismissOnScrollGesture` already had to make exactly this distinction,
+  // for exactly this reason ("typing into the panel's own search field would
+  // otherwise close it"), so the set is now shared rather than reasoned out a
+  // second time.
+  it('does not count a keystroke that scrolls nothing', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+
+    gesture('keydown', { key: 'a' });
+    browserScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  it('does not count Tab, which moves focus rather than the page', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+
+    gesture('keydown', { key: 'Tab' });
+    browserScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
   // The pointer moving across the page is not a scroll, and counting it would
   // reopen the hole: the reader's cursor drifts a pixel after a chip tap and
   // the browser's correction is admitted right behind it.

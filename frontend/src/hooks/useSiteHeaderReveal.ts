@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 import { onProgrammaticScroll } from '@/lib/programmaticScroll';
+import { isScrollKey } from '@/lib/scrollKeys';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
@@ -137,7 +138,14 @@ export function useSiteHeaderReveal() {
      * merely crossing the page is not a scroll either.
      */
     const onGesture = (e: Event) => {
+      // A pointer merely crossing the page is not a scroll; a pointer moving
+      // with its button held is a scrollbar drag, the one way to scroll that
+      // fires no wheel, touch or key.
       if (e.type === 'mousemove' && (e as MouseEvent).buttons === 0) return;
+      // Nor is typing. Every keystroke on the page reaches this listener,
+      // search included — and search re-filtering is the largest layout change
+      // above the reader the app makes.
+      if (e.type === 'keydown' && !isScrollKey((e as KeyboardEvent).key)) return;
       gestureSinceLastScroll = true;
     };
     const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
