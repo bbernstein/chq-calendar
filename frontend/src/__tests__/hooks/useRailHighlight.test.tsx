@@ -89,7 +89,18 @@ function Harness({ chips, windowDayKeys, onApi }: {
     <div ref={api.stripRef} data-rail-strip>
       <div ref={api.contentRef} data-rail-content>
         <div ref={api.pillRef} data-rail-pill />
-        {chips.map(k => <button key={k} type="button" data-chip={k} />)}
+        {/*
+          Mirrors `DayRail`: a chip is the second child of a column whose first
+          child is its week-band cell. Flattening this back would make
+          `RAIL_CHIP_SELECTOR` match nothing, and every assertion in this file
+          would keep passing against a hook that measured an empty row.
+        */}
+        {chips.map(k => (
+          <div key={k} data-rail-column>
+            <div data-band-cell={k} />
+            <button type="button" data-chip={k} />
+          </div>
+        ))}
         <div ref={api.clipRef} data-rail-clip />
       </div>
     </div>
