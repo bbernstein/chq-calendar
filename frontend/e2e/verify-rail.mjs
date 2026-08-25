@@ -745,15 +745,46 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 }
 
 // ------------------------------------------- 18. an unreachable week is inert
+//
+// The default, unfiltered feed fills every in-season week, so this check has
+// to construct the unreachable state itself rather than hope for one. It is
+// narrowed through PERSISTED FILTER STATE, the same route check 3 uses for
+// 'this-week' — a storage seed reaches `navMatchingEvents` with no dependency
+// on the filter panel's own markup, which the drive-the-UI alternative would
+// have.
+//
+// The term is 'williamsburg': Colonial Williamsburg's themed week-6
+// residency, a whole week of named partner programming rather than one
+// event a routine feed refresh could drop, which is what "stable against
+// feed churn" means here — not that the exact match count is fixed (it
+// isn't: the local dev fixture carries 4 matching events, live production
+// 9, both entirely inside week 6), but that the THEME is a fixture of the
+// season rather than a coincidence of today's snapshot. It leaves every
+// other in-season week with zero matches, which is the unreachable state
+// 18a/18b need, and it never fully empties the reachable side either (see
+// 18-pre), which is what keeps 18a from going vacuous.
+//
+// dateFilter is seeded to 'all' ("All Year"), not left at the default
+// 'next': week 6 is in the past relative to 'now' this season, so a
+// 'next'-scoped list would show zero matching events, the app would render
+// the generic empty state, and `enterList`'s EMPTY branch throws before this
+// check gets to assert anything.
 {
-  // Narrow to a category that cannot fill nine weeks, so at least one week
-  // goes unreachable — the state the band renders faded and refuses.
-  const page = await newPage();
-  await enterList(page);
+  const page = await newPage({
+    storage: ['chq-calendar-user-state', JSON.stringify({
+      dateFilter: 'all', selectedWeeks: [], searchTerm: 'williamsburg',
+      selectedTags: [], selectedLocations: [], expandedDescriptions: [],
+      recentLocations: [], recentCategories: [], showFavoritesOnly: false,
+      lastSaved: Date.now(),
+    })],
+  });
   const state = await page.evaluate(() => {
-    const disabled = [...document.querySelectorAll('[data-week-band-button][aria-disabled="true"]')];
+    const buttons = [...document.querySelectorAll('[data-week-band-button]')];
+    const disabled = buttons.filter(b => b.getAttribute('aria-disabled') === 'true');
+    const reachable = buttons.filter(b => b.getAttribute('aria-disabled') !== 'true');
     return {
       count: disabled.length,
+      reachableCount: reachable.length,
       labels: disabled.map(b => b.getAttribute('aria-label')),
       // The FILL is faded; the label is not. Fading the label is what took an
       // empty iOS chip's text to a sampled ~3.7:1.
@@ -766,16 +797,21 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
         : null,
     };
   });
-  if (state.count === 0) {
-    skip('18 an unreachable week is dimmed and inert', 'every week is reachable in this data');
-  } else {
-    check('18a an unreachable week says so rather than offering a trip',
-      state.labels.every(l => /^Week \d+, no events$/.test(l ?? '')),
-      state.labels.slice(0, 3).join(' | '));
-    check('18b the fill is faded and the label is not',
-      state.fillOpacity !== null && state.fillOpacity < 1 && state.labelOpacity === 1,
-      `fill=${state.fillOpacity} label=${state.labelOpacity}`);
-  }
+  // The check now controls its own precondition — a search that failed to
+  // narrow anything is a FAILURE of this check, not a reason to stand down.
+  // Both counts are asserted: zero unreachable is the original gap, and zero
+  // reachable would mean the term matched nothing at all (an empty
+  // `weekDestinations` map dims nothing, by design — see WeekBandCell — so a
+  // term with no matches would make 18a vacuously true instead of failing).
+  check('18-pre the search term narrows to exactly one theme week',
+    state.count > 0 && state.reachableCount > 0,
+    `${state.reachableCount} reachable, ${state.count} unreachable`);
+  check('18a an unreachable week says so rather than offering a trip',
+    state.count > 0 && state.labels.every(l => /^Week \d+, no events$/.test(l ?? '')),
+    state.labels.slice(0, 3).join(' | ') || 'no unreachable week found');
+  check('18b the fill is faded and the label is not',
+    state.fillOpacity !== null && state.fillOpacity < 1 && state.labelOpacity === 1,
+    `fill=${state.fillOpacity} label=${state.labelOpacity}`);
   await page.close();
 }
 
