@@ -409,6 +409,14 @@ const fixedGhosts = p => p.evaluate(() =>
         atPointInPanel: !!(el && at && el.contains(at)),
         atPointInToggle: !!(t && at && t.contains(at)),
         scrollY: window.scrollY,
+        // How much DOM the browser has to lay out and paint around, at the
+        // moment of the gesture. The second cycle runs later, deeper in the
+        // list, after `EventList` may have mounted more day sections since
+        // page load — a bigger tree makes every layout/paint this exit
+        // forces (the panel's own `getBoundingClientRect()` snap to
+        // `position: fixed`, chiefly) costlier, independent of anything
+        // `WeekChooser` does.
+        mountedDaySections: document.querySelectorAll('[data-day-key]').length,
         ariaExpanded: t?.getAttribute('aria-expanded') ?? null,
         exitingClass: el?.classList.contains('filter-panel-exit') ?? null,
         position: el ? getComputedStyle(el).position : null,
