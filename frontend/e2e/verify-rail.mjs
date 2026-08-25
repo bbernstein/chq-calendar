@@ -873,5 +873,169 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   await page.close();
 }
 
+// ------------------------------------------- 20. the week chooser
+//
+// The acceptance criterion for this phase, measured rather than asserted: any
+// week of the season reachable in TWO interactions from anywhere in the list.
+// The rail is sticky, so the trigger is on screen at any scroll position — that
+// is the property this opens from a deep scroll to test, because it is the one
+// the whole design rests on and the one a sticky regression would silently take
+// away (a wrapper div gave `position: sticky` zero travel in #238, and eleven
+// green task reviews missed it).
+{
+  const page = await newPage({ width: 390, height: 844 });
+  // Deep enough that the top of the document is nowhere near the viewport.
+  await page.mouse.wheel(0, 6000);
+  await page.waitForTimeout(700);
+  const before = await anchorChip(page);
+
+  const triggerBox = await page.evaluate(() => {
+    const el = document.querySelector('[data-week-chooser-trigger]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { top: r.top, w: Math.round(r.width), h: Math.round(r.height),
+             onScreen: r.top >= 0 && r.bottom <= window.innerHeight };
+  });
+  check('20a the chooser is on screen after a deep scroll',
+    !!triggerBox && triggerBox.onScreen,
+    triggerBox ? `top=${triggerBox.top.toFixed(0)} ${triggerBox.w}x${triggerBox.h}` : 'no trigger');
+
+  await page.click('[data-week-chooser-trigger]');
+  await page.waitForSelector('[data-week-chooser-popover]', { timeout: 3000 });
+  const opened = await page.evaluate(() => {
+    const pop = document.querySelector('[data-week-chooser-popover]');
+    const r = pop.getBoundingClientRect();
+    return {
+      cells: pop.querySelectorAll('[data-week-cell]').length,
+      // Nine 44px cells in a ROW would be 396px, wider than this 390px viewport.
+      // The 3x3 is what makes the control fit a phone at all, so its box is the
+      // measurement, not its class list.
+      width: Math.round(r.width),
+      withinViewport: r.left >= 0 && r.right <= window.innerWidth
+        && r.top >= 0 && r.bottom <= window.innerHeight,
+    };
+  });
+  check('20b the popover holds every week of the season', opened.cells === 9,
+    `${opened.cells} cells`);
+  check('20c the popover fits a 390px phone', opened.withinViewport && opened.width < 390,
+    `${opened.width}px wide, within=${opened.withinViewport}`);
+
+  // The jump itself: the furthest reachable week from wherever the rail opened,
+  // so the check cannot pass on a one-week nudge.
+  const jumped = await page.evaluate(() => {
+    const cells = [...document.querySelectorAll('[data-week-cell]')]
+      .filter(c => c.getAttribute('aria-disabled') !== 'true');
+    const target = cells[cells.length - 1];
+    if (!target) return null;
+    target.click();
+    return { week: target.dataset.weekCell, day: target.dataset.weekCellTarget,
+             label: target.getAttribute('aria-label') };
+  });
+  if (!jumped) {
+    check('20d a chooser tap navigates', false, 'no reachable week cell');
+  } else {
+    await page.waitForTimeout(900);
+    const after = await anchorChip(page);
+    check('20d a chooser tap navigates', !!after && after !== before,
+      `${before} → ${after} (week ${jumped.week})`);
+    // Where it SAID it would go, not merely somewhere. The rail's standing rule:
+    // a control names its destination, and the destination is where it lands.
+    check('20e it lands on the day it named', after === jumped.day,
+      `named ${jumped.day}, landed ${after}`);
+    const closed = await page.$$('[data-week-chooser-popover]');
+    check('20f the popover closes on a choice', closed.length === 0,
+      `${closed.length} popovers still open`);
+
+    // The lit cell followed. This is the trigger's whole job — position in the
+    // season, spatially — and it is downstream of `anchorDay`, which is
+    // scroll-derived, so nothing but a real scroll can test it.
+    const lit = await page.evaluate(() => {
+      const cells = [...document.querySelectorAll('[data-week-chooser-cell][data-lit]')];
+      return { count: cells.length, week: cells[0]?.dataset.weekChooserCell ?? null };
+    });
+    check('20g the lit cell followed the jump',
+      lit.count === 1 && lit.week === jumped.week,
+      `lit=${lit.week} expected=${jumped.week} (${lit.count} lit)`);
+  }
+  await page.close();
+}
+
+// ------------------------------------------- 20h. an unreachable week is inert
+//
+// Same storage seed as check 18, and for the same reason: the default feed
+// fills every in-season week, so this state has to be CONSTRUCTED rather than
+// hoped for. A check that never creates the state it names can only skip.
+// 'williamsburg' leaves week 6 reachable and every other in-season week empty,
+// in both the local dev fixture and live production.
+{
+  const page = await newPage({
+    width: 390, height: 844,
+    storage: ['chq-calendar-user-state', JSON.stringify({
+      dateFilter: 'all', selectedWeeks: [], searchTerm: 'williamsburg',
+      selectedTags: [], selectedLocations: [], expandedDescriptions: [],
+      recentLocations: [], recentCategories: [], showFavoritesOnly: false,
+      lastSaved: Date.now(),
+    })],
+  });
+  await page.click('[data-week-chooser-trigger]');
+  await page.waitForSelector('[data-week-chooser-popover]', { timeout: 3000 });
+  const state = await page.evaluate(() => {
+    const cells = [...document.querySelectorAll('[data-week-cell]')];
+    const dim = cells.filter(c => c.getAttribute('aria-disabled') === 'true');
+    return {
+      dim: dim.length,
+      reachable: cells.length - dim.length,
+      labels: dim.map(c => c.getAttribute('aria-label')),
+      fillOpacity: dim[0]
+        ? Number(getComputedStyle(dim[0].querySelector('[data-week-cell-fill]')).opacity)
+        : null,
+      numberOpacity: dim[0]
+        ? Number(getComputedStyle(dim[0].querySelector('[data-week-cell-number]')).opacity)
+        : null,
+    };
+  });
+  // Both counts, as in 18-pre: zero unreachable is the original gap, and zero
+  // reachable would mean the term matched nothing at all and 20h passes
+  // vacuously.
+  check('20h-pre the seed narrows to exactly one theme week',
+    state.dim > 0 && state.reachable > 0,
+    `${state.reachable} reachable, ${state.dim} unreachable`);
+  check('20h an unreachable week in the grid says so rather than offering a trip',
+    state.dim > 0 && state.labels.every(l => /^Week \d+, no events$/.test(l ?? '')),
+    state.labels.slice(0, 3).join(' | ') || 'none');
+  check('20i the grid fades the fill and not the numeral',
+    state.fillOpacity !== null && state.fillOpacity < 1 && state.numberOpacity === 1,
+    `fill=${state.fillOpacity} number=${state.numberOpacity}`);
+  await page.close();
+}
+
+// ------------------------------------------- 21. axe over the open chooser
+//
+// The popover is a `role="dialog"` containing nine controls and, on the trigger
+// behind it, an `aria-hidden` icon made of nine decorative spans. Both are
+// shapes an audit has opinions about, and neither is checked by check 19, which
+// scopes itself to `[data-day-rail]` — the popover is portalled to
+// `document.body` and is not inside it.
+{
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const page = await newPage();
+  await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
+  await page.click('[data-week-chooser-trigger]');
+  await page.waitForSelector('[data-week-chooser-popover]', { timeout: 3000 });
+  const results = await page.evaluate(async () => {
+    const run = await window.axe.run('[data-week-chooser-popover]', {
+      runOnly: { type: 'rule', values: [
+        'aria-hidden-focus', 'button-name', 'aria-allowed-attr',
+        'nested-interactive', 'aria-dialog-name', 'aria-required-children',
+      ] },
+    });
+    return run.violations.map(v => `${v.id} x${v.nodes.length}`);
+  });
+  check('21 axe is clean over the open week chooser',
+    results.length === 0, results.join(', ') || 'no violations');
+  await page.close();
+}
+
 await browser.close();
 finish();
