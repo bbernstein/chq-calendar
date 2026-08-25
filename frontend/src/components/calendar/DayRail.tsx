@@ -138,8 +138,8 @@ export interface DayRailProps {
   bandSegments: WeekBandSegment[];
   /**
    * Which weeks the band can reach under the current non-date filters. A week
-   * absent from the map renders faded and refuses its tap; an empty map means
-   * "not known yet" and dims nothing.
+   * absent from the map renders faded and refuses its tap — including every
+   * week, when the map itself is empty.
    */
   weekDestinations: Map<number, WeekBandDestination>;
   /** A band tap. The caller turns the week into a day and calls `goToDay`. */
@@ -414,7 +414,7 @@ export function DayRail({
                   gets a seam through it — the exact failure the shared
                   `chipBoxClass` exists to prevent, one level up.
                 */}
-                <div data-band-spacer className="h-[var(--rail-band-h)] shrink-0" />
+                <div data-band-spacer className="h-[8px] shrink-0" />
                 <div className={chipBoxClass(chip.count === 0)}>
                   <ChipFace chip={chip} />
                 </div>

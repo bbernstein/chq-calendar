@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/preact';
 import { WeekBandCell } from '@/components/calendar/WeekBandCell';
-import { weekBandSegments, type WeekBandDestination } from '@/lib/utils/weekBands';
+import { weekBandSegments, weekBandUnreachableLabel, type WeekBandDestination } from '@/lib/utils/weekBands';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import { RAIL_BAND_BLEED_PX, RAIL_WEEK_SEAM_PX } from '@/lib/utils/railMetrics';
 import { UNREACHABLE_FILL_OPACITY } from '@/lib/utils/railBandPalette';
@@ -85,11 +85,22 @@ describe('WeekBandCell — the painted run', () => {
     expect(opening.style.opacity).toBe(String(UNREACHABLE_FILL_OPACITY));
   });
 
-  it('dims nothing when reachability is not known yet', () => {
-    // An empty MAP means "no reachability information yet", not "nothing is
-    // reachable" — the first paint must not flash a fully faded band.
-    const { container } = renderCell({ destinations: new Map() });
-    expect(bars(container)[0].style.opacity).toBe('1');
+  it('treats an empty destinations map the same as any other absence: fill, label and tap agree', () => {
+    // There is no separate "not known yet" state — an empty map (before the
+    // events feed has loaded, or under a filter matching nothing) dims the
+    // week exactly like any other map that happens not to contain it. This
+    // matters because `chips` renders its full run of days from
+    // `navigableBounds` before the feed ever resolves, and every one of
+    // those chips is already dashed, dimmed and announced "no events" at
+    // that point — a band that disagreed with them would be the
+    // inconsistency this design forbids, not the fix for one.
+    const { container, props } = renderCell({ destinations: new Map() });
+    const button = container.querySelector('button')!;
+    expect(bars(container)[0].style.opacity).toBe(String(UNREACHABLE_FILL_OPACITY));
+    expect(button.getAttribute('aria-label')).toBe(weekBandUnreachableLabel(1));
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(button);
+    expect(props.onSelectWeek).not.toHaveBeenCalled();
   });
 });
 

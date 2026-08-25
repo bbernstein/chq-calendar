@@ -640,10 +640,43 @@ describe('DayRail — the week band', () => {
   it('hands a band tap to onSelectWeek and resumes the strip', () => {
     // In the default fixture the sole labelled segment is 2026-07-06, whose
     // week is 2 — 07-04 is the shared Saturday and carries no label at all.
-    const props = renderRail();
-    const strip = document.querySelector<HTMLElement>('[data-rail-strip]')!;
-    strip.scrollLeft = 500;   // the reader has panned the rail
-    fireEvent.click(document.querySelector('[data-week-band-button="2"]')!);
-    expect(props.onSelectWeek).toHaveBeenCalledWith(2);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+    // Every rect in this file is zero-size (no layout stub), so the resumed
+    // sync's catch-up jump is far past `useRailHighlight`'s tween threshold —
+    // it would otherwise animate via the rAF stub above, which never advances
+    // real time and spins forever. Reduced motion makes it a single direct
+    // write instead, which is all this test needs to observe.
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    try {
+      const props = renderRail();
+      const strip = document.querySelector<HTMLElement>('[data-rail-strip]')!;
+      const writes: number[] = [];
+      let value = 0;
+      Object.defineProperty(strip, 'scrollLeft', {
+        configurable: true,
+        get: () => value,
+        set: (v: number) => { value = v; writes.push(v); },
+      });
+
+      // The reader pans the strip themselves, which suspends the highlight's
+      // own writes — see `useRailHighlight`'s `onStripScroll`.
+      act(() => {
+        strip.scrollLeft = 500;
+        strip.dispatchEvent(new Event('scroll'));
+      });
+      writes.length = 0;
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      expect(writes).toEqual([]); // confirms the pan actually suspended it
+
+      fireEvent.click(document.querySelector('[data-week-band-button="2"]')!);
+      expect(props.onSelectWeek).toHaveBeenCalledWith(2);
+
+      // `resume()` re-armed the highlight: a scroll now writes again, where
+      // moments ago the identical event was swallowed.
+      act(() => { window.dispatchEvent(new Event('scroll')); });
+      expect(writes.length).toBeGreaterThan(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

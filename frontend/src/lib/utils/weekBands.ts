@@ -178,9 +178,12 @@ function destinationLabel(week: number, found: FoundDay, count: number): string 
  * Every week the band can navigate to, keyed by week number.
  *
  * A week **absent** from the map is unreachable: its fill renders faded and a
- * tap does nothing. Absent is not the same as "nothing is reachable" — an
- * absent *map* means "no reachability information yet", which is why
- * `WeekBandCell` treats an empty map as "do not dim anything".
+ * tap does nothing — including every week, when the map itself is empty
+ * (before the events feed has loaded, or under a filter matching nothing).
+ * `WeekBandCell` treats that the same as any other absence; there is no
+ * separate "not known yet" state, because by the time this map could be
+ * empty the chips beneath the band are already rendering that same state
+ * themselves (every chip dashed, dimmed, "no events").
  *
  * One batch form, not a batch and a single-week form: the tap handler and the
  * fill both read this map, so they cannot disagree about which weeks are

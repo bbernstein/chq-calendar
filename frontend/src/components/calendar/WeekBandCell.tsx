@@ -14,9 +14,14 @@ export interface WeekBandCellProps {
   /**
    * Which weeks can be reached under the current non-date filters.
    *
-   * An **empty** map means "no reachability information yet", not "nothing is
-   * reachable": nothing is dimmed, so the first paint cannot flash a fully
-   * faded band.
+   * A week absent from this map — including every week, when the map is
+   * empty — is unreachable: its fill dims, its label says so, and its tap
+   * no-ops. There is no separate "not known yet" state. `chips` renders its
+   * full run of days from `navigableBounds` before the events feed has ever
+   * resolved, and every one of those chips is already dashed, dimmed and
+   * announced "no events" at that point — a band that agrees with them,
+   * dimmed and saying "no events", is consistent with what is on screen, not
+   * a flash of something wrong.
    */
   destinations: Map<number, WeekBandDestination>;
   /** Whether this day's fill continues into the gutter on that side. */
@@ -50,9 +55,11 @@ export function WeekBandCell({
   const trailingBleed = segment && bridgesTrailing ? RAIL_BAND_BLEED_PX : 0;
 
   // Reachability is per WEEK, not per segment, precisely so a shared
-  // Saturday's two halves can disagree.
+  // Saturday's two halves can disagree. `week === undefined` covers a bar
+  // index this segment does not have (never reached with a real segment) —
+  // not a "not known yet" case, which no longer exists.
   const isReachable = (week: number | undefined) =>
-    destinations.size === 0 || week === undefined || destinations.has(week);
+    week === undefined || destinations.has(week);
 
   const target = segment?.navigationTarget ?? null;
   const navigable = target !== null && destinations.has(target);

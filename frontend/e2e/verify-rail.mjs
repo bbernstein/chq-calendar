@@ -634,7 +634,6 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // all break "equals" without breaking the markup.
 {
   const page = await newPage();
-  await enterList(page);
   const geometry = await page.evaluate(() => {
     const rail = document.querySelector('[data-day-rail]');
     if (!rail) return null;
@@ -645,7 +644,15 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
       const run = col.querySelector('[data-band-run]');
       const bars = [...col.querySelectorAll('[data-band-bar]')].map(b => {
         const r = b.getBoundingClientRect();
-        return { left: r.left, right: r.right, opacity: Number(getComputedStyle(b).opacity) };
+        return {
+          left: r.left, right: r.right,
+          opacity: Number(getComputedStyle(b).opacity),
+          // Ground truth for "same week", independent of the geometry 16b
+          // tests: the ramp step is a pure function of week number and
+          // `rampPercent` rounds to whole percent, so two touching bars in
+          // the same week resolve to byte-identical computed colour.
+          color: getComputedStyle(b).backgroundColor,
+        };
       });
       return {
         day: chip?.dataset.chip ?? null,
@@ -662,12 +669,24 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     const bandBottom = cells[0] ? document.querySelector('[data-band-cell]').getBoundingClientRect().bottom : null;
     const labels = [...rail.querySelectorAll('[data-week-band-button]')]
       .map(b => b.dataset.weekBandButton);
-    // The copy layer must lay out column for column with the real row.
-    const copy = [...rail.querySelectorAll('[data-rail-clip] > [data-rail-column]')]
-      .map(c => c.getBoundingClientRect());
-    const real = columns.map(c => c.getBoundingClientRect());
-    const worstCopyDelta = Math.max(0, ...real.map((r, i) =>
-      copy[i] ? Math.max(Math.abs(r.left - copy[i].left), Math.abs(r.width - copy[i].width)) : 999));
+    // The copy layer must lay out its CHIP BOXES pixel-identically to the
+    // real row — that is what a highlighted digit is clipped against. The
+    // COLUMNS themselves are `absolute inset-0` + `items-stretch`, so their
+    // own rects always match regardless of what is inside them; comparing
+    // columns rather than chip boxes would pass even if the copy's band
+    // spacer drifted from `--rail-band-h` and pushed every chip below it
+    // out of line with the real row.
+    const copyChipBoxes = [...rail.querySelectorAll('[data-rail-clip] > [data-rail-column]')]
+      .map(col => col.querySelector(':scope > div:not([data-band-spacer])')?.getBoundingClientRect() ?? null);
+    const realChipBoxes = columns.map(col => col.querySelector('[data-chip]')?.getBoundingClientRect() ?? null);
+    const worstCopyDelta = Math.max(0, ...realChipBoxes.map((r, i) => {
+      const c = copyChipBoxes[i];
+      if (!r || !c) return 999;
+      return Math.max(
+        Math.abs(r.left - c.left), Math.abs(r.width - c.width),
+        Math.abs(r.top - c.top), Math.abs(r.height - c.height),
+      );
+    }));
     return { cells, pill, bandBottom, labels, worstCopyDelta, columns: columns.length };
   });
 
@@ -681,14 +700,30 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 
     // A week is drawn as ONE run: inside a week the fill bridges the gutter,
     // and the only break in the whole band is the seam through the Saturday
-    // two weeks share.
-    const bridged = cells.filter((c, i) => {
+    // two weeks share. Measured off the OUTER bar on each side of the
+    // gutter — the last bar of the column to the left, the first bar of the
+    // column to the right — so a boundary Saturday's split cell is included
+    // rather than excluded: the join between a weekday and its boundary
+    // Saturday is the riskiest geometry in the design, and a
+    // `bars.length === 1` filter would never measure it. "Same week" is
+    // ground-truthed independently, off the bars' own computed colour (a
+    // pure function of week number, rounded to whole percent — see above),
+    // so the count asserted below is not just "at least one gutter touched".
+    const gutters = cells.slice(0, -1).map((c, i) => {
       const next = cells[i + 1];
-      return next && c.bars.length === 1 && next.bars.length === 1
-        && Math.abs(c.runRight - next.runLeft) < 0.5;
-    }).length;
-    check('16b the fill bridges the gutters inside a week', bridged > 0,
-      `${bridged} bridged gutters`);
+      if (c.bars.length === 0 || next.bars.length === 0) return { touching: false, sameWeek: false };
+      const leftEdge = c.bars[c.bars.length - 1];
+      const rightEdge = next.bars[0];
+      return {
+        touching: Math.abs(leftEdge.right - rightEdge.left) < 0.5,
+        sameWeek: leftEdge.color === rightEdge.color,
+      };
+    });
+    const bridged = gutters.filter(g => g.touching).length;
+    const sameWeekGutters = gutters.filter(g => g.sameWeek).length;
+    check('16b the fill bridges the gutters inside a week',
+      bridged > 0 && bridged === sameWeekGutters,
+      `${bridged} bridged of ${sameWeekGutters} same-week gutters`);
 
     const split = cells.filter(c => c.bars.length === 2);
     const seams = split.map(c => c.bars[1].left - c.bars[0].right);
@@ -716,7 +751,6 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // ------------------------------------------- 17. a band tap navigates
 {
   const page = await newPage();
-  await enterList(page);
   const before = await anchorChip(page);
   const jumped = await page.evaluate(() => {
     const buttons = [...document.querySelectorAll('[data-week-band-button]')]
@@ -825,7 +859,6 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   const { createRequire } = await import('node:module');
   const require = createRequire(import.meta.url);
   const page = await newPage();
-  await enterList(page);
   await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
   const results = await page.evaluate(async () => {
     const run = await window.axe.run('[data-day-rail]', {

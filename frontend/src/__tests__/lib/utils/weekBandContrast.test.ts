@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   RAIL_BACKDROP, RAIL_BAND_LABEL, RAIL_PILL, UNREACHABLE_FILL_OPACITY,
-  WEEK_BAND_RAMP, rampHex, rampPercent, rampBackground,
+  WEEK_BAND_RAMP, rampHex, rampPercent, rampBackground, type RailTheme,
 } from '@/lib/utils/railBandPalette';
 
 /**
@@ -159,6 +159,58 @@ describe('the CSS tokens and the TypeScript palette', () => {
 
   it.each(['start', 'end'] as const)('dark --rail-band-%s matches the palette', which => {
     expect(read(`rail-band-${which}`, block.slice(darkAt))).toBe(WEEK_BAND_RAMP.dark[which]);
+  });
+});
+
+describe('RAIL_BAND_LABEL and the CSS --foreground token', () => {
+  // `RAIL_BAND_LABEL` is a hand copy of `--foreground` — `WeekBandCell` paints
+  // the `WEEK n` label with the CSS variable directly, but every contrast
+  // assertion above computes against this TypeScript constant. Unlike the
+  // ramp block, `--foreground` carries no start/end markers of its own, so
+  // this slices on `@layer base`'s own boundaries instead — the block that
+  // actually declares it, ending at the `body {` rule that consumes it.
+  const css = readFileSync(new URL('../../../app/globals.css', import.meta.url), 'utf8');
+  const baseAt = css.indexOf('@layer base');
+  const bodyAt = css.indexOf('body {', baseAt);
+  const baseBlock = css.slice(baseAt, bodyAt);
+  const baseDarkAt = baseBlock.indexOf('@media (prefers-color-scheme: dark)');
+  const read = (name: string, where: string) =>
+    where.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`))?.[1];
+
+  it('finds the base layer\'s light and dark declarations', () => {
+    expect(baseAt).toBeGreaterThan(0);
+    expect(baseDarkAt).toBeGreaterThan(0);
+  });
+
+  it('light RAIL_BAND_LABEL matches --foreground', () => {
+    expect(read('foreground', baseBlock.slice(0, baseDarkAt))).toBe(RAIL_BAND_LABEL.light);
+  });
+
+  it('dark RAIL_BAND_LABEL matches --foreground', () => {
+    expect(read('foreground', baseBlock.slice(baseDarkAt))).toBe(RAIL_BAND_LABEL.dark);
+  });
+});
+
+describe('RAIL_BACKDROP and the rail\'s own background classes', () => {
+  // RAIL_BACKDROP is a hand copy of DayRail's `bg-white dark:bg-gray-800` —
+  // nothing reads it back either, so a class change on the rail's root could
+  // leave the whole contrast suite green against a backdrop it no longer
+  // paints. `CLASS_HEX` states what Tailwind actually resolves each class to
+  // (not a re-derivation of Tailwind's palette, a fixed fact about it), so
+  // this can fail two ways: the class disappearing from DayRail.tsx, or
+  // RAIL_BACKDROP drifting from what the class paints.
+  const dayRailSrc = readFileSync(
+    new URL('../../../components/calendar/DayRail.tsx', import.meta.url), 'utf8',
+  );
+  const CLASS_HEX: Record<RailTheme, { class: string; hex: string }> = {
+    light: { class: 'bg-white', hex: '#ffffff' },
+    dark: { class: 'dark:bg-gray-800', hex: '#1f2937' },
+  };
+
+  it.each(THEMES)('RAIL_BACKDROP matches what DayRail\'s %s backdrop class paints', theme => {
+    const { class: cls, hex } = CLASS_HEX[theme];
+    expect(dayRailSrc).toMatch(new RegExp(`\\b${cls.replace(':', '\\:')}\\b`));
+    expect(RAIL_BACKDROP[theme]).toBe(hex);
   });
 });
 

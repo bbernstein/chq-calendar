@@ -20,6 +20,15 @@ describe('weekBandSegments — membership', () => {
     expect(segments(['2026-06-27'])[0].weekNumbers).toEqual([1]);
   });
 
+  it("puts the season's final Saturday in week 9 alone", () => {
+    // No week 10 to share with — the mirror image of week 1's opening
+    // Saturday above. A future "first/last day" special case in the
+    // membership walk could pass every other test here and still get this
+    // one boundary wrong in either direction.
+    expect(segments(['2026-08-29'])[0].weekNumbers).toEqual([9]);
+    expect(segments(['2026-08-29'])[0].navigationTarget).toBe(9);
+  });
+
   it('gives an out-of-season day no week at all', () => {
     const s = segments(['2026-01-15'])[0];
     expect(s.weekNumbers).toEqual([]);
