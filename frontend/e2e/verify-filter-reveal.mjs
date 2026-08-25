@@ -64,7 +64,12 @@ async function phone({ reducedMotion } = {}) {
   return page;
 }
 
-const toggle = p => p.locator('[data-day-rail] button[aria-expanded]').first();
+// `[aria-label="Filters"]` is load-bearing, not decorative: the rail now
+// carries TWO `[aria-expanded]` buttons — the week chooser trigger
+// (`data-week-chooser-trigger`, #274) sits before the Filters toggle in DOM
+// order, so `.first()` used to grab the chooser instead. Narrowed the same
+// way `filterHeader.test.tsx` already narrows its own DOM query.
+const toggle = p => p.locator('[data-day-rail] button[aria-expanded][aria-label="Filters"]').first();
 const searchVisible = p => p.evaluate(() => {
   const el = document.querySelector('input[type="text"], input[type="search"]');
   if (!el) return false;
@@ -242,14 +247,16 @@ const fixedGhosts = p => p.evaluate(() =>
   await p.mouse.wheel(0, 100);
   await p.waitForTimeout(60);
   await p.evaluate(() => {
-    const t = document.querySelector('[data-day-rail] button[aria-expanded]');
+    // aria-label narrows past the week chooser trigger — see `toggle` above.
+    const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
     const panel = t && document.getElementById(t.getAttribute('aria-controls'));
     panel?.querySelector('button')?.dispatchEvent(
       new TransitionEvent('transitionend', { bubbles: true, propertyName: 'color' }));
   });
   await p.waitForTimeout(60);
   const midSlide = await p.evaluate(() => {
-    const t = document.querySelector('[data-day-rail] button[aria-expanded]');
+    // aria-label narrows past the week chooser trigger — see `toggle` above.
+    const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
     const el = t && document.getElementById(t.getAttribute('aria-controls'));
     if (!el) return { found: false };
     const cs = getComputedStyle(el);
@@ -285,7 +292,8 @@ const fixedGhosts = p => p.evaluate(() =>
     // whose position differs from the panel root's — which is what made an
     // earlier version of this check report a false failure.
     const mid = await p.evaluate(() => {
-      const t = document.querySelector('[data-day-rail] button[aria-expanded]');
+      // aria-label narrows past the week chooser trigger — see `toggle` above.
+      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
       const el = t && document.getElementById(t.getAttribute('aria-controls'));
       if (!el) return { found: false };
       const cs = getComputedStyle(el);
@@ -352,7 +360,8 @@ const fixedGhosts = p => p.evaluate(() =>
     await p.mouse.wheel(0, 100);
     await p.waitForTimeout(80);
     const r = await p.evaluate(() => {
-      const t = document.querySelector('[data-day-rail] button[aria-expanded]');
+      // aria-label narrows past the week chooser trigger — see `toggle` above.
+      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
       const el = t && document.getElementById(t.getAttribute('aria-controls'));
       if (!el) return null;
       const cs = getComputedStyle(el);
@@ -423,7 +432,8 @@ const fixedGhosts = p => p.evaluate(() =>
     // toggle names — not by guessing at a class or a shape. A fallback
     // selector here found a different element entirely on a build where the
     // card was `display: none`, and reported it as passing.
-    const btn = document.querySelector('[data-day-rail] button[aria-expanded]');
+    // aria-label narrows past the week chooser trigger — see `toggle` above.
+    const btn = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
     const id = btn?.getAttribute('aria-controls');
     const card = id ? document.getElementById(id) : null;
     if (!card) return null;
