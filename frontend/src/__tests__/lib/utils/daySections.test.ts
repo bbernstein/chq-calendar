@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
-import { DAY_SECTION_ATTR, daySectionElement, daySectionTop, dayRailHeightPx, topmostVisibleDaySection } from '@/lib/utils/daySections';
+import { DAY_SECTION_ATTR, daySectionElement, daySectionTop, topChromeHeightPx, topmostVisibleDaySection } from '@/lib/utils/daySections';
 
 function mount(keys: string[]) {
   document.body.innerHTML = keys
@@ -44,16 +44,37 @@ describe('daySectionTop', () => {
   });
 });
 
-describe('dayRailHeightPx', () => {
-  afterEach(() => { document.documentElement.style.removeProperty('--day-rail-h'); });
+describe('topChromeHeightPx', () => {
+  afterEach(() => {
+    document.documentElement.style.removeProperty('--day-rail-h');
+    document.documentElement.style.removeProperty('--site-header-offset');
+  });
 
   it('reads the published rail height', () => {
     document.documentElement.style.setProperty('--day-rail-h', '56px');
-    expect(dayRailHeightPx()).toBe(56);
+    expect(topChromeHeightPx()).toBe(56);
   });
 
   it('is 0 when nothing has published a height yet', () => {
-    expect(dayRailHeightPx()).toBe(0);
+    expect(topChromeHeightPx()).toBe(0);
+  });
+
+  // The chrome at the top of the viewport is the rail PLUS the site header
+  // whenever that header is revealed (#272). Everything that asks "is this
+  // section hidden behind the chrome" — the rail's scrollspy, the filter
+  // panel's scroll reference, a chip tap's landing position — is off by a
+  // whole header otherwise, and only while the header is showing, which is
+  // exactly when the reader is looking at it.
+  it('includes the site header while it is revealed', () => {
+    document.documentElement.style.setProperty('--day-rail-h', '56px');
+    document.documentElement.style.setProperty('--site-header-offset', '48px');
+    expect(topChromeHeightPx()).toBe(104);
+  });
+
+  it('is just the rail while the site header is hidden', () => {
+    document.documentElement.style.setProperty('--day-rail-h', '56px');
+    document.documentElement.style.setProperty('--site-header-offset', '0px');
+    expect(topChromeHeightPx()).toBe(56);
   });
 });
 

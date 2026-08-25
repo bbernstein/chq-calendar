@@ -4,6 +4,7 @@ import { extendRenderEndIndex, renderEndIndex } from '@/lib/utils/renderWindow';
 import { formatDayLabel } from '@/lib/utils/dayWindow';
 import { daySectionTop } from '@/lib/utils/daySections';
 import { EventListView, type EventListViewProps } from './EventListView';
+import { scrollWindowBy } from '@/lib/programmaticScroll';
 
 export interface EventListProps extends Omit<EventListViewProps, 'groups'> {
   groupedEvents: DayGroup[];
@@ -312,7 +313,7 @@ export function EventList({
     // prepend. Correcting against a node that is gone is guesswork.
     if (top === null) { settleRef.current = null; return; }
     const delta = top - pending.top;
-    if (delta !== 0) window.scrollBy(0, delta);
+    scrollWindowBy(delta);
     // Hold this position against late height changes until the reader
     // scrolls. `pending.top` — not `top` — because that is where the
     // reference day was before the prepend, and putting it back there is
@@ -342,7 +343,7 @@ export function EventList({
       const top = daySectionTop(current.key);
       if (top === null) { settleRef.current = null; return; }
       const delta = top - current.top;
-      if (delta !== 0) window.scrollBy(0, delta);
+      scrollWindowBy(delta);
     };
 
     // Any deliberate scroll gesture ends the settle window. Deliberately NOT

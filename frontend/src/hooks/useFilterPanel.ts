@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { topmostVisibleDaySection } from '@/lib/utils/daySections';
 import { useDismissOnScrollGesture } from '@/hooks/useDismissOnScrollGesture';
+import { scrollWindowBy } from '@/lib/programmaticScroll';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -323,7 +324,7 @@ export function useFilterPanel({ scrolledPast }: {
     // mutation — see the hook doc for why that makes this safe to run
     // unconditionally rather than fight what the browser already got right.
     const delta = pending.el.getBoundingClientRect().top - pending.top;
-    if (delta !== 0) window.scrollBy(0, delta);
+    scrollWindowBy(delta);
     // `exiting` as well as `open`: the panel enters flow on open and leaves
     // it on close, but it ALSO leaves flow when the exit animation starts
     // (`position: fixed`) and re-enters it when that animation ends. All

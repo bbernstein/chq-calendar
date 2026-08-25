@@ -116,11 +116,13 @@ jobs:
       - name: Install all workspace dependencies
         run: npm ci
 
-      # Chromium only. These are geometry checks against one engine, not a
-      # browser-support matrix, and --with-deps pulls the system libraries
-      # headless Chromium needs on a bare runner.
-      - name: Install Chromium for Playwright
-        run: npx playwright install --with-deps chromium
+      # Chromium for the suites, plus WebKit for one of them. These are
+      # geometry checks against one engine rather than a browser-support
+      # matrix — with a single deliberate exception, see the WebKit step
+      # below. --with-deps pulls the system libraries the headless engines
+      # need on a bare runner.
+      - name: Install browsers for Playwright
+        run: npx playwright install --with-deps chromium webkit
         working-directory: frontend
 
       - name: Build frontend
@@ -151,6 +153,24 @@ jobs:
         run: npm run test:browser --workspace=frontend
         env:
           URL: http://localhost:3000/
+
+      # The one suite that runs twice, and the exception to "one engine".
+      #
+      # #272's header reads scroll direction, and scroll ANCHORING is what
+      # makes that hard — the two engines disagree about it in both
+      # directions. WebKit corrects the page 122px after a rail chip tap where
+      # Chromium corrects nothing; Chromium anchors when the filter panel is
+      # inserted where WebKit does not. Each of those was a real bug the other
+      # engine could not see, and the regression this suite's checks 9 and 10
+      # guard against reproduced identically in both. A guard for a two-engine
+      # bug that only ever runs against one engine is half a guard, and the
+      # half it is missing is not knowable from the half that passes.
+      - name: Run the header-reveal checks under WebKit
+        run: node e2e/verify-header-reveal.mjs
+        working-directory: frontend
+        env:
+          URL: http://localhost:3000/
+          E2E_ENGINE: webkit
 
   # Note: Integration tests removed due to DynamoDB service container complexity
   # Post-deployment tests in deploy-production.yml verify the actual production system

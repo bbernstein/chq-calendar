@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/preact';
+import { render, screen, fireEvent, within, act } from '@testing-library/preact';
 import { Header } from '../Header';
+import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 import { quickLinks, inAppLinks, externalLinks } from '@/lib/quickLinks';
 import { APP_STORE_URL } from '@/lib/constants';
 
@@ -161,5 +162,118 @@ describe('Header season pill', () => {
 
     expect(screen.getByRole('heading', { level: 1 }).className).toContain('truncate');
     expect(screen.getByTestId('header-identity').className).not.toContain('shrink-0');
+  });
+});
+
+/**
+ * The site header's reveal on scroll up (#272).
+ *
+ * The header is the only route to the "more" menu and the year selector, and
+ * below the fold it used to be unreachable without scrolling the whole
+ * document back to the top. What these pin is the composition that fixes it —
+ * and, just as importantly, the composition that keeps the fix from
+ * reintroducing the scroll-anchoring loop `filterHeaderLayout.ts` documents at
+ * length.
+ */
+
+const siteHeader = () => document.querySelector('header') as HTMLElement;
+
+/**
+ * A scroll the READER made: the gesture that drives it, then the scroll it
+ * produces.
+ *
+ * The wheel is not decoration. A bare `scroll` event is ignored on purpose —
+ * see `useSiteHeaderReveal`, where a scroll with no gesture behind it is how
+ * the browser's own anchoring corrections announce themselves, and hiding the
+ * header on one of those was a measured bug.
+ */
+const scrollTo = (y: number) => act(() => {
+  window.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+  Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
+  window.dispatchEvent(new Event('scroll'));
+});
+
+const renderHeader = () => {
+  installResizeObserverMock();
+  return render(<Header {...defaultProps} availableYears={[2025, 2026]} />);
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  document.documentElement.style.removeProperty('--site-header-offset');
+  document.documentElement.style.removeProperty('--site-header-h');
+  Object.defineProperty(window, 'scrollY', { value: 0, configurable: true, writable: true });
+});
+
+describe('Header — reveal on scroll up', () => {
+  // The header rides up by exactly its own height and pins there, which
+  // parks it just above the viewport. When the offset is restored the same
+  // `top` puts it flush at 0 — one expression, both states.
+  it('parks itself above the viewport by its own height', () => {
+    renderHeader();
+    expect(siteHeader().style.top)
+      .toBe('calc(var(--site-header-offset, 0px) - var(--site-header-h, 0px))');
+  });
+
+  // This is the constraint that the whole approach turns on. Collapsing a
+  // header by taking it OUT of flow changes document height above the reader;
+  // scroll anchoring corrects for it, and the page becomes impossible to
+  // scroll slowly — 40 wheel ticks advanced the page 0px in both Chromium and
+  // WebKit. A sticky header never leaves flow, so document height is constant
+  // by construction and there is nothing for scroll anchoring to undo.
+  it('is sticky, so it never leaves the document flow', () => {
+    renderHeader();
+    expect(siteHeader().className).toContain('sticky');
+    expect(siteHeader().className).not.toContain('fixed');
+    expect(siteHeader().className).not.toContain('absolute');
+  });
+
+  // Above the filter/rail container's own `z-30`, or the revealed header
+  // paints behind the rail it is supposed to be sitting on top of.
+  it('stacks above the sticky filter header', () => {
+    renderHeader();
+    expect(siteHeader().className).toContain('z-40');
+  });
+
+  it('publishes its measured height for the rail to ride down by', () => {
+    renderHeader();
+    expect(document.documentElement.style.getPropertyValue('--site-header-h')).not.toBe('');
+  });
+
+  // A parked header is still in the DOM and still in flow, so it is
+  // Tab-reachable. Without `inert` the browser would try to scroll a focused
+  // control back into view — which it cannot do for a pinned sticky element,
+  // so it chases the position instead. The identical trap is documented for
+  // the filter card in `filterHeaderLayout.ts`.
+  it('is inert and hidden from screen readers once parked', () => {
+    renderHeader();
+    expect(siteHeader().hasAttribute('inert')).toBe(false);
+
+    scrollTo(1_000);
+    expect(siteHeader().hasAttribute('inert')).toBe(true);
+    expect(siteHeader().getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('is reachable again the moment it is revealed', () => {
+    renderHeader();
+    scrollTo(1_000);
+    scrollTo(900);
+    expect(siteHeader().hasAttribute('inert')).toBe(false);
+    expect(siteHeader().hasAttribute('aria-hidden')).toBe(false);
+  });
+
+  // "The revealed header must carry the app title, the year selector, and the
+  // 'more' menu — i.e. the whole existing header, not a reduced version."
+  // Nothing in this change may quietly trade the reveal for a slimmer bar.
+  it('carries the whole header, not a reduced version, when revealed', () => {
+    renderHeader();
+    scrollTo(1_000);
+    scrollTo(900);
+
+    expect(screen.getByText('CHQ Calendar')).toBeTruthy();
+    // The season pill and the "more" menu are the two features the issue
+    // names as unreachable; a reveal that dropped either would be no fix.
+    expect(screen.getByRole('button', { name: /2026/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'More' })).toBeTruthy();
   });
 });

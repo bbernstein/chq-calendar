@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { daySectionElement, daySectionTop, dayRailHeightPx } from '@/lib/utils/daySections';
+import { daySectionElement, daySectionTop, topChromeHeightPx } from '@/lib/utils/daySections';
 import { resolveAnchor } from '@/lib/utils/railPosition';
+import { scrollWindowBy } from '@/lib/programmaticScroll';
 
 /**
  * How far below the viewport top a day header counts as "the one I'm reading".
  *
- * Delegates to `dayRailHeightPx` in `daySections.ts` — the filter panel's
+ * Delegates to `topChromeHeightPx` in `daySections.ts` — the filter panel's
  * scroll correction needs the identical "behind the chrome" threshold, so
  * the measurement lives in one place rather than two copies drifting apart.
  * Kept as a local alias (not a call-site rename throughout this file) to
  * keep this file's own diff minimal.
  */
 function stickyOffset(): number {
-  return dayRailHeightPx();
+  return topChromeHeightPx();
 }
 
 /**
@@ -119,7 +120,7 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // reasserting a `scrollBy` correction *while a native smooth animation
     // is still running* would fight that animation rather than replace it.
     const delta = el.getBoundingClientRect().top - stickyOffset();
-    if (delta !== 0) window.scrollBy(0, delta);
+    scrollWindowBy(delta);
     settleRef.current = { key, top: stickyOffset() };
   }, []);
 
@@ -181,7 +182,7 @@ export function useDayAnchor(windowDayKeys: string[]): {
       // nothing left to hold.
       if (!el) { settleRef.current = null; return; }
       const delta = el.getBoundingClientRect().top - settle.top;
-      if (delta !== 0) window.scrollBy(0, delta);
+      scrollWindowBy(delta);
     };
     // Any deliberate scroll gesture ends the hold. Deliberately NOT the
     // `scroll` event: our own `scrollBy` above fires that, so listening to

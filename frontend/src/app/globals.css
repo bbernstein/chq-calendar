@@ -211,3 +211,51 @@
     opacity: 0;
   }
 }
+
+/*
+ * The site header's reveal on scroll up (#272).
+ *
+ * One animated value drives two surfaces. `--site-header-offset` is `0px`
+ * while the header is hidden and its measured height while it is revealed;
+ * the header's own `top` is `offset - height` (so `-height` parked, `0`
+ * flush), and the sticky filter/rail container adds the same term, which
+ * rides the rail down to sit below the revealed header rather than under it.
+ *
+ * Registering the property is what makes that possible. An unregistered
+ * custom property is an untyped token stream and cannot be interpolated, so
+ * the header would jump rather than slide. Registered as a `<length>` it
+ * animates, and because both surfaces read the same value they hold the same
+ * offset on every frame with nothing to keep in sync.
+ *
+ * Note what is NOT transitioned: `top`. Animating that would also animate the
+ * filter header flipping between parked and pinned — which is the filter
+ * panel's own reveal, choreographed separately in `useFilterPanel`.
+ */
+@property --site-header-offset {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
+:root {
+  /*
+   * Shown is the default, and it has to be declared here rather than left to
+   * `initial-value`. The reveal hook writes this property in an effect; before
+   * that effect runs there is no value, and `initial-value: 0px` is the HIDDEN
+   * end of the travel — so the site would paint with its header already parked
+   * out of sight. The same default covers a browser that drops the
+   * registration entirely.
+   */
+  --site-header-offset: var(--site-header-h, 0px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /*
+   * Declared here rather than declared and then unset, matching the filter
+   * panel's exit above: a reader who asked for reduced motion never has a
+   * transition to override.
+   */
+  :root {
+    transition: --site-header-offset 200ms ease;
+  }
+}

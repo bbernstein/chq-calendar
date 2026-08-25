@@ -4,6 +4,8 @@ import { HeaderMenu, newTabLabel, type HeaderMenuItem } from '@/components/layou
 import { quickLinks, inAppLinks, externalLinks, type QuickLink } from '@/lib/quickLinks';
 import { APP_STORE_URL } from '@/lib/constants';
 import { isAppPromoAvailable, readDeviceInfo } from '@/lib/iosPromo';
+import { useSiteHeaderReveal } from '@/hooks/useSiteHeaderReveal';
+import { siteHeaderTop } from '@/app/filterHeaderLayout';
 
 interface HeaderProps {
   selectedYear: number;
@@ -40,8 +42,33 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
 
   const promo = appAvailable ? [APP_PROMO_ITEM] : [];
 
+  // Reveal on scroll up, hide on scroll down (#272). The header is the only
+  // route to the "more" menu and the year selector, and below the fold it
+  // used to be unreachable without scrolling the whole document back to the
+  // top — from a rail tap, tens of thousands of pixels.
+  const { revealed, headerRef } = useSiteHeaderReveal();
+
   return (
-    <header className="bg-white dark:bg-gray-800 shadow-lg">
+    /*
+      Sticky with a negative `top`, never fixed: the header stays in flow, so
+      document height never changes and the scroll-anchoring loop documented
+      in `filterHeaderLayout.ts` has nothing to correct. `z-40` puts it above
+      the filter/rail container's `z-30`, which rides down by this header's
+      measured height while it is revealed.
+
+      `inert` while parked is not cosmetic. The header is still in the DOM and
+      still in flow, so a keyboard reader would tab into it and the browser
+      would chase a focused control it cannot scroll into view — the same trap
+      `filterCardParked` exists for.
+    */
+    <header
+      ref={headerRef}
+      data-site-header
+      inert={!revealed || undefined}
+      aria-hidden={!revealed || undefined}
+      style={{ top: siteHeaderTop() }}
+      className="sticky z-40 bg-white dark:bg-gray-800 shadow-lg"
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-2 sm:py-4">
           {/* The cluster stays shrinkable and the title truncates, so a narrow

@@ -97,12 +97,34 @@ Everything not named in those two stubs stays live production data.
 
 ## In CI
 
-`.github/workflows/build-and-test.yml` runs all four (via
+`.github/workflows/build-and-test.yml` runs all five (via
 `npm run test:browser`) against a preview server built from the branch. That
 server proxies `/cache` to production, which is how the pinned regime matrix
 reaches the live feed. There is no path filtering — they run on every push
-and every fork PR, like the rest of that workflow. Chromium only: these are
+and every fork PR, like the rest of that workflow. Chromium: these are
 geometry checks against one engine, not a browser-support matrix.
+
+With one deliberate exception. `verify-header-reveal.mjs` also runs under
+WebKit, in a second step, selected with `E2E_ENGINE=webkit`:
+
+```bash
+E2E_ENGINE=webkit URL=http://localhost:3000/ node e2e/verify-header-reveal.mjs
+```
+
+The site header (#272) reads scroll direction, and scroll ANCHORING is what
+makes that hard — the two engines disagree about it in both directions.
+WebKit corrects the page 122px after a rail chip tap where Chromium corrects
+nothing; Chromium anchors when the filter panel is inserted where WebKit does
+not. Each was a real bug the other engine could not see, and the
+scroll-anchoring regression its checks 9 and 10 guard against reproduced
+identically in both. A guard for a two-engine bug that only ever runs against
+one engine is half a guard, and the half it is missing is not knowable from
+the half that passes.
+
+WebKit refuses `mouse.wheel` in a mobile context, so that suite emulates
+touch only under Chromium. The viewport width is what selects the mobile
+layout (`lg:hidden` keys off width, not touch), so both engines exercise the
+same header.
 
 The job carries the same `if:` guard as `test-backend` and `test-frontend`,
 which reads as though it disables the job for same-repo pull requests. It

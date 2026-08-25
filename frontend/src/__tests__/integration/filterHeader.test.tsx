@@ -195,13 +195,21 @@ describe('page.tsx — the sticky filter header', () => {
   });
 
   // The card leaves by riding up on the header's negative offset instead.
+  //
+  // The `--site-header-offset` term is the site header's reveal on scroll up
+  // (#272): `0px` while it is hidden, so this parks exactly as it always did,
+  // and its measured height while it is revealed, which rides the rail down to
+  // sit below it. It is a CSS variable rather than a prop precisely so the
+  // reveal does not re-render this page.
+  const PARKED = 'calc(var(--site-header-offset, 0px) - var(--filter-card-h, 0px))';
+
   it('parks the header by the measured card offset when the panel is not overlaying', async () => {
     await renderPage();
 
-    expect(header().style.top).toBe('calc(-1 * var(--filter-card-h, 0px))');
+    expect(header().style.top).toBe(PARKED);
 
     scrollPastHeader();
-    expect(header().style.top).toBe('calc(-1 * var(--filter-card-h, 0px))');
+    expect(header().style.top).toBe(PARKED);
   });
 
   it('pins the header at the viewport top while the panel is open over the list', async () => {
@@ -210,7 +218,7 @@ describe('page.tsx — the sticky filter header', () => {
 
     fireEvent.click(toggleButton()!);
 
-    expect(header().style.top).toBe('0px');
+    expect(header().style.top).toBe('var(--site-header-offset, 0px)');
   });
 
   // Below, not above. Above the header the sentinel stops moving with the

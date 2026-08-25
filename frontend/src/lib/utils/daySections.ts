@@ -64,21 +64,32 @@ export function daySectionTop(key: string): number | null {
   return el ? el.getBoundingClientRect().top : null;
 }
 
-/**
- * How far below the viewport top counts as "behind the sticky rail", read
- * from `--day-rail-h`.
- *
- * Shared here rather than duplicated: `useDayAnchor`'s scrollspy and the
- * filter panel's open/close scroll correction both need the same answer to
- * "is this section still clear of the chrome", and a hardcoded number would
- * drift out of step with the rail's real height on browser text zoom, same
- * as every other measurement in this file.
- */
-export function dayRailHeightPx(): number {
-  if (typeof document === 'undefined') return 0;
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--day-rail-h');
-  const parsed = Number.parseFloat(raw);
+/** One custom property as a number, or 0 if it has not been published. */
+function lengthPx(property: string): number {
+  const parsed = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue(property));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * How far below the viewport top counts as "behind the chrome".
+ *
+ * Shared here rather than duplicated: `useDayAnchor`'s scrollspy, the rail's
+ * highlight and the filter panel's open/close scroll correction all need the
+ * same answer to "is this section still clear of the chrome", and a hardcoded
+ * number would drift out of step with the real heights on browser text zoom,
+ * same as every other measurement in this file.
+ *
+ * The chrome is the rail PLUS the site header whenever that header is
+ * revealed (#272) — `--site-header-offset` is `0px` while it is hidden, so
+ * this is the rail alone the rest of the time. Named for the chrome rather
+ * than for the rail because it stopped being only the rail: a name that
+ * undersold what it measured is how the day titles ended up pinned a whole
+ * header too high.
+ */
+export function topChromeHeightPx(): number {
+  if (typeof document === 'undefined') return 0;
+  return lengthPx('--site-header-offset') + lengthPx('--day-rail-h');
 }
 
 /**
@@ -96,7 +107,7 @@ export function dayRailHeightPx(): number {
  * scroll-listening or settle-hold machinery.
  */
 export function topmostVisibleDaySection(): HTMLElement | null {
-  const limit = dayRailHeightPx();
+  const limit = topChromeHeightPx();
   const sections = document.querySelectorAll<HTMLElement>(`[${DAY_SECTION_ATTR}]`);
   for (const el of Array.from(sections)) {
     if (el.getBoundingClientRect().top >= limit) return el;

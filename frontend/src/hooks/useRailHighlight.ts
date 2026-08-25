@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { daySectionTop, daySectionMetrics, dayRailHeightPx } from '@/lib/utils/daySections';
+import { daySectionTop, daySectionMetrics, topChromeHeightPx } from '@/lib/utils/daySections';
 import {
   resolveAnchor, rampDistance, dayProgress, stripScrollLeft, pillGeometry, lerp,
   type ChipExtent,
@@ -281,7 +281,7 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     // both trade a measured 4% worst case for a new coupling across the
     // boundary this design keeps clean. Revisit if the render window ever
     // stops being bounded — that, not the day list, is what sets this cost.
-    const limit = dayRailHeightPx() + 1;
+    const limit = topChromeHeightPx() + 1;
     const resolved = resolveAnchor(windowDayKeys, limit, daySectionTop);
     if (!resolved) {
       hide();
