@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SeasonWeek } from '@/lib/types';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
@@ -29,8 +29,18 @@ export interface WeekChooserProps {
  * Navigation, never a filter. Choosing a week calls the caller's `onSelectWeek`,
  * which is `page.tsx`'s `goToWeek` — `weekDestinations.get(week)` then
  * `goToDay` — and touches no scope, week, category or search.
+ *
+ * `memo`'d: this renders unconditionally inside `DayRail`'s row, which
+ * re-renders on every rail-relevant state change — including the filter
+ * panel opening and closing, which does not touch any prop here. Without
+ * this, every one of those commits redoes `weekGridRows`/`weekGridColumns`
+ * and rebuilds the icon's cell tree for no visible difference. `DayRail`
+ * already passes `seasonWeeks` and `destinations` as the stable references
+ * `page.tsx` memoizes them as; the one prop that was NOT stable —
+ * `onSelectWeek` — is fixed alongside this, in `DayRail`, so the memo
+ * actually has something to compare.
  */
-export function WeekChooser({
+export const WeekChooser = memo(function WeekChooser({
   seasonWeeks, destinations, currentWeek, themes, onSelectWeek,
 }: WeekChooserProps) {
   const [open, setOpen] = useState(false);
@@ -143,4 +153,4 @@ export function WeekChooser({
       )}
     </>
   );
-}
+});
