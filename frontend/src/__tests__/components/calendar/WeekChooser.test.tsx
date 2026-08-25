@@ -131,6 +131,31 @@ describe('WeekChooser', () => {
     expect(popover()).not.toBeNull();
   });
 
+  it('does not close on a press inside a theme popover reached through the grid', () => {
+    // `WeekThemePopover` portals to `document.body`, so it sits inside NEITHER
+    // `popoverRef` nor `triggerRef` — the outside-press handler below used to
+    // treat a press on the theme card as "outside" and tear down the whole
+    // chooser (and the theme popover with it) before a click on, say, the
+    // "View on chq.org" link could ever land. Right-click mirrors what a real
+    // long-press or Shift+F10 would open; see `WeekGrid.test.tsx`'s "leaves
+    // Escape to an open theme popover" for the same setup on the keyboard path.
+    const themes = {
+      6: {
+        number: 6, title: 'Water', description: 'All about water.',
+        startDate: '2026-08-01', endDate: '2026-08-07',
+      },
+    };
+    renderChooser({ themes });
+    fireEvent.click(trigger());
+    fireEvent.contextMenu(document.querySelector('[data-week-cell="6"]')!);
+    const themeDialog = screen.getByRole('dialog', { name: 'Week 6 theme' });
+
+    fireEvent.mouseDown(themeDialog);
+
+    expect(popover()).not.toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Week 6 theme' })).toBeTruthy();
+  });
+
   it('navigates, closes, and returns focus when a week is chosen', () => {
     const { props } = renderChooser();
     fireEvent.click(trigger());
