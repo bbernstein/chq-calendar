@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { weekBandSegments, weekDayKeySpans } from '@/lib/utils/weekBands';
+import { weekBandDestinations, weekBandSegments, weekBandUnreachableLabel, weekDayKeySpans } from '@/lib/utils/weekBands';
 import { getChautauquaSeasonWeeks, weekNumbersForCalendarDate } from '@/lib/utils/dateHelpers';
 import { dayKeys, startOfDay } from '@/lib/utils/dayWindow';
 
@@ -99,5 +99,91 @@ describe('weekDayKeySpans', () => {
     expect(spans).toHaveLength(9);
     expect(spans[0]).toEqual({ number: 1, opening: '2026-06-27', closing: '2026-07-04' });
     expect(spans[8]).toEqual({ number: 9, opening: '2026-08-22', closing: '2026-08-29' });
+  });
+});
+
+// 2026: week 5 opens Sat 07-25 and closes Sat 08-01, which it shares with
+// week 6.
+const SEASON_BOUNDS = { startDay: '2026-06-01', endDay: '2026-09-30' };
+
+function destinations(
+  eventDays: string[],
+  counts: Record<string, number> = {},
+  bounds = SEASON_BOUNDS,
+) {
+  return weekBandDestinations({
+    seasonWeeks: weeks, eventDays, bounds,
+    countsByDay: new Map(Object.entries(counts)),
+  });
+}
+
+describe('weekBandDestinations — which day a week tap lands on', () => {
+  it('takes the opening Saturday when it has events', () => {
+    expect(destinations(['2026-07-25', '2026-07-28']).get(5)?.dayKey).toBe('2026-07-25');
+  });
+
+  it("falls back to the week's first day with events when the opening Saturday is empty", () => {
+    // The rail never announces a destination it cannot reach.
+    expect(destinations(['2026-07-28', '2026-07-30']).get(5)?.dayKey).toBe('2026-07-28');
+  });
+
+  it("takes the week's earliest day, not the list's first", () => {
+    // `eventDays` spans the whole rail, not one week, and is sorted ascending
+    // — which is what lets the fallback stop at the first match. What it must
+    // not do is stop at the first element: 07-20 is in week 4.
+    expect(destinations(['2026-07-20', '2026-07-28', '2026-07-30']).get(5)?.dayKey)
+      .toBe('2026-07-28');
+  });
+
+  it('leaves a week with nothing reachable out of the map', () => {
+    // Absent is the signal the band is DISABLED. Days on either side of week
+    // 5, none inside it.
+    expect(destinations(['2026-07-20', '2026-08-05']).has(5)).toBe(false);
+  });
+
+  it('counts a shared Saturday for both of its weeks', () => {
+    const result = destinations(['2026-08-01']);
+    expect(result.get(5)?.dayKey).toBe('2026-08-01');
+    expect(result.get(6)?.dayKey).toBe('2026-08-01');
+  });
+
+  it('refuses a day outside the rail\'s own bounds', () => {
+    // `railTarget` refuses a day past `navigableBounds`, so a target outside
+    // them would be announced and then declined.
+    const clamped = { startDay: '2026-07-28', endDay: '2026-09-30' };
+    expect(destinations(['2026-07-25', '2026-07-29'], {}, clamped).get(5)?.dayKey)
+      .toBe('2026-07-29');
+  });
+
+  it('leaves a week entirely outside the bounds unreachable', () => {
+    const clamped = { startDay: '2026-08-10', endDay: '2026-09-30' };
+    expect(destinations(['2026-07-25'], {}, clamped).has(5)).toBe(false);
+  });
+});
+
+describe('weekBandDestinations — what it is named', () => {
+  it('says the opening Saturday opens the week', () => {
+    expect(destinations(['2026-07-25'], { '2026-07-25': 84 }).get(5)?.label)
+      .toBe('Go to Week 5, opens Saturday, July 25, 84 events');
+  });
+
+  it('does not claim a fallback day opens the week', () => {
+    // Saying "opens" here would be a small lie about where the reader is put
+    // down.
+    expect(destinations(['2026-07-28'], { '2026-07-28': 1 }).get(5)?.label)
+      .toBe('Go to Week 5, first events Tuesday, July 28, 1 event');
+  });
+
+  it('states an unreachable week as a fact rather than offering it', () => {
+    // Mirrors an empty day chip ("Monday, July 6, no events"), which also
+    // never says "Go to".
+    expect(weekBandUnreachableLabel(6)).toBe('Week 6, no events');
+  });
+
+  it('never names a week by direction', () => {
+    const result = destinations(['2026-07-25', '2026-08-10'], { '2026-07-25': 3 });
+    for (const d of result.values()) {
+      expect(d.label).not.toMatch(/\bnext\b|\bprevious\b|\bforward\b|\bback\b/i);
+    }
   });
 });

@@ -1,5 +1,5 @@
 import type { SeasonWeek } from '@/lib/types';
-import { type DayKey, dayKeyOf } from '@/lib/utils/dayWindow';
+import { type DayKey, type NavigableBounds, dayKeyOf, spokenDayTitle } from '@/lib/utils/dayWindow';
 
 /**
  * One week's extent expressed in day keys — the opening Saturday through the
@@ -111,4 +111,105 @@ export function weekBandSegments(keys: DayKey[], seasonWeeks: SeasonWeek[]): Wee
       labelledWeek: labelled,
     };
   });
+}
+
+/** Where a tap on one week's band lands, and what a screen reader reads for it. */
+export interface WeekBandDestination {
+  dayKey: DayKey;
+  /** e.g. `"Go to Week 6, opens Saturday, June 27, 84 events"`. */
+  label: string;
+}
+
+interface FoundDay {
+  dayKey: DayKey;
+  opensTheWeek: boolean;
+}
+
+/**
+ * The design's three branches, in order:
+ *
+ * 1. the full Saturday that opens the week, when it holds events under the
+ *    current non-date filters — a reader asking for week 6 is asking to be put
+ *    at the top of week 6;
+ * 2. otherwise the week's first day that does, because the rail never
+ *    announces a destination it cannot reach;
+ * 3. otherwise `null`, which is the signal the band is **disabled** — matching
+ *    the dashed empty chips directly beneath it. A normal-looking band next to
+ *    visibly empty chips that does nothing when tapped is worse than one that
+ *    says it cannot go there.
+ *
+ * `bounds` is the rail's own navigable span. A day outside it is not a legal
+ * target (`railTarget` refuses it), so a week whose days all lie outside is
+ * unreachable even if events exist there.
+ */
+function findDay(
+  span: WeekDayKeySpan, eventDays: DayKey[], bounds: NavigableBounds
+): FoundDay | null {
+  // Day keys are `"yyyy-mm-dd"`, so the clamp against `bounds` is a plain
+  // string comparison.
+  const first = span.opening > bounds.startDay ? span.opening : bounds.startDay;
+  const last = span.closing < bounds.endDay ? span.closing : bounds.endDay;
+  if (first > last) return null;
+
+  if (span.opening >= first && span.opening <= last && eventDays.includes(span.opening)) {
+    return { dayKey: span.opening, opensTheWeek: true };
+  }
+  // `eventDays` is `eventDayKeys`' output, already sorted ascending, so the
+  // first match in its existing order is the week's earliest reachable day.
+  const fallback = eventDays.find(k => k >= first && k <= last);
+  return fallback === undefined ? null : { dayKey: fallback, opensTheWeek: false };
+}
+
+/**
+ * Named by destination, never by direction — the rail's established
+ * convention, and why `⟳ Now` reads "Go to Wednesday, July 1, today, 3 events"
+ * rather than "go forward". "Opens" is said only when the target really is the
+ * week's opening Saturday; when the reader is being sent to a later day
+ * because that Saturday is empty, saying "opens" would be a small lie about
+ * where they are landing.
+ */
+function destinationLabel(week: number, found: FoundDay, count: number): string {
+  const title = spokenDayTitle(found.dayKey);
+  const where = found.opensTheWeek ? `opens ${title}` : `first events ${title}`;
+  return `Go to Week ${week}, ${where}, ${count} event${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Every week the band can navigate to, keyed by week number.
+ *
+ * A week **absent** from the map is unreachable: its fill renders faded and a
+ * tap does nothing. Absent is not the same as "nothing is reachable" — an
+ * absent *map* means "no reachability information yet", which is why
+ * `WeekBandCell` treats an empty map as "do not dim anything".
+ *
+ * One batch form, not a batch and a single-week form: the tap handler and the
+ * fill both read this map, so they cannot disagree about which weeks are
+ * reachable.
+ */
+export function weekBandDestinations(o: {
+  seasonWeeks: SeasonWeek[];
+  /** Sorted ascending — the days navigation can reach under the non-date filters. */
+  eventDays: DayKey[];
+  bounds: NavigableBounds;
+  countsByDay: Map<DayKey, number>;
+}): Map<number, WeekBandDestination> {
+  const result = new Map<number, WeekBandDestination>();
+  for (const span of weekDayKeySpans(o.seasonWeeks)) {
+    const found = findDay(span, o.eventDays, o.bounds);
+    if (!found) continue;
+    result.set(span.number, {
+      dayKey: found.dayKey,
+      label: destinationLabel(span.number, found, o.countsByDay.get(found.dayKey) ?? 0),
+    });
+  }
+  return result;
+}
+
+/**
+ * What a screen reader reads for a week the band cannot reach — a statement of
+ * fact, not an offer, exactly as an empty day chip reads "Monday, July 6, no
+ * events" rather than offering to go there.
+ */
+export function weekBandUnreachableLabel(week: number): string {
+  return `Week ${week}, no events`;
 }
