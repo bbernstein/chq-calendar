@@ -592,10 +592,16 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
   });
 
-  // Focusable is not the same as activated-by-Space. `WeekBadge` and the modal
-  // container both carry a `tabIndex` and both scroll the page on Space, so a
-  // rule keyed on focusability rather than on behaviour would be wrong about
-  // the platform, not merely cautious.
+  // Focusable is not the same as activated-by-Space. `Modal`'s container is the
+  // real instance — `role="dialog"`, `tabIndex={-1}`, and an `onKeyDown` that
+  // handles only Escape and Tab — so Space there scrolls the page, and a rule
+  // keyed on focusability rather than on behaviour would be wrong about the
+  // platform, not merely cautious.
+  //
+  // `WeekBadge` looks like the same case and is not: it sets `role="button"`
+  // alongside `tabIndex={0}` and calls `preventDefault()` on Space, so the
+  // `[role="button"]` match already covers it. Naming it here would have made
+  // this comment a plausible, checkable claim that happened to be false.
   it('counts Space on an element that is focusable but not activated by it', () => {
     const { result } = mount();
     scrollTo(30_000);
@@ -603,7 +609,7 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     jumpTo(12_929);
     advance(GESTURE_WINDOW_MS + 1);
 
-    keyOn(el('<span tabindex="0">Wk 5/6</span>'), ' ');
+    keyOn(el('<div role="dialog" tabindex="-1">a dialog</div>'), ' ');
     frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
 
     expect(result.current.revealed).toBe(true);

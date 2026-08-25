@@ -25,9 +25,6 @@ export const SCROLL_KEYS: ReadonlySet<string> = new Set([
   'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ', 'Spacebar',
 ]);
 
-/** Whether a `keydown` is the reader scrolling with the keyboard. */
-export const isScrollKey = (key: string): boolean => SCROLL_KEYS.has(key);
-
 /**
  * Anything that takes the keypress for itself instead of scrolling.
  *
@@ -36,11 +33,15 @@ export const isScrollKey = (key: string): boolean => SCROLL_KEYS.has(key);
  * rather than scrolling, which is why buttons and links are here too.
  *
  * Note what is NOT in the second list: a bare `[tabindex]`. Focusable is not
- * the same as activated-by-Space — `WeekBadge` and the modal container are
- * both focusable, and Space pressed on either really does scroll the page.
- * Excluding them would be a false negative in the one direction this function
- * is otherwise careful to prefer, but a wrong one: it would be claiming
- * something about the platform that is not true.
+ * the same as activated-by-Space. `Modal`'s container is the real example —
+ * `role="dialog"`, `tabIndex={-1}`, and an `onKeyDown` that handles only
+ * Escape and Tab — so Space there does scroll the page, and excluding it would
+ * be claiming something about the platform that is not true.
+ *
+ * `WeekBadge` is NOT such an example, though it looks like one: it sets
+ * `role="button"` in the same breath as `tabIndex={0}` and calls
+ * `preventDefault()` on Space, so the `[role="button"]` match already covers
+ * it, correctly.
  */
 const CONSUMES_THE_KEY =
   'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
