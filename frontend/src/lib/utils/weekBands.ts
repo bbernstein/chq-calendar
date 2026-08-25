@@ -241,3 +241,26 @@ export function bridgesGutter(index: number, segments: WeekBandSegment[]): boole
   if (left.length === 0 || right.length === 0) return false;
   return left.some(n => right.includes(n));
 }
+
+/**
+ * Which week the reader is in, from the day the anchor settled on.
+ *
+ * A shared Saturday resolves to the **later** of its two weeks — the one the
+ * reader is scrolling into. That is the rail's own convention (the band's tab
+ * stop already used it) and it is the one the chooser's lit cell needs: lighting
+ * the earlier week would leave the icon a week behind the reader for one day in
+ * seven, on the exact day a reader is most likely to be checking where they are.
+ *
+ * `null` when there is no anchor yet, when the anchor is a day outside the
+ * season (`navigableBounds` widens past it whenever a pre- or post-season event
+ * exists), or when no segment covers the day. All three mean the same thing to
+ * a caller — no cell lights — and none of them is an error.
+ */
+export function anchorWeekNumber(
+  anchorDay: string | null, segments: WeekBandSegment[]
+): number | null {
+  if (!anchorDay) return null;
+  const segment = segments.find(s => s.dayKey === anchorDay);
+  if (!segment || segment.weekNumbers.length === 0) return null;
+  return segment.weekNumbers[segment.weekNumbers.length - 1];
+}

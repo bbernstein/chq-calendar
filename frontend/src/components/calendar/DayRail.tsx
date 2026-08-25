@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { DayChip } from '@/lib/utils/dayWindow';
 import { FiltersIcon } from '@/components/filters/FiltersIcon';
 import { WeekBandCell } from '@/components/calendar/WeekBandCell';
-import { bridgesGutter, type WeekBandDestination, type WeekBandSegment } from '@/lib/utils/weekBands';
+import { anchorWeekNumber, bridgesGutter, type WeekBandDestination, type WeekBandSegment } from '@/lib/utils/weekBands';
 import { RAIL_CHIP_GUTTER_PX } from '@/lib/utils/railMetrics';
 import { RAIL_CHIP_SELECTOR, useRailHighlight } from '@/hooks/useRailHighlight';
 
@@ -251,12 +251,10 @@ export function DayRail({
   const tabStopKey = chips.some(c => c.key === anchorDay) ? anchorDay : chips[0]?.key;
 
   // The band is one tab stop, like the chip row: the week the reader is
-  // actually in, resolved from the band's own model rather than from a second
-  // date computation. A shared Saturday lights the LATER of its two weeks —
-  // the one the reader is scrolling into. Falls back to the first labelled
-  // week so the band is never unreachable from the keyboard.
-  const anchorSegment = bandSegments.find(s => s.dayKey === anchorDay);
-  const anchorWeek = anchorSegment?.weekNumbers[anchorSegment.weekNumbers.length - 1] ?? null;
+  // actually in, resolved once in `weekBands.ts` so the band's tab stop and the
+  // chooser's lit cell cannot answer this differently. Falls back to the first
+  // labelled week so the band is never unreachable from the keyboard.
+  const anchorWeek = anchorWeekNumber(anchorDay, bandSegments);
   const bandTabStopWeek = anchorWeek
     ?? bandSegments.find(s => s.labelledWeek !== null)?.labelledWeek
     ?? null;

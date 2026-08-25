@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bridgesGutter, weekBandDestinations, weekBandSegments, weekBandUnreachableLabel, weekDayKeySpans, type WeekBandSegment } from '@/lib/utils/weekBands';
+import { anchorWeekNumber, bridgesGutter, weekBandDestinations, weekBandSegments, weekBandUnreachableLabel, weekDayKeySpans, type WeekBandSegment } from '@/lib/utils/weekBands';
 import { getChautauquaSeasonWeeks, weekNumbersForCalendarDate } from '@/lib/utils/dateHelpers';
 import { dayKeys, startOfDay } from '@/lib/utils/dayWindow';
 
@@ -260,5 +260,47 @@ describe('bridgesGutter — two-entry sets', () => {
   it('never bridges disjoint sets, even with two entries each', () => {
     expect(bridgesGutter(0, [segment('2026-08-01', [5, 6]), segment('2026-08-08', [7, 8])]))
       .toBe(false);
+  });
+});
+
+describe('anchorWeekNumber', () => {
+  // The 2026 season's weeks, as day-key spans, are what the segments below are
+  // built from — so these three days are looked up, not asserted from memory.
+  const season = getChautauquaSeasonWeeks(2026);
+  const spans = weekDayKeySpans(season);
+  const week2 = spans.find(s => s.number === 2)!;
+  const midWeek2 = dayKeys(week2.opening, week2.closing)[3];
+  const segments = weekBandSegments(
+    dayKeys(spans[0].opening, spans[spans.length - 1].closing), season);
+
+  it('returns null with no anchor', () => {
+    expect(anchorWeekNumber(null, segments)).toBeNull();
+  });
+
+  it('returns the week of a day that belongs to exactly one', () => {
+    expect(anchorWeekNumber(midWeek2, segments)).toBe(2);
+  });
+
+  it('returns the LATER week on a boundary Saturday', () => {
+    // The one the reader is scrolling INTO. Week 2's opening Saturday is also
+    // week 1's closing Saturday; the chooser must light week 2 there, or the
+    // lit cell lags a whole week behind the reader for one day in seven.
+    const shared = segments.find(s => s.dayKey === week2.opening)!;
+    expect(shared.weekNumbers).toEqual([1, 2]);
+    expect(anchorWeekNumber(week2.opening, segments)).toBe(2);
+  });
+
+  it('returns null for a day the season does not contain', () => {
+    // `navigableBounds` widens past the season whenever a pre- or post-season
+    // event exists, so this is a day the rail really renders.
+    const outside = weekBandSegments(['2026-05-01'], season);
+    expect(outside[0].weekNumbers).toEqual([]);
+    expect(anchorWeekNumber('2026-05-01', outside)).toBeNull();
+  });
+
+  it('returns null for a day no segment covers at all', () => {
+    // Not the same case as above: here the day is absent from the array, which
+    // is what happens for one commit while the rail's range is changing.
+    expect(anchorWeekNumber('2026-07-04', [])).toBeNull();
   });
 });
