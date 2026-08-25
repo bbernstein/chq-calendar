@@ -414,7 +414,7 @@ export function DayRail({
                   gets a seam through it — the exact failure the shared
                   `chipBoxClass` exists to prevent, one level up.
                 */}
-                <div data-band-spacer className="h-[8px] shrink-0" />
+                <div data-band-spacer className="h-[var(--rail-band-h)] shrink-0" />
                 <div className={chipBoxClass(chip.count === 0)}>
                   <ChipFace chip={chip} />
                 </div>
