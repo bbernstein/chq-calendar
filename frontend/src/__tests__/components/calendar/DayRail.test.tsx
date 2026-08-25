@@ -291,11 +291,16 @@ describe('DayRail', () => {
     it('contributes nothing to the rail\'s chevron selector', () => {
       const { container } = renderRailIn();
       const rail = container.querySelector<HTMLElement>('[data-day-rail]')!;
-      const nonChipButtons = rail.querySelectorAll('button:not([data-chip])');
-      // The two chevrons plus the one week-band button (see above), and
-      // nothing else. No `⟳ Now` (anchor is today) and no Filters toggle (no
-      // `filtersToggle` prop).
-      expect(nonChipButtons).toHaveLength(3);
+      // Excludes `[data-week-band-button]` deliberately: the default fixture
+      // has one real band button (see above), and it is a genuine control on
+      // the REAL row, not a leak from the clipped copy — this test's whole
+      // job is to prove the copy contributes nothing here, so the band
+      // button must be excluded by attribute rather than folded into the
+      // count, or a future leak in the copy could hide behind it.
+      const nonChipButtons = rail.querySelectorAll('button:not([data-chip]):not([data-week-band-button])');
+      // The two chevrons, and nothing else. No `⟳ Now` (anchor is today) and
+      // no Filters toggle (no `filtersToggle` prop).
+      expect(nonChipButtons).toHaveLength(2);
     });
 
     it('starts fully clipped, so it cannot flash before the first measurement', () => {
