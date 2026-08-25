@@ -593,8 +593,9 @@ with no date filters there is nothing to keep, so there is one Clear, not two.
 
 ### Deletions
 
-`components/filters/DateFilter.tsx`; the filter-side use of `WeekSelector`
-(the component itself survives inside phase 2's chooser);
+`components/filters/DateFilter.tsx`; `components/filters/WeekSelector.tsx`
+outright — phase 2 built the chooser from its *behaviour*, not its markup,
+so nothing of the component itself survives (see the addendum above);
 `useWeekDragSelection` in `hooks/useScrollState.ts` and the `weekDrag` prop
 chain; the `date` and `week` branches of `buildActiveChips.ts`, along with its
 `viewWindow`, `windowExpanded` and `resetWindow` inputs; `isWeekHighlighted`

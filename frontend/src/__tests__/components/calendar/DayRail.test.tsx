@@ -704,10 +704,11 @@ describe('the week chooser', () => {
 
   it('lights the week the anchor is in', () => {
     renderRail();
-    // July 5 2026 is inside week 2 of the 2026 season; the chooser and the
-    // band's tab stop resolve it through the same `anchorWeekNumber`.
+    // July 5 2026 is inside week 2 of the 2026 season (week 1 is Jun 27–Jul 4,
+    // week 2 is Jul 4–Jul 11); the chooser and the band's tab stop resolve it
+    // through the same `anchorWeekNumber`.
     const lit = Array.from(document.querySelectorAll('[data-week-chooser-cell][data-lit]'));
-    expect(lit).toHaveLength(1);
+    expect(lit.map(c => c.getAttribute('data-week-chooser-cell'))).toEqual(['2']);
   });
 
   it('offers the same weeks the band does, from the same map', () => {
