@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 import { onProgrammaticScroll } from '@/lib/programmaticScroll';
-import { keyScrollsPage } from '@/lib/scrollKeys';
+import { gestureScrollsPage, keyScrollsPage } from '@/lib/scrollGestures';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
@@ -192,6 +192,9 @@ export function useSiteHeaderReveal() {
       // with its button held is a scrollbar drag, the one way to scroll that
       // fires no wheel, touch or key.
       if (e.type === 'mousemove' && (e as MouseEvent).buttons === 0) return;
+      // Nor is a gesture the page never sees. The filter panel scrolls itself
+      // while it overlays the list, and the day rail scrolls sideways.
+      if (e.type !== 'keydown' && !gestureScrollsPage(e)) return;
       // Nor is typing. Every keystroke on the page reaches this listener,
       // search included — and search re-filtering is the largest layout change
       // above the reader the app makes.

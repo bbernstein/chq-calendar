@@ -1,4 +1,18 @@
 /**
+ * Whether a given piece of input will scroll the PAGE.
+ *
+ * Every consumer of this module is asking one question — "did the reader just
+ * scroll the document?" — and the answer is never the event type alone.
+ * Space scrolls from the document, types in a field and activates a button;
+ * a wheel scrolls the page, or the panel it happens to be over, or the day
+ * rail sideways. Only the target and the deltas separate those.
+ *
+ * Named for gestures rather than for keys because it stopped being only keys:
+ * a name that undersells what a module answers is how the wrong caller ends
+ * up asking the easy half of the question.
+ */
+
+/**
  * The keys the reader deliberately scrolls with.
  *
  * Deliberately narrow: a bare letter or a Tab must not count as scrolling.
@@ -72,4 +86,48 @@ export function keyScrollsPage(event: KeyboardEvent): boolean {
   if (target.closest(CONSUMES_THE_KEY)) return false;
   const isSpace = event.key === ' ' || event.key === 'Spacebar';
   return !(isSpace && target.closest(ACTIVATED_BY_SPACE));
+}
+
+/** Overflow values that make an element its own scroll container. */
+const SCROLLS = new Set(['auto', 'scroll', 'overlay']);
+
+/**
+ * Whether this element takes vertical scrolling for itself.
+ *
+ * The document's own scrollers are excluded by name: they ARE the page, so a
+ * gesture over them is a page scroll rather than a nested one.
+ */
+function scrollsVertically(el: Element): boolean {
+  if (el === document.documentElement || el === document.body) return false;
+  if (el.scrollHeight <= el.clientHeight) return false;
+  return SCROLLS.has(getComputedStyle(el).overflowY);
+}
+
+/**
+ * Whether a pointer gesture will scroll the page, rather than something in it.
+ *
+ * The filter panel is `max-h-[70vh] overflow-y-auto` whenever it overlays the
+ * list, so a wheel or a drag inside it moves the panel and leaves `window`
+ * exactly where it was. Treating that as a page scroll matters because of what
+ * usually comes next: the reader picks a venue, the list reflows, and the
+ * correction for that reflow inherits an authority the gesture never had.
+ * `useFilterPanel` already exempts gestures inside the panel, for the
+ * mirror-image reason.
+ *
+ * A wheel with no vertical component is out for the same reason: the day rail
+ * scrolls sideways, and moving it is not moving the page up or down.
+ *
+ * Errs toward "this did not scroll the page". A nested scroller at its own
+ * boundary really does chain to the document, so this returns false for the
+ * last few pixels of such a gesture — a missed toggle the reader's next scroll
+ * puts right, which is the cheaper of the two mistakes.
+ */
+export function gestureScrollsPage(event: Event): boolean {
+  if (event.type === 'wheel' && (event as WheelEvent).deltaY === 0) return false;
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+  for (let el: Element | null = target; el; el = el.parentElement) {
+    if (scrollsVertically(el)) return false;
+  }
+  return true;
 }

@@ -371,7 +371,7 @@ const deepAndHidden = async (p, y = 6000) => {
   const p = await phone();
   const hidden = await deepAndHidden(p);
   if (hidden.bottom > 0) {
-    skip('18 a visible header is never inert', 'the header would not hide to begin with');
+    skip('15 a visible header is never inert', 'the header would not hide to begin with');
   } else {
     const emptied = await p.evaluate(() => {
       const field = document.querySelector('input[type="text"], input[type="search"]');
@@ -406,10 +406,10 @@ const deepAndHidden = async (p, y = 6000) => {
     if (!onScreen) {
       // The clamp did not bring the header back into view, so there is no
       // disagreement to catch. Said out loud rather than passed.
-      skip('18 a visible header is never inert',
+      skip('15 a visible header is never inert',
         `the header stayed parked (bottom=${after.bottom}, scrollY=${after.scrollY})`);
     } else {
-      check('18 a visible header is never inert',
+      check('15 a visible header is never inert',
         after.inert === false && after.ariaHidden === null,
         `bottom=${after.bottom} scrollY=${after.scrollY} inert=${after.inert} aria-hidden=${after.ariaHidden}`);
     }
@@ -422,16 +422,16 @@ const deepAndHidden = async (p, y = 6000) => {
   const p = await phone({ reducedMotion: true });
   const transitions = await p.evaluate(() =>
     getComputedStyle(document.documentElement).transitionProperty);
-  check('15 the reveal does not animate under prefers-reduced-motion',
+  check('16 the reveal does not animate under prefers-reduced-motion',
     !transitions.includes('--site-header-offset'), `transition-property=${transitions}`);
 
   // Not animating must still mean revealing. A reduced-motion reader gets the
   // header instantly, not never.
-  check('16 reduced motion still hides on the way down', (await deepAndHidden(p)).bottom <= 0);
+  check('17 reduced motion still hides on the way down', (await deepAndHidden(p)).bottom <= 0);
   await wheel(p, -40);
   await settle(p);
   const shown = await geometry(p);
-  check('17 reduced motion still reveals on the way up',
+  check('18 reduced motion still reveals on the way up',
     shown.top === 0 && shown.bottom > 0, `top=${shown.top} bottom=${shown.bottom}`);
   await p.context().close();
 }

@@ -188,7 +188,10 @@ const siteHeader = () => document.querySelector('header') as HTMLElement;
  * header on one of those was a measured bug.
  */
 const scrollTo = (y: number) => act(() => {
-  window.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+  // The wheel carries a `deltaY`, as a real one always does. Without it this
+  // is a horizontal wheel — the day rail scrolls sideways — which the hook is
+  // right to ignore.
+  window.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: y - window.scrollY }));
   Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
   window.dispatchEvent(new Event('scroll'));
 });

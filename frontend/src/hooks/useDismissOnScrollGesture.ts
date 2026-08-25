@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 // Deliberately narrow — a bare letter or a Tab must not dismiss anything,
 // since typing into the panel's own search field would otherwise close it.
-import { SCROLL_KEYS } from '@/lib/scrollKeys';
+import { SCROLL_KEYS } from '@/lib/scrollGestures';
 
 /**
  * Calls `onDismiss` the first time the reader makes a gesture that scrolls

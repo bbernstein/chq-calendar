@@ -48,10 +48,17 @@ beforeEach(() => {
   vi.spyOn(performance, 'now').mockImplementation(() => clockMs);
 });
 
-/** A gesture, dispatched where the hook listens for it. */
+/**
+ * A gesture, dispatched where the hook listens for it.
+ *
+ * A wheel carries a `deltaY` unless the caller says otherwise, because a real
+ * one always does — and a fake without it is a horizontal wheel, which the
+ * hook is right to ignore.
+ */
 const gesture = (type: string, init: object = {}) => act(() => {
   const Ctor = type === 'keydown' ? KeyboardEvent : type.startsWith('touch') ? Event : MouseEvent;
-  window.dispatchEvent(new Ctor(type, { bubbles: true, ...init }));
+  const defaults = type === 'wheel' ? { deltaY: 1 } : {};
+  window.dispatchEvent(new Ctor(type, { bubbles: true, ...defaults, ...init }));
 });
 
 /**
@@ -72,6 +79,46 @@ const el = (html: string) => {
   document.body.append(host);
   return host.firstElementChild!;
 };
+
+/** Give an element a real box, since jsdom measures everything as 0. */
+const sized = (el: Element, scrollHeight: number, clientHeight: number) => {
+  Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+  Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true });
+};
+
+/**
+ * An element that scrolls on its own, like the filter panel — which is
+ * `max-h-[70vh] overflow-y-auto` whenever it overlays the list.
+ */
+const nestedScroller = () => {
+  const box = document.createElement('div');
+  box.style.overflowY = 'auto';
+  sized(box, 900, 300);
+  const inner = document.createElement('div');
+  box.append(inner);
+  document.body.append(box);
+  return inner;
+};
+
+/**
+ * A tall element that is NOT a scroller — an ordinary day section, taller than
+ * the viewport with the default `overflow: visible`. Nearly everything the
+ * reader wheels over is one of these.
+ */
+const tallOrdinaryContent = () => {
+  const box = document.createElement('div');
+  sized(box, 900, 300);
+  const inner = document.createElement('div');
+  box.append(inner);
+  document.body.append(box);
+  return inner;
+};
+
+/** A pointer gesture dispatched FROM a particular element. */
+const gestureOn = (from: Element, type: string, init: object = {}) => act(() => {
+  const Ctor = type === 'wheel' ? WheelEvent : type.startsWith('touch') ? Event : MouseEvent;
+  from.dispatchEvent(new Ctor(type, { bubbles: true, ...init }));
+});
 
 /** Jump the document to `y` through the announcing helper. */
 const jumpTo = (y: number) => {
@@ -102,7 +149,8 @@ const browserScrollTo = (y: number) => {
  * look like from here.
  */
 const scrollTo = (y: number) => {
-  act(() => { window.dispatchEvent(new WheelEvent('wheel', { bubbles: true })); });
+  const deltaY = y - window.scrollY;
+  act(() => { window.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY })); });
   frameScrollTo(y);
 };
 
@@ -128,6 +176,8 @@ const headerEl = (h: number) => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  document.documentElement.style.removeProperty('overflow-y');
+  document.body.style.removeProperty('overflow-y');
   document.documentElement.style.removeProperty(OFFSET);
   document.documentElement.style.removeProperty(HEIGHT);
   Object.defineProperty(window, 'scrollY', { value: 0, configurable: true, writable: true });
@@ -498,6 +548,133 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
 
     gesture('mousemove', { buttons: 1 });
     frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // A gesture is only the reader scrolling THE PAGE. The filter panel is its
+  // own scroller (`max-h-[70vh] overflow-y-auto` whenever it overlays the
+  // list), so a wheel inside it moves the panel and not the window — and then
+  // picking a venue reflows the list, whose gestureless correction would
+  // inherit authority this hook otherwise refuses it. `useFilterPanel` already
+  // exempts gestures inside the panel for the mirror-image reason.
+  it('does not count a wheel consumed by a scroller inside the page', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(nestedScroller(), 'wheel', { deltaY: -80 });
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  it('does not count a touch drag consumed by a scroller inside the page', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(nestedScroller(), 'touchmove');
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // The day rail scrolls horizontally. A wheel that moves it sideways is not
+  // the reader moving the page up or down.
+  it('does not count a wheel with no vertical component', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(el('<div>the day rail</div>'), 'wheel', { deltaX: -120, deltaY: 0 });
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // Height alone does not make a scroller. Nearly every element the reader
+  // wheels over is taller than its own box — a day section, the list, the page
+  // container — and all of them scroll the PAGE. A rule that looked only at
+  // the box would classify every gesture as nested and the header would never
+  // respond to anything again.
+  it('counts a wheel over content that is merely tall, not scrollable', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(tallOrdinaryContent(), 'wheel', { deltaY: -80 });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // Declaring `overflow-y: auto` does not make an element a scroller either —
+  // it has to actually overflow. The filter panel's own venue and category
+  // lists carry that overflow and frequently do not fill it (a narrow search,
+  // a short season), and a wheel over a list with nothing to scroll moves the
+  // page.
+  it('counts a wheel over a scroller with nothing to scroll', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    const box = document.createElement('div');
+    box.style.overflowY = 'auto';
+    sized(box, 300, 300);
+    const inner = document.createElement('div');
+    box.append(inner);
+    document.body.append(box);
+
+    gestureOn(inner, 'wheel', { deltaY: -80 });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // The document's own scrollers are the page, not something nested in it.
+  // Reachable the day a stylesheet puts `overflow-y: auto` on `html` or
+  // `body`, which is a common enough thing to do that the guard should not
+  // depend on nobody ever doing it here.
+  it('counts a wheel over the page even if the document itself is a scroller', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    document.documentElement.style.overflowY = 'auto';
+    sized(document.documentElement, 9_000, 800);
+    document.body.style.overflowY = 'auto';
+    sized(document.body, 9_000, 800);
+
+    gestureOn(el('<div>an event card</div>'), 'wheel', { deltaY: -80 });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // And the case none of that may break: a wheel over ordinary page content,
+  // which is what scrolls the page.
+  it('counts a wheel over ordinary page content', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(el('<div>an event card</div>'), 'wheel', { deltaY: -80 });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
     expect(result.current.revealed).toBe(true);
   });
 
