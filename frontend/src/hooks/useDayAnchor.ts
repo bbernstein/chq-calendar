@@ -211,8 +211,11 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // event order is mousedown → mouseup → click, every rail control arms via
     // `onClick`, and the arming itself happens later still, in the
     // pending-scroll effect one commit after that click. And unlike `scroll`,
-    // a programmatic `window.scrollBy` synthesises no pointer event, so our
-    // own correction cannot trip this.
+    // a programmatic scroll synthesises no pointer event, so our own
+    // correction cannot trip this. (It also announces itself via
+    // `scrollWindowBy`, which is what the site header's reveal listens to —
+    // this hook does not need that, because the gesture set below already
+    // tells it apart for free.)
     const stop = () => { settleRef.current = null; };
 
     // `ResizeObserver` is absent in some older browsers and in jsdom without

@@ -57,7 +57,7 @@ const EXIT_FALLBACK_MS = 400;
  * saved number. `topmostVisibleDaySection` (in `daySections.ts`) picks the
  * first day section still clear of the sticky rail as the reference; its
  * `top` is captured the instant the reader asks to open or close, and
- * re-measured plus corrected via `window.scrollBy` in a `useLayoutEffect`,
+ * re-measured plus corrected via `scrollWindowBy` in a `useLayoutEffect`,
  * which runs synchronously after the DOM mutation commits but before the
  * browser paints — late enough that `getBoundingClientRect()` reflects the
  * panel's new layout (and any scroll-anchoring the browser already applied

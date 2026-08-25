@@ -92,7 +92,7 @@ export function useSiteHeaderReveal() {
      * When the reader last did something that scrolls — the whole test for
      * "is this scroll theirs".
      *
-     * A `scroll` with nothing behind it is not the reader. The settle above
+     * A `scroll` with nothing behind it is not the reader. The settle below
      * covers what the browser does in reaction to OUR scrolls, because those
      * announce themselves; it cannot cover what the browser does in reaction
      * to a layout change we made without scrolling at all. Measured in

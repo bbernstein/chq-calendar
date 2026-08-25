@@ -195,7 +195,7 @@ export function EventList({
     // explicitly asked to be somewhere else. That always outranks a pending
     // upward-prepend hold (`settleRef`, armed by `handleShowEarlier` below):
     // both settle mechanisms compute an absolute scroll correction from their
-    // own independent reference point and apply it via `window.scrollBy`, so
+    // own independent reference point and apply it via `scrollWindowBy`, so
     // if both stayed armed, the next resize would fire both observers in the
     // same batch and whichever ran second would silently overwrite the
     // other's correction, landing the reader on neither day. Cleared here,

@@ -11,7 +11,7 @@ import { SCROLL_KEYS } from '@/lib/scrollKeys';
  * whole point of the hook.** Two things fire `scroll` that are emphatically
  * not the reader scrolling:
  *
- * - The filter panel's own opening correction calls `window.scrollBy` to hold
+ * - The filter panel's own opening correction calls `scrollWindowBy` to hold
  *   the reader's position while the panel is inserted above them. A `scroll`
  *   listener would dismiss the panel in the same frame it opened.
  * - Changing a filter reflows the list, which can move `scrollY` on its own. A
