@@ -368,7 +368,7 @@ export function weekBandSegments(keys: DayKey[], seasonWeeks: SeasonWeek[]): Wee
 cd frontend && npx vitest run src/__tests__/lib/utils/weekBands.test.ts
 ```
 
-Expected: PASS, 15 tests.
+Expected: PASS.
 
 - [ ] **Step 5: Falsify the two guards that could be written to pass trivially**
 
@@ -828,7 +828,7 @@ export function bridgesGutter(index: number, segments: WeekBandSegment[]): boole
 cd frontend && npx vitest run src/__tests__/lib/utils/weekBands.test.ts
 ```
 
-Expected: PASS, 27 tests total in the file.
+Expected: PASS.
 
 - [ ] **Step 5: Falsify**
 
@@ -1822,19 +1822,32 @@ describe('DayRail — the week band', () => {
   });
 
   it('walks the band row with the arrow keys, not the chip row', () => {
-    const { container } = renderRailIn();
+    // The default 3-chip fixture spans one solo week and so carries exactly
+    // ONE labelled button — nothing to walk to. This fixture spans Jun 28
+    // through Jul 11, which has a labelled day in week 1 and another in week
+    // 2.
+    const wide = dayChips(dayKeys('2026-06-28', '2026-07-11'), new Map([['2026-06-30', 4]]));
+    const { container } = renderRailIn({
+      chips: wide,
+      bandSegments: weekBandSegments(wide.map(c => c.key), getChautauquaSeasonWeeks(2026)),
+      anchorDay: '2026-06-30',
+      windowDayKeys: wide.map(c => c.key),
+    });
     const buttons = Array.from(container.querySelectorAll<HTMLElement>('[data-week-band-button]'));
+    expect(buttons.length).toBeGreaterThan(1);
     buttons[0].focus();
     fireEvent.keyDown(container.querySelector('[data-day-rail]')!, { key: 'ArrowRight' });
     expect(document.activeElement).toBe(buttons[1]);
   });
 
   it('hands a band tap to onSelectWeek and resumes the strip', () => {
+    // In the default fixture the sole labelled segment is 2026-07-06, whose
+    // week is 2 — 07-04 is the shared Saturday and carries no label at all.
     const props = renderRail();
     const strip = document.querySelector<HTMLElement>('[data-rail-strip]')!;
     strip.scrollLeft = 500;   // the reader has panned the rail
-    fireEvent.click(document.querySelector('[data-week-band-button="1"]')!);
-    expect(props.onSelectWeek).toHaveBeenCalledWith(1);
+    fireEvent.click(document.querySelector('[data-week-band-button="2"]')!);
+    expect(props.onSelectWeek).toHaveBeenCalledWith(2);
   });
 });
 ```
