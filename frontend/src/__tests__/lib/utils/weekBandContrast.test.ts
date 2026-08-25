@@ -213,6 +213,16 @@ describe('RAIL_BACKDROP and the rail\'s own background classes', () => {
     expect(dayRailSrc).toMatch(new RegExp(`\\b${cls.replace(':', '\\:')}\\b`));
     expect(RAIL_BACKDROP[theme]).toBe(hex);
   });
+
+  it.each(THEMES)('the chooser popover surface is the same backdrop in %s', theme => {
+    // The unreachable-fade proof elsewhere in this file composites against
+    // RAIL_BACKDROP. That is the right backdrop for the grid only while the
+    // popover paints the same surface the rail does.
+    const src = readFileSync(
+      resolve(__dirname, '../../../components/calendar/WeekChooser.tsx'), 'utf8');
+    const { class: cls } = CLASS_HEX[theme];
+    expect(src).toMatch(new RegExp(`\\b${cls.replace(':', '\\:')}\\b`));
+  });
 });
 
 describe('rampBackground', () => {
