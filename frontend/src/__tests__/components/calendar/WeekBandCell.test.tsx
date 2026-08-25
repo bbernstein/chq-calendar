@@ -106,6 +106,14 @@ describe('WeekBandCell — accessibility', () => {
       .toBe('Go to Week 1, opens Saturday, July 25, 3 events');
   });
 
+  it('carries the destination day as data-week-band-target when reachable', () => {
+    // The browser check's 44px carve-out reads this attribute rather than
+    // re-deriving `weekBandDestinations`' rule itself.
+    const { container } = renderCell();
+    expect(container.querySelector('button')!.getAttribute('data-week-band-target'))
+      .toBe('2026-07-25');
+  });
+
   it('states an unreachable week as a fact and refuses the tap', () => {
     const { container, props } = renderCell({ destinations: new Map([[9, {
       dayKey: '2026-08-24', label: 'x',
@@ -113,6 +121,8 @@ describe('WeekBandCell — accessibility', () => {
     const button = container.querySelector('button')!;
     expect(button.getAttribute('aria-label')).toBe('Week 1, no events');
     expect(button.getAttribute('aria-disabled')).toBe('true');
+    // No destination to offer — the carve-out has nothing to point at either.
+    expect(button.hasAttribute('data-week-band-target')).toBe(false);
     fireEvent.click(button);
     expect(props.onSelectWeek).not.toHaveBeenCalled();
   });

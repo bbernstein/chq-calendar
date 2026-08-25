@@ -563,19 +563,26 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   const controls = await page.evaluate(() => {
     const rail = document.querySelector('[data-day-rail]');
     if (!rail) return null;
-    return [...rail.querySelectorAll('button')].map(el => {
-      const r = el.getBoundingClientRect();
-      return {
-        name: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 24),
-        w: Math.round(r.width), h: Math.round(r.height),
-      };
-    });
+    return [...rail.querySelectorAll('button')]
+      // The band is 16px tall by design — a full-height band would dominate a
+      // rail whose whole job is the chips. It is carved out here rather than
+      // silently passing because nothing is reachable ONLY through it: every
+      // week is also reachable from its own day chips, which 15a measures at
+      // the full 44px, and 15b below is what keeps that true.
+      .filter(el => !el.hasAttribute('data-week-band-button'))
+      .map(el => {
+        const r = el.getBoundingClientRect();
+        return {
+          name: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 24),
+          w: Math.round(r.width), h: Math.round(r.height),
+        };
+      });
   });
   if (!controls?.length) {
-    check('15 rail tap targets meet the 44px minimum', false, 'no rail controls found');
+    check('15a rail tap targets meet the 44px minimum', false, 'no rail controls found');
   } else {
     const under = controls.filter(c => c.w < 44 || c.h < 44);
-    check('15 every rail control meets the 44px minimum',
+    check('15a every rail control meets the 44px minimum',
       under.length === 0,
       under.length
         ? `${under.length}/${controls.length} under: ` +
@@ -583,6 +590,217 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
         : `${controls.length} controls, smallest ` +
           `${Math.min(...controls.map(c => c.w))}x${Math.min(...controls.map(c => c.h))}`);
   }
+
+  // The carve-out's premise, asserted rather than approximated: the band's
+  // 16px button is never the ONLY way to reach the day it goes to. Every
+  // reachable week names a destination day, and that day's own chip is a
+  // full-size control — so a thumb that cannot hit the band has a 44px route
+  // to exactly the same place.
+  //
+  // This needs the destination in the DOM, which is why the labelled band
+  // button carries `data-week-band-target`. Deriving it in the browser instead
+  // would mean re-implementing `weekBandDestinations` in the check — a second
+  // copy of the rule, which is the thing this whole design keeps refusing to
+  // have.
+  const carveOut = await page.evaluate(() => {
+    const rail = document.querySelector('[data-day-rail]');
+    const targets = [...rail.querySelectorAll('[data-week-band-button]')]
+      .filter(b => b.getAttribute('aria-disabled') !== 'true')
+      .map(b => b.dataset.weekBandTarget)
+      .filter(Boolean);
+    const missing = targets.filter(day => {
+      const chip = rail.querySelector(`[data-chip="${day}"]`);
+      if (!chip) return true;
+      const r = chip.getBoundingClientRect();
+      return r.width < 44 || r.height < 44;
+    });
+    return { offered: targets.length, missing };
+  });
+  check('15b every week the band offers has a 44px chip for the same day',
+    carveOut.offered > 0 && carveOut.missing.length === 0,
+    carveOut.offered === 0
+      ? 'no reachable week band button found'
+      : `${carveOut.offered} weeks offered, ${carveOut.missing.length} without a full-size chip` +
+        (carveOut.missing.length ? `: ${carveOut.missing.join(', ')}` : ''));
+  await page.close();
+}
+
+// ------------------------------------------------------------ 16. the week band
+//
+// Alignment is claimed to be structural — the band cell and the chip are
+// block-level children of one flex column, so the cell's width EQUALS the
+// chip's rather than matching it. A structural claim is still worth measuring
+// once: `w-max`, `shrink-0` and a stray `min-width` on a future descendant can
+// all break "equals" without breaking the markup.
+{
+  const page = await newPage();
+  await enterList(page);
+  const geometry = await page.evaluate(() => {
+    const rail = document.querySelector('[data-day-rail]');
+    if (!rail) return null;
+    const columns = [...rail.querySelectorAll('[data-rail-content] > [data-rail-column]')];
+    const cells = columns.map(col => {
+      const cell = col.querySelector('[data-band-cell]');
+      const chip = col.querySelector('[data-chip]');
+      const run = col.querySelector('[data-band-run]');
+      const bars = [...col.querySelectorAll('[data-band-bar]')].map(b => {
+        const r = b.getBoundingClientRect();
+        return { left: r.left, right: r.right, opacity: Number(getComputedStyle(b).opacity) };
+      });
+      return {
+        day: chip?.dataset.chip ?? null,
+        cellW: cell?.getBoundingClientRect().width ?? null,
+        chipW: chip?.getBoundingClientRect().width ?? null,
+        runLeft: run?.getBoundingClientRect().left ?? null,
+        runRight: run?.getBoundingClientRect().right ?? null,
+        cellLeft: cell?.getBoundingClientRect().left ?? null,
+        cellRight: cell?.getBoundingClientRect().right ?? null,
+        bars,
+      };
+    });
+    const pill = document.querySelector('[data-rail-pill]')?.getBoundingClientRect();
+    const bandBottom = cells[0] ? document.querySelector('[data-band-cell]').getBoundingClientRect().bottom : null;
+    const labels = [...rail.querySelectorAll('[data-week-band-button]')]
+      .map(b => b.dataset.weekBandButton);
+    // The copy layer must lay out column for column with the real row.
+    const copy = [...rail.querySelectorAll('[data-rail-clip] > [data-rail-column]')]
+      .map(c => c.getBoundingClientRect());
+    const real = columns.map(c => c.getBoundingClientRect());
+    const worstCopyDelta = Math.max(0, ...real.map((r, i) =>
+      copy[i] ? Math.max(Math.abs(r.left - copy[i].left), Math.abs(r.width - copy[i].width)) : 999));
+    return { cells, pill, bandBottom, labels, worstCopyDelta, columns: columns.length };
+  });
+
+  if (!geometry) {
+    check('16 week band present', false, 'no rail');
+  } else {
+    const { cells, pill, bandBottom, labels, worstCopyDelta } = geometry;
+    const widthDrift = Math.max(...cells.map(c => Math.abs((c.cellW ?? 0) - (c.chipW ?? -1))));
+    check('16a every band cell is exactly its chip\'s width', widthDrift < 0.5,
+      `worst ${widthDrift.toFixed(2)}px over ${cells.length} columns`);
+
+    // A week is drawn as ONE run: inside a week the fill bridges the gutter,
+    // and the only break in the whole band is the seam through the Saturday
+    // two weeks share.
+    const bridged = cells.filter((c, i) => {
+      const next = cells[i + 1];
+      return next && c.bars.length === 1 && next.bars.length === 1
+        && Math.abs(c.runRight - next.runLeft) < 0.5;
+    }).length;
+    check('16b the fill bridges the gutters inside a week', bridged > 0,
+      `${bridged} bridged gutters`);
+
+    const split = cells.filter(c => c.bars.length === 2);
+    const seams = split.map(c => c.bars[1].left - c.bars[0].right);
+    check('16c a boundary Saturday is split, and only there',
+      split.length > 0 && seams.every(s => s > 0.5 && s < 6),
+      `${split.length} split days, seams ${seams.map(s => s.toFixed(1)).join(', ')}`);
+
+    check('16d WEEK n appears at most once per week',
+      labels.length === new Set(labels).size && labels.length > 0,
+      `${labels.length} labels: ${labels.join(',')}`);
+
+    // Risk 1 from the design, measured rather than assumed.
+    check('16e the highlight pill does not paint over the band',
+      !!pill && !!bandBottom && pill.top >= bandBottom - 0.5,
+      pill ? `pill.top=${pill.top.toFixed(1)} band.bottom=${bandBottom.toFixed(1)}` : 'no pill');
+
+    // Risk 1's other half: the two layers must stay in step, or the seam the
+    // shared chip-box class exists to prevent comes back one level up.
+    check('16f the clipped copy lays out column for column', worstCopyDelta < 0.5,
+      `worst ${worstCopyDelta.toFixed(2)}px`);
+  }
+  await page.close();
+}
+
+// ------------------------------------------- 17. a band tap navigates
+{
+  const page = await newPage();
+  await enterList(page);
+  const before = await anchorChip(page);
+  const jumped = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('[data-week-band-button]')]
+      .filter(b => b.getAttribute('aria-disabled') !== 'true');
+    // The furthest reachable week from wherever the rail opened, so the check
+    // cannot pass on a one-chip move.
+    const target = buttons[buttons.length - 1];
+    if (!target) return null;
+    target.click();
+    return { week: target.dataset.weekBandButton, label: target.getAttribute('aria-label') };
+  });
+  if (!jumped) {
+    check('17a a band tap navigates', false, 'no reachable week band button');
+  } else {
+    await page.waitForTimeout(700);
+    const after = await anchorChip(page);
+    check('17a a band tap navigates', !!after && after !== before, `${before} → ${after}`);
+    // Named by destination, and the destination is where it actually landed.
+    const named = /Go to Week \d+, (opens|first events) (.+), \d+ events?$/.exec(jumped.label ?? '');
+    check('17b the band names the day it actually lands on',
+      !!named && !!after && jumped.label.includes(new Date(`${after}T12:00:00`)
+        .toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric' })),
+      `${jumped.label} → landed ${after}`);
+  }
+  await page.close();
+}
+
+// ------------------------------------------- 18. an unreachable week is inert
+{
+  // Narrow to a category that cannot fill nine weeks, so at least one week
+  // goes unreachable — the state the band renders faded and refuses.
+  const page = await newPage();
+  await enterList(page);
+  const state = await page.evaluate(() => {
+    const disabled = [...document.querySelectorAll('[data-week-band-button][aria-disabled="true"]')];
+    return {
+      count: disabled.length,
+      labels: disabled.map(b => b.getAttribute('aria-label')),
+      // The FILL is faded; the label is not. Fading the label is what took an
+      // empty iOS chip's text to a sampled ~3.7:1.
+      fillOpacity: disabled[0]
+        ? Number(getComputedStyle(disabled[0].closest('[data-band-cell]')
+            .querySelector('[data-band-bar]')).opacity)
+        : null,
+      labelOpacity: disabled[0]
+        ? Number(getComputedStyle(disabled[0].querySelector('span')).opacity)
+        : null,
+    };
+  });
+  if (state.count === 0) {
+    skip('18 an unreachable week is dimmed and inert', 'every week is reachable in this data');
+  } else {
+    check('18a an unreachable week says so rather than offering a trip',
+      state.labels.every(l => /^Week \d+, no events$/.test(l ?? '')),
+      state.labels.slice(0, 3).join(' | '));
+    check('18b the fill is faded and the label is not',
+      state.fillOpacity !== null && state.fillOpacity < 1 && state.labelOpacity === 1,
+      `fill=${state.fillOpacity} label=${state.labelOpacity}`);
+  }
+  await page.close();
+}
+
+// ------------------------------------------- 19. axe over the rail
+//
+// `aria-hidden-focus` is the rule this design has to prove clean, not assume:
+// ~64 decorative segments carry the band's pointer handlers, and every one of
+// them is `aria-hidden`. A single focusable descendant among them would put a
+// hidden control in the tab order.
+{
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const page = await newPage();
+  await enterList(page);
+  await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
+  const results = await page.evaluate(async () => {
+    const run = await window.axe.run('[data-day-rail]', {
+      runOnly: { type: 'rule', values: [
+        'aria-hidden-focus', 'button-name', 'aria-allowed-attr', 'nested-interactive',
+      ] },
+    });
+    return run.violations.map(v => `${v.id} x${v.nodes.length}`);
+  });
+  check('19 axe is clean over the rail with the band present',
+    results.length === 0, results.join(', ') || 'no violations');
   await page.close();
 }
 

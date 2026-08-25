@@ -114,6 +114,10 @@ export function WeekBandCell({
         <button
           type="button"
           data-week-band-button={labelled}
+          // The destination day, present only when this week is reachable —
+          // the browser check's 44px carve-out needs it in the DOM rather than
+          // re-deriving `weekBandDestinations`' rule itself.
+          data-week-band-target={destinations.get(labelled)?.dayKey}
           // Named by destination, never by direction — and an unreachable week
           // is stated as a fact rather than offered.
           aria-label={destinations.get(labelled)?.label ?? weekBandUnreachableLabel(labelled)}
