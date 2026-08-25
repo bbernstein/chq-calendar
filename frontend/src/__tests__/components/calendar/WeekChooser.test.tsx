@@ -105,6 +105,25 @@ describe('WeekChooser', () => {
     expect(popover()).toBeNull();
   });
 
+  it('does not steal focus back to the trigger on an outside press', () => {
+    // A press outside is not a request to move focus back into the rail —
+    // stealing it from whatever the reader pressed would be worse than
+    // leaving it where they put it. This is `setOpen(false)`, not `close()`,
+    // and the distinction is invisible to the test above, which only checks
+    // that the popover closed.
+    renderChooser();
+    fireEvent.click(trigger());
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+    fireEvent.mouseDown(document.body);
+    expect(popover()).toBeNull();
+    expect(document.activeElement).toBe(outside);
+    expect(document.activeElement).not.toBe(trigger());
+    outside.remove();
+  });
+
   it('stays open for a press inside the popover', () => {
     renderChooser();
     fireEvent.click(trigger());
