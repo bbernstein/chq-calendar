@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 import { onProgrammaticScroll } from '@/lib/programmaticScroll';
-import { isScrollKey } from '@/lib/scrollKeys';
+import { keyScrollsPage } from '@/lib/scrollKeys';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
@@ -71,9 +71,18 @@ export function useSiteHeaderReveal() {
   // follows from pretending otherwise.
   const topZoneRef = useRef(0);
 
+  /**
+   * The current decision function, so a re-measure can re-run it.
+   *
+   * A ref because the measure callback below is captured once, on first
+   * render, while the handler it needs is created inside the effect.
+   */
+  const decideRef = useRef<(() => void) | null>(null);
+
   const headerRef = usePublishedElementHeight(HEIGHT, (el) => {
     const measured = el.getBoundingClientRect().height;
     topZoneRef.current = measured;
+    decideRef.current?.();
     return measured;
   });
 
@@ -134,10 +143,18 @@ export function useSiteHeaderReveal() {
      */
     let settling = false;
 
-    const onScroll = () => {
+    const decide = () => {
       const previous = stateRef.current;
       const readerDriven = !settling && performance.now() - lastGestureAt <= GESTURE_WINDOW_MS;
-      if (!readerDriven) {
+      // The top zone is a fact about where the header IS, not a decision about
+      // where it should be — a sticky header cannot be parked above a position
+      // the page has not reached, so inside it the header is on screen whoever
+      // did the scrolling. Ignoring a gestureless scroll INTO it left a fully
+      // visible header `inert` and `aria-hidden`: measured in Chromium after a
+      // search emptied the list (document 8,401px → 1,049px) and the viewport
+      // then grew, clamping `scrollY` to 0 with no gesture anywhere near it.
+      const inTopZone = window.scrollY <= topZoneRef.current;
+      if (!readerDriven && !inTopZone) {
         stateRef.current = resyncHeaderReveal(previous, window.scrollY);
         return;
       }
@@ -178,19 +195,27 @@ export function useSiteHeaderReveal() {
       // Nor is typing. Every keystroke on the page reaches this listener,
       // search included — and search re-filtering is the largest layout change
       // above the reader the app makes.
-      if (e.type === 'keydown' && !isScrollKey((e as KeyboardEvent).key)) return;
+      if (e.type === 'keydown' && !keyScrollsPage(e as KeyboardEvent)) return;
       lastGestureAt = performance.now();
       settling = false;
     };
     const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
 
+    // Re-run the decision when the header's own height changes, not only when
+    // something scrolls. Text zoom that grows the header around the reader's
+    // position moves them into the top zone without any scroll at all, and
+    // nothing else would notice — which is the same visible-but-`inert` header
+    // by a different route.
+    decideRef.current = decide;
+
     // Passive: none of this must ever delay a scroll.
-    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('scroll', decide, { passive: true });
     for (const type of gestures) {
       window.addEventListener(type, onGesture, { passive: true, capture: true });
     }
     return () => {
-      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', decide);
+      decideRef.current = null;
       for (const type of gestures) {
         window.removeEventListener(type, onGesture, { capture: true });
       }

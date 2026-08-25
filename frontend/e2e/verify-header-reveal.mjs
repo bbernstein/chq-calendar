@@ -354,6 +354,69 @@ const deepAndHidden = async (p, y = 6000) => {
   await p.context().close();
 }
 
+// ─────────────────────── a header the reader can see is a header they can use
+{
+  // The seam a unit test cannot reach: `revealed` is a belief, and the sticky
+  // header's actual position is a fact. When they disagree the header is on
+  // screen and `inert` — unreachable by keyboard, unannounced by a screen
+  // reader — which is precisely the trap `filterCardParked` documents.
+  //
+  // Reproduced before the fix in three steps a reader can take: search until
+  // the list is empty (document 8,401px → 1,049px, `scrollY` clamped
+  // 5,436 → 205), then let the viewport grow — a rotation to landscape, or
+  // browser chrome collapsing — so the document is shorter than the viewport
+  // and the browser clamps `scrollY` to 0. None of those scrolls has a gesture
+  // behind it, so all of them were ignored, and the header stayed hidden while
+  // sitting in plain sight at `top: 0`.
+  const p = await phone();
+  const hidden = await deepAndHidden(p);
+  if (hidden.bottom > 0) {
+    skip('18 a visible header is never inert', 'the header would not hide to begin with');
+  } else {
+    const emptied = await p.evaluate(() => {
+      const field = document.querySelector('input[type="text"], input[type="search"]');
+      if (!field) return false;
+      // React/Preact listen for `input` on the native value setter.
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(field, 'zzzzzzzznomatch');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    });
+    if (!emptied) {
+      // The search field lives in the filter panel; open it from the rail
+      // first if it is not already reachable.
+      await p.evaluate(() => document.querySelector('[data-day-rail] button[aria-expanded]')?.click());
+      await p.waitForTimeout(700);
+      await p.evaluate(() => {
+        const field = document.querySelector('input[type="text"], input[type="search"]');
+        if (!field) return;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(field, 'zzzzzzzznomatch');
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+    await p.waitForTimeout(1800);
+
+    // The viewport grows. Nothing scrolls; the browser clamps.
+    await p.setViewportSize({ width: 390, height: 1200 });
+    await settle(p);
+    const after = await geometry(p);
+
+    const onScreen = after.bottom > 0;
+    if (!onScreen) {
+      // The clamp did not bring the header back into view, so there is no
+      // disagreement to catch. Said out loud rather than passed.
+      skip('18 a visible header is never inert',
+        `the header stayed parked (bottom=${after.bottom}, scrollY=${after.scrollY})`);
+    } else {
+      check('18 a visible header is never inert',
+        after.inert === false && after.ariaHidden === null,
+        `bottom=${after.bottom} scrollY=${after.scrollY} inert=${after.inert} aria-hidden=${after.ariaHidden}`);
+    }
+  }
+  await p.context().close();
+}
+
 // ───────────────────────────────────────────────── prefers-reduced-motion
 {
   const p = await phone({ reducedMotion: true });

@@ -54,6 +54,25 @@ const gesture = (type: string, init: object = {}) => act(() => {
   window.dispatchEvent(new Ctor(type, { bubbles: true, ...init }));
 });
 
+/**
+ * A keypress FROM a particular element, so the listener sees a real target.
+ *
+ * Which key it is settles almost nothing on its own: Space scrolls the page
+ * from the document, types a character in a field, and activates a focused
+ * button. Only the target separates those.
+ */
+const keyOn = (el: Element, key: string) => act(() => {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+});
+
+/** An element in the document, to press keys from. */
+const el = (html: string) => {
+  const host = document.createElement('div');
+  host.innerHTML = html;
+  document.body.append(host);
+  return host.firstElementChild!;
+};
+
 /** Jump the document to `y` through the announcing helper. */
 const jumpTo = (y: number) => {
   vi.spyOn(window, 'scrollBy').mockImplementation((() => {
@@ -94,12 +113,16 @@ const reveal = (result: { current: { revealed: boolean } }) => {
   if (!result.current.revealed) throw new Error('setup failed: header did not reveal');
 };
 
-/** A header element of a given height, since jsdom measures everything as 0. */
+/**
+ * A header element whose measured height can change, since jsdom measures
+ * everything as 0 and text zoom is one of the things being tested.
+ */
 const headerEl = (h: number) => {
+  let height = h;
   const el = document.createElement('header');
-  el.getBoundingClientRect = () => ({ height: h }) as DOMRect;
+  el.getBoundingClientRect = () => ({ height }) as DOMRect;
   document.body.append(el);
-  return el;
+  return { el, grow: (to: number) => { height = to; } };
 };
 
 afterEach(() => {
@@ -113,10 +136,13 @@ afterEach(() => {
 
 /** Mount the hook with a measured header attached. */
 const mount = (h = 72) => {
-  installResizeObserverMock();
+  const observer = installResizeObserverMock();
   const rendered = renderHook(() => useSiteHeaderReveal());
-  act(() => { rendered.result.current.headerRef(headerEl(h)); });
-  return rendered;
+  const header = headerEl(h);
+  act(() => { rendered.result.current.headerRef(header.el); });
+  /** Text zoom, a breakpoint — anything that changes the header's height. */
+  const growHeaderTo = (to: number) => { header.grow(to); observer.trigger(); };
+  return { ...rendered, growHeaderTo };
 };
 
 describe('useSiteHeaderReveal', () => {
@@ -349,6 +375,63 @@ describe('useSiteHeaderReveal — scrolls nobody asked for', () => {
  * correction. The press that set all that off is a `mousedown`, so a set that
  * counted presses would have handed that correction a gesture's authority.
  */
+/**
+ * The top zone is a fact about where the header IS, not a decision about
+ * where it should be.
+ *
+ * A sticky header cannot be parked above a position the page has not reached,
+ * so inside the top zone it is on screen whatever the state says. Getting that
+ * wrong does not merely look odd: a visible header marked `inert` and
+ * `aria-hidden` is one a keyboard reader cannot reach and a screen reader will
+ * not announce.
+ *
+ * Reproduced in Chromium before the fix, in three steps a reader can take:
+ * search until the list is empty (document 8,401px → 1,049px, `scrollY`
+ * clamped 5,436 → 205), then let the viewport grow — a rotation to landscape,
+ * or browser chrome collapsing — so the document is shorter than the viewport
+ * and the browser clamps `scrollY` to 0. Measured at that point: header
+ * `top: 0, bottom: 48`, fully on screen, `inert: true, aria-hidden: "true"`.
+ * Not one of those scrolls had a gesture behind it.
+ */
+describe('useSiteHeaderReveal — the top zone is not negotiable', () => {
+  it('reveals when a scroll it would otherwise ignore lands in the top zone', () => {
+    const { result } = mount(72);
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+
+    // The browser clamping `scrollY` because the document got shorter.
+    browserScrollTo(0);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // Outside the top zone an ignored scroll must still decide nothing — the
+  // fix must not become "any scroll reveals".
+  it('still ignores a gestureless scroll that lands below the top zone', () => {
+    const { result } = mount(72);
+    scrollTo(30_000);
+
+    browserScrollTo(30_000 - 500);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // The measurement is observed precisely so text zoom is handled, and a
+  // header that grows around the reader's position enters the top zone
+  // without anything scrolling at all.
+  it('reveals when the header grows around the reader, with no scroll at all', () => {
+    const { result, growHeaderTo } = mount(72);
+    scrollTo(100);
+    expect(result.current.revealed).toBe(false);
+
+    // Text zoom: 72px of header becomes 120px, and y=100 is now inside it.
+    // Nothing scrolled, so nothing would otherwise re-run the decision.
+    growHeaderTo(120);
+
+    expect(result.current.revealed).toBe(true);
+  });
+});
+
 describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
   it('ignores the browser correcting the page after a jump', () => {
     const { result } = mount();
@@ -457,6 +540,88 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);
+  });
+
+  // Which key it is settles almost nothing on its own. Space scrolls the page
+  // from the document, types a character in a field, and activates a focused
+  // button — three different things behind one `e.key`. The consequence is the
+  // same one round 1 was about: typing a space in the search box refilters the
+  // list, the browser corrects for the height change, and inside the gesture
+  // window that correction inherits the authority of a keystroke that scrolled
+  // nothing. "brass band" would flip the header on the space.
+  it('does not count Space typed into a text field', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<input type="text" />'), ' ');
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // Space on a focused control activates it. The rail's own Filters button is
+  // reachable by keyboard, and pressing it inserts the panel — a layout change
+  // above the reader, not a scroll.
+  it('does not count Space activating a focused button', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<button type="button">Filters</button>'), ' ');
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // Arrows move the caret in a field rather than the page.
+  it('does not count an arrow key moving the caret in a text field', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<input type="text" />'), 'ArrowUp');
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // Focusable is not the same as activated-by-Space. `WeekBadge` and the modal
+  // container both carry a `tabIndex` and both scroll the page on Space, so a
+  // rule keyed on focusability rather than on behaviour would be wrong about
+  // the platform, not merely cautious.
+  it('counts Space on an element that is focusable but not activated by it', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<span tabindex="0">Wk 5/6</span>'), ' ');
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // And the case all of that must not break: the same key, pressed with focus
+  // on the page rather than in a control, really is the reader scrolling.
+  it('counts Space pressed on the page itself', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<div>a day section</div>'), ' ');
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
   });
 
   // The pointer moving across the page is not a scroll, and counting it would

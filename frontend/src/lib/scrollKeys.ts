@@ -27,3 +27,48 @@ export const SCROLL_KEYS: ReadonlySet<string> = new Set([
 
 /** Whether a `keydown` is the reader scrolling with the keyboard. */
 export const isScrollKey = (key: string): boolean => SCROLL_KEYS.has(key);
+
+/**
+ * Anything that takes the keypress for itself instead of scrolling.
+ *
+ * A field consumes all of these — Space inserts a character, the arrows and
+ * Home/End move the caret. Space additionally activates a focused control
+ * rather than scrolling, which is why buttons and links are here too.
+ *
+ * Note what is NOT in the second list: a bare `[tabindex]`. Focusable is not
+ * the same as activated-by-Space — `WeekBadge` and the modal container are
+ * both focusable, and Space pressed on either really does scroll the page.
+ * Excluding them would be a false negative in the one direction this function
+ * is otherwise careful to prefer, but a wrong one: it would be claiming
+ * something about the platform that is not true.
+ */
+const CONSUMES_THE_KEY =
+  'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
+const ACTIVATED_BY_SPACE = 'button, a[href], summary, [role="button"]';
+
+/**
+ * Whether a `keydown` will actually scroll the page.
+ *
+ * The key alone settles almost nothing. Space scrolls the page from the
+ * document, types a character in a search field, and activates a focused
+ * button — three different things behind one `e.key`, and only the target
+ * separates them. A caller that armed on the key alone would treat typing
+ * "brass band" as two scroll gestures.
+ *
+ * That matters because of what tends to follow such a keystroke: search
+ * re-filtering is the largest layout change above the reader this app makes,
+ * the browser corrects for it on its own, and a correction that inherits a
+ * gesture's authority is read as the reader scrolling.
+ *
+ * Errs toward "this did not scroll". The cost of a false negative is one
+ * missed header toggle that the reader's next real scroll puts right; the cost
+ * of a false positive is the header moving when nobody asked.
+ */
+export function keyScrollsPage(event: KeyboardEvent): boolean {
+  if (!SCROLL_KEYS.has(event.key)) return false;
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+  if (target.closest(CONSUMES_THE_KEY)) return false;
+  const isSpace = event.key === ' ' || event.key === 'Spacebar';
+  return !(isSpace && target.closest(ACTIVATED_BY_SPACE));
+}
