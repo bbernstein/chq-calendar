@@ -1,11 +1,8 @@
-import { useLayoutEffect, useRef, useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import type { SeasonWeek } from '@/lib/types';
 import { isWeekInPast } from '@/lib/utils/dateHelpers';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
-import { useFloatingCoords } from '@/hooks/useViewportClamp';
-import { LONG_PRESS_MS } from '@/lib/constants';
-import { WeekThemePopover, formatThemeDateRange } from './WeekThemePopover';
+import { useWeekThemePopover } from '@/hooks/useWeekThemePopover';
+import { buildWeekTitle } from './WeekThemePopover';
 
 interface WeekSelectorProps {
   seasonWeeks: SeasonWeek[];
@@ -20,54 +17,12 @@ interface WeekSelectorProps {
   themes?: Record<number, WeekTheme>;
 }
 
-function buildButtonTitle(week: SeasonWeek, theme: WeekTheme | undefined): string {
-  if (!theme) return week.label;
-  return `Week ${week.number} — "${theme.title}" (${formatThemeDateRange(theme)})`;
-}
-
 export function WeekSelector({
   seasonWeeks, selectedWeeks, isDragging, isWeekHighlighted,
   onMouseDown, onMouseEnter, onMouseUp, onTap, size, themes,
 }: WeekSelectorProps) {
   const cellSize = size === 'sm' ? 'w-6 h-6' : 'w-8 h-8';
-  const [popoverWeek, setPopoverWeek] = useState<number | null>(null);
-  const longPressTimer = useRef<number | null>(null);
-  const longPressFiredRef = useRef(false);
-  const buttonRefs = useRef<Map<number, HTMLButtonElement | null>>(new Map());
-  const activeAnchorRef = useRef<HTMLButtonElement | null>(null);
-  const popoverContentRef = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    activeAnchorRef.current = popoverWeek !== null
-      ? buttonRefs.current.get(popoverWeek) ?? null
-      : null;
-  }, [popoverWeek]);
-  const popoverCoords = useFloatingCoords(
-    popoverWeek !== null,
-    activeAnchorRef,
-    popoverContentRef,
-    { mode: 'center' },
-  );
-
-  useEffect(() => () => {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current);
-    }
-  }, []);
-
-  function openPopoverIfThemed(weekNum: number) {
-    if (themes && themes[weekNum]) {
-      setPopoverWeek(weekNum);
-    }
-  }
-
-  function clearLongPress() {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }
-
-  const popoverTheme = popoverWeek !== null ? themes?.[popoverWeek] : undefined;
+  const themePopover = useWeekThemePopover({ themes, onActivate: onTap });
 
   return (
     <div className="relative inline-block">
@@ -81,13 +36,12 @@ export function WeekSelector({
           const isSelected = selectedWeeks.includes(week.number);
           const highlighted = isWeekHighlighted(week.number, isSelected);
           const theme = themes?.[week.number];
-          const hasTheme = !!theme;
 
           return (
             <button
               type="button"
               key={week.number}
-              ref={(el) => { buttonRefs.current.set(week.number, el); }}
+              ref={(el) => themePopover.registerAnchor(week.number, el)}
               className={`${cellSize} flex items-center justify-center cursor-pointer border-r border-gray-300 dark:border-gray-600 last:border-r-0 transition-all text-xs flex-shrink-0 ${
                 isPast
                   ? highlighted
@@ -108,52 +62,8 @@ export function WeekSelector({
                 if (e.button !== 0) return;
                 onMouseUp(week.number);
               }}
-              onContextMenu={(e) => {
-                if (hasTheme) {
-                  e.preventDefault();
-                  openPopoverIfThemed(week.number);
-                }
-              }}
-              onKeyDown={(e) => {
-                // ContextMenu key (Windows menu key) and Shift+F10 (the
-                // universal keyboard equivalent of right-click) open the
-                // theme popover. Selection itself is mouse/touch-only in
-                // this control — there is no onClick path.
-                if (hasTheme && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) {
-                  e.preventDefault();
-                  openPopoverIfThemed(week.number);
-                }
-              }}
-              onTouchStart={(e) => {
-                longPressFiredRef.current = false;
-                if (hasTheme) {
-                  clearLongPress();
-                  longPressTimer.current = window.setTimeout(() => {
-                    longPressFiredRef.current = true;
-                    openPopoverIfThemed(week.number);
-                  }, LONG_PRESS_MS);
-                }
-                e.preventDefault();
-                if (!hasTheme) onTap(week.number);
-              }}
-              onTouchEnd={(e) => {
-                clearLongPress();
-                if (longPressFiredRef.current) {
-                  e.preventDefault();
-                  longPressFiredRef.current = false;
-                  return;
-                }
-                if (hasTheme) {
-                  e.preventDefault();
-                  onTap(week.number);
-                }
-              }}
-              onTouchMove={() => clearLongPress()}
-              onTouchCancel={() => {
-                clearLongPress();
-                longPressFiredRef.current = false;
-              }}
-              title={buildButtonTitle(week, theme)}
+              {...themePopover.handlers(week.number)}
+              title={buildWeekTitle(week, theme)}
               aria-label={`Week ${week.number}`}
               aria-pressed={isSelected}
             >
@@ -162,20 +72,7 @@ export function WeekSelector({
           );
         })}
       </div>
-      {popoverWeek !== null && popoverTheme && createPortal(
-        <div
-          ref={popoverContentRef}
-          className="fixed z-50"
-          style={{
-            top: popoverCoords ? `${popoverCoords.top}px` : '-9999px',
-            left: popoverCoords ? `${popoverCoords.left}px` : '0px',
-            visibility: popoverCoords ? 'visible' : 'hidden',
-          }}
-        >
-          <WeekThemePopover themes={[popoverTheme]} onClose={() => setPopoverWeek(null)} />
-        </div>,
-        document.body,
-      )}
+      {themePopover.portal}
     </div>
   );
 }
