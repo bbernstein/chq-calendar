@@ -769,6 +769,41 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
   });
 
+  // The day rail intercepts `Home` (`DayRail.tsx`), calls `preventDefault()`
+  // and only moves focus to today's chip — it never scrolls the page. The
+  // filter panel already special-cases this exact interaction in its own
+  // `isExempt`, so classifying it as a page scroll here would leave the two
+  // consumers disagreeing about the same keypress.
+  it('does not count Home on a day-rail chip, which only moves focus', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<button data-chip="2026-08-24">24</button>'), 'Home');
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // `PageDown` with focus parked on a chip really is a page scroll — the rail
+  // does not intercept it. `useFilterPanel`'s exemption says so in as many
+  // words, and narrowing more than the rail actually consumes would be
+  // guessing rather than matching it.
+  it('counts PageDown on a chip, which the rail does not intercept', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<button data-chip="2026-08-24">24</button>'), 'PageUp');
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
   // Focusable is not the same as activated-by-Space. `Modal`'s container is the
   // real instance — `role="dialog"`, `tabIndex={-1}`, and an `onKeyDown` that
   // handles only Escape and Tab — so Space there scrolls the page, and a rule

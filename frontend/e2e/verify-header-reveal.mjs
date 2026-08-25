@@ -85,6 +85,7 @@ const geometry = p => p.evaluate(() => {
     railTop: rail ? Math.round(rail.getBoundingClientRect().top) : null,
     inert: header?.hasAttribute('inert') ?? null,
     ariaHidden: header?.getAttribute('aria-hidden') ?? null,
+    boxShadow: header ? getComputedStyle(header).boxShadow : null,
     scrollY: Math.round(window.scrollY),
   };
 });
@@ -296,9 +297,15 @@ const deepAndHidden = async (p, y = 6000) => {
 {
   const p = await phone();
   const hidden = await deepAndHidden(p);
-  check('12 the parked header is marked inert and hidden from screen readers',
-    hidden.inert === true && hidden.ariaHidden === 'true',
-    `inert=${hidden.inert} aria-hidden=${hidden.ariaHidden}`);
+  // Three ways a parked header can still be present: reachable, announced, or
+  // painting. A shadow paints OUTSIDE the border box, so with the box entirely
+  // above the viewport `shadow-lg` still reached ~15px below it and, at
+  // `z-40`, landed on the `z-30` rail. Found by screenshotting the top 24px
+  // with and without it and seeing the images differ.
+  check('12 the parked header is inert, unannounced, and paints nothing',
+    hidden.inert === true && hidden.ariaHidden === 'true'
+      && !/rgba?\((?!0, 0, 0, 0\))/.test(hidden.boxShadow ?? 'none'),
+    `inert=${hidden.inert} aria-hidden=${hidden.ariaHidden} box-shadow=${hidden.boxShadow}`);
 
   // The attribute is the mechanism; this is the behaviour. Without `inert` the
   // browser would move focus into the parked header and then try to scroll it

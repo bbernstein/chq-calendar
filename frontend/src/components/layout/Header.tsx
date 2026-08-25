@@ -67,7 +67,13 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
       inert={!revealed || undefined}
       aria-hidden={!revealed || undefined}
       style={{ top: siteHeaderTop() }}
-      className="sticky z-40 bg-white dark:bg-gray-800 shadow-lg"
+      // The shadow goes with the header. A shadow paints OUTSIDE the border
+      // box, so parked — box entirely above the viewport — `shadow-lg`
+      // (`0 10px 15px -3px`) still reached ~15px below it, and at `z-40` that
+      // landed on the `z-30` rail. Measured by screenshotting the top 24px
+      // with the header parked, with and without it: the images differ. A
+      // hidden header was painting a grey band across the rail it yields to.
+      className={`sticky z-40 bg-white dark:bg-gray-800 ${revealed ? 'shadow-lg' : ''}`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-2 sm:py-4">

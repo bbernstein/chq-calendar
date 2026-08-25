@@ -84,6 +84,16 @@ export function keyScrollsPage(event: KeyboardEvent): boolean {
   const target = event.target;
   if (!(target instanceof Element)) return true;
   if (target.closest(CONSUMES_THE_KEY)) return false;
+  // The day rail intercepts `Home`, prevents the default and moves focus to
+  // today's chip — it never scrolls. `useFilterPanel`'s own exemption carves
+  // out the identical interaction, and two consumers disagreeing about one
+  // keypress is worse than either answer.
+  //
+  // `Home` alone, deliberately: that comment also records that `PageDown` with
+  // focus parked on a chip really IS a page scroll, because the rail does not
+  // intercept it. Narrowing further than the rail actually consumes would be
+  // guessing rather than matching.
+  if (event.key === 'Home' && target.closest('[data-chip]')) return false;
   const isSpace = event.key === ' ' || event.key === 'Spacebar';
   return !(isSpace && target.closest(ACTIVATED_BY_SPACE));
 }

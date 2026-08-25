@@ -257,6 +257,21 @@ describe('Header — reveal on scroll up', () => {
     expect(siteHeader().getAttribute('aria-hidden')).toBe('true');
   });
 
+  // A shadow paints OUTSIDE the border box. Parked, the header's box sits
+  // entirely above the viewport — but `shadow-lg` is
+  // `rgba(0,0,0,0.1) 0 10px 15px -3px`, which reaches roughly 15px BELOW it,
+  // and at `z-40` that lands on top of the `z-30` rail. Measured by
+  // screenshotting the top 24px of the viewport with the header parked, with
+  // and without the shadow: the two images differ. So a "hidden" header was
+  // still painting a grey band across the rail it is supposed to yield to.
+  it('drops its shadow once parked, so nothing of it paints over the rail', () => {
+    renderHeader();
+    expect(siteHeader().className).toContain('shadow-lg');
+
+    scrollTo(1_000);
+    expect(siteHeader().className).not.toContain('shadow-lg');
+  });
+
   it('is reachable again the moment it is revealed', () => {
     renderHeader();
     scrollTo(1_000);
