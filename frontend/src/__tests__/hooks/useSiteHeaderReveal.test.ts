@@ -283,7 +283,7 @@ describe('useSiteHeaderReveal - a touch that was never a page scroll', () => {
   const touchSeq = (from: Element, moves: number[], startY = 400) => {
     const touch = (y: number) => ({ clientY: y });
     act(() => {
-      const e = new Event('touchstart', { bubbles: true });
+      const e = new Event('touchstart', { bubbles: true, cancelable: true });
       Object.defineProperty(e, 'touches', { value: [touch(startY)] });
       from.dispatchEvent(e);
     });
@@ -301,21 +301,65 @@ describe('useSiteHeaderReveal - a touch that was never a page scroll', () => {
     });
   };
 
-  // The mouse path learned this; the touch path never did. `WeekSelector`
-  // calls `preventDefault()` on its touch handlers, so a slight drag over a
-  // themed week scrolls nothing at all - and then `touchend` refilters the
-  // list, whose correction would arrive holding a gesture's authority.
-  it('does not count a touch drag that began on a control', () => {
+  // A button does not stop the page panning. The event list is MADE of
+  // buttons — the event title is a full-width one — so a rule that refused
+  // any touch beginning on a control refused most swipes in the list, which
+  // is the device bug this branch just fixed, reintroduced.
+  //
+  // The mouse and touch answers genuinely differ here: a drag beginning on a
+  // button is that button's, while a SWIPE beginning on it still scrolls the
+  // page.
+  it('counts a swipe that began on a button, which does not stop the pan', () => {
     const { result } = mount();
     scrollTo(30_000);
     expect(result.current.revealed).toBe(false);
     jumpTo(12_929);
     advance(GESTURE_WINDOW_MS + 1);
 
-    touchSeq(el('<button type="button">Wk 5</button>'), [390]);
+    touchSeq(el('<button type="button">An event title</button>'), [460]);
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // What DOES stop the pan is a control that cancels it. `WeekSelector` calls
+  // `preventDefault()` on `touchstart`, and that — rather than the tag name —
+  // is the thing worth testing for, because it is what the platform actually
+  // acts on.
+  it('does not count a swipe whose control cancelled the pan', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    const week = el('<button type="button">Wk 5</button>');
+    week.addEventListener('touchstart', (e) => e.preventDefault());
+    touchSeq(week, [390]);
     frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);
+  });
+
+  // And the verdict belongs to its own touch. A swipe over a pan-cancelling
+  // control followed by a swipe over the list must judge the second on its own
+  // merits, or one brush against the week strip disables scrolling the header
+  // for good.
+  it('judges each swipe on its own, not on the one before it', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    const week = el('<button type="button">Wk 5</button>');
+    week.addEventListener('touchstart', (e) => e.preventDefault());
+    touchSeq(week, [390]);
+
+    touchSeq(el('<p>an event card</p>'), [460]);
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
   });
 
   // A tap is not a flick. `touchend` used to open a coast for every touch,

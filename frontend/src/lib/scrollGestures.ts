@@ -244,14 +244,14 @@ const DRAGGABLE_CONTROL =
  * refused.
  */
 /**
- * Whether a gesture beginning on `origin` can scroll the page at all.
+ * Whether a MOUSE drag beginning on `origin` can scroll the page.
  *
- * Shared by the mouse and touch paths because they are asking one question.
- * `WeekSelector` calls `preventDefault()` on its touch handlers, so a drag
- * over a themed week scrolls nothing — and then `touchend` refilters the
- * list, whose correction would arrive holding a gesture's authority.
+ * Mouse only, and that is not an oversight. A swipe beginning on a button
+ * still pans the page, so the touch path asks a different question — whether
+ * the control cancelled the pan — in `useSiteHeaderReveal`. Sharing this one
+ * between them refused most swipes in a list made of buttons.
  */
-export function originCanScrollPage(origin: Element | null): boolean {
+function originCanScrollPage(origin: Element | null): boolean {
   // No recorded press means the gesture began before this hook was listening,
   // or outside the document. Nothing says it was a control.
   if (!origin) return true;

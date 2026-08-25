@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePublishedElementHeight } from '@/hooks/usePublishedElementHeight';
 import { onProgrammaticScroll } from '@/lib/programmaticScroll';
-import { dragScrollsPage, gestureScrollsPage, keyScrollsPage, originCanScrollPage, pressIsOnScrollbar } from '@/lib/scrollGestures';
+import { dragScrollsPage, gestureScrollsPage, keyScrollsPage, pressIsOnScrollbar } from '@/lib/scrollGestures';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
@@ -149,11 +149,14 @@ export function useSiteHeaderReveal() {
      * how far a gesture's authority reaches; a gesture that scrolls nothing
      * still lends it for that long, which is the cost of the trade.
      *
-     * Touch momentum after `touchend` fires no gesture, and that is fine
-     * rather than tolerated: a flick long enough to coast is far longer than
-     * the threshold, so the decision was already made during the drag. What
-     * momentum cannot do is CHANGE it — which is the flicker the threshold
-     * exists to prevent.
+     * Touch momentum after `touchend` fires no gesture at all, and this window
+     * alone cannot survive that — see `coasting` below, which is what carries
+     * a flick past it. The claim that used to stand here, that "a flick long
+     * enough to coast is far longer than the threshold, so the decision was
+     * already made during the drag", was false and was the reported iPhone
+     * bug: a gentle flick moves the finger about 5px and then coasts 60px over
+     * more than a second. Recorded rather than deleted, so that a later change
+     * does not remove the momentum handling by re-deriving the premise.
      */
     let lastGestureAt = -Infinity;
 
@@ -189,8 +192,24 @@ export function useSiteHeaderReveal() {
      */
     let coasting = false;
     let lastScrollAt = -Infinity;
-    /** The element the current touch began on, and whether it ever scrolled. */
-    let touchOrigin: Element | null = null;
+    /**
+     * Whether the control the touch began on cancelled the page pan, and
+     * whether this touch has scrolled the page yet.
+     *
+     * Asking whether the origin is a CONTROL is the wrong question for touch,
+     * and briefly shipped as one: a native button does not stop the page
+     * panning, and the event list is made of buttons — the event title is a
+     * full-width one — so refusing every touch that began on a control refused
+     * most swipes in the list. That is the device bug this branch exists to
+     * fix, reintroduced by its own fix for the mouse case.
+     *
+     * The mouse and touch answers genuinely differ: a DRAG beginning on a
+     * button is that button's, while a SWIPE beginning on it still scrolls the
+     * page. What actually stops a pan is a control that cancels it —
+     * `WeekSelector` calls `preventDefault()` on `touchstart` — and that is
+     * what the platform acts on, so it is what this asks.
+     */
+    let touchPanCancelled = false;
     let touchScrolledPage = false;
 
     const decide = () => {
@@ -277,9 +296,11 @@ export function useSiteHeaderReveal() {
       // scrolled the page. A tap coasts nothing, and opening a coast for one
       // handed the next correction the authority of a scroll nobody made.
       if (e.type === 'touchstart') {
-        touchOrigin = target instanceof Element ? target : null;
         touchScrolledPage = false;
         coasting = false;
+        // `touchPanCancelled` is NOT reset here: `onTouchStartBubble` assigns
+        // it on every touchstart, so a reset would be a line nothing could
+        // make fail.
       }
       if (e.type === 'touchend') coasting = touchScrolledPage;
       dragOrigin = e.type === 'mousedown' && target instanceof Element ? target : null;
@@ -309,10 +330,9 @@ export function useSiteHeaderReveal() {
           lastTouchY = y;
         }
       }
-      // A touch that began on a control is that control's, exactly as a mouse
-      // drag is — `WeekSelector` prevents the default on its touch handlers,
-      // so such a drag scrolls nothing whatever it looks like from here.
-      if (e.type === 'touchmove' && !originCanScrollPage(touchOrigin)) return;
+      // A touch whose control cancelled the pan scrolls nothing, whatever it
+      // looks like from here.
+      if (e.type === 'touchmove' && touchPanCancelled) return;
       if (e.type !== 'keydown' && !gestureScrollsPage(e, touchDelta)) return;
       if (e.type === 'touchmove') touchScrolledPage = true;
       // Nor is typing. Every keystroke on the page reaches this listener,
@@ -322,6 +342,16 @@ export function useSiteHeaderReveal() {
       lastGestureAt = performance.now();
       settling = false;
     };
+    /**
+     * Whether the touch that just started had its default prevented.
+     *
+     * Read in the BUBBLE phase, deliberately: capture runs before the target's
+     * own handler, so `defaultPrevented` there is always false and would say
+     * nothing. By the time the event reaches `window` on the way back up, a
+     * control that cancelled the pan has already done so.
+     */
+    const onTouchStartBubble = (e: Event) => { touchPanCancelled = e.defaultPrevented; };
+
     const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
     const presses = ['mousedown', 'mouseup', 'touchstart', 'touchend'] as const;
 
@@ -340,6 +370,7 @@ export function useSiteHeaderReveal() {
     for (const type of presses) {
       window.addEventListener(type, onPress, { passive: true, capture: true });
     }
+    window.addEventListener('touchstart', onTouchStartBubble, { passive: true });
     return () => {
       window.removeEventListener('scroll', decide);
       decideRef.current = null;
@@ -349,6 +380,7 @@ export function useSiteHeaderReveal() {
       for (const type of presses) {
         window.removeEventListener(type, onPress, { capture: true });
       }
+      window.removeEventListener('touchstart', onTouchStartBubble);
       stopListeningForJumps();
       document.documentElement.style.removeProperty(OFFSET);
       document.documentElement.style.removeProperty(OFFSET_TARGET);
