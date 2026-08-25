@@ -351,24 +351,55 @@ const fixedGhosts = p => p.evaluate(() =>
 // ─── the FIRST dismissal of a page is the one that was broken; prove both
 {
   const p = await phone();
+  // Everything this reads is diagnostic, not part of the interaction: it
+  // exists so a failure here says WHERE things went wrong (never opened?
+  // opened but the gesture wasn't seen as a dismiss? seen, but the
+  // transition never advanced?) instead of only a final computed style.
+  const panelState = () => p.evaluate(() => {
+    // aria-label narrows past the week chooser trigger — see `toggle` above.
+    const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+    const el = t && document.getElementById(t.getAttribute('aria-controls'));
+    const cs = el && getComputedStyle(el);
+    return {
+      ariaExpanded: t?.getAttribute('aria-expanded') ?? null,
+      found: !!el,
+      exitingClass: el?.classList.contains('filter-panel-exit') ?? null,
+      position: cs?.position ?? null,
+      opacity: cs ? Number(cs.opacity) : null,
+      display: cs?.display ?? null,
+    };
+  });
   const sample = async () => {
     await p.evaluate(() => window.scrollTo(0, 6000));
     await p.waitForTimeout(700);
     await toggle(p).click();
     await p.waitForTimeout(500);
+    // Diagnostic: confirm the panel actually opened (and isn't already
+    // mid-exit from a previous cycle) before the dismiss gesture fires, and
+    // record what the dismiss gesture is about to land on — `isExempt` in
+    // `useFilterPanel.ts` reads the event's `target`, so if this coordinate
+    // ever resolves inside the panel or the toggle, the gesture is exempt
+    // and nothing dismisses.
+    const beforeWheel = await p.evaluate(() => {
+      const at = document.elementFromPoint(195, 700);
+      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+      const el = t && document.getElementById(t.getAttribute('aria-controls'));
+      return {
+        atPointTag: at?.tagName ?? null,
+        atPointAttrs: at ? Array.from(at.attributes).map(a => a.name).join(' ') : null,
+        atPointInPanel: !!(el && at && el.contains(at)),
+        atPointInToggle: !!(t && at && t.contains(at)),
+        scrollY: window.scrollY,
+      };
+    });
+    const openedBefore = await panelState();
     await p.mouse.move(195, 700);
     await p.mouse.wheel(0, 100);
     await p.waitForTimeout(80);
-    const r = await p.evaluate(() => {
-      // aria-label narrows past the week chooser trigger — see `toggle` above.
-      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
-      const el = t && document.getElementById(t.getAttribute('aria-controls'));
-      if (!el) return null;
-      const cs = getComputedStyle(el);
-      return { position: cs.position, opacity: Number(cs.opacity), display: cs.display };
-    });
+    const r = await panelState();
+    const scrollYAfterWheel = await p.evaluate(() => window.scrollY);
     await p.waitForTimeout(800);
-    return r;
+    return { ...r, openedBefore, beforeWheel, scrollYAfterWheel };
   };
   const first = await sample();
   const second = await sample();
