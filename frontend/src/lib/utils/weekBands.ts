@@ -213,3 +213,28 @@ export function weekBandDestinations(o: {
 export function weekBandUnreachableLabel(week: number): string {
   return `Week ${week}, no events`;
 }
+
+/**
+ * Whether the band's fill runs straight through the gutter between the chips
+ * at `index` and `index + 1`, instead of stopping at the chip's edge the way
+ * the segment's own box does.
+ *
+ * Two adjacent days bridge when they share a week. A boundary Saturday shares
+ * its closing week with the Friday before it and its opening week with the
+ * Sunday after, so it bridges *both* ways and its own split is where the break
+ * goes. An out-of-season day shares nothing, so a run ends at the season's
+ * edge.
+ *
+ * Must compare every element on both sides, not just the first: a boundary
+ * Saturday's `[1, 2]` shares its *second* entry with the week after it, which
+ * a first-only shortcut would miss. `weekNumbers` holds 0, 1 or 2 entries by
+ * construction and this runs twice per segment on every rail render, so a
+ * `Set` over a domain this small would buy nothing but an allocation.
+ */
+export function bridgesGutter(index: number, segments: WeekBandSegment[]): boolean {
+  if (index < 0 || index + 1 >= segments.length) return false;
+  const left = segments[index].weekNumbers;
+  const right = segments[index + 1].weekNumbers;
+  if (left.length === 0 || right.length === 0) return false;
+  return left.some(n => right.includes(n));
+}

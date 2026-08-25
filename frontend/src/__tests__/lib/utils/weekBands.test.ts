@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { weekBandDestinations, weekBandSegments, weekBandUnreachableLabel, weekDayKeySpans } from '@/lib/utils/weekBands';
+import { bridgesGutter, weekBandDestinations, weekBandSegments, weekBandUnreachableLabel, weekDayKeySpans, type WeekBandSegment } from '@/lib/utils/weekBands';
 import { getChautauquaSeasonWeeks, weekNumbersForCalendarDate } from '@/lib/utils/dateHelpers';
 import { dayKeys, startOfDay } from '@/lib/utils/dayWindow';
 
@@ -185,5 +185,71 @@ describe('weekBandDestinations — what it is named', () => {
     for (const d of result.values()) {
       expect(d.label).not.toMatch(/\bnext\b|\bprevious\b|\bforward\b|\bback\b/i);
     }
+  });
+});
+
+const bridges = (keys: string[]) => {
+  const all = segments(keys);
+  return Array.from({ length: Math.max(all.length - 1, 0) }, (_, i) => bridgesGutter(i, all));
+};
+
+describe('bridgesGutter', () => {
+  it('bridges every gutter inside a week', () => {
+    // Sun through Fri of week 2 — six days, five gutters, none a boundary. If
+    // any came back false the week would be drawn in pieces and the boundary
+    // would stop being the only break.
+    expect(bridges(['2026-07-05', '2026-07-06', '2026-07-07',
+                    '2026-07-08', '2026-07-09', '2026-07-10']))
+      .toEqual([true, true, true, true, true]);
+  });
+
+  it('bridges both ways across a boundary Saturday', () => {
+    // Sat Jul 4 closes week 1 and opens week 2, so it joins the run on each
+    // side and the break goes *through* it rather than beside it.
+    expect(bridges(['2026-07-03', '2026-07-04', '2026-07-05'])).toEqual([true, true]);
+  });
+
+  it("ends a run at the season's edge", () => {
+    // Thu/Fri before the season, then the opening Saturday. Nothing to share,
+    // so the run starts flush with week 1's first chip.
+    expect(bridges(['2026-06-25', '2026-06-26', '2026-06-27', '2026-06-28']))
+      .toEqual([false, false, true]);
+  });
+
+  it('never bridges two out-of-season days', () => {
+    expect(bridges(['2026-01-15', '2026-01-16'])).toEqual([false]);
+  });
+
+  it('has no gutter to bridge at the ends of the array', () => {
+    const all = segments(['2026-07-06', '2026-07-07']);
+    expect(bridgesGutter(-1, all)).toBe(false);
+    expect(bridgesGutter(1, all)).toBe(false);
+    expect(bridgesGutter(5, all)).toBe(false);
+  });
+});
+
+// Hand-built segments, isolated from `weekBandSegments`, pinning the exact
+// case a `[0] === [0]` comparison would get wrong.
+describe('bridgesGutter — two-entry sets', () => {
+  const segment = (dayKey: string, weekNumbers: number[]): WeekBandSegment => ({
+    dayKey, weekNumbers, rampSteps: weekNumbers.map(n => n),
+    navigationTarget: null, labelledWeek: null,
+  });
+
+  it("bridges on a shared Saturday's SECOND week number", () => {
+    // Left is the boundary Saturday, [5, 6]; right is plain week 6. Comparing
+    // first-to-first compares 5 to 6 and misses the match in the second slot.
+    expect(bridgesGutter(0, [segment('2026-08-01', [5, 6]), segment('2026-08-02', [6])]))
+      .toBe(true);
+  });
+
+  it("bridges on a shared Saturday's FIRST week number on the other side", () => {
+    expect(bridgesGutter(0, [segment('2026-07-31', [5]), segment('2026-08-01', [5, 6])]))
+      .toBe(true);
+  });
+
+  it('never bridges disjoint sets, even with two entries each', () => {
+    expect(bridgesGutter(0, [segment('2026-08-01', [5, 6]), segment('2026-08-08', [7, 8])]))
+      .toBe(false);
   });
 });
