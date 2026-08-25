@@ -1,6 +1,6 @@
-import { describe, expect, it, afterEach, vi } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/preact';
-import { useSiteHeaderReveal } from '@/hooks/useSiteHeaderReveal';
+import { useSiteHeaderReveal, GESTURE_WINDOW_MS } from '@/hooks/useSiteHeaderReveal';
 import { scrollWindowBy } from '@/lib/programmaticScroll';
 import { REVEAL_THRESHOLD } from '@/lib/siteHeaderReveal';
 import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
@@ -24,13 +24,58 @@ const offset = () => document.documentElement.style.getPropertyValue(OFFSET);
 const height = () => document.documentElement.style.getPropertyValue(HEIGHT);
 
 /**
- * A scroll the browser made on its own: the position moves and no gesture
- * precedes it. Anchoring corrections, restored positions, anchor jumps.
+ * One frame of a gesture already in flight: a scroll with no NEW gesture
+ * behind it and no time elapsed. WebKit delivers a single wheel tick as
+ * several of these.
  */
-const browserScrollTo = (y: number) => act(() => {
+const frameScrollTo = (y: number) => act(() => {
   Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
   window.dispatchEvent(new Event('scroll'));
 });
+
+/**
+ * The clock the hook reads.
+ *
+ * Stubbed rather than waited on: the rule is "a gesture is still live for
+ * `GESTURE_WINDOW_MS`", and a test that proved that by sleeping would be both
+ * slow and a coin toss on a loaded machine.
+ */
+let clockMs = 0;
+const advance = (ms: number) => { clockMs += ms; };
+
+beforeEach(() => {
+  clockMs = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => clockMs);
+});
+
+/** A gesture, dispatched where the hook listens for it. */
+const gesture = (type: string, init: object = {}) => act(() => {
+  const Ctor = type === 'keydown' ? KeyboardEvent : type.startsWith('touch') ? Event : MouseEvent;
+  window.dispatchEvent(new Ctor(type, { bubbles: true, ...init }));
+});
+
+/** Jump the document to `y` through the announcing helper. */
+const jumpTo = (y: number) => {
+  vi.spyOn(window, 'scrollBy').mockImplementation((() => {
+    Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
+  }) as typeof window.scrollBy);
+  act(() => { scrollWindowBy(y - window.scrollY); });
+};
+
+/**
+ * A scroll the browser made on its own: the position moves and no gesture
+ * precedes it. Anchoring corrections, restored positions, anchor jumps.
+ *
+ * The clock is advanced past the gesture window first, because "no gesture
+ * behind it" is a statement about time. A browser correction that genuinely
+ * lands inside the window after a real gesture IS admitted — that is the
+ * documented cost of the window, not something these tests should pretend
+ * away.
+ */
+const browserScrollTo = (y: number) => {
+  advance(GESTURE_WINDOW_MS + 1);
+  frameScrollTo(y);
+};
 
 /**
  * A scroll the READER made: the gesture that drives it, then the scroll it
@@ -39,7 +84,7 @@ const browserScrollTo = (y: number) => act(() => {
  */
 const scrollTo = (y: number) => {
   act(() => { window.dispatchEvent(new WheelEvent('wheel', { bubbles: true })); });
-  browserScrollTo(y);
+  frameScrollTo(y);
 };
 
 /** Get to "deep in the list with the header showing", the interesting state. */
@@ -179,7 +224,88 @@ describe('useSiteHeaderReveal', () => {
  * has to be remembered at each new site. Requiring a gesture is a guard that
  * holds for sites nobody has written yet.
  */
+/**
+ * One gesture, several frames.
+ *
+ * WebKit on Linux delivers a single wheel tick as an animation rather than a
+ * jump. Traced in CI over 40 ticks of 60px: `115 → 120 → 230`, i.e. +5 then
+ * +110 for one tick, and `839 → 840 → 959` for another. A rule that let a
+ * gesture decide only its FIRST scroll therefore threw away the rest of that
+ * gesture's own movement — the accumulator saw +5 where the reader had asked
+ * for +120, never reached the threshold, and the header did not hide at all.
+ * Chromium delivers one clean frame per tick and showed none of this.
+ */
+describe('useSiteHeaderReveal — one gesture, several frames', () => {
+  it('keeps deciding across every frame the gesture scrolls over', () => {
+    const { result } = mount();
+    scrollTo(1_000);
+    expect(result.current.revealed).toBe(false);
+
+    // One wheel up, delivered as -5 then the rest — the CI trace's shape.
+    gesture('wheel');
+    frameScrollTo(1_000 - 5);
+    frameScrollTo(1_000 - 110);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // The mirror: the frames must accumulate, not each be judged alone. Neither
+  // of these two clears the threshold by itself.
+  it('accumulates across frames rather than judging each one alone', () => {
+    const { result } = mount();
+    scrollTo(1_000);
+    expect(result.current.revealed).toBe(false);
+
+    gesture('wheel');
+    frameScrollTo(1_000 - 15);
+    frameScrollTo(1_000 - 30);
+
+    expect(result.current.revealed).toBe(true);
+  });
+});
+
 describe('useSiteHeaderReveal — scrolls nobody asked for', () => {
+  // A window is a judgement, and the tests above express "past the window"
+  // symbolically, so they hold for any value of it — including absurd ones.
+  // These bounds are the judgement: long enough to cover a smooth-scroll
+  // animation (WebKit delivers one wheel tick over several frames), short
+  // enough that a gesture cannot lend its authority to a browser correction
+  // arriving much later.
+  it('keeps a gesture live for about as long as a scroll animation lasts', () => {
+    expect(GESTURE_WINDOW_MS).toBeGreaterThanOrEqual(250);
+    expect(GESTURE_WINDOW_MS).toBeLessThanOrEqual(600);
+  });
+
+  // The hole the window opens, and the settle closes. A reader who scrolls and
+  // then taps a rail chip inside the same window would otherwise hand the
+  // browser's reaction to that tap the authority of their wheel — the exact
+  // 122px WebKit correction this suite exists for, arriving 200ms after a real
+  // gesture instead of in isolation.
+  it('ignores a correction after a jump the reader triggered while still scrolling', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+
+    // No clock advance: the wheel above is still live when the tap lands.
+    jumpTo(12_929);
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // And the settle must not outlast the reader's patience: their next gesture
+  // takes control back with nothing to wait for.
+  it('hands control back at the reader\'s next gesture after such a jump', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    jumpTo(12_929);
+    frameScrollTo(12_807);
+
+    gesture('wheel');
+    frameScrollTo(12_807 - REVEAL_THRESHOLD - 1);
+    expect(result.current.revealed).toBe(true);
+  });
+
   it('ignores a scroll with no gesture behind it', () => {
     const { result } = mount();
     reveal(result);
@@ -224,18 +350,6 @@ describe('useSiteHeaderReveal — scrolls nobody asked for', () => {
  * counted presses would have handed that correction a gesture's authority.
  */
 describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
-  /** Jump the document to `y` through the announcing helper. */
-  const jumpTo = (y: number) => {
-    vi.spyOn(window, 'scrollBy').mockImplementation((() => {
-      Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
-    }) as typeof window.scrollBy);
-    act(() => { scrollWindowBy(y - window.scrollY); });
-  };
-
-  const gesture = (type: string, init: object = {}) => act(() => {
-    window.dispatchEvent(new (type === 'keydown' ? KeyboardEvent : type.startsWith('touch') ? Event : MouseEvent)(type, { bubbles: true, ...init }));
-  });
-
   it('ignores the browser correcting the page after a jump', () => {
     const { result } = mount();
     scrollTo(30_000);
@@ -258,7 +372,7 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     browserScrollTo(12_807);
 
     gesture('wheel');
-    browserScrollTo(12_807 - REVEAL_THRESHOLD - 1);
+    frameScrollTo(12_807 - REVEAL_THRESHOLD - 1);
     expect(result.current.revealed).toBe(true);
   });
 
@@ -271,7 +385,7 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     jumpTo(12_929);
 
     gesture('touchmove');
-    browserScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
     expect(result.current.revealed).toBe(true);
   });
 
@@ -284,7 +398,7 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     jumpTo(12_929);
 
     gesture('keydown', { key: 'PageUp' });
-    browserScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
     expect(result.current.revealed).toBe(true);
   });
 
@@ -300,7 +414,7 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     jumpTo(12_929);
 
     gesture('mousemove', { buttons: 1 });
-    browserScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
     expect(result.current.revealed).toBe(true);
   });
 
@@ -321,8 +435,11 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
     jumpTo(12_929);
 
+    // Let the setup's own wheel expire first, or the scroll below is driven by
+    // THAT gesture and this test says nothing about the one it names.
+    advance(GESTURE_WINDOW_MS + 1);
     gesture('keydown', { key: 'a' });
-    browserScrollTo(12_807);
+    frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);
   });
@@ -333,8 +450,11 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
     jumpTo(12_929);
 
+    // Let the setup's own wheel expire first, or the scroll below is driven by
+    // THAT gesture and this test says nothing about the one it names.
+    advance(GESTURE_WINDOW_MS + 1);
     gesture('keydown', { key: 'Tab' });
-    browserScrollTo(12_807);
+    frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);
   });
@@ -350,8 +470,11 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
     jumpTo(12_929);
 
+    // Let the setup's own wheel expire first, or the scroll below is driven by
+    // THAT gesture and this test says nothing about the one it names.
+    advance(GESTURE_WINDOW_MS + 1);
     gesture('mousemove', { buttons: 0 });
-    browserScrollTo(12_807);
+    frameScrollTo(12_807);
     expect(result.current.revealed).toBe(false);
   });
 
@@ -368,8 +491,11 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
     jumpTo(12_929);
 
+    // Let the setup's own wheel expire first, or the scroll below is driven by
+    // THAT gesture and this test says nothing about the one it names.
+    advance(GESTURE_WINDOW_MS + 1);
     gesture('mousedown');
-    browserScrollTo(12_807);
+    frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);
   });
@@ -391,7 +517,7 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     browserScrollTo(12_807);
 
     gesture('wheel');
-    browserScrollTo(12_807 + REVEAL_THRESHOLD);
+    frameScrollTo(12_807 + REVEAL_THRESHOLD);
     expect(result.current.revealed).toBe(false);
   });
 });

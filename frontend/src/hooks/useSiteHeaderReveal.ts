@@ -7,6 +7,24 @@ import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib
 const OFFSET = '--site-header-offset';
 const HEIGHT = '--site-header-h';
 
+/**
+ * How long a scroll-driving gesture keeps deciding.
+ *
+ * A gesture is not one scroll event. WebKit on Linux delivers a single wheel
+ * tick as an animation: traced in CI, `115 → 120 → 230` is one tick arriving
+ * as +5 and then +110. An earlier rule let a gesture decide only its first
+ * scroll and consumed it there, which threw away the rest of the gesture's own
+ * movement — the accumulator saw +5 where the reader had asked for +120, never
+ * reached the threshold, and the header did not hide at all. Chromium delivers
+ * one clean frame per tick and showed none of it.
+ *
+ * So the gesture stays live for a window instead, refreshed by every further
+ * gesture event. Long enough to cover a smooth-scroll animation, short enough
+ * that a gesture cannot lend its authority to a browser correction arriving
+ * long afterwards — the case the window exists to exclude.
+ */
+export const GESTURE_WINDOW_MS = 400;
+
 
 /**
  * The offset while the header is showing.
@@ -71,8 +89,8 @@ export function useSiteHeaderReveal() {
 
 
     /**
-     * Whether the reader has done something that scrolls since the last
-     * `scroll` event — the whole test for "is this scroll theirs".
+     * When the reader last did something that scrolls — the whole test for
+     * "is this scroll theirs".
      *
      * A `scroll` with nothing behind it is not the reader. The settle above
      * covers what the browser does in reaction to OUR scrolls, because those
@@ -85,13 +103,11 @@ export function useSiteHeaderReveal() {
      * gesture holds for layout-changing code nobody has written yet, which
      * making every such site announce does not.
      *
-     * "Since the last scroll" rather than "within the last N milliseconds",
-     * and the difference is not tidiness. A time window lends a real gesture's
-     * authority to whatever the browser does next inside it — which is exactly
-     * the case above, where a wheel, a tap and an anchoring correction all
-     * land inside any window worth having. Consuming the gesture closes that:
-     * a drag re-arms it on every frame, and a correction that follows a scroll
-     * with nothing in between does not.
+     * A window rather than "consume it on the next scroll", because a gesture
+     * is not one scroll event — see `GESTURE_WINDOW_MS`, where consuming it
+     * stopped the header hiding at all in WebKit. The window is what bounds
+     * how far a gesture's authority reaches; a gesture that scrolls nothing
+     * still lends it for that long, which is the cost of the trade.
      *
      * Touch momentum after `touchend` fires no gesture, and that is fine
      * rather than tolerated: a flick long enough to coast is far longer than
@@ -99,12 +115,28 @@ export function useSiteHeaderReveal() {
      * momentum cannot do is CHANGE it — which is the flicker the threshold
      * exists to prevent.
      */
-    let gestureSinceLastScroll = false;
+    let lastGestureAt = -Infinity;
+
+    /**
+     * Set when the app scrolls the document, cleared by the reader's next
+     * gesture — the hole the window opens, closed.
+     *
+     * A gesture stays live for `GESTURE_WINDOW_MS`, and a reader who scrolls
+     * and then taps a rail chip inside that window would otherwise hand the
+     * browser's reaction to the tap the authority of their wheel. That is the
+     * same 122px WebKit correction this whole mechanism exists for, arriving
+     * 200ms after a real gesture instead of in isolation.
+     *
+     * Cleared by the gesture EVENT rather than by a scroll, so a reader who
+     * takes control back waits for nothing; and there is no timer, because
+     * nothing but a gesture or another programmatic scroll can move the page
+     * anyway, so a settle nobody ends costs nothing.
+     */
+    let settling = false;
 
     const onScroll = () => {
       const previous = stateRef.current;
-      const readerDriven = gestureSinceLastScroll;
-      gestureSinceLastScroll = false;
+      const readerDriven = !settling && performance.now() - lastGestureAt <= GESTURE_WINDOW_MS;
       if (!readerDriven) {
         stateRef.current = resyncHeaderReveal(previous, window.scrollY);
         return;
@@ -121,6 +153,7 @@ export function useSiteHeaderReveal() {
     // suppression flag.
     const stopListeningForJumps = onProgrammaticScroll(() => {
       stateRef.current = resyncHeaderReveal(stateRef.current, window.scrollY);
+      settling = true;
     });
 
     /**
@@ -146,7 +179,8 @@ export function useSiteHeaderReveal() {
       // search included — and search re-filtering is the largest layout change
       // above the reader the app makes.
       if (e.type === 'keydown' && !isScrollKey((e as KeyboardEvent).key)) return;
-      gestureSinceLastScroll = true;
+      lastGestureAt = performance.now();
+      settling = false;
     };
     const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
 
