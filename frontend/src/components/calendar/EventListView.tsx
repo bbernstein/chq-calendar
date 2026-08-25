@@ -6,6 +6,7 @@ import { downloadICS } from '@/lib/utils/icsHelpers';
 import { DAY_SECTION_ATTR, DAY_HEADER_ATTR } from '@/lib/utils/daySections';
 import { EventCard } from './EventCard';
 import { WeekBadge } from './WeekBadge';
+import { dayHeaderTop } from '@/app/filterHeaderLayout';
 
 export interface EventListViewProps {
   groups: DayGroup[];
@@ -51,7 +52,7 @@ export function EventListView({
           // sticky rail. Expressed as the measured custom property rather
           // than a pixel literal so it stays right at any browser text zoom,
           // targeting the same `--day-rail-h` that `stickyOffset()` reads.
-          style={{ scrollMarginTop: 'var(--day-rail-h)' }}
+          style={{ scrollMarginTop: dayHeaderTop() }}
         >
           <div
             {...{ [DAY_HEADER_ATTR]: '' }}
@@ -60,7 +61,7 @@ export function EventListView({
             // sticky layers both pinned at 0 overlap, and the header is the
             // one that has to give way. `z-10` keeps it below the rail's
             // `z-20`.
-            style={{ top: 'var(--day-rail-h)' }}
+            style={{ top: dayHeaderTop() }}
           >
             <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
               {dayGroup.baseLabel}

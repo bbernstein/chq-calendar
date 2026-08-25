@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { topmostVisibleDaySection } from '@/lib/utils/daySections';
 import { useDismissOnScrollGesture } from '@/hooks/useDismissOnScrollGesture';
+import { scrollWindowBy } from '@/lib/programmaticScroll';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -56,7 +57,7 @@ const EXIT_FALLBACK_MS = 400;
  * saved number. `topmostVisibleDaySection` (in `daySections.ts`) picks the
  * first day section still clear of the sticky rail as the reference; its
  * `top` is captured the instant the reader asks to open or close, and
- * re-measured plus corrected via `window.scrollBy` in a `useLayoutEffect`,
+ * re-measured plus corrected via `scrollWindowBy` in a `useLayoutEffect`,
  * which runs synchronously after the DOM mutation commits but before the
  * browser paints — late enough that `getBoundingClientRect()` reflects the
  * panel's new layout (and any scroll-anchoring the browser already applied
@@ -323,7 +324,7 @@ export function useFilterPanel({ scrolledPast }: {
     // mutation — see the hook doc for why that makes this safe to run
     // unconditionally rather than fight what the browser already got right.
     const delta = pending.el.getBoundingClientRect().top - pending.top;
-    if (delta !== 0) window.scrollBy(0, delta);
+    scrollWindowBy(delta);
     // `exiting` as well as `open`: the panel enters flow on open and leaves
     // it on close, but it ALSO leaves flow when the exit animation starts
     // (`position: fixed`) and re-enters it when that animation ends. All

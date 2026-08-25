@@ -1,13 +1,7 @@
 import { useEffect } from 'react';
-
-/**
- * Keys the reader deliberately scroll with. Deliberately narrow: a bare
- * letter or a Tab must not dismiss anything, since typing into the panel's
- * own search field would otherwise close it.
- */
-const SCROLL_KEYS = new Set([
-  'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ', 'Spacebar',
-]);
+// Deliberately narrow — a bare letter or a Tab must not dismiss anything,
+// since typing into the panel's own search field would otherwise close it.
+import { SCROLL_KEYS } from '@/lib/scrollGestures';
 
 /**
  * Calls `onDismiss` the first time the reader makes a gesture that scrolls
@@ -17,7 +11,7 @@ const SCROLL_KEYS = new Set([
  * whole point of the hook.** Two things fire `scroll` that are emphatically
  * not the reader scrolling:
  *
- * - The filter panel's own opening correction calls `window.scrollBy` to hold
+ * - The filter panel's own opening correction calls `scrollWindowBy` to hold
  *   the reader's position while the panel is inserted above them. A `scroll`
  *   listener would dismiss the panel in the same frame it opened.
  * - Changing a filter reflows the list, which can move `scrollY` on its own. A

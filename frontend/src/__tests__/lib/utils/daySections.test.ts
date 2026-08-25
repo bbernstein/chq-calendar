@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
-import { DAY_SECTION_ATTR, daySectionElement, daySectionTop, dayRailHeightPx, topmostVisibleDaySection } from '@/lib/utils/daySections';
+import { DAY_SECTION_ATTR, daySectionElement, daySectionTop, topChromeHeightPx, topmostVisibleDaySection } from '@/lib/utils/daySections';
 
 function mount(keys: string[]) {
   document.body.innerHTML = keys
@@ -44,16 +44,57 @@ describe('daySectionTop', () => {
   });
 });
 
-describe('dayRailHeightPx', () => {
-  afterEach(() => { document.documentElement.style.removeProperty('--day-rail-h'); });
+describe('topChromeHeightPx', () => {
+  afterEach(() => {
+    document.documentElement.style.removeProperty('--day-rail-h');
+    document.documentElement.style.removeProperty('--site-header-offset');
+    document.documentElement.style.removeProperty('--site-header-offset-target');
+  });
 
   it('reads the published rail height', () => {
     document.documentElement.style.setProperty('--day-rail-h', '56px');
-    expect(dayRailHeightPx()).toBe(56);
+    expect(topChromeHeightPx()).toBe(56);
   });
 
   it('is 0 when nothing has published a height yet', () => {
-    expect(dayRailHeightPx()).toBe(0);
+    expect(topChromeHeightPx()).toBe(0);
+  });
+
+  // The chrome at the top of the viewport is the rail PLUS the site header
+  // whenever that header is revealed (#272). Everything that asks "is this
+  // section hidden behind the chrome" — the rail's scrollspy, the filter
+  // panel's scroll reference, a chip tap's landing position — is off by a
+  // whole header otherwise, and only while the header is showing, which is
+  // exactly when the reader is looking at it.
+  it('includes the site header while it is revealed', () => {
+    document.documentElement.style.setProperty('--day-rail-h', '56px');
+    document.documentElement.style.setProperty('--site-header-offset-target', '48px');
+    expect(topChromeHeightPx()).toBe(104);
+  });
+
+  it('is just the rail while the site header is hidden', () => {
+    document.documentElement.style.setProperty('--day-rail-h', '56px');
+    document.documentElement.style.setProperty('--site-header-offset-target', '0px');
+    expect(topChromeHeightPx()).toBe(56);
+  });
+
+  // Reads the SETTLED offset, never the animated one.
+  //
+  // `--site-header-offset` transitions over 200ms, and every consumer of this
+  // samples it on a scroll or a resize. The scroll that triggers a reveal
+  // samples near the START of that transition and nothing fires when it
+  // finishes, so the anchor and the rail highlight would keep a boundary
+  // computed with the old chrome height until the reader scrolls again — long
+  // enough to leave the wrong chip lit next to a day boundary.
+  //
+  // A logical question ("is this section behind the chrome") wants where the
+  // chrome is going, not where it is mid-flight.
+  it('ignores the animated offset, which is mid-flight for 200ms', () => {
+    document.documentElement.style.setProperty('--day-rail-h', '56px');
+    document.documentElement.style.setProperty('--site-header-offset-target', '48px');
+    // The animation is a third of the way through. The answer must not be.
+    document.documentElement.style.setProperty('--site-header-offset', '16px');
+    expect(topChromeHeightPx()).toBe(104);
   });
 });
 
