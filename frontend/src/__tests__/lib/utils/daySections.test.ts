@@ -48,6 +48,7 @@ describe('topChromeHeightPx', () => {
   afterEach(() => {
     document.documentElement.style.removeProperty('--day-rail-h');
     document.documentElement.style.removeProperty('--site-header-offset');
+    document.documentElement.style.removeProperty('--site-header-offset-target');
   });
 
   it('reads the published rail height', () => {
@@ -67,14 +68,33 @@ describe('topChromeHeightPx', () => {
   // exactly when the reader is looking at it.
   it('includes the site header while it is revealed', () => {
     document.documentElement.style.setProperty('--day-rail-h', '56px');
-    document.documentElement.style.setProperty('--site-header-offset', '48px');
+    document.documentElement.style.setProperty('--site-header-offset-target', '48px');
     expect(topChromeHeightPx()).toBe(104);
   });
 
   it('is just the rail while the site header is hidden', () => {
     document.documentElement.style.setProperty('--day-rail-h', '56px');
-    document.documentElement.style.setProperty('--site-header-offset', '0px');
+    document.documentElement.style.setProperty('--site-header-offset-target', '0px');
     expect(topChromeHeightPx()).toBe(56);
+  });
+
+  // Reads the SETTLED offset, never the animated one.
+  //
+  // `--site-header-offset` transitions over 200ms, and every consumer of this
+  // samples it on a scroll or a resize. The scroll that triggers a reveal
+  // samples near the START of that transition and nothing fires when it
+  // finishes, so the anchor and the rail highlight would keep a boundary
+  // computed with the old chrome height until the reader scrolls again — long
+  // enough to leave the wrong chip lit next to a day boundary.
+  //
+  // A logical question ("is this section behind the chrome") wants where the
+  // chrome is going, not where it is mid-flight.
+  it('ignores the animated offset, which is mid-flight for 200ms', () => {
+    document.documentElement.style.setProperty('--day-rail-h', '56px');
+    document.documentElement.style.setProperty('--site-header-offset-target', '48px');
+    // The animation is a third of the way through. The answer must not be.
+    document.documentElement.style.setProperty('--site-header-offset', '16px');
+    expect(topChromeHeightPx()).toBe(104);
   });
 });
 

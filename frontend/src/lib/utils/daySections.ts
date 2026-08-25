@@ -81,15 +81,29 @@ function lengthPx(property: string): number {
  * same as every other measurement in this file.
  *
  * The chrome is the rail PLUS the site header whenever that header is
- * revealed (#272) — `--site-header-offset` is `0px` while it is hidden, so
- * this is the rail alone the rest of the time. Named for the chrome rather
- * than for the rail because it stopped being only the rail: a name that
- * undersold what it measured is how the day titles ended up pinned a whole
- * header too high.
+ * revealed (#272) — the offset is `0px` while it is hidden, so this is the
+ * rail alone the rest of the time. Named for the chrome rather than for the
+ * rail because it stopped being only the rail: a name that undersold what it
+ * measured is how the day titles ended up pinned a whole header too high.
+ *
+ * ## Why the TARGET offset, not the animated one
+ *
+ * `--site-header-offset` transitions over 200ms, and every caller here samples
+ * it on a scroll or a resize. The scroll that triggers a reveal samples near
+ * the START of that transition, and nothing fires when it finishes — so an
+ * anchor computed then keeps a chrome boundary up to a whole header too short
+ * until the reader scrolls again, which next to a day boundary means the wrong
+ * chip stays lit.
+ *
+ * `--site-header-offset-target` is the same value with no transition on it.
+ * A logical question — "is this section behind the chrome" — wants where the
+ * chrome is going, not where it happens to be mid-flight. The animated
+ * property remains what CSS positions against, so nothing about the motion
+ * changes.
  */
 export function topChromeHeightPx(): number {
   if (typeof document === 'undefined') return 0;
-  return lengthPx('--site-header-offset') + lengthPx('--day-rail-h');
+  return lengthPx('--site-header-offset-target') + lengthPx('--day-rail-h');
 }
 
 /**

@@ -272,6 +272,19 @@ describe('Header — reveal on scroll up', () => {
     expect(siteHeader().className).not.toContain('shadow-lg');
   });
 
+  // An open dropdown is positioned OUTSIDE the header's border box. Parked,
+  // the header's box is above the viewport but the menu is not: measured in
+  // Chromium after opening the "more" menu and scrolling down, the header sat
+  // at `bottom: 0` and `inert`, while its menu still occupied -4 → 258 — a
+  // 258px panel over most of the screen, at `z-40`, that nothing could click.
+  it('clips what paints outside it once parked', () => {
+    renderHeader();
+    expect(siteHeader().className).not.toContain('overflow-hidden');
+
+    scrollTo(1_000);
+    expect(siteHeader().className).toContain('overflow-hidden');
+  });
+
   it('is reachable again the moment it is revealed', () => {
     renderHeader();
     scrollTo(1_000);

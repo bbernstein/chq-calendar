@@ -18,9 +18,11 @@ import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
  */
 
 const OFFSET = '--site-header-offset';
+const TARGET = '--site-header-offset-target';
 const HEIGHT = '--site-header-h';
 
 const offset = () => document.documentElement.style.getPropertyValue(OFFSET);
+const offsetTarget = () => document.documentElement.style.getPropertyValue(TARGET);
 const height = () => document.documentElement.style.getPropertyValue(HEIGHT);
 
 /**
@@ -179,6 +181,7 @@ afterEach(() => {
   document.documentElement.style.removeProperty('overflow-y');
   document.body.style.removeProperty('overflow-y');
   document.documentElement.style.removeProperty(OFFSET);
+  document.documentElement.style.removeProperty(TARGET);
   document.documentElement.style.removeProperty(HEIGHT);
   Object.defineProperty(window, 'scrollY', { value: 0, configurable: true, writable: true });
   document.body.innerHTML = '';
@@ -200,6 +203,50 @@ describe('useSiteHeaderReveal', () => {
     const { result } = mount();
     expect(result.current.revealed).toBe(true);
     expect(offset()).toBe(`var(${HEIGHT}, 0px)`);
+  });
+
+  // The settled twin of the animated offset, and the ONLY thing
+  // `topChromeHeightPx` reads. Without this write the reader of that property
+  // measures a chrome height of zero and the rail's scrollspy is quietly wrong
+  // by a whole header — the two halves of the fix have to be pinned together
+  // or either can be removed without a test noticing.
+  it('publishes a settled offset for anything that measures rather than paints', () => {
+    const { result } = mount(72);
+    expect(offsetTarget()).toBe('72px');
+
+    scrollTo(1_000);
+    expect(result.current.revealed).toBe(false);
+    expect(offsetTarget()).toBe('0px');
+
+    scrollTo(1_000 - REVEAL_THRESHOLD - 1);
+    expect(offsetTarget()).toBe('72px');
+  });
+
+  // A literal, so unlike the animated offset it does not follow
+  // `--site-header-h` on its own — text zoom has to rewrite it.
+  it('rewrites the settled offset when the header is re-measured', () => {
+    const { growHeaderTo } = mount(72);
+    expect(offsetTarget()).toBe('72px');
+
+    growHeaderTo(120);
+
+    expect(offsetTarget()).toBe('120px');
+  });
+
+  // And rewrites it to the height the header is ACTUALLY at. The re-measure
+  // runs from a callback captured on first render, which cannot read state —
+  // so a mirror of the decision that stopped being updated would republish a
+  // revealed header's height onto a hidden one, and the rail's scrollspy would
+  // hold a boundary a whole header too tall.
+  it('rewrites it to zero when the header is re-measured while hidden', () => {
+    const { result, growHeaderTo } = mount(72);
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    expect(offsetTarget()).toBe('0px');
+
+    growHeaderTo(120);
+
+    expect(offsetTarget()).toBe('0px');
   });
 
   it('publishes the measured header height', () => {

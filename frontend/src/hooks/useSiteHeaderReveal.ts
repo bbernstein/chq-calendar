@@ -5,6 +5,15 @@ import { gestureScrollsPage, keyScrollsPage } from '@/lib/scrollGestures';
 import { initialHeaderReveal, nextHeaderReveal, resyncHeaderReveal } from '@/lib/siteHeaderReveal';
 
 const OFFSET = '--site-header-offset';
+/**
+ * The same offset with no transition on it.
+ *
+ * `OFFSET` animates, so anything that SAMPLES it — the rail's scrollspy, the
+ * day anchor — reads a value mid-flight and then never hears that it settled.
+ * CSS positions against the animated one; logic asks this one. See
+ * `topChromeHeightPx`.
+ */
+const OFFSET_TARGET = '--site-header-offset-target';
 const HEIGHT = '--site-header-h';
 
 /**
@@ -64,6 +73,8 @@ const HIDDEN = '0px';
 export function useSiteHeaderReveal() {
   const [revealed, setRevealed] = useState(true);
   const stateRef = useRef(initialHeaderReveal(0));
+  /** The current decision, readable from callbacks captured on first render. */
+  const revealedRef = useRef(true);
 
   // The top zone is the header's own height: within it the header has not yet
   // reached the position it would stick at, so "hidden" is not a state the
@@ -79,9 +90,15 @@ export function useSiteHeaderReveal() {
    */
   const decideRef = useRef<(() => void) | null>(null);
 
+  /** Re-publishes the offsets; held in a ref for the same reason `decideRef` is. */
+  const publishRef = useRef<((shown: boolean) => void) | null>(null);
+
   const headerRef = usePublishedElementHeight(HEIGHT, (el) => {
     const measured = el.getBoundingClientRect().height;
     topZoneRef.current = measured;
+    // The target offset is a literal, so unlike the animated one it does not
+    // follow `--site-header-h` on its own and has to be rewritten here.
+    publishRef.current?.(revealedRef.current);
     decideRef.current?.();
     return measured;
   });
@@ -89,7 +106,11 @@ export function useSiteHeaderReveal() {
   useEffect(() => {
     const publish = (shown: boolean) => {
       document.documentElement.style.setProperty(OFFSET, shown ? SHOWN : HIDDEN);
+      // The settled value, for anything that measures rather than paints.
+      document.documentElement.style.setProperty(
+        OFFSET_TARGET, shown ? `${topZoneRef.current}px` : HIDDEN);
     };
+    publishRef.current = publish;
 
     // A reload part-way down the page restores `scrollY` before this runs, so
     // the baseline is where the reader actually is rather than the top.
@@ -161,6 +182,7 @@ export function useSiteHeaderReveal() {
       const next = nextHeaderReveal(previous, window.scrollY, { topZone: topZoneRef.current });
       stateRef.current = next;
       if (next.revealed === previous.revealed) return;
+      revealedRef.current = next.revealed;
       setRevealed(next.revealed);
       publish(next.revealed);
     };
@@ -224,6 +246,8 @@ export function useSiteHeaderReveal() {
       }
       stopListeningForJumps();
       document.documentElement.style.removeProperty(OFFSET);
+      document.documentElement.style.removeProperty(OFFSET_TARGET);
+      publishRef.current = null;
     };
   }, []);
 

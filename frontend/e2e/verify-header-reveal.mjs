@@ -7,13 +7,13 @@
  * small scroll up and hides on scroll down.
  *
  * Everything that can go wrong with that is geometry, and jsdom has none. In
- * particular check 5 is the standing guard against the regression
+ * particular checks 9 and 10 are the standing guard against the regression
  * `frontend/src/app/filterHeaderLayout.ts` documents at length: a header that
  * collapses by leaving the document flow changes height ABOVE the reader,
  * scroll anchoring subtracts that from `scrollY`, and the page becomes
  * impossible to scroll slowly — 40 wheel ticks advanced it 0px, returning to
  * the top 20 times, in both Chromium and WebKit, with the whole unit suite
- * green. This header is sticky and never leaves flow; check 5 is what proves
+ * green. This header is sticky and never leaves flow; checks 9 and 10 prove
  * that claim rather than asserting it.
  *
  * Run against a dev server, or any deploy: `URL=https://… node <this>`.
@@ -440,6 +440,49 @@ const deepAndHidden = async (p, y = 6000) => {
   const shown = await geometry(p);
   check('18 reduced motion still reveals on the way up',
     shown.top === 0 && shown.bottom > 0, `top=${shown.top} bottom=${shown.bottom}`);
+  await p.context().close();
+}
+
+// ───────────────────── an open menu goes with the header it belongs to
+{
+  // A dropdown is positioned OUTSIDE the header's border box, so parking the
+  // box does not park the menu. Measured in Chromium before the fix: header at
+  // `bottom: 0` and `inert`, its menu still occupying -4 → 258 — a panel over
+  // most of the screen, at `z-40`, that nothing could click.
+  //
+  // Appended last on purpose: every previous check that was inserted before
+  // the reduced-motion block printed out of sequence and had to be renumbered.
+  const p = await phone();
+  await p.evaluate(() => document.querySelector('[data-testid="header-mobile"] button')?.click());
+  await p.waitForTimeout(500);
+  const opened = await p.evaluate(() =>
+    !!document.querySelector('[data-testid="header-mobile"] [role="group"]'));
+  if (!opened) {
+    skip('19 a parked header takes its open menu with it', 'the "more" menu did not open');
+  } else {
+    const parked = await deepAndHidden(p);
+    const menu = await p.evaluate(() => {
+      const header = document.querySelector('header');
+      const group = document.querySelector('[data-testid="header-mobile"] [role="group"]');
+      const r = group?.getBoundingClientRect();
+      return {
+        stillOpen: !!group,
+        bottom: r ? Math.round(r.bottom) : null,
+        overflow: getComputedStyle(header).overflow,
+        // Sticky must survive the clipping: `overflow` creates a formatting
+        // context, and this header's whole design rests on staying sticky.
+        position: getComputedStyle(header).position,
+      };
+    });
+    if (parked.bottom > 0) {
+      skip('19 a parked header takes its open menu with it',
+        `the header would not park (bottom=${parked.bottom})`);
+    } else {
+      check('19 a parked header takes its open menu with it',
+        menu.overflow === 'hidden' && menu.position === 'sticky',
+        `overflow=${menu.overflow} position=${menu.position} menuBottom=${menu.bottom} stillOpen=${menu.stillOpen}`);
+    }
+  }
   await p.context().close();
 }
 

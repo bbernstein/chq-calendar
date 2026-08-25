@@ -73,7 +73,15 @@ export function Header({ selectedYear, availableYears, defaultYear, onYearChange
       // landed on the `z-30` rail. Measured by screenshotting the top 24px
       // with the header parked, with and without it: the images differ. A
       // hidden header was painting a grey band across the rail it yields to.
-      className={`sticky z-40 bg-white dark:bg-gray-800 ${revealed ? 'shadow-lg' : ''}`}
+      // `overflow-hidden` while parked, for the same reason the shadow goes:
+      // an open dropdown is positioned OUTSIDE the header's border box, so
+      // parking the box left the menu behind. Measured in Chromium after
+      // opening the "more" menu and scrolling down — header at `bottom: 0` and
+      // `inert`, its menu still occupying -4 → 258, a panel over most of the
+      // screen at `z-40` that nothing could click. The menu stays OPEN: it
+      // belongs to the header, and scrolling back up should find it where the
+      // reader left it.
+      className={`sticky z-40 bg-white dark:bg-gray-800 ${revealed ? 'shadow-lg' : 'overflow-hidden'}`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-2 sm:py-4">

@@ -17,7 +17,11 @@ import { join, relative, resolve } from 'node:path';
  */
 
 const SRC = resolve(__dirname, '..', '..');
-const ALLOWED = 'lib/programmaticScroll.ts';
+// Built with `join`, not a literal: `relative()` returns backslashes on
+// Windows, so a hard-coded slash would make the helper itself an offender AND
+// make the sanity check below miss it — the guard would fail for the one
+// reason it can never be right about.
+const ALLOWED = join('lib', 'programmaticScroll.ts');
 
 const sourceFiles = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
