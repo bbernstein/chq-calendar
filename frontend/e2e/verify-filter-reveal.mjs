@@ -349,113 +349,137 @@ const fixedGhosts = p => p.evaluate(() =>
 }
 
 // ─── the FIRST dismissal of a page is the one that was broken; prove both
+//
+// A previous version of this block sampled ONE computed-style snapshot 80ms
+// after the dismiss gesture and asserted `0 < opacity < 1` on it. That
+// measures "did a frame with an intermediate opacity land inside this one
+// 80ms window", which is a property of when the compositor happened to paint
+// relative to an arbitrary sample point — not of whether the dismissal
+// itself animates. On a slow, shared CI runner the exit fires correctly
+// every time (confirmed by instrumenting the exit's own DOM mutation: it
+// lands on schedule, 41-64ms) but the sampled instant can land before the
+// browser has painted any in-between frame, or after opacity has already
+// settled. Those two things came apart only on Linux CI, never on macOS.
+//
+// The fix is to watch every frame the browser actually paints for the
+// dismissal's WHOLE duration, via `requestAnimationFrame`, rather than
+// snapshot one instant. `rAF`, not `transitionstart`/`transitionrun`: a
+// transition that gets skipped entirely — the actual bug this block exists
+// to catch — may never fire those events, so keying on them would make the
+// check unable to observe its own failure mode.
 {
   const p = await phone();
-  // Everything this reads is diagnostic, not part of the interaction: it
-  // exists so a failure here says WHERE things went wrong (never opened?
-  // opened but the gesture wasn't seen as a dismiss? seen, but the
-  // transition never advanced?) instead of only a final computed style.
-  const panelState = () => p.evaluate(() => {
-    // aria-label narrows past the week chooser trigger — see `toggle` above.
-    const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
-    const el = t && document.getElementById(t.getAttribute('aria-controls'));
-    const cs = el && getComputedStyle(el);
-    return {
-      ariaExpanded: t?.getAttribute('aria-expanded') ?? null,
-      found: !!el,
-      exitingClass: el?.classList.contains('filter-panel-exit') ?? null,
-      position: cs?.position ?? null,
-      opacity: cs ? Number(cs.opacity) : null,
-      display: cs?.display ?? null,
-    };
-  });
+  /**
+   * Run the open/scroll/dismiss cycle once, recording the panel's computed
+   * `opacity`/`position`/`display` on every animation frame from just before
+   * the dismiss gesture until the exit settles (or a generous ceiling
+   * elapses), and return that trace plus the diagnostics worth keeping from
+   * the investigation that found the original check's flaw.
+   */
   const sample = async () => {
     await p.evaluate(() => window.scrollTo(0, 6000));
     await p.waitForTimeout(700);
     await toggle(p).click();
     await p.waitForTimeout(500);
-    // Diagnostic, gathered in ONE round trip so it adds as little of its own
-    // delay as possible before the gesture: confirm the panel actually
-    // opened (and isn't already mid-exit from a previous cycle), record what
-    // the gesture is about to land on (`isExempt` in `useFilterPanel.ts`
-    // reads the event's `target` — a coordinate resolving inside the panel
-    // or the toggle would make the gesture exempt and nothing would
-    // dismiss), and arm a `MutationObserver` that timestamps the instant the
-    // exit's own DOM mutation (the `filter-panel-exit` class landing on the
-    // panel) is observed. That timestamp is what separates two different
-    // failures that read identically from the final computed style alone:
-    // the exit's React commit itself arriving late (main-thread contention
-    // delayed `beginExit`), versus the commit landing on time but the CSS
-    // transition not visibly advancing by the sample point (the browser
-    // never having painted the pre-exit frame the transition needs to
-    // animate from — the same class of bug the hook doc's "Exit animation"
-    // section describes for the FIRST dismissal).
-    const before = await p.evaluate(() => {
+    // Diagnostic, gathered in the same round trip as arming the trace below
+    // so it adds none of its own delay before the gesture: confirms the
+    // panel actually opened (and isn't already mid-exit from a previous
+    // cycle), and that the gesture is about to land on ordinary list
+    // content rather than inside the panel or the toggle — `isExempt` in
+    // `useFilterPanel.ts` reads the event's `target`, and a coordinate
+    // resolving inside either would make the gesture exempt and nothing
+    // would dismiss.
+    const openedBefore = await p.evaluate(() => {
       const at = document.elementFromPoint(195, 700);
       const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
       const el = t && document.getElementById(t.getAttribute('aria-controls'));
-      window.__exitMutationAt = null;
-      if (el) {
-        const mo = new MutationObserver(() => {
-          if (window.__exitMutationAt == null && el.classList.contains('filter-panel-exit')) {
-            window.__exitMutationAt = performance.now();
-          }
-        });
-        mo.observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
-        window.__exitMo = mo;
-      }
       return {
-        atPointTag: at?.tagName ?? null,
         atPointInPanel: !!(el && at && el.contains(at)),
         atPointInToggle: !!(t && at && t.contains(at)),
-        scrollY: window.scrollY,
-        // How much DOM the browser has to lay out and paint around, at the
-        // moment of the gesture. The second cycle runs later, deeper in the
-        // list, after `EventList` may have mounted more day sections since
-        // page load — a bigger tree makes every layout/paint this exit
-        // forces (the panel's own `getBoundingClientRect()` snap to
-        // `position: fixed`, chiefly) costlier, independent of anything
-        // `WeekChooser` does.
-        mountedDaySections: document.querySelectorAll('[data-day-key]').length,
         ariaExpanded: t?.getAttribute('aria-expanded') ?? null,
         exitingClass: el?.classList.contains('filter-panel-exit') ?? null,
         position: el ? getComputedStyle(el).position : null,
-        beforeWheelAt: performance.now(),
       };
+    });
+    const scrollYBeforeWheel = await p.evaluate(() => window.scrollY);
+    // Arm the trace BEFORE the gesture, so the first frame after the exit's
+    // own commit is inside the recorded window rather than racing a
+    // fixed-delay sample against the compositor. Runs until the panel
+    // settles back OUT of its `position: fixed` ghost state, or ~1500ms
+    // elapses.
+    //
+    // Deliberately NOT waiting for `display: none` or removal: per
+    // `useFilterPanel.ts`'s "Exit animation" doc, a finished exit re-enters
+    // flow PARKED off-screen (`filterCardParked` in `filterHeaderLayout.ts`)
+    // — still in the DOM, still `display: block` — so those never happen and
+    // waiting for them would hang. Confirmed against a live preview build:
+    // the settled panel is `position: static`, parked above the viewport.
+    await p.evaluate(() => {
+      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+      const el = t && document.getElementById(t.getAttribute('aria-controls'));
+      window.__exitTrace = [];
+      window.__exitTraceDone = false;
+      if (!el) { window.__exitTraceDone = true; return; }
+      const start = performance.now();
+      let sawFixed = false;
+      const frame = () => {
+        const cs = getComputedStyle(el);
+        const fixed = cs.position === 'fixed';
+        sawFixed = sawFixed || fixed;
+        window.__exitTrace.push({
+          t: Math.round(performance.now() - start),
+          opacity: Number(cs.opacity),
+          position: cs.position,
+          display: cs.display,
+          connected: el.isConnected,
+        });
+        const settled = !el.isConnected || (sawFixed && !fixed);
+        if (settled || performance.now() - start > 1500) { window.__exitTraceDone = true; return; }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
     });
     await p.mouse.move(195, 700);
     await p.mouse.wheel(0, 100);
-    await p.waitForTimeout(80);
-    const r = await panelState();
-    const after = await p.evaluate(() => {
-      window.__exitMo?.disconnect();
-      return {
-        scrollY: window.scrollY,
-        exitMutationAt: window.__exitMutationAt,
-        sampleAt: performance.now(),
-      };
-    });
-    await p.waitForTimeout(800);
+    // Poll the in-page loop to ITS OWN completion, rather than a fixed wait
+    // — a fixed wait here would just move the original bug up one layer.
+    await p.waitForFunction(() => window.__exitTraceDone === true, null, { timeout: 3000 });
+    const trace = await p.evaluate(() => window.__exitTrace);
+    const scrollYAfterWheel = await p.evaluate(() => window.scrollY);
+    const opacities = trace.map(f => f.opacity);
+    const everFixed = trace.some(f => f.position === 'fixed');
+    const lastFrame = trace[trace.length - 1] ?? null;
     return {
-      ...r,
-      openedBefore: before,
-      scrollYAfterWheel: after.scrollY,
-      // Milliseconds from just-before-the-wheel to the exit's own DOM
-      // mutation landing, and from that mutation to this sample. `null` for
-      // the first means the mutation was never observed at all — the
-      // dismissal was missed outright, not merely slow to animate.
-      msToExitMutation: after.exitMutationAt == null ? null
-        : Math.round(after.exitMutationAt - before.beforeWheelAt),
-      msMutationToSample: after.exitMutationAt == null ? null
-        : Math.round(after.sampleAt - after.exitMutationAt),
+      openedBefore,
+      scrollYBeforeWheel,
+      scrollYAfterWheel,
+      frames: trace.length,
+      minOpacity: opacities.length ? Math.min(...opacities) : null,
+      everFixed,
+      hadIntermediateOpacity: opacities.some(o => o > 0 && o < 1),
+      // A real exit ended: the ghost genuinely went `position: fixed` at
+      // some point and, by the time the loop stopped, genuinely settled
+      // back out of it (see the "NOT waiting for `display: none`" note
+      // above for why this, not display or removal, is the end signal).
+      endedGone: everFixed && !!lastFrame && lastFrame.position !== 'fixed',
     };
   };
   const first = await sample();
   const second = await sample();
-  const animating = r => !!r && r.display !== 'none' && r.position === 'fixed'
-    && r.opacity > 0 && r.opacity < 1;
-  check('28 the FIRST dismissal animates', animating(first), JSON.stringify(first));
-  check('29 the second dismissal animates identically', animating(second), JSON.stringify(second));
+  // Two separate properties of the trace, checked separately so a failure
+  // says which one broke:
+  //  - `hadIntermediateOpacity` is the actual bug this block exists to
+  //    catch — a dismissal that SNAPS goes opacity 1 -> gone with no frame
+  //    in between, exactly what an unthrottled/instant transition produces.
+  //  - `everFixed && endedGone` is a sanity check that a real exit happened
+  //    at all (as opposed to, say, the gesture being swallowed and nothing
+  //    moving), matching what the original check asserted about `position`.
+  const passed = r => r.hadIntermediateOpacity && r.everFixed && r.endedGone;
+  const detail = r => `frames=${r.frames} minOpacity=${r.minOpacity} everFixed=${r.everFixed} `
+    + `endedGone=${r.endedGone} hadIntermediateOpacity=${r.hadIntermediateOpacity} `
+    + `scrollY=${r.scrollYBeforeWheel}->${r.scrollYAfterWheel} openedBefore=${JSON.stringify(r.openedBefore)}`;
+  check('28 the FIRST dismissal animates', passed(first), detail(first));
+  check('29 the second dismissal animates identically', passed(second), detail(second));
   await p.context().close();
 }
 
