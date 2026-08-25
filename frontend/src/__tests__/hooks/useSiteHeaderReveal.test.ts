@@ -92,10 +92,11 @@ const sized = (el: Element, scrollHeight: number, clientHeight: number) => {
  * An element that scrolls on its own, like the filter panel — which is
  * `max-h-[70vh] overflow-y-auto` whenever it overlays the list.
  */
-const nestedScroller = () => {
+const nestedScroller = ({ scrollTop = 150 } = {}) => {
   const box = document.createElement('div');
   box.style.overflowY = 'auto';
   sized(box, 900, 300);
+  Object.defineProperty(box, 'scrollTop', { value: scrollTop, configurable: true, writable: true });
   const inner = document.createElement('div');
   box.append(inner);
   document.body.append(box);
@@ -710,6 +711,54 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(true);
   });
 
+  // A scroller only consumes a wheel it can still act on. With the filter
+  // panel already at its top, every further upward tick over it CHAINS to the
+  // document and moves `window` — so rejecting all of them left the header
+  // unable to reveal at all until the pointer left the panel. The earlier
+  // comment here called that "the last few pixels of such a gesture", which
+  // understated it: at a boundary it is every tick, indefinitely.
+  it('counts a wheel that chains past a scroller already at its top', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(nestedScroller({ scrollTop: 0 }), 'wheel', { deltaY: -80 });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  it('counts a wheel that chains past a scroller already at its bottom', () => {
+    const { result } = mount();
+    scrollTo(1_000);
+    expect(result.current.revealed).toBe(false);
+    scrollTo(1_000 - 200);
+    expect(result.current.revealed).toBe(true);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    // 900 content, 300 viewport — 600 is the bottom.
+    gestureOn(nestedScroller({ scrollTop: 600 }), 'wheel', { deltaY: 80 });
+    frameScrollTo(800 + REVEAL_THRESHOLD + 1);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // Mid-scroll it really does consume the wheel, and must still be ignored.
+  it('does not count a wheel a scroller can still act on', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    gestureOn(nestedScroller({ scrollTop: 150 }), 'wheel', { deltaY: -80 });
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
   // And the case none of that may break: a wheel over ordinary page content,
   // which is what scrolls the page.
   it('counts a wheel over ordinary page content', () => {
@@ -814,6 +863,23 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     frameScrollTo(12_807);
 
     expect(result.current.revealed).toBe(false);
+  });
+
+  // A native link is activated with Enter, not Space — Space on a focused link
+  // scrolls the page. Treating links as Space-activated rejected a real
+  // keyboard scroll, so the header would not respond for a reader tabbing
+  // through the header's own links and then pressing Space.
+  it('counts Space on a focused link, which scrolls rather than activating', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(el('<a href="/about">About</a>'), ' ');
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
   });
 
   // The day rail intercepts `Home` (`DayRail.tsx`), calls `preventDefault()`

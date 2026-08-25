@@ -59,7 +59,13 @@ export const SCROLL_KEYS: ReadonlySet<string> = new Set([
  */
 const CONSUMES_THE_KEY =
   'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
-const ACTIVATED_BY_SPACE = 'button, a[href], summary, [role="button"]';
+/**
+ * Note the absence of `a[href]`. A native link is activated with **Enter**,
+ * not Space — Space on a focused link scrolls the page, so listing links here
+ * rejected a real keyboard scroll. An anchor given `role="button"` is covered
+ * by the last entry, which is the case where Space really does activate.
+ */
+const ACTIVATED_BY_SPACE = 'button, summary, [role="button"]';
 
 /**
  * Whether a `keydown` will actually scroll the page.
@@ -114,6 +120,23 @@ function scrollsVertically(el: Element): boolean {
 }
 
 /**
+ * Whether this scroller can still move in `deltaY`'s direction.
+ *
+ * A scroller at its own boundary does not consume the wheel — it CHAINS, and
+ * the page moves instead. Treating "is a scroller" as "consumes the gesture"
+ * left a reader wheeling upward over a filter panel already at its top unable
+ * to reveal the header at all: every tick moved `window` and every tick was
+ * discarded, for as long as the pointer stayed over the panel.
+ *
+ * `deltaY === 0` never reaches here — `gestureScrollsPage` rejects it first.
+ */
+function canScrollBy(el: Element, deltaY: number): boolean {
+  return deltaY < 0
+    ? el.scrollTop > 0
+    : el.scrollTop < el.scrollHeight - el.clientHeight;
+}
+
+/**
  * Whether a pointer gesture will scroll the page, rather than something in it.
  *
  * The filter panel is `max-h-[70vh] overflow-y-auto` whenever it overlays the
@@ -127,17 +150,25 @@ function scrollsVertically(el: Element): boolean {
  * A wheel with no vertical component is out for the same reason: the day rail
  * scrolls sideways, and moving it is not moving the page up or down.
  *
- * Errs toward "this did not scroll the page". A nested scroller at its own
- * boundary really does chain to the document, so this returns false for the
- * last few pixels of such a gesture — a missed toggle the reader's next scroll
- * puts right, which is the cheaper of the two mistakes.
+ * A wheel carries a direction, so an ancestor only counts as consuming it when
+ * it can still move that way; otherwise the walk continues toward the
+ * document, which is what the browser does. A touch drag carries no usable
+ * direction on a single `touchmove`, so any scrollable ancestor claims it —
+ * the conservative half of the rule, kept because reconstructing a drag's
+ * direction means tracking `touchstart` state for a decision that is already
+ * bounded by a 400ms window.
  */
 export function gestureScrollsPage(event: Event): boolean {
-  if (event.type === 'wheel' && (event as WheelEvent).deltaY === 0) return false;
+  const isWheel = event.type === 'wheel';
+  const deltaY = isWheel ? (event as WheelEvent).deltaY : 0;
+  if (isWheel && deltaY === 0) return false;
   const target = event.target;
   if (!(target instanceof Element)) return true;
   for (let el: Element | null = target; el; el = el.parentElement) {
-    if (scrollsVertically(el)) return false;
+    if (!scrollsVertically(el)) continue;
+    // At its boundary it chains to the page rather than consuming this.
+    if (isWheel && !canScrollBy(el, deltaY)) continue;
+    return false;
   }
   return true;
 }
