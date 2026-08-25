@@ -85,6 +85,17 @@ const ACTIVATED_BY_SPACE = 'button, summary, [role="button"]';
  * missed header toggle that the reader's next real scroll puts right; the cost
  * of a false positive is the header moving when nobody asked.
  */
+/**
+ * Which way a scrolling key moves the page, as a `deltaY` sign.
+ *
+ * Space is the awkward one: it scrolls DOWN, and with Shift it scrolls UP, so
+ * the direction is not readable from `event.key` alone.
+ */
+function keyDirection(event: KeyboardEvent): number {
+  if (event.key === ' ' || event.key === 'Spacebar') return event.shiftKey ? -1 : 1;
+  return event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home' ? -1 : 1;
+}
+
 export function keyScrollsPage(event: KeyboardEvent): boolean {
   if (!SCROLL_KEYS.has(event.key)) return false;
   const target = event.target;
@@ -101,7 +112,17 @@ export function keyScrollsPage(event: KeyboardEvent): boolean {
   // guessing rather than matching.
   if (event.key === 'Home' && target.closest('[data-chip]')) return false;
   const isSpace = event.key === ' ' || event.key === 'Spacebar';
-  return !(isSpace && target.closest(ACTIVATED_BY_SPACE));
+  if (isSpace && target.closest(ACTIVATED_BY_SPACE)) return false;
+  // A key scrolls whatever the focus is inside, exactly as a wheel does. With
+  // the filter card acting as an `overflow-y-auto` overlay, PageDown from a
+  // focused week button scrolls THAT panel and `window` never moves — and the
+  // reflow of the filter change that follows would be admitted as the
+  // reader's. Chains at the boundary for the same reason a wheel does.
+  const direction = keyDirection(event);
+  for (let el: Element | null = target; el; el = el.parentElement) {
+    if (scrollsVertically(el) && canScrollBy(el, direction)) return false;
+  }
+  return true;
 }
 
 /** Overflow values that make an element its own scroll container. */

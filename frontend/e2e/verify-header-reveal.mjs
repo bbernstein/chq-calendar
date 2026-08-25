@@ -111,17 +111,28 @@ const wheel = async (p, dy) => { await p.mouse.move(195, 600); await p.mouse.whe
  * Polls rather than sleeps for a fixed time, because the settle's length
  * depends on how much list mounts — which depends on the day the suite runs.
  */
-const settle = async (p, { stableSamples = 4, gapMs = 120, timeoutMs = 8000 } = {}) => {
+const settle = async (p, { stableSamples = 4, gapMs = 120, timeoutMs = 8000, label = 'settle' } = {}) => {
   const deadline = Date.now() + timeoutMs;
+  const seen = [];
   let last = null;
   let stable = 0;
   while (Date.now() < deadline) {
     const y = await p.evaluate(() => Math.round(window.scrollY));
+    if (y !== last) seen.push(y);
     stable = y === last ? stable + 1 : 0;
     last = y;
     if (stable >= stableSamples) return y;
     await p.waitForTimeout(gapMs);
   }
+  // Timing out here used to return the last sample as though it had settled,
+  // and every check downstream then measured a page still in motion — flaky at
+  // best, and at worst green off a transient sample. A setup that did not hold
+  // still has to say so itself, or it is reported as whatever it broke.
+  //
+  // Recorded only on failure, so a healthy run's check list is unchanged and
+  // `finish()` still exits non-zero when this fires.
+  check(`${label}: the page stopped moving`, false,
+    `still moving after ${timeoutMs}ms; positions seen: ${seen.slice(-8).join(' → ')}`);
   return last;
 };
 

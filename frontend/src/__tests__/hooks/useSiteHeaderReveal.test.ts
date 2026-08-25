@@ -961,6 +961,57 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(true);
   });
 
+  // The same rule the wheel already follows, for keys. With the filter card
+  // acting as an `overflow-y-auto` overlay, PageDown from a focused week
+  // button scrolls THAT panel — `window` never moves — and the reflow that
+  // follows a filter change would then be admitted as reader-driven.
+  it('does not count a scrolling key consumed by a scroller inside the page', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(nestedScroller({ scrollTop: 150 }), 'PageDown');
+    frameScrollTo(12_807);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // And chains at the boundary, exactly as the wheel does: a panel already at
+  // its top passes PageUp to the page.
+  it('counts a scrolling key that chains past a scroller at its boundary', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    keyOn(nestedScroller({ scrollTop: 0 }), 'PageUp');
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // Space scrolls DOWN, and with Shift it scrolls up — so the direction a key
+  // implies is not always readable from the key alone.
+  it('reads Shift+Space as scrolling up when deciding whether a scroller takes it', () => {
+    const { result } = mount();
+    scrollTo(30_000);
+    expect(result.current.revealed).toBe(false);
+    jumpTo(12_929);
+    advance(GESTURE_WINDOW_MS + 1);
+
+    // The scroller is at its top, so an upward key chains to the page.
+    act(() => {
+      nestedScroller({ scrollTop: 0 }).dispatchEvent(
+        new KeyboardEvent('keydown', { key: ' ', shiftKey: true, bubbles: true }));
+    });
+    frameScrollTo(12_929 - REVEAL_THRESHOLD - 1);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
   // A drag is only a scrollbar drag if it started somewhere a drag scrolls.
   //
   // The week-range selector is the concrete case: pressing a week button and
