@@ -325,6 +325,14 @@ describe('page.tsx — a week band tap', () => {
     // rule `weekBandSegments` uses to keep a tap unambiguous.
     const week1Day = addDays(spans[0].opening, 2);
     const week2Day = addDays(spans[1].opening, 2);
+    // Week 8, well after the Aug 1 pin below and still inside the season —
+    // exists ONLY so the year has an upcoming event at "now" (#274 phase 4
+    // task 3, review round 2: `determineLandingState`'s rule 1 sends a
+    // reader with no upcoming events to the off-season landing regardless of
+    // the calendar, and with only the two past week1/week2 events this
+    // fixture would otherwise land there instead of on the list this test
+    // means to exercise). Its own day is never asserted on below.
+    const laterDay = addDays(spans[7].opening, 2);
 
     mock.reset();
     mock.on('GET', /all-events-\d{4}\.json/, {
@@ -337,6 +345,11 @@ describe('page.tsx — a week band tap', () => {
         {
           id: 'w2', title: 'Week 2 Talk',
           startDate: `${week2Day}T10:00:00`, endDate: `${week2Day}T11:00:00`,
+          location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+        },
+        {
+          id: 'w8', title: 'Week 8 Talk',
+          startDate: `${laterDay}T10:00:00`, endDate: `${laterDay}T11:00:00`,
           location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
         },
       ],
@@ -366,7 +379,7 @@ describe('page.tsx — a week band tap', () => {
     vi.setSystemTime(chqDateAt(YEAR, 8, 1, 10));
 
     await renderPage();
-    await waitFor(() => expect(screen.getByText(/^Events \(\d+\/2\)$/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^Events \(\d+\/3\)$/)).toBeInTheDocument());
 
     expect(document.querySelector(`[data-day-key="${week2Day}"]`)).toBeNull();
     expect(document.querySelector(`[data-day-key="${week1Day}"]`)).toBeNull();

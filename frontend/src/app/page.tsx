@@ -3,6 +3,7 @@ import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
+import { parseEventDate } from '@/lib/utils/chqTime';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import { navigableBounds, viewWindow, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
@@ -148,17 +149,30 @@ function HomeContent() {
 
   // Whether the reader should see the landing instead of the list, and what
   // it should say. `events` rather than `filteredEvents` is the input on
-  // purpose — see rule 2 in `determineLandingState`: a failed feed fetch
+  // purpose — see rule 3 in `determineLandingState`: a failed feed fetch
   // during the season must not be reported as "See you next season".
-  const landingState = useMemo(
-    () => determineLandingState({
-      now: new Date(),
+  //
+  // `yearHasUpcomingEvents` — ports iOS's `upcomingDefaultCount > 0` rule:
+  // does ANY event in the year's unfiltered set start at or after `now`?
+  // This, not the season calendar, is what makes `showLanding` safe to
+  // evaluate unconditionally rather than only inside an empty-list branch.
+  // Without it, both a published-but-not-yet-open next season (March,
+  // `dateFilter: 'next'`, events all in the future) and the live season's own
+  // last events (whenever they fall later than `getChautauquaSeasonWeeks`'
+  // fixed nine-week calendar window — #269's real Sep 1-10 shoulder) would
+  // wrongly resolve to `pre-season` / `post-season` and hide a non-empty list
+  // behind the landing. See `determineLandingState`'s own doc for why the
+  // calendar-only version of this fix was tried and rejected.
+  const landingState = useMemo(() => {
+    const now = new Date();
+    return determineLandingState({
+      now,
       selectedYear,
       availableYears,
       yearHasEvents: events.length > 0,
-    }),
-    [selectedYear, availableYears, events]
-  );
+      yearHasUpcomingEvents: events.some(e => parseEventDate(e.startDate) >= now),
+    });
+  }, [selectedYear, availableYears, events]);
 
   // The landing's two ways forward. Both mirror iOS's `AppModel`: previewing
   // opens the date scope right up, because `next`'s adaptive window has

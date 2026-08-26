@@ -99,12 +99,16 @@ describe('page.tsx — the off-season landing', () => {
   });
 
   // Pre-season is reachable ONLY while the year's feed is still empty, and
-  // that is not an artefact of the fixture. With events published, the `next`
-  // scope's adaptive window reaches forward until it has accumulated 50 of
-  // them — from March it lands in late June — so the list is not empty and
-  // `in-season` is the correct answer. The countdown belongs to the window
-  // between a year being announced in the manifest and its programme going
-  // up, which is exactly when a visitor has nothing else to be told.
+  // that is not an artefact of the fixture. `determineLandingState`'s rule 1
+  // asks the year's own events directly — does any of them start at or after
+  // `now`? — so a published season resolves to `in-season` regardless of the
+  // calendar, whether or not the `next` scope's adaptive window has reached
+  // that far forward yet. This test explicitly seeds an empty feed
+  // (`all-events-\d{4}\.json` → `{ data: [] }`) to reach pre-season at all; a
+  // March visit against the season's real, published events would see
+  // `in-season` and the list. The countdown belongs to the window between a
+  // year being announced in the manifest and its programme going up, which is
+  // exactly when a visitor has nothing else to be told.
   it('counts down before an announced season has been published', async () => {
     mock.reset();
     mock.on('GET', /years\.json/, { years: [2026, 2027], defaultYear: 2026, generated: '' });
