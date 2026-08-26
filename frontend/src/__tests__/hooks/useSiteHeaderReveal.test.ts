@@ -1280,9 +1280,11 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     expect(result.current.revealed).toBe(false);
   });
 
-  // Space on a focused control activates it. The rail's own Filters button is
-  // reachable by keyboard, and pressing it inserts the panel — a layout change
-  // above the reader, not a scroll.
+  // Space on a focused control activates it. The site header's own Filters
+  // funnel is reachable by keyboard, and pressing it reveals the panel — the
+  // reader's intent is the control, not a scroll. (It no longer changes layout
+  // either, since the panel is a fixed overlay; the rule this pins is about
+  // Space not counting as a scroll gesture, which is independent of that.)
   it('does not count Space activating a focused button', () => {
     const { result } = mount();
     scrollTo(30_000);

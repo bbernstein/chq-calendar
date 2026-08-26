@@ -237,12 +237,18 @@ const strandedPanels = p => p.evaluate(() =>
   // is one intent. This is the guard against keying dismissal off `scroll`.
   //
   // `All Season`, not `Today`, and the difference is regime, not taste.
-  // Off-season `Today` matches nothing: the list empties, the document
-  // collapses from ~11,000px to ~985px, the "scrolled past" signal resets and
-  // the rail's Filters toggle goes with it — so the panel is gone for a
-  // reason that has nothing to do with dismissal, and checks 10, 11 and 15
-  // all failed on a correct app. Measured off-season, pinned to 2026-09-15:
-  // days 4 → 0, docH 11042 → 985, toggle true → false.
+  // Off-season `Today` matches nothing: the list empties and the document
+  // collapses from ~11,000px to ~985px, pulling the page out from under every
+  // check that follows. Measured off-season, pinned to 2026-09-15: days 4 → 0,
+  // docH 11042 → 985.
+  //
+  // The original reason was sharper and is now gone: the collapse also reset
+  // the "scrolled past" signal, which took the rail's Filters toggle with it,
+  // so the panel vanished for a reason that had nothing to do with dismissal
+  // and checks 10, 11 and 15 all failed on a correct app. #274 phase 3 deleted
+  // both the signal and that toggle — the header's funnel is unconditional —
+  // so that particular failure is unreachable. The document collapse is not,
+  // which is why the choice stands.
   //
   // `All Season` is the same kind of thing — a date scope the reader picked —
   // and leaves a populated list in either regime, so the check keeps its

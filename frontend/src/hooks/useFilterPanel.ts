@@ -75,11 +75,12 @@ const EXIT_FALLBACK_MS = 400;
  *
  * `toggle()`'s close branch takes the same containment check rather than
  * assuming a click already left focus on the toggle. That assumption held
- * while the rail's Filters button was `toggle`'s only caller; the caret
- * (`FilterPanelCaret`, mounted *inside* the panel) is a second caller for
- * which `document.activeElement` is guaranteed to be inside the panel when
- * it fires. One containment check covers both: it is a no-op for the header
- * toggle, whose click already moved focus out of the panel.
+ * while the Filters button — then on the day rail, now in the site header —
+ * was `toggle`'s only caller; the caret (`FilterPanelCaret`, mounted *inside*
+ * the panel) is a second caller for which `document.activeElement` is
+ * guaranteed to be inside the panel when it fires. One containment check
+ * covers both: it is a no-op for the Filters button, whose click already
+ * moved focus out of the panel, wherever that button happens to live.
  *
  * `{ preventScroll: true }` on every focus call here is deliberate: a
  * browser's default focus-scroll would move a reader this hook has no other
@@ -156,10 +157,10 @@ export function useFilterPanel(): {
   }, []);
 
   // Focus left inside a panel that is about to become `display: none` drops
-  // to `<body>` — the reader is thrown to the top of the document. Focus the reader deliberately moved
-  // elsewhere is left alone. Every non-Escape close path takes this; see the
-  // hook doc's "Focus" section for why the caret made it mandatory on
-  // `toggle` too.
+  // to `<body>`, which throws the reader to the top of the document. Focus
+  // that the reader deliberately moved elsewhere is left where they put it.
+  // Every non-Escape close path takes this; see the hook doc's "Focus"
+  // section for why the caret made it mandatory on `toggle` too.
   const returnFocusIfStranded = useCallback(() => {
     const panel = panelElRef.current;
     if (panel && document.activeElement && panel.contains(document.activeElement)) {
