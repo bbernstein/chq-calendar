@@ -18,7 +18,7 @@ import { useElementOutOfView } from '@/hooks/useElementOutOfView';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
 import { filterCardParked, filterHeaderTop } from '@/app/filterHeaderLayout';
 import { DayRail } from '@/components/calendar/DayRail';
-import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
+import { railTarget, reachableTodayKey, shouldAbandonScroll } from '@/app/dayRailNavigation';
 import { useFavorites } from '@/hooks/useFavorites';
 import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
@@ -409,22 +409,6 @@ function HomeContent() {
     if (shouldAbandonScroll(pendingScroll, dateWindow)) setPendingScroll(null);
   }, [pendingScroll, dateWindow, scrollToDay]);
 
-  // The chevrons move to the nearest day that has something on it, not to
-  // the adjacent calendar day. A calendar step onto an empty day mounts no
-  // section, so the pending scroll gives up and `anchorDay` — derived from
-  // scroll position — never moves; pressing again recomputes the same dead
-  // target, with the chevron still enabled. Reachability is also what
-  // enables/disables them, so the control and its label agree.
-  const { prevDay, nextDay } = useMemo(
-    () => stepTargets(anchorDay, navEventDays),
-    [anchorDay, navEventDays]
-  );
-
-  const stepDay = useCallback((delta: -1 | 1) => {
-    const target = delta === -1 ? prevDay : nextDay;
-    if (target) goToDay(target);
-  }, [prevDay, nextDay, goToDay]);
-
   // ⟳ Now is navigation, never a filter change: it widens the window to
   // contain today if it has to, and touches no scope, week, category or
   // search.
@@ -631,8 +615,6 @@ function HomeContent() {
             // highlight and this hook's discrete anchor resolve identical
             // input through the same `resolveAnchor`.
             windowDayKeys={windowDayKeys}
-            prevDay={prevDay}
-            nextDay={nextDay}
             // Off-season 'this-week' restored from localStorage resolves to no
             // window at all, and `railTarget` refuses every tap in that state.
             // The rail hides rather than offering ~64 fully-labelled chips that
@@ -640,7 +622,6 @@ function HomeContent() {
             scopeHasWindow={dateWindow !== null}
             todayKey={todayKey}
             onSelectDay={goToDay}
-            onStepDay={stepDay}
             onGoToToday={goToToday}
             bandSegments={bandSegments}
             weekDestinations={weekDestinations}

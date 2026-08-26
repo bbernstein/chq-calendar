@@ -38,6 +38,18 @@ function chipBoxClass(isEmpty: boolean): string {
  */
 const railColumnClass = 'flex shrink-0 flex-col';
 
+/**
+ * The day-of-month a `"yyyy-mm-dd"` key names, without a leading zero.
+ *
+ * Sliced rather than parsed through `Date`: a day key is already resolved in
+ * the Institution's timezone (#243), and handing it to `new Date` would
+ * re-resolve it in the browser's, which is how "today" becomes yesterday for
+ * a reader west of Chautauqua.
+ */
+function dayOfMonthOf(dayKey: string): string {
+  return String(Number(dayKey.slice(8, 10)));
+}
+
 /** The band's own row, for the keyboard walk. Excludes the clipped copy's columns. */
 const BAND_BUTTON_SELECTOR = ':scope > [data-rail-column] [data-week-band-button]';
 
@@ -58,21 +70,6 @@ export interface DayRailProps {
   chips: DayChip[];
   anchorDay: string | null;
   /**
-   * The nearest reachable day on either side of the anchor — a day that has
-   * events under the current non-date filters — or `null` when there is
-   * none in that direction.
-   *
-   * Passed in rather than derived from `chips` here. `chips` spans every
-   * calendar day in the navigable bounds, so an index step within it names a
-   * day that may have nothing to show; the reachable set is the caller's
-   * `navEventDays`, which the caller already owns and already uses for
-   * "Show earlier"/"Show later". Passing the two keys keeps one source of
-   * truth for where a step goes, and keeps the labelling — this component's
-   * actual job — here.
-   */
-  prevDay: string | null;
-  nextDay: string | null;
-  /**
    * Whether the current scope resolves to a view window at all.
    *
    * False only for `'this-week'` outside the season — a value this branch
@@ -82,8 +79,7 @@ export interface DayRailProps {
    * expansion inputs. The chips would otherwise render enabled and fully
    * labelled ("Go to Saturday, July 4, 12 events") over a list that can never
    * move — the announce-a-destination-and-do-nothing class this branch spent
-   * three findings removing. The chevrons and `⟳ Now` are already honest
-   * there (`anchorDay` is null, so both chevrons disable; off-season
+   * three findings removing. `⟳ Now` is already honest there (off-season
    * `todayKey` is null, so the button is absent), so the chips are the only
    * dishonest part — but a rail of nothing but dead chips is not worth
    * showing, and the reader is looking at `EmptyState` regardless.
@@ -92,7 +88,6 @@ export interface DayRailProps {
   /** Today's key when the current year is selected; null on an archived one. */
   todayKey: string | null;
   onSelectDay: (key: string) => void;
-  onStepDay: (delta: -1 | 1) => void;
   onGoToToday: () => void;
   /**
    * A callback ref applied to the rail's own root element — the sticky one,
@@ -229,14 +224,14 @@ export interface DayRailFiltersToggleProps {
  * `onSelectDay`. There is nothing on that day to take the reader to, and the
  * previous behaviour — announcing "Go to Monday, July 6" and then doing
  * nothing at all — is the dead-end this initiative exists to remove, not an
- * example of it: the chevrons skip straight past such days, and every
- * neighbouring day that *does* have something is one tap away. `aria-disabled`
+ * example of it: every neighbouring day that *does* have something is one
+ * tap away, or one week-band or week-chooser jump away. `aria-disabled`
  * rather than `disabled` so the chip stays focusable and the arrow-key walk
  * below cannot stall on it.
  */
 export function DayRail({
-  chips, anchorDay, prevDay, nextDay, scopeHasWindow, todayKey,
-  onSelectDay, onStepDay, onGoToToday, rootRef, filtersToggle, windowDayKeys,
+  chips, anchorDay, scopeHasWindow, todayKey,
+  onSelectDay, onGoToToday, rootRef, filtersToggle, windowDayKeys,
   bandSegments, weekDestinations, onSelectWeek, seasonWeeks, weekThemes,
 }: DayRailProps) {
   const chipKeys = useMemo(() => chips.map(c => c.key), [chips]);
@@ -255,23 +250,6 @@ export function DayRail({
     resume();
     onSelectWeek(week);
   }, [resume, onSelectWeek]);
-
-  // Reachability, not adjacency: `chips` spans every calendar day in the
-  // navigable bounds, so `anchorIdx ± 1` is enabled on days a step cannot
-  // actually land on.
-  const canStepBack = prevDay !== null;
-  const canStepForward = nextDay !== null;
-
-  // Labelled by target, not direction — "Go to Saturday, July 4, 12 events",
-  // not "Go to the previous day". The rail already has everything needed to
-  // name the real target (that day's own chip label), so the direction-based
-  // exemption a relative control might otherwise get isn't needed here. The
-  // plain directional fallback fires only when the chevron is disabled: there
-  // is no reachable day to name in that direction, and "disabled" already
-  // tells the reader they can't go further.
-  const labelOf = (key: string | null) => chips.find(c => c.key === key)?.label;
-  const prevLabel = labelOf(prevDay) ?? 'Go to the previous day';
-  const nextLabel = labelOf(nextDay) ?? 'Go to the next day';
 
   // The strip is one tab stop, not one per day — see the chip's `tabIndex`
   // below. The stop is the anchor chip, falling back to the first chip
@@ -339,16 +317,6 @@ export function DayRail({
       onKeyDown={onKeyDown}
       className="sticky top-0 z-20 flex items-center gap-1 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-1 py-1"
     >
-      <button
-        type="button"
-        aria-label={prevLabel}
-        disabled={!canStepBack}
-        onClick={() => { resume(); onStepDay(-1); }}
-        className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
-      >
-        ‹
-      </button>
-
       {/*
         Three stacked layers inside one scroller, so all of them share a
         single `scrollLeft` and cannot desync:
@@ -452,31 +420,61 @@ export function DayRail({
         </div>
       </div>
 
-      <button
-        type="button"
-        aria-label={nextLabel}
-        disabled={!canStepForward}
-        onClick={() => { resume(); onStepDay(1); }}
-        className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-gray-600 dark:text-gray-300 disabled:opacity-30 disabled:cursor-default"
-      >
-        ›
-      </button>
-
       {/*
         ⟳ Now is navigation, never a filter change: it moves the reader to
         today and widens the window if today is not in it, and touches no
         scope, week, category or search. Hidden once the anchor is already
         today, and absent entirely on an archived year, where "today" is not
         a place in the season being read.
+
+        Icon-only, matching the chooser and the Filters funnel: rendering the
+        word "Now" made this the one non-square control on the rail (~60px
+        wide, against 44px for every other control), which is what left the
+        narrowest phones with barely two chips of strip.
+
+        The icon is a MINIATURE DAY CHIP carrying today's date, not a symbol.
+        An earlier pass shipped `⟳` alone, which is the standard refresh/reload
+        glyph — with the word "Now" beside it that was harmless decoration, but
+        alone it carried the whole meaning and carried the wrong one. A reader
+        reported it as simply unreadable. This is the same move the week
+        chooser's 3x3 trigger makes: the control is a small copy of the thing
+        it points at, so "go to that chip" needs no symbol vocabulary at all.
+
+        Outlined, never filled: the solid blue fill is the highlight pill's,
+        and it means "you are here". This button renders only when the reader
+        is somewhere else, so wearing that fill would say the opposite of what
+        the button is for.
+
+        It also answers "what is today's date", which neither `⟳` nor the word
+        "Today" does — and the date is exactly what a reader who has scrolled
+        away from today has lost track of.
+
+        The accessible name does not change — the chip is `aria-hidden` and
+        this explicit `aria-label` is what a screen reader announces, the same
+        contract `FiltersIcon` and `WeekChooserIcon` follow — and `title`
+        repeats it for a sighted mouse user, matching `WeekChooser`'s trigger.
       */}
       {todayKey && anchorDay !== todayKey && (
         <button
           type="button"
           aria-label="Go to today"
+          title="Go to today"
           onClick={() => { resume(); onGoToToday(); }}
-          className="shrink-0 inline-flex min-h-11 items-center justify-center px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
+          className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700"
         >
-          ⟳ Now
+          {/*
+            `currentColor` on the border so the outline and the digits are one
+            colour, and `tabular-nums` so a 1-digit and a 2-digit date occupy
+            the same box rather than the control changing width through the
+            month.
+          */}
+          <span
+            aria-hidden="true"
+            data-today-chip
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border-2 border-current text-xs font-semibold tabular-nums"
+          >
+            {dayOfMonthOf(todayKey)}
+          </span>
         </button>
       )}
 

@@ -291,21 +291,72 @@ for (const scrolled of [false, true]) {
   await page.close();
 }
 
-// ---------------------------------------------------------------- 10. chevrons
+// ------------------------------------------- 10. narrow-phone chip count
+//
+// #274 phase 2's follow-up: an iPhone 13 mini (375pt) user reported the day
+// strip down to one full chip and two slivers. Measured cause: the two
+// chevrons (`min-w-11` each) plus a text-sized `⟳ Now` (no `min-w-11`, the
+// rail's one non-square control) were eating ~148px of a 375px rail before a
+// single chip was drawn. Both chevrons are now gone and `⟳ Now` is
+// icon-only, which is what checks 10a-10c used to guard directly — they
+// asserted the chevrons existed and moved the anchor, which no longer means
+// anything once the controls are gone.
+//
+// This replaces them with a check on the property the user actually cares
+// about: how much of a 375pt rail the day strip itself gets. Not hard-coded
+// to 44px — a chip's width is read from the rendered DOM, so this keeps
+// working if the chip's own size is ever changed on purpose. Falsified by
+// temporarily adding a wide control back to the rail and confirming this
+// drops below 4 (see the narrow-phone-rail plan doc and commit history for
+// that run).
+//
+// Measured with every optional control present, not on the fresh, unscrolled
+// landing state: a first load has the anchor on today (so `⟳ Now` is hidden)
+// and sits above the filter card (so the Filters toggle is hidden too), which
+// understates real crowding and would leave this check unable to catch the
+// very regression it exists for. A far chip tap moves the anchor off today
+// (revealing `⟳ Now`, same as check 11), and the wheel scroll after it
+// clears the filter card (revealing the Filters toggle, same as check 15) —
+// both controls present is the fully crowded rail the bug report described.
 {
-  const page = await newPage();
-  const before = await anchorChip(page);
-  const next = await page.$('[data-day-rail] button:not([data-chip]):nth-of-type(2)');
-  const chevrons = await page.$$eval('[data-day-rail] button:not([data-chip])',
-    els => els.map(e => ({ label: e.getAttribute('aria-label'), disabled: e.hasAttribute('disabled') })));
-  check('10a two chevrons, labelled by target', chevrons.length >= 2,
-    chevrons.map(c => `${c.label}${c.disabled ? ' [disabled]' : ''}`).join(' | '));
-  check('10b chevron labels are not directional when enabled',
-    chevrons.filter(c => !c.disabled).every(c => !/the (next|previous) day/.test(c.label)),
-    chevrons.filter(c => !c.disabled).map(c => c.label).join(' | '));
-  if (next) { await next.click(); await page.waitForTimeout(1200); }
-  const after = await anchorChip(page);
-  check('10c forward chevron moves the anchor', before !== after, `${before} → ${after}`);
+  const page = await newPage({ width: 375, height: 812 });
+  const far = await pickFarTarget(page);
+  await page.evaluate(k => document.querySelector(`[data-day-rail] [data-chip="${k}"]`).click(), far);
+  await page.waitForTimeout(1200);
+  await page.mouse.wheel(0, 2000);
+  await page.waitForTimeout(700);
+  const { stripWidth, chipWidth, pitch, nowVisible, filtersVisible } = await page.evaluate(() => {
+    const strip = document.querySelector('[data-rail-strip]');
+    const chips = [...document.querySelectorAll('[data-day-rail] [data-chip]')];
+    const [a, b] = chips;
+    return {
+      stripWidth: strip ? strip.getBoundingClientRect().width : 0,
+      chipWidth: a ? a.getBoundingClientRect().width : 0,
+      // The distance from one chip's left edge to the next one's — the real
+      // repeat unit, chip plus gutter. MEASURED from two adjacent chips rather
+      // than read from `RAIL_CHIP_GUTTER_PX`, for the same reason the chip
+      // width is measured: a constant the browser turned out not to honour is
+      // exactly what this check exists to catch.
+      pitch: a && b
+        ? b.getBoundingClientRect().left - a.getBoundingClientRect().left
+        : 0,
+      nowVisible: !!document.querySelector('[data-day-rail] button[aria-label="Go to today"]'),
+      filtersVisible: !!document.querySelector('[data-day-rail] button[aria-label="Filters"]'),
+    };
+  });
+  // How many chips actually FIT, which is not `strip / chipWidth`: chips are
+  // laid out with a gutter between them, so n of them occupy
+  // `n*chip + (n-1)*gutter`. Dividing by the chip alone silently credits the
+  // strip with the gutters it also has to pay for, and overstates the count by
+  // roughly 8% at these sizes — enough to let the guard read 4.0 while the
+  // reader can see fewer than four. Solving that inequality for n gives
+  // `(strip + gutter) / pitch`.
+  const gutter = pitch > 0 && chipWidth > 0 ? pitch - chipWidth : 0;
+  const chipsWorth = pitch > 0 ? (stripWidth + gutter) / pitch : 0;
+  check('10 day strip holds at least 4 chips at 375pt', chipsWorth >= 4,
+    `strip=${stripWidth.toFixed(1)}px chip=${chipWidth.toFixed(1)}px ` +
+    `gutter=${gutter.toFixed(1)}px pitch=${pitch.toFixed(1)}px ≈ ${chipsWorth.toFixed(2)} chips ` +
+    `(⟳Now=${nowVisible} Filters=${filtersVisible})`);
   await page.close();
 }
 
