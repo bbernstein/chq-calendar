@@ -482,73 +482,73 @@ function HomeContent() {
           inert={filtersExiting || undefined}
         >
           <div className="max-w-7xl mx-auto">
-          <div
-            data-filter-panel-box
-            // Capped and internally scrollable unconditionally: the panel is
-            // always an overlay, so there is no in-flow state in which the
-            // page itself scrolls past it. On a 390x844 phone this block —
-            // search, four scopes, a nine-week strip, venues, categories,
-            // active chips — exceeds the viewport, and uncapped its bottom
-            // controls would be unreachable, reproducing the bug this feature
-            // exists to fix one level down.
-            style={{ maxHeight: filterPanelMaxHeight() }}
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto"
-          >
-            <div className="p-2 sm:p-4">
-              <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
-              <DateFilter
-                dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
-                selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
-                seasonWeeks={seasonWeeks}
-                weekDrag={weekDrag}
-                isWeekHighlighted={isWeekHighlighted}
-                showFavoritesOnly={filters.showFavoritesOnly}
-                onToggleFavoritesOnly={filters.toggleFavoritesOnly}
-                favoriteCount={favorites.favoriteCount}
-                isCurrentYear={isCurrentYear}
-                weeklyThemes={weeklyThemes}
-              />
-              <div className="space-y-3">
-                <LocationFilter
-                  availableLocations={filters.availableLocations} selectedCount={filters.selectedLocations.length}
-                  recentLocations={filters.recentLocations} toggleLocation={filters.toggleLocation}
-                  isLocationSelected={filters.isLocationSelected}
-                  pillScroll={locationScroll} listScroll={locationListScroll}
+            <div
+              data-filter-panel-box
+              // Capped and internally scrollable unconditionally: the panel is
+              // always an overlay, so there is no in-flow state in which the
+              // page itself scrolls past it. On a 390x844 phone this block —
+              // search, four scopes, a nine-week strip, venues, categories,
+              // active chips — exceeds the viewport, and uncapped its bottom
+              // controls would be unreachable, reproducing the bug this feature
+              // exists to fix one level down.
+              style={{ maxHeight: filterPanelMaxHeight() }}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto"
+            >
+              <div className="p-2 sm:p-4">
+                <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
+                <DateFilter
+                  dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
+                  selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
+                  seasonWeeks={seasonWeeks}
+                  weekDrag={weekDrag}
+                  isWeekHighlighted={isWeekHighlighted}
+                  showFavoritesOnly={filters.showFavoritesOnly}
+                  onToggleFavoritesOnly={filters.toggleFavoritesOnly}
+                  favoriteCount={favorites.favoriteCount}
+                  isCurrentYear={isCurrentYear}
+                  weeklyThemes={weeklyThemes}
                 />
-                <CategoryFilter
-                  availableCategories={filters.availableCategories} selectedCount={filters.selectedCategoriesCount}
-                  recentCategories={filters.recentCategories} toggleTag={filters.toggleTag}
-                  isTagSelected={filters.isTagSelected}
-                  pillScroll={categoryScroll} listScroll={categoryListScroll}
+                <div className="space-y-3">
+                  <LocationFilter
+                    availableLocations={filters.availableLocations} selectedCount={filters.selectedLocations.length}
+                    recentLocations={filters.recentLocations} toggleLocation={filters.toggleLocation}
+                    isLocationSelected={filters.isLocationSelected}
+                    pillScroll={locationScroll} listScroll={locationListScroll}
+                  />
+                  <CategoryFilter
+                    availableCategories={filters.availableCategories} selectedCount={filters.selectedCategoriesCount}
+                    recentCategories={filters.recentCategories} toggleTag={filters.toggleTag}
+                    isTagSelected={filters.isTagSelected}
+                    pillScroll={categoryScroll} listScroll={categoryListScroll}
+                  />
+                </div>
+                <ActiveFilters
+                  filteredCount={filteredEvents.length}
+                  totalCount={events.length}
+                  hasFilters={filters.hasFilters}
+                  hasDateFilters={filters.hasDateFilters}
+                  hasNonDateFilters={filters.hasNonDateFilters}
+                  chips={activeChips}
+                  onClear={filters.clearFilters}
+                  onClearNonDateFilters={filters.clearNonDateFilters}
                 />
               </div>
-              <ActiveFilters
-                filteredCount={filteredEvents.length}
-                totalCount={events.length}
-                hasFilters={filters.hasFilters}
-                hasDateFilters={filters.hasDateFilters}
-                hasNonDateFilters={filters.hasNonDateFilters}
-                chips={activeChips}
-                onClear={filters.clearFilters}
-                onClearNonDateFilters={filters.clearNonDateFilters}
-              />
-            </div>
-            {/*
-              D4's drawer affordance, unconditional now: the panel is always
-              an overlay, so there is no state in which "Hide filters" would
-              close nothing the reader can see happen.
+              {/*
+                D4's drawer affordance, unconditional now: the panel is always
+                an overlay, so there is no state in which "Hide filters" would
+                close nothing the reader can see happen.
 
-              Mounted INSIDE this element (a sibling of the padded content
-              div, but still a descendant of the `filtersPanelRef` node) so
-              `useFilterPanel`'s `isExempt` already spares it — see
-              FilterPanelCaret's own doc comment for why placement matters
-              here beyond layout. `onClose` reuses the same `toggle` the
-              header's Filters button calls; the design lists the caret and
-              the Filters toggle as two separate dismissers, not two
-              implementations.
-            */}
-            <FilterPanelCaret onClose={toggleFiltersPanel} />
-          </div>
+                Mounted INSIDE this element (a sibling of the padded content
+                div, but still a descendant of the `filtersPanelRef` node) so
+                `useFilterPanel`'s `isExempt` already spares it — see
+                FilterPanelCaret's own doc comment for why placement matters
+                here beyond layout. `onClose` reuses the same `toggle` the
+                header's Filters button calls; the design lists the caret and
+                the Filters toggle as two separate dismissers, not two
+                implementations.
+              */}
+              <FilterPanelCaret onClose={toggleFiltersPanel} />
+            </div>
           </div>
         </div>
 
