@@ -244,6 +244,63 @@ describe('page.tsx — the off-season landing', () => {
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
   });
 
+  // The day rail (chips, ⟳ Now, the week band) stays rendered while the
+  // landing covers the list — it carries the week chooser and is the
+  // reader's only quick route into the season, so hiding it was rejected —
+  // which means every rail control is a tap on a day whose section does not
+  // exist yet. Without `goToDay`'s landing-dismiss branch, that tap is
+  // silently inert: `scrollToDay` looks up a section that isn't mounted and
+  // finds nothing.
+  //
+  // This pins BOTH halves at once: the tap must dismiss the landing (list
+  // appears) AND must land on the TAPPED day rather than on this fixture's
+  // own default landing day. The default here is 2026-07-07 — the year's
+  // LAST event day, since `now` (Sept 15) is past every event and
+  // `landingDayKey` falls back to the last one — so landing on 2026-07-06
+  // instead is only possible if the tap's own target overrode it.
+  //
+  // `getBoundingClientRect` is patched by day key rather than queried after
+  // the fact: the day sections do not exist in the DOM until the click's own
+  // state update mounts them (the landing unmounts `OffSeasonLanding` and
+  // mounts `EventListView` in the same commit), so there is no window in
+  // which to grab a specific element and stub it individually the way
+  // `dayRailIntegration.test.tsx`'s composition test does.
+  it('a rail day tap dismisses the landing and lands on the TAPPED day, not the default', async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const key = this.getAttribute('data-day-key');
+      if (key === '2026-07-06') return { top: 111 } as DOMRect;
+      if (key === '2026-07-07') return { top: 999 } as DOMRect;
+      return originalRect.call(this);
+    };
+
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /Go to Monday, July 6/ }));
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+      );
+      expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0);
+
+      // 111 - 50 (the tapped day), never 999 - 50 (2026-07-07, the default
+      // landing day this fixture would otherwise fall back to).
+      expect(scrollBy).toHaveBeenCalledWith(0, 61);
+      expect(scrollBy).not.toHaveBeenCalledWith(0, 949);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      document.documentElement.style.removeProperty('--day-rail-h');
+    }
+  });
+
   // Explicit timeout, following the four in `dayRailIntegration.test.tsx`.
   // This is the most expensive test in the suite: it mounts the whole page,
   // then drives a *year switch*, which fetches a second season and re-renders

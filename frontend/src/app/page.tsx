@@ -29,6 +29,8 @@ import { LoadingSpinner } from '@/components/layout/LoadingSpinner';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { OffSeasonLanding } from '@/components/layout/OffSeasonLanding';
 import { determineLandingState } from '@/lib/utils/landingState';
+import { landingDayKey } from '@/lib/utils/landingDay';
+import { useInitialLanding } from '@/hooks/useInitialLanding';
 import { SearchBar } from '@/components/filters/SearchBar';
 import { LocationFilter } from '@/components/filters/LocationFilter';
 import { CategoryFilter } from '@/components/filters/CategoryFilter';
@@ -180,10 +182,19 @@ function HomeContent() {
   // no way past it.
   const [browsingArchive, setBrowsingArchive] = useState(false);
 
-  // A different year is a different question, so the dismissal does not carry
+  // Where a rail control (a day chip, ⟳ Now, a week-band cell) sends the
+  // reader when it is tapped while the landing is still covering the list —
+  // see `goToDay` below. `null` means no override: the load's own computed
+  // `landingDay` (below) is what `useInitialLanding` is given.
+  const [dismissedLandingTarget, setDismissedLandingTarget] = useState<string | null>(null);
+
+  // A different year is a different question, so neither dismissal carries
   // across one. Reset rather than keyed state because `selectedYear` also
   // changes underneath us when the manifest resolves a `?year=` param.
-  useEffect(() => { setBrowsingArchive(false); }, [selectedYear]);
+  useEffect(() => {
+    setBrowsingArchive(false);
+    setDismissedLandingTarget(null);
+  }, [selectedYear]);
 
   const previewNextSeason = useCallback((year: number) => {
     setSelectedYear(year);
@@ -192,6 +203,18 @@ function HomeContent() {
   const browseArchiveSeason = useCallback(() => {
     setBrowsingArchive(true);
   }, []);
+
+  // Out of season, the landing replaces the list — unless the reader has
+  // narrowed the list themselves (they asked a question, and an answer of
+  // "see you next season" is not one), or has already pressed past it with
+  // "Browse the N season" (`browsingArchive`) or a rail control (`goToDay`,
+  // which sets `browsingArchive` too — see below).
+  //
+  // Computed here, ahead of `navEventDays`/`goToDay`, rather than beside the
+  // JSX that reads it: `goToDay` needs it to decide whether a tap is a plain
+  // scroll or a dismiss-then-scroll.
+  const showLanding =
+    landingState.kind !== 'in-season' && !filters.hasFilters && !browsingArchive;
 
   // Every day that has a matching event. The rail names a day with none as a
   // fact rather than a destination, and the week band dims a week it cannot
@@ -273,6 +296,29 @@ function HomeContent() {
   const { anchorDay, scrollToDay } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
 
+  // The day the reader is put in front of on load — see `landingDayKey`'s own
+  // doc for the rule. `navEventDays` rather than a day count derived from
+  // `groupedEvents`: the landing day has to be choosable before the list
+  // ever renders (pre-season, `groupedEvents` may be empty while events for
+  // a later month already exist), and `navEventDays` already gives exactly
+  // "every day with a matching event" for the rail to read the same way.
+  const landingDay = useMemo(() => landingDayKey({
+    now: new Date(),
+    isCurrentYear,
+    eventDays: navEventDays,
+    seasonStartDay: dayKeyOf(seasonWeeks[0].start),
+  }), [isCurrentYear, navEventDays, seasonWeeks]);
+
+  useInitialLanding({
+    // A rail control tapped while the landing was still up overrides the
+    // load's own choice — see `goToDay` below for why. `null` once nothing
+    // has overridden it, which is the common case.
+    targetDay: dismissedLandingTarget ?? landingDay,
+    year: selectedYear,
+    listMounted: !showLanding && !loading && groupedEvents.length > 0,
+    scrollToDay,
+  });
+
   // The filter panel. A fixed overlay hanging off the site header's bottom
   // edge, opened by the funnel that lives in the header (#274 phase 3) — the
   // header returns on any upward flick (#272), so the filters are one small
@@ -311,8 +357,24 @@ function HomeContent() {
     // to it — held together by a `pendingScroll` state and an effect that
     // had to decide, each commit, whether a missing section meant "not yet"
     // or "never". With nothing left to widen, both are gone.
-    if (railTarget(target, navBounds)) scrollToDay(target);
-  }, [navBounds, scrollToDay]);
+    if (!railTarget(target, navBounds)) return;
+    if (showLanding) {
+      // The rail (chips, ⟳ Now, the week band) stays rendered while the
+      // landing covers the list, so without this branch a tap here would be
+      // silently inert: `scrollToDay` looks up the target's own DOM section,
+      // and the list underneath the landing is not mounted, so there is
+      // nothing to find. "Take me to that day" implies showing the day, so
+      // dismiss the landing the same way "Browse this season" does
+      // (`browsingArchive`), and hand the target to `useInitialLanding`
+      // (wired above with this as its override) to carry out once the list
+      // actually mounts — the same "wait for the section to exist" handling
+      // `landingDay` itself gets on a normal load.
+      setDismissedLandingTarget(target);
+      setBrowsingArchive(true);
+      return;
+    }
+    scrollToDay(target);
+  }, [navBounds, scrollToDay, showLanding]);
 
   // ⟳ Now is navigation, never a filter change: it scrolls to today and
   // touches no category, venue or search.
@@ -345,13 +407,6 @@ function HomeContent() {
     filters.selectedTags, filters.toggleTag,
     filters.showFavoritesOnly, filters.toggleFavoritesOnly,
   ]);
-
-  // Out of season, the landing replaces the list — unless the reader has
-  // narrowed the list themselves (they asked a question, and an answer of
-  // "see you next season" is not one), or has already pressed past it with
-  // "Browse the N season".
-  const showLanding =
-    landingState.kind !== 'in-season' && !filters.hasFilters && !browsingArchive;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
