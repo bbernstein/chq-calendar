@@ -8,7 +8,6 @@ import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import { navigableBounds, viewWindow, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
 import { weekBandDestinations, weekBandSegments } from '@/lib/utils/weekBands';
-import { renderResetKey } from '@/lib/utils/renderWindow';
 import { daySectionElement } from '@/lib/utils/daySections';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
@@ -228,31 +227,18 @@ function HomeContent() {
   // navigate past.
   const navDayCounts = useMemo(() => eventCountsByDay(navMatchingEvents), [navMatchingEvents]);
 
-  const { earlierDay, laterDay } = useMemo(
+  // `laterDay` (the mirror of `earlierDay` at the window's forward edge) is
+  // deliberately not read here any more. It only ever fed `expandEnd`, the
+  // callback a bottom sentinel called once the render window ran out of
+  // loaded days to grow into (#274 phase 4's "expensive half") — and that
+  // sentinel is gone along with the render window itself. Forward navigation
+  // past the window's edge still works, just not by scrolling to the bottom:
+  // a rail chip tap or `⟳ Now` reaches `goToDay` below, whose `railTarget`
+  // plan calls `filters.expandWindowEnd` directly when the target is past it.
+  const { earlierDay } = useMemo(
     () => navigationTargets(navEventDays, dateWindow),
     [navEventDays, dateWindow]
   );
-
-  const expandEnd = useCallback(() => {
-    if (laterDay) filters.expandWindowEnd(laterDay);
-  }, [laterDay, filters.expandWindowEnd]);
-
-  // What the render window resets on. The window fields are deliberately
-  // not part of it.
-  const listResetKey = useMemo(() => renderResetKey({
-    searchTerm: debouncedSearch,
-    selectedTags: filters.selectedTags,
-    selectedLocations: filters.selectedLocations,
-    showFavoritesOnly: filters.showFavoritesOnly,
-    favoriteCount: favorites.favoriteCount,
-    dateFilter: filters.dateFilter,
-    selectedWeeks: filters.selectedWeeks,
-    year: selectedYear,
-  }), [
-    debouncedSearch, filters.selectedTags, filters.selectedLocations,
-    filters.showFavoritesOnly, favorites.favoriteCount, filters.dateFilter,
-    filters.selectedWeeks, selectedYear,
-  ]);
 
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
 
@@ -287,12 +273,13 @@ function HomeContent() {
     [seasonWeeks, navEventDays, navBounds, navDayCounts]
   );
 
-  // Every day the *view* window produced, not the render window's mounted
-  // subset — `useDayAnchor` walks this list and skips any key with no DOM
-  // section yet, so naming it "rendered" here would claim something this
-  // value cannot promise. (The mixup this exact name invited is why the
-  // pending-scroll effect below now checks the DOM directly instead of
-  // trusting `groupedEvents` membership as a proxy for "mounted".)
+  // Every day the *view* window produced. Every one of these mounts in the
+  // same commit that produces this list (#274 phase 4 deleted the separate
+  // render window that used to lag behind it) — but a commit still has to
+  // land before the DOM reflects it, which is why `useDayAnchor` walks this
+  // list defensively (skipping any key with no section yet) and the
+  // pending-scroll effect below checks the DOM directly rather than trusting
+  // this array as a proxy for "mounted right now".
   const windowDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
   const { anchorDay, scrollToDay, cancelHold } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
@@ -318,19 +305,15 @@ function HomeContent() {
     panelRef: filtersPanelRef, toggleRef: filtersToggleRef, exiting: filtersExiting,
   } = useFilterPanel();
 
-  // Declared here rather than beside `expandEnd` above, where it would read
-  // more naturally: it needs `cancelHold`, and a `const` referenced before
-  // its declaration is a TDZ ReferenceError.
   const showEarlier = useCallback(() => {
     if (!earlierDay) return;
-    // Explicit reader intent supersedes a pending rail hold, in BOTH
-    // directions. `EventList`'s `revealDay` effect already drops its prepend
-    // hold when a rail navigation starts; this is the mirror that was
-    // missing. Without it the prepend's height change fires
-    // `useDayAnchor`'s ResizeObserver, whose reassert yanks the old rail
-    // target back and cancels the prepend correction — and a mouse click on
-    // "Show earlier" fires none of the wheel/touch/key gestures that would
-    // otherwise have ended the hold.
+    // Explicit reader intent (a click) cancels a pending rail-navigation
+    // scroll hold. Without this, prepending earlier days changes layout
+    // height above whatever `useDayAnchor.scrollToDay` last targeted, which
+    // fires its `ResizeObserver` reassert and drags the reader back to that
+    // stale target — fighting the very click that just asked to look
+    // somewhere else. A mouse click on "Show earlier" fires none of the
+    // wheel/touch/key gestures that would otherwise have ended the hold.
     cancelHold();
     filters.expandWindowStart(earlierDay);
   }, [earlierDay, cancelHold, filters.expandWindowStart]);
@@ -342,12 +325,13 @@ function HomeContent() {
   // treatment the rail already gives an archived year.
   const todayKey = reachableTodayKey(isCurrentYear ? dayKeyOf(new Date()) : null, navBounds);
 
-  // Expanding, then scrolling, is deliberately three steps, and each waits on
-  // the one before: the reducer widens the *view* window (it never knows about
-  // scroll position), `revealDay` makes the *render* window mount that far,
-  // and only then can we scroll to a node that exists. `pendingScroll` is
-  // state rather than a ref precisely because it has to drive `revealDay` as
-  // a prop — a ref would not re-render the list.
+  // Expanding, then scrolling, is deliberately two steps, and the second
+  // waits on the first: the reducer widens the *view* window (it never knows
+  // about scroll position), and only once that commit has landed — with every
+  // one of its days mounted, there being no second window left to grow — can
+  // we scroll to a node that exists. `pendingScroll` is state rather than a
+  // ref because the effect below needs to re-run on the reducer's next
+  // commit; a ref update would not trigger that.
   const [pendingScroll, setPendingScroll] = useState<string | null>(null);
 
   const goToDay = useCallback((target: string) => {
@@ -355,23 +339,19 @@ function HomeContent() {
     if (!plan) return;
     if (plan.expandStart) filters.expandWindowStart(plan.expandStart);
     if (plan.expandEnd) filters.expandWindowEnd(plan.expandEnd);
-    // Set it even when no expansion was needed: the day is inside the view
-    // window but may still be past the render window's current reach, and
-    // `revealDay` is what closes that gap. The effect below scrolls and
-    // clears on the very next commit if the node is already there.
+    // Set it even when no expansion was needed: a target already inside the
+    // view window is mounted immediately, and the effect below scrolls and
+    // clears on the very next commit either way.
     setPendingScroll(plan.scrollTo);
   }, [dateWindow, navBounds, filters.expandWindowStart, filters.expandWindowEnd]);
 
   useEffect(() => {
     if (!pendingScroll) return;
-    // Checking the DOM node directly, not `groupedEvents` membership: the
-    // render window is what EventList's `revealDay` layout effect grows, and
-    // "the day is in the view window" does not mean "the day has a mounted
-    // section" — those are the two windows this whole feature exists to keep
-    // separate. `revealDay`'s effect is a layout effect specifically so that
-    // by the time THIS passive effect runs, any growth it triggered has
-    // already committed — see the comment on that effect for why the
-    // ordering guarantee holds.
+    // Checking the DOM node directly rather than trusting `groupedEvents`
+    // membership: a day can pass the date filter on this render and still
+    // have no section mounted yet if `filters.expandWindowStart`/`expandEnd`
+    // above hasn't committed its re-render — the wait here is for the
+    // reducer's next commit, and nothing more.
     if (daySectionElement(pendingScroll)) {
       setPendingScroll(null);
       scrollToDay(pendingScroll);
@@ -641,12 +621,8 @@ function HomeContent() {
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
                 favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
                 weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks}
-                resetKey={listResetKey}
                 earlierDay={earlierDay}
-                onShowEarlier={showEarlier}
-                canExpandEnd={!!laterDay}
-                onExpandEnd={expandEnd}
-                revealDay={pendingScroll} />
+                onShowEarlier={showEarlier} />
             )}
           </div>
         </div>
