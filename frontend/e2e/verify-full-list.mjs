@@ -18,12 +18,31 @@ import { enterList, currentRegime } from './regime.mjs';
 const URL = process.env.URL || 'http://localhost:3000/';
 const browser = await chromium.launch();
 
-async function newPageOn(engine, { width = 390, height = 844, storage, cpu, query = '' } = {}) {
+async function newPageOn(engine, { width = 390, height = 844, storage, cpu, query = '', traceScrolls = false } = {}) {
   const ctx = await engine.newContext({ viewport: { width, height }, timezoneId: 'America/New_York' });
   const page = await ctx.newPage();
   await pinClock(page);
   page.once('close', () => { ctx.close().catch(() => {}); });
   if (storage) await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
+  // Records how the app moves the reader, for check 7c. Installed before any
+  // app code runs so nothing is missed, and it wraps rather than replaces —
+  // the scroll still happens, so the page behaves exactly as it would
+  // untraced.
+  if (traceScrolls) {
+    await page.addInitScript(() => {
+      window.__scrollOps = [];
+      const by = window.scrollBy.bind(window);
+      const to = window.scrollTo.bind(window);
+      window.scrollBy = function (...a) {
+        window.__scrollOps.push({ op: 'scrollBy', delta: a.length > 1 ? a[1] : a[0]?.top });
+        return by(...a);
+      };
+      window.scrollTo = function (...a) {
+        window.__scrollOps.push({ op: 'scrollTo', delta: a.length > 1 ? a[1] : a[0]?.top });
+        return to(...a);
+      };
+    });
+  }
   if (cpu) {
     const client = await ctx.newCDPSession(page);
     await client.send('Emulation.setCPUThrottlingRate', { rate: cpu });
@@ -134,8 +153,10 @@ const selectedYear = page => page.evaluate(() => {
 // ---------------------------------------------------------------------------
 // 1 — the whole year is mounted.
 //
-// Falsified by `groupedEvents.slice(0, 12)` in page.tsx: 12 sections of 89,
-// 328 cards, FAIL.
+// FALSIFIED 2026-08-26 against this branch's own preview build. Injected
+// `groupedEvents.slice(0, 12)` at the `<EventListView>` call site in
+// `page.tsx`, confirmed the marker prop reached the bundle, and measured:
+// 12 sections of 89 and 12 cards of 1,687 — 1a FAIL, 1b FAIL.
 {
   const page = await newPage();
   const year = await selectedYear(page);
@@ -190,8 +211,16 @@ const selectedYear = page => page.evaluate(() => {
 // the browser either applies or does not — jsdom reports whatever string was
 // set on the inline style and can never tell the difference.
 //
-// Falsified by deleting `contentVisibility` from EventListView's style
-// object: computed value `visible`, FAIL.
+// FALSIFIED 2026-08-26. Deleted `contentVisibility: 'auto'` from
+// EventListView's style object, confirmed the prop key was gone from the
+// served bundle, and measured `content-visibility: visible` on both the first
+// and the last section — 3a FAIL, 3c FAIL. 3b still passed, correctly:
+// `contain-intrinsic-size` was left in place by that injection, and 3b is the
+// check that speaks for it.
+//
+// **This is the check that speaks for `content-visibility`, and it is the
+// only one that does.** Check 10 was written to be the performance half of
+// that argument and measurably is not — see its own note.
 {
   const page = await newPage();
   const style = await page.evaluate(() => {
@@ -228,8 +257,11 @@ const selectedYear = page => page.evaluate(() => {
 // reports the estimate itself, which would make this check compare a number
 // with itself and pass for any estimate whatsoever.
 //
-// Falsified by `EVENT_CARD_ESTIMATE_PX = 8`: estimate 204px against a real
-// 2,140px, ratio 0.10, FAIL.
+// FALSIFIED 2026-08-26. Set `EVENT_CARD_ESTIMATE_PX = 8` in
+// `daySectionSize.ts`, confirmed the marker reached the served bundle, and
+// measured 2026-07-30 (32 cards): estimate 300px against a real 2,851px,
+// ratio 0.11 — FAIL. The same section reads 2,988px against 2,851px on the
+// shipped constants, ratio 1.05.
 {
   const page = await newPage();
   await settle(page);
@@ -272,8 +304,13 @@ const selectedYear = page => page.evaluate(() => {
 // here": the landing is the only thing that puts the reader anywhere but
 // January.
 //
-// Falsified by `return eventDays[0]` in `landingDayKey`: landed on
-// 2026-01-03 rather than 2026-08-26, FAIL.
+// FALSIFIED 2026-08-26. Made `landingDayKey` return `eventDays[0]`,
+// confirmed the marker reached the served bundle, and measured: landed on
+// 2026-01-03 with today pinned to 2026-08-26 — FAIL.
+//
+// Worth noting what that same injection did to check 7: nothing. 7a still
+// read `top 140` against a sticky offset of 140, because the reader was
+// parked perfectly on the WRONG day. The two checks are not redundant.
 if (currentRegime() === 'off-season') {
   skip('5 the reader lands on today',
     'today is outside the season off-season, so there is no "today" section to ' +
@@ -298,6 +335,37 @@ if (currentRegime() === 'off-season') {
 // 4th Sunday of June, the rule `getChautauquaSeasonWeeks` implements and the
 // one `verify-offseason` check 3c reads back out of the countdown copy
 // ("The 2026 season begins June 27").
+//
+// ## THIS CHECK FAILS ON THIS BRANCH, AND IT IS RIGHT TO
+//
+// Measured 2026-08-26 against the branch's own preview build, with real
+// clicks, on a clean tree: picking 2025 and pressing "Browse the 2025 season"
+// leaves the reader at `2025-03-13` — the first day of the archived year's
+// feed — with `scrollY 0`. The expected landing is `2025-06-21`. Reproduced
+// on every attempt, and independent of timing: identical whether the 2026
+// landing was allowed to finish first or the year was switched immediately.
+//
+// The mechanism, from a scroll trace taken during the switch:
+//
+//     scrollBy -149315  ->  y=32, section under the chrome = 2026-01-03
+//     ...then NOTHING at all after "Browse the 2025 season"
+//
+// `selectedYear` flips to 2025 a commit before `navEventDays`/`groupedEvents`
+// do. In that commit `landingDayKey` is called with 2025's `seasonStartDay`
+// and `isCurrentYear: false` but with **2026's** event days, so it resolves
+// to the first 2026 day at or after 2025-06-21 — `2026-01-03` — and
+// `listMounted` is still true because 2026's 89 sections are still in the
+// DOM. `useInitialLanding` therefore lands on that day and latches
+// `landedFor.current = 2025`. When the real 2025 list finally mounts, the
+// hook's own `landedFor.current === year` guard returns early and the
+// season-start landing never happens.
+//
+// This is a product defect, not a harness artifact, and it is deliberately
+// left failing rather than fixed here: writing the check and letting it fail
+// is this task's remit. It is the same class of bug as the two the task 6
+// commits on this branch already fixed (`explicit`, the year-reset), reached
+// by a route neither of them covers — the guard consumed by data from the
+// year the reader just left.
 {
   const page = await newPage();
   const current = await selectedYear(page);
@@ -353,24 +421,45 @@ if (currentRegime() === 'off-season') {
 }
 
 // ---------------------------------------------------------------------------
-// 7 — the landing is relative, not absolute.
+// 7 — the landing parks the reader exactly, and it got there relatively.
 //
 // `scrollToDay` scrolls by a delta read from the target's own rect, which
 // forces that one section's real layout; every section above it is still a
 // `contain-intrinsic-size` estimate. An absolute `scrollTo` computed by
 // summing those estimates lands NEAR the day and then drifts as the document
-// resolves. This is the check that catches someone replacing it.
+// resolves.
 //
-// Falsified by replacing `scrollWindowBy(delta)` with
-// `window.scrollTo({ top: window.scrollY + delta - 400 })` in
-// `useDayAnchor.scrollToDay`: top 540 against a sticky offset of 140, FAIL.
+// ## 7c exists because 7a/7b cannot see that difference
+//
+// The brief for this suite said 7a/7b were "the check that would catch
+// someone replacing `scrollToDay` with an absolute `scrollTo`". They are not,
+// and the falsification is what said so. Injecting exactly that — replacing
+// `scrollWindowBy(delta)` with `window.scrollTo({ top: window.scrollY + delta
+// - 400 })`, marker confirmed in the served bundle — left 7a reading `top
+// 139.5` against a sticky offset of 140. It PASSED on the broken code.
+//
+// The scroll trace says why. `useDayAnchor`'s settle hold re-parks the target
+// on the next `ResizeObserver` callback, and the document is still resolving
+// its `content-visibility` estimates at that moment, so the callback always
+// comes:
+//
+//     scrollTo {"top":148939}   after 148939   <- the injected defect, 400px short
+//     scrollBy 400             after 149339   <- the hold repairing it
+//     scrollBy 7.5             after 149347
+//
+// So 7a/7b are a real invariant about the END STATE — the reader does end up
+// parked at the sticky offset, and stays there — but the hold makes them
+// blind to how the app got there. 7c watches the mechanism instead: the app's
+// own scrolls are relative, and nothing in `src/` calls `window.scrollTo` at
+// all (`programmaticScroll.ts` is the single writer, and it calls
+// `scrollBy`). That is the assertion the injection actually breaks.
 if (currentRegime() === 'off-season') {
   skip('7 the landing is relative, not absolute',
     'the automatic landing has no target off-season — `enterList` reaches the ' +
     'list through a rail tap and then returns to the top, so there is no ' +
     'load-time landing left to measure');
 } else {
-  const page = await newPage();
+  const page = await newPage({ traceScrolls: true });
   await settle(page);
   const at0 = await landedSection(page);
   await page.waitForTimeout(2500);
@@ -382,6 +471,12 @@ if (currentRegime() === 'off-season') {
     at2500.key === at0.key && at2500.top !== null && Math.abs(at2500.top - at2500.off) <= 2,
     `${at0.key} at ${at0.top} → ${at2500.key} at ${at2500.top} (drift ${
       at2500.top !== null && at0.top !== null ? (at2500.top - at0.top).toFixed(2) : '?'}px)`);
+  const ops = await page.evaluate(() => window.__scrollOps ?? []);
+  const absolute = ops.filter(o => o.op === 'scrollTo');
+  check('7c the app moved the reader relatively, never by an absolute offset',
+    ops.length > 0 && absolute.length === 0,
+    `${ops.length} scrolls, ${absolute.length} absolute — ` +
+    (ops.map(o => `${o.op}(${Math.round(o.delta ?? 0)})`).join(' ') || 'NONE, so nothing was proved'));
   await page.close();
 }
 
@@ -461,13 +556,44 @@ for (const engineName of ['chromium', 'webkit']) {
 // ---------------------------------------------------------------------------
 // 10 — scrolling the whole year does not jank, on a throttled phone CPU.
 //
-// The spike measured p95 17.4ms and 0 frames over 50ms in 253, so these
-// thresholds carry roughly 3x of headroom: this is a regression alarm, not a
-// target. The numbers print whatever the verdict, so a regression is legible
+// Forty 600px wheel gestures under 4x CPU throttling, from the first day of
+// the year. The numbers print whatever the verdict, so a drift is legible
 // rather than merely red.
 //
-// Falsified by deleting `contentVisibility` from EventListView's style
-// object: p95 76ms, worst 559ms, 8 frames over 100ms of 108, FAIL.
+// ## Its named falsification does NOT falsify it — check 3 is what does
+//
+// This check was specified as the performance half of the argument for
+// `content-visibility`, to be proved by deleting it and watching the numbers
+// collapse. That was tried on 2026-08-26 against this exact body, with the
+// prop key confirmed absent from the SERVED bundle, two runs each side:
+//
+//     with content-visibility     p95 23-24ms   worst 49-56ms   0 frames >100ms
+//     without content-visibility  p95 29-30ms   worst 56-57ms   0 frames >100ms
+//
+// The check PASSED on the broken build, both times. There is a consistent
+// ~25% separation in p95 and it is nowhere near the threshold, so this is not
+// the guard on `content-visibility` — **check 3 is, and it is the only one.**
+// (3a and 3c both FAIL on that same build: `content-visibility: visible`.)
+//
+// Three other measures were tried against the same pair of builds and were
+// flatter still: raising the throttle to 6x (p95 80-90 both ways — noise, not
+// signal), time from navigation to a mounted list (2.76s vs 2.80s), and a
+// forced full-document layout (0ms median, 1ms worst, both ways). The only
+// quantity that moved reliably was document height, 160,636px against
+// 174,331px, which is checks 3 and 4's subject rather than this one's.
+//
+// So what this check is for is a GROSS regression — the multi-second stalls
+// the phase was worried about — and nothing subtler. Do not read a pass here
+// as evidence that the layout containment is doing its job.
+//
+// ## On the spike's numbers
+//
+// The pre-implementation spike reported p50 8.3ms, p95 17.4ms and 0 frames
+// over 50ms in 253. The frame COUNT is the tell that it is not the same
+// measurement: the same forty gestures sample ~135 frames here, so the
+// spike's run was roughly twice as long in wall-clock and its percentiles are
+// diluted by idle frames this loop does not have. Compare the verdicts, not
+// the percentiles.
 {
   const page = await newPage({ cpu: 4 });
   await settle(page);
