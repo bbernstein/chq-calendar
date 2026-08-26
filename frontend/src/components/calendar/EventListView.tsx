@@ -1,3 +1,4 @@
+import { memo } from 'preact/compat';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
@@ -27,7 +28,7 @@ export interface EventListViewProps {
  * Returned as a fragment rather than a wrapper so each container owns the
  * spacing element its own sentinels and controls live in.
  */
-export function EventListView({
+function EventListViewInner({
   groups, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected,
   favoriteIds, onToggleFavorite, weeklyThemes, articleLinks, programLinks,
 }: EventListViewProps) {
@@ -96,3 +97,20 @@ export function EventListView({
     </>
   );
 }
+
+/**
+ * Memoized, and that is a performance *contract*, not an optimization.
+ *
+ * `useDayAnchor` holds the anchored day in `page.tsx`, so every rAF-throttled
+ * scroll measurement that moves the anchor re-renders the page — and without
+ * this, the whole mounted list with it, each card re-running its `Intl` date
+ * formatting. Measured on the phase 4 spike at 4x CPU throttle: a forty-gesture
+ * scroll over the full season cost 26,992 card renders unmemoized and 0
+ * memoized, taking the 95th-percentile frame from 192ms to 32ms.
+ *
+ * The props `page.tsx` hands down are already stable across an anchor-only
+ * change. **Anything that makes one of them unstable — an inline arrow, a Set
+ * rebuilt per render — silently removes the memo without failing a single
+ * behavioural test.** `EventListView.memo.test.tsx` is the guard.
+ */
+export const EventListView = memo(EventListViewInner);
