@@ -99,3 +99,18 @@ describe('globals.css — the site header reveal', () => {
     expect(css).not.toMatch(/transition:[^;]*\btop\b/);
   });
 });
+
+/**
+ * The in-flow filter card's own CSS half, asserted absent.
+ *
+ * `--filter-card-h` measured how far the sticky header had to ride up to park
+ * the card above the viewport. The card is a fixed overlay now (#274 phase 3),
+ * so the variable is meaningless — and a stale declaration left in the
+ * stylesheet is exactly the kind of thing a later `calc()` picks up and
+ * resolves to `0px` without anyone noticing it was never being published.
+ */
+describe('the parked filter card is gone from the stylesheet', () => {
+  it('declares and reads no --filter-card-h anywhere', () => {
+    expect(css).not.toContain('--filter-card-h');
+  });
+});

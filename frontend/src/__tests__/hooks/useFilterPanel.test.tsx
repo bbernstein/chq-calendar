@@ -5,26 +5,24 @@ import { useFilterPanel } from '@/hooks/useFilterPanel';
 
 afterEach(() => { vi.restoreAllMocks(); });
 
-// A minimal stand-in for the real toggle button + filter card + a day
+// A minimal stand-in for the real toggle button + filter panel + a day
 // section: enough DOM (a focusable control inside the panel, a
-// `data-day-key` element for the scroll correction to reference) to
-// exercise the hook's focus and scroll management honestly, without
-// pulling in the whole page. jsdom's default `getBoundingClientRect()` is a
-// stable all-zero rect, so the day section is a harmless no-op reference
-// (delta always 0, `scrollBy` never called) in every test that doesn't
-// explicitly mock it.
+// `data-day-key` element) to exercise the hook's focus management honestly,
+// without pulling in the whole page.
 //
-// `scrolledPast: true` throughout: the rail's toggle only exists once the
-// reader has scrolled past the in-flow filter card, so that is the state
-// every interaction modelled here happens in.
+// The day section is kept even though nothing measures it any more (#274
+// phase 3 deleted the scroll correction). It is what the "never corrects
+// scroll" tests below need in order to mean anything: a page with no day
+// sections could not call `scrollBy` whatever the hook did, so asserting on
+// its absence there would prove nothing.
 //
 // The "Hide filters" button is the caret's stand-in — a control mounted
-// INSIDE the panel that calls the same `toggle` the rail's button calls.
+// INSIDE the panel that calls the same `toggle` the header's button calls.
 // Its placement is the whole point of the focus test below: when it fires,
 // `document.activeElement` is guaranteed to be inside the panel that is
 // about to be hidden.
 function Harness() {
-  const { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect } = useFilterPanel({ scrolledPast: true });
+  const { open, toggle, panelId, panelRef, toggleRef, exiting } = useFilterPanel();
   return (
     <div>
       <button ref={toggleRef} type="button" onClick={toggle} aria-expanded={open} aria-controls={panelId}>
@@ -43,32 +41,32 @@ function Harness() {
       <button type="button" data-chip="2026-08-18">Aug 18</button>
       <div data-day-key="2026-08-18">day section</div>
       {/*
-        The hook's `exiting`/`exitRect` are consumed by page.tsx to render a
-        fixed-position, animating copy of this same element — rendering that
-        here would duplicate page.tsx's own logic without testing the hook
-        any more thoroughly. These two text nodes are just a window onto the
+        The hook's `exiting` is consumed by page.tsx to keep this element
+        mounted and painted while its CSS exit transition runs — rendering
+        that here would duplicate page.tsx's own logic without testing the
+        hook any more thoroughly. This text node is just a window onto the
         hook's state, so the exit-animation tests below can assert on it
         directly instead of reverse-engineering it from page markup the hook
         itself knows nothing about.
       */}
       <div data-testid="exiting">{String(exiting)}</div>
-      <div data-testid="exit-rect">
-        {exitRect ? `${exitRect.top},${exitRect.left},${exitRect.width},${exitRect.height}` : 'none'}
-      </div>
     </div>
   );
 }
 
 // A day section whose `getBoundingClientRect().top` reads out differently
-// depending on whether the panel is currently visible — the same shape a
-// real browser produces (the panel occupying real space above the list
-// pushes everything below it down when nothing corrects for it). Numbers
-// match a real Chromium build measured with `overflow-anchor: none` (see
-// the report): 236px with the panel hidden, 517px with it shown — a 281px
-// drift, exactly the panel's height. Reading off the panel's *current* DOM
-// class (not a call counter) means this works correctly regardless of how
-// many times the hook happens to call `getBoundingClientRect` on either
-// side of the toggle.
+// depending on whether the panel is currently visible — the shape a real
+// browser produced back when the panel was in-flow content and occupied real
+// space above the list. Numbers match a real Chromium build measured with
+// `overflow-anchor: none`: 236px with the panel hidden, 517px with it shown,
+// a 281px drift exactly the panel's height.
+//
+// Kept as an ADVERSARIAL fixture rather than deleted with the correction it
+// used to drive. A fixed overlay cannot move a day section, so this models a
+// world that no longer exists — which is precisely what makes it a guard: it
+// is the input under which the old hook demonstrably called `scrollBy`, so a
+// correction re-added for any reason fails the tests below instead of sitting
+// there computing zero.
 function mockDaySectionTrackingPanel(panel: Element, daySection: HTMLElement) {
   daySection.getBoundingClientRect = () =>
     ({ top: panel.classList.contains('hidden') ? 236 : 517 }) as DOMRect;
@@ -169,19 +167,24 @@ describe('useFilterPanel', () => {
     expect(screen.getByRole('button', { name: 'Filters' }).getAttribute('aria-expanded')).toBe('false');
   });
 
-  // jsdom has no layout, so it cannot reproduce the real bug this mechanism
-  // was rewritten to fix: a real Chromium build's own scroll-anchoring
-  // *correctly* compensates for the panel's height, and an earlier version
-  // of this hook that forced `scrollY` back to a saved pre-toggle number
-  // undid that correct compensation (browser-verified — see the report).
-  // The fix follows this branch's own established pattern for the same
-  // failure class (`EventList`'s prepend correction, `useDayAnchor`'s settle
-  // hold): track a day section's `getBoundingClientRect().top` and
-  // `scrollBy` the delta, never `scrollTo` a saved number. What jsdom *can*
-  // pin honestly is that mechanism: a day section is measured before the
-  // toggle and re-measured after, and only `scrollBy` — never `scrollTo` —
-  // is used to correct for any difference.
-  it('corrects via scrollBy, keyed on a day section, when opening moves it', () => {
+  // #274 phase 3: the panel is `position: fixed` when open and
+  // `display: none` when closed, so opening and closing it changes no layout
+  // above the reader and there is nothing to correct for. The scroll
+  // correction this hook used to run — capture a day section's
+  // `getBoundingClientRect().top`, re-measure in a layout effect, `scrollBy`
+  // the delta — computed zero on every path and was deleted.
+  //
+  // These are the deletion's guard. Two mechanisms both calling `scrollBy` on
+  // the same frame is a bug class this branch has already paid for once, and
+  // a re-added "just in case" correction here would be exactly that. The real
+  // proof lives in the browser (`verify-filter-reveal` asserts document height
+  // is identical open and closed); what jsdom can pin is that this hook does
+  // not touch the scroll position at all.
+  //
+  // The day section is deliberately made to MOVE between the two states, which
+  // is the whole point: under the old hook this exact setup produced a
+  // `scrollBy(0, 281)`. If the correction comes back, these fail.
+  it('never scrolls the page on open, even when a day section appears to move', () => {
     render(<Harness />);
     const toggle = screen.getByRole('button', { name: 'Filters' });
     const panel = panelElementFor(toggle);
@@ -189,15 +192,16 @@ describe('useFilterPanel', () => {
     mockDaySectionTrackingPanel(panel, daySection);
 
     const scrollBySpy = vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
-    const scrollToSpy = vi.spyOn(window, 'scrollTo');
+    const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 
     fireEvent.click(toggle);
 
-    expect(scrollBySpy).toHaveBeenCalledWith(0, 281);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(scrollBySpy).not.toHaveBeenCalled();
     expect(scrollToSpy).not.toHaveBeenCalled();
   });
 
-  it('corrects the same way on close', () => {
+  it('never scrolls the page on close', () => {
     render(<Harness />);
     const toggle = screen.getByRole('button', { name: 'Filters' });
     const panel = panelElementFor(toggle);
@@ -209,12 +213,10 @@ describe('useFilterPanel', () => {
     scrollBySpy.mockClear();
     fireEvent.click(toggle); // close
 
-    // Closing removes the panel's height, so the day section moves the
-    // other way — back toward its hidden-state position (236), a -281 delta.
-    expect(scrollBySpy).toHaveBeenCalledWith(0, -281);
+    expect(scrollBySpy).not.toHaveBeenCalled();
   });
 
-  it('corrects on an Escape close too', () => {
+  it('never scrolls the page on an Escape close', () => {
     render(<Harness />);
     const toggle = screen.getByRole('button', { name: 'Filters' });
     const panel = panelElementFor(toggle);
@@ -226,32 +228,16 @@ describe('useFilterPanel', () => {
     scrollBySpy.mockClear();
     fireEvent.keyDown(document, { key: 'Escape' });
 
-    expect(scrollBySpy).toHaveBeenCalledWith(0, -281);
-  });
-
-  // The case the coordinator's own review flagged by name: two mechanisms
-  // both calling `scrollBy` on the same frame is the exact bug class this
-  // branch already paid for once. If the reference day section hasn't
-  // actually moved (the drift already corrected for some other reason, or
-  // there was never one), this must not call `scrollBy` at all — a
-  // zero-delta call would be a silent no-op in a real browser, but a test
-  // that only checked "the argument was 0" would not catch a version of
-  // this hook that calls `scrollBy` unconditionally.
-  it('does not call scrollBy when the reference day section has not moved', () => {
-    render(<Harness />);
-    const toggle = screen.getByRole('button', { name: 'Filters' });
-    const daySection = document.querySelector<HTMLElement>('[data-day-key]')!;
-    daySection.getBoundingClientRect = () => ({ top: 236 }) as DOMRect; // same regardless of panel state
-
-    const scrollBySpy = vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
-    fireEvent.click(toggle);
-
     expect(scrollBySpy).not.toHaveBeenCalled();
   });
 
-  it('does nothing when there is no day section to use as a reference', () => {
+  // A page with no day sections at all — an empty result set, an archived
+  // year with nothing in it. The old hook had a `null`-reference path here
+  // that could throw before `setOpen` ever ran; there is no reference to be
+  // `null` any more, and the toggle must still flip.
+  it('opens on a page with no day sections at all', () => {
     function HarnessNoSections() {
-      const { open, toggle, panelId, panelRef, toggleRef } = useFilterPanel({ scrolledPast: true });
+      const { open, toggle, panelId, panelRef, toggleRef } = useFilterPanel();
       return (
         <div>
           <button ref={toggleRef} type="button" onClick={toggle} aria-expanded={open} aria-controls={panelId}>
@@ -273,10 +259,7 @@ describe('useFilterPanel', () => {
     // dispatch swallows an exception thrown inside a listener and reports it
     // as an unhandled error rather than propagating it to the caller, so
     // that assertion would never actually fail here. Asserting the toggle
-    // actually flipped is the real, reliable proof — a version of this hook
-    // that crashes reading `.getBoundingClientRect()` off a `null` reference
-    // throws before `setOpen` ever runs, leaving `aria-expanded` stuck at
-    // `false`.
+    // actually flipped is the real, reliable proof.
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(scrollBySpy).not.toHaveBeenCalled();
   });
@@ -439,39 +422,38 @@ describe('dismissal by scroll gesture', () => {
 });
 
 describe('exit animation', () => {
-  // Note on what this does NOT prove: `getBoundingClientRect` is stubbed to
-  // return a constant, so this can't distinguish a rect read before `open`
-  // flips from one read after — a stub that returned different values
-  // depending on the panel's own `hidden` class (as
-  // `mockDaySectionTrackingPanel` does for the day-section case above) would
-  // be needed for that, and isn't worth building for a browser-verifiable
-  // ordering concern (see the report). What this honestly pins: the value
-  // `getBoundingClientRect()` returns really does flow through to `exitRect`
-  // unchanged, and the in-flow panel really does drop out of flow (`hidden`)
-  // in the very same commit that `exiting` turns on — not a later render.
-  it('surfaces the panel rect as exitRect and drops the in-flow panel, both in the dismissal commit', () => {
+  // What this pins: `exiting` turns on in the very same commit that `open`
+  // turns off, so the element is never rendered as neither-open-nor-exiting.
+  // That matters because `page.tsx` hides the panel with `hidden` when it is
+  // neither — and a CSS transition cannot start from `display: none` (there
+  // is no before-change style), so a single commit in that state means the
+  // panel jumps to its end state with no slide at all and `transitionend`
+  // never fires.
+  //
+  // This used to be much harder than it looks. When the panel was in-flow
+  // content the exit had to freeze its rect and a `scrolledPast` flag in the
+  // same batch, because deriving either one commit later hit exactly the
+  // `display: none` problem above — invisible in jsdom and invisible on every
+  // dismissal after the first. On an element that is always `position: fixed`
+  // there is nothing to freeze, and this one-commit property is all that is
+  // left of it.
+  it('turns on exiting in the same commit that closes the panel', () => {
     render(<Harness />);
     const toggle = screen.getByRole('button', { name: 'Filters' });
     fireEvent.click(toggle); // open
     const panel = panelElementFor(toggle);
-    const stubbedRect = { top: 64, left: 0, width: 390, height: 281 } as DOMRect;
-    panel.getBoundingClientRect = () => stubbedRect;
 
     fireEvent.click(toggle); // dismiss
 
     // The state machine lives in the hook, not in any DOM the harness
-    // renders, so it's asserted through the harness's own exposed markers
+    // renders, so it's asserted through the harness's own exposed marker
     // rather than through page structure the hook knows nothing about.
     expect(screen.getByTestId('exiting').textContent).toBe('true');
-    expect(screen.getByTestId('exit-rect').textContent).toBe('64,0,390,281');
-    // And the in-flow panel is gone from flow in the same commit — the
-    // architecture the whole task turns on. Confirming a class change here
-    // isn't circular: page.tsx (Task 4's other file) reads this same
-    // `exiting` flag to decide whether to render fixed, but the Harness's
-    // own consumption of it (the `open`-driven `hidden` class) is a second,
-    // independent witness that `open` really did flip in the same commit
-    // that `exiting` turned on.
+    // And the Harness's `open`-driven `hidden` class is a second, independent
+    // witness that `open` really did flip in the same commit `exiting` turned
+    // on.
     expect(panel).toHaveClass('hidden');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('clears exiting when the transition ends', () => {
@@ -485,7 +467,6 @@ describe('exit animation', () => {
     act(() => { panel.dispatchEvent(new Event('transitionend')); });
 
     expect(screen.getByTestId('exiting').textContent).toBe('false');
-    expect(screen.getByTestId('exit-rect').textContent).toBe('none');
   });
 
   // `transitionend` bubbles. The panel's own subtree has real, unrelated
@@ -526,7 +507,6 @@ describe('exit animation', () => {
       act(() => { vi.advanceTimersByTime(1000); });
 
       expect(screen.getByTestId('exiting').textContent).toBe('false');
-      expect(screen.getByTestId('exit-rect').textContent).toBe('none');
     } finally {
       vi.useRealTimers();
     }
@@ -577,7 +557,6 @@ describe('exit animation', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(screen.getByTestId('exiting').textContent).toBe('false');
-    expect(screen.getByTestId('exit-rect').textContent).toBe('none');
   });
 
   // A dismissal while one is already animating must not strand the first:
@@ -594,33 +573,23 @@ describe('exit animation', () => {
     try {
       render(<Harness />);
       const toggle = screen.getByRole('button', { name: 'Filters' });
-      const panel = panelElementFor(toggle);
-      let rectCall = 0;
-      panel.getBoundingClientRect = () => {
-        rectCall += 1;
-        return (rectCall === 1
-          ? { top: 10, left: 0, width: 390, height: 281 }
-          : { top: 20, left: 0, width: 390, height: 281 }) as DOMRect;
-      };
 
       fireEvent.click(toggle); // open
       fireEvent.click(toggle); // dismiss #1 at t=0 -> fallback timer A due ~t=400
-      expect(screen.getByTestId('exit-rect').textContent).toBe('10,0,390,281');
+      expect(screen.getByTestId('exiting').textContent).toBe('true');
 
       act(() => { vi.advanceTimersByTime(50); }); // t=50, well before A fires
       fireEvent.click(toggle); // re-open at t=50: must cancel A
       expect(screen.getByTestId('exiting').textContent).toBe('false');
-      expect(screen.getByTestId('exit-rect').textContent).toBe('none');
 
       fireEvent.click(toggle); // dismiss #2 at t=50 -> fallback timer B due ~t=450
-      expect(screen.getByTestId('exit-rect').textContent).toBe('20,0,390,281');
+      expect(screen.getByTestId('exiting').textContent).toBe('true');
 
       // t=420: past A's original t=400 deadline, short of B's t=450 one. A
       // surviving the reopen would have fired here and cleared `exiting` —
       // this is the assertion a stray, uncancelled timer A fails.
       act(() => { vi.advanceTimersByTime(370); });
       expect(screen.getByTestId('exiting').textContent).toBe('true');
-      expect(screen.getByTestId('exit-rect').textContent).toBe('20,0,390,281');
 
       // B fires on its own schedule and cleans up normally.
       act(() => { vi.advanceTimersByTime(60); });
@@ -633,9 +602,12 @@ describe('exit animation', () => {
 
 /**
  * `page.tsx`'s own composition of the hook's exit state, reproduced
- * minimally: `exitingVisible`, the `hidden` class it suppresses, and the
- * `filter-panel-exit` class plus `position: fixed` it turns on. Nothing else
- * about the page is here.
+ * minimally: the `hidden` attribute it suppresses while exiting, and the
+ * `filter-panel-exit` class it turns on. Nothing else about the page is here.
+ *
+ * The panel is `position: fixed` unconditionally, which is the #274 phase 3
+ * invariant and the reason this composition got simpler: there is no in-flow
+ * state to switch out of, so nothing has to be frozen in the same batch.
  *
  * Reproducing it is the point rather than a shortcut. The bug this exists to
  * pin is not visible in the hook's own state — every value the hook exposes
@@ -649,15 +621,15 @@ describe('exit animation', () => {
  * that is one commit late still lands on the right answer by the time
  * `fireEvent` returns. That is precisely why the defect shipped.
  */
-function PageShapedHarness({ commits }: { commits: { exiting: boolean; className: string }[] }) {
-  const { open, toggle, panelId, panelRef, toggleRef, exiting, exitRect, exitScrolledPast } =
-    useFilterPanel({ scrolledPast: true });
-  const exitingVisible = exiting && exitScrolledPast && exitRect !== null;
-  const className = [
-    !open && !exitingVisible ? 'hidden' : '',
-    exitingVisible ? 'filter-panel-exit' : '',
-  ].filter(Boolean).join(' ');
-  useLayoutEffect(() => { commits.push({ exiting, className }); });
+function PageShapedHarness({ commits }: {
+  commits: { exiting: boolean; className: string; hidden: boolean }[];
+}) {
+  const { open, toggle, panelId, panelRef, toggleRef, exiting } = useFilterPanel();
+  // `page.tsx`'s rule, verbatim: hidden when neither open nor exiting,
+  // carrying the transition class while exiting.
+  const hidden = !open && !exiting;
+  const className = exiting ? 'filter-panel-exit' : '';
+  useLayoutEffect(() => { commits.push({ exiting, className, hidden }); });
   return (
     <div>
       <button ref={toggleRef} type="button" onClick={toggle} aria-expanded={open} aria-controls={panelId}>
@@ -668,7 +640,8 @@ function PageShapedHarness({ commits }: { commits: { exiting: boolean; className
         ref={panelRef}
         data-testid="panel"
         className={className}
-        style={exitingVisible ? { position: 'fixed', top: `${exitRect!.top}px` } : undefined}
+        hidden={hidden}
+        style={{ position: 'fixed' }}
       >
         <input aria-label="Search" />
       </div>
@@ -678,28 +651,29 @@ function PageShapedHarness({ commits }: { commits: { exiting: boolean; className
 }
 
 describe('the first dismissal of a session', () => {
-  // The defect: the overlay state driving `exitingVisible` was derived in a
-  // passive `useEffect` in the consumer, one commit behind `exiting` and
-  // `exitRect`. On the FIRST dismissal after the reader crosses the sentinel
-  // it is still at its initial `false`, so the exit's opening commit renders
-  // the panel `display: none` — and **a CSS transition cannot start from
-  // `display: none`**: there is no before-change style, so the element jumps
-  // straight to `translateY(-100%); opacity: 0`, `transitionend` never
-  // fires, and the panel blinks out in a single frame with no slide. Every
-  // dismissal after the first looks right, because the latch stays true,
-  // which is exactly why nothing caught it. It recurs whenever the latch is
-  // reset — a dismissal at the top of the page.
+  // The defect this was written for: the overlay state driving the exit was
+  // derived in a passive `useEffect` in the consumer, one commit behind
+  // `exiting`. On the FIRST dismissal it was still at its initial `false`, so
+  // the exit's opening commit rendered the panel `display: none` — and **a CSS
+  // transition cannot start from `display: none`**: there is no before-change
+  // style, so the element jumps straight to `translateY(-100%); opacity: 0`,
+  // `transitionend` never fires, and the panel blinks out in a single frame
+  // with no slide. Every dismissal after the first looked right, because the
+  // latch stayed true, which is exactly why nothing caught it.
+  //
+  // The derived state is gone (#274 phase 3), so the specific defect is
+  // unreachable. The property it pins is not: any consumer rule that hides the
+  // panel and starts its transition in different commits fails here.
   //
   // A layout-effect latch does not fix it either: it still commits the
   // `display: none` DOM first and then corrects it. This test fails against
   // both.
-  it('renders the exit out of flow in the very commit the exit begins', () => {
-    const commits: { exiting: boolean; className: string }[] = [];
+  it('renders the exit visible, with its transition, in the very commit the exit begins', () => {
+    const commits: { exiting: boolean; className: string; hidden: boolean }[] = [];
     render(<PageShapedHarness commits={commits} />);
     const toggle = screen.getByRole('button', { name: 'Filters' });
     fireEvent.click(toggle); // open
     const panel = screen.getByTestId('panel');
-    panel.getBoundingClientRect = () => ({ top: 64, left: 0, width: 390, height: 281 }) as DOMRect;
     commits.length = 0;
 
     fireEvent.click(toggle); // the FIRST dismissal from this mount
@@ -707,7 +681,7 @@ describe('the first dismissal of a session', () => {
     const firstExitCommit = commits.find(c => c.exiting);
     expect(firstExitCommit).toBeDefined();
     // Not `display: none` — a transition has to have a frame to start from.
-    expect(firstExitCommit!.className).not.toContain('hidden');
+    expect(firstExitCommit!.hidden).toBe(false);
     // And already carrying the transition, in that same commit.
     expect(firstExitCommit!.className).toContain('filter-panel-exit');
     // The settled DOM agrees, so this isn't pinning a transient the browser

@@ -6,6 +6,7 @@ import { weekBandSegments } from '@/lib/utils/weekBands';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import { RAIL_CHIP_GUTTER_PX } from '@/lib/utils/railMetrics';
 import { RAIL_CHIP_SELECTOR } from '@/hooks/useRailHighlight';
+import { belowHeaderTop } from '@/app/filterHeaderLayout';
 
 const chips = dayChips(
   ['2026-07-04', '2026-07-05', '2026-07-06'],
@@ -307,8 +308,9 @@ describe('DayRail', () => {
       // behind them.
       const nonChipButtons = rail.querySelectorAll(
         'button:not([data-chip]):not([data-week-band-button]):not([data-week-chooser-trigger])');
-      // Nothing else in this fixture: no chevrons (removed), no `⟳ Now`
-      // (anchor is today) and no Filters toggle (no `filtersToggle` prop).
+      // Nothing else in this fixture: no chevrons (removed in #279), no
+      // `⟳ Now` (the anchor IS today), and no Filters funnel — that control
+      // lives in the site header now (#274 phase 3), not here.
       expect(nonChipButtons).toHaveLength(0);
     });
 
@@ -479,100 +481,37 @@ describe('DayRail', () => {
     expect(ref.current).not.toBeNull();
     expect(ref.current).toBe(stickyEl);
     expect(ref.current?.className).toMatch(/\bsticky\b/);
+    // And it sticks at the site header's bottom edge, not at the viewport
+    // top. Before #274 phase 3 a sticky wrapper in `page.tsx` supplied that
+    // offset and the rail hard-coded `top-0`; the wrapper is gone with the
+    // in-flow filter card, so the rail owns its own `top` — and a rail still
+    // pinned at `0` slides underneath the revealed header, which outranks it.
+    expect(ref.current?.className).not.toMatch(/\btop-0\b/);
+    expect(ref.current?.style.top).toBe(belowHeaderTop());
   });
 });
 
-describe('DayRail filtersToggle', () => {
-  // Deliberately rendered inside DayRail's own row rather than as a sibling
-  // element: `useDayRailHeight` measures only DayRail's root, so any new
-  // *persistent* chrome added outside that row (visible whenever the reader
-  // has scrolled, not just while the panel is open) would silently widen
-  // the real stuck header without widening `--day-rail-h`.
-  it('renders nothing when not visible', () => {
-    renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: false, hasActiveFilters: false },
-    });
-    expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull();
-  });
-
-  it('renders, with aria-expanded/aria-controls, once visible', () => {
-    renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
-    });
-    const toggle = screen.getByRole('button', { name: 'Filters' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle.getAttribute('aria-controls')).toBe('filters-panel');
-  });
-
-  it('tracks aria-expanded when the panel is open', () => {
-    renderRail({
-      filtersToggle: { open: true, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
-    });
-    expect(screen.getByRole('button', { name: 'Filters' }).getAttribute('aria-expanded')).toBe('true');
-  });
-
-  it('calls onToggle when clicked', () => {
-    const onToggle = vi.fn();
-    renderRail({
-      filtersToggle: { open: false, onToggle, panelId: 'filters-panel', visible: true, hasActiveFilters: false },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
-    expect(onToggle).toHaveBeenCalledTimes(1);
-  });
-
-  it('is absent entirely when no filtersToggle prop is supplied', () => {
+describe('DayRail — the Filters toggle is gone (#274 phase 3)', () => {
+  // It moved to the site header. The rail's job is navigation and only
+  // navigation now: every control left on it moves the reader through the
+  // season, and none of them changes what is in the list.
+  //
+  // Asserted by accessible NAME rather than by counting controls, because a
+  // count cannot tell "the funnel came back" from "the rail gained something
+  // else" — and the something else is the likelier future edit.
+  it('renders no Filters control of its own', () => {
     renderRail();
     expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull();
   });
 
-  // D5: the word "Filters" becomes a funnel icon (rendered by FiltersIcon,
-  // aria-hidden), but the toggle keeps the exact same accessible name — a
-  // screen-reader user who has learned "Filters" must not have it silently
-  // renamed to "" or to something the icon's markup happens to expose.
-  it('keeps the accessible name exactly "Filters" once the label is an icon', () => {
-    renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
-    });
-    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy();
-  });
-
-  // The one thing this redesign adds rather than merely preserves (see the
-  // design's D5 and "Why the dot matters" in the task brief): a small dot
-  // on the icon when any filter is active, so the reader can tell "slice"
-  // from "everything" without opening the panel.
-  it('shows the active-filter dot when a filter is active', () => {
-    renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: true },
-    });
-    const dot = document.querySelector('[data-testid="filters-active-dot"]');
-    expect(dot).not.toBeNull();
-    // Asserted directly on the attribute, not inferred from a class-name
-    // query — a class-only lookup would pass whether or not the dot is
-    // aria-hidden, and an unhidden dot would risk polluting the button's
-    // accessible name computed above.
-    expect(dot!.getAttribute('aria-hidden')).toBe('true');
-  });
-
-  it('omits the active-filter dot when no filter is active', () => {
-    renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
-    });
+  // The rail also stops carrying the funnel's active-filter dot. Nothing on
+  // the rail reports filter state any more; that reading moved with the
+  // control it belonged to.
+  it('renders no active-filter dot', () => {
+    renderRail();
     expect(document.querySelector('[data-testid="filters-active-dot"]')).toBeNull();
   });
 
-  // D5 replaced a ~54px-wide word with a 16x16 icon on the one control this
-  // whole feature depends on, at the rail's rightmost edge, in a phone-first
-  // app — `px-2 py-1` around it is roughly 32x28. A class-level pin, in the
-  // same spirit as FilterPanelCaret's `h-11 w-full`: jsdom computes no
-  // layout, so the rendered box itself is browser-only territory.
-  it('gives the toggle a 44px minimum touch target', () => {
-    renderRail({
-      filtersToggle: { open: false, onToggle: vi.fn(), panelId: 'filters-panel', visible: true, hasActiveFilters: false },
-    });
-    const toggle = screen.getByRole('button', { name: 'Filters' });
-    expect(toggle.className).toContain('min-h-11');
-    expect(toggle.className).toContain('min-w-11');
-  });
 });
 
 describe('DayRail — the week band', () => {

@@ -227,6 +227,15 @@ describe('page.tsx — the off-season landing', () => {
       const requested = mock.calls(/all-events-/).map(r => new URL(r.url).pathname);
       expect(requested.some(p => p.endsWith('all-events-2027.json'))).toBe(true);
     });
+    // The scope buttons live inside the filter panel, which is a fixed
+    // overlay and `display: none` while closed (#274 phase 3) — so they are
+    // out of the accessibility tree until the reader opens it, and
+    // `getByRole` correctly cannot see them. Opening the panel is what a
+    // reader would do to check the scope, and it is what this has to do to
+    // assert on it.
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>('[data-site-header] button[aria-label="Filters"]')!
+    );
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'All Year' }).getAttribute('aria-pressed')

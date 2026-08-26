@@ -5,17 +5,21 @@ import { useCallback, useRef } from 'react';
  * re-measuring on every resize.
  *
  * Note the observed element is not always the measured one: the caller
- * decides what `measure` reads. The filter card's offset, for instance,
- * observes the header CONTAINER and measures the distance between two of its
- * children — because `ResizeObserver` reports border and content boxes only,
- * never margins, so an element whose own box never changes can still move.
+ * decides what `measure` reads. `ResizeObserver` reports border and content
+ * boxes only, never margins, so an element whose own box never changes can
+ * still move — and a caller that needs to notice THAT observes an ancestor
+ * and measures something else inside it.
  *
- * Two unrelated pieces of the sticky header need a height that CSS cannot
- * derive for itself — the rail's own height (`--day-rail-h`) and the filter
- * card's (`--filter-card-h`) — and both are wrong by one text-zoom step the
- * moment either is hardcoded, the gotcha #225 called out by name. This is
- * the shared mechanism; the two callers differ only in what counts as
- * "height", which is why `measure` is a parameter rather than assumed.
+ * Two pieces of the site chrome need a height that CSS cannot derive for
+ * itself — the day rail's (`--day-rail-h`) and the site header's
+ * (`--site-header-h`) — and both are wrong by one text-zoom step the moment
+ * either is hardcoded, the gotcha #225 called out by name. This is the shared
+ * mechanism; the callers differ only in what counts as "height", which is why
+ * `measure` is a parameter rather than assumed.
+ *
+ * There used to be a third caller, `useFilterCardHeight` (`--filter-card-h`),
+ * which is the margin case above. It is gone with the in-flow filter card
+ * itself (#274 phase 3) — see `filterHeaderLayout.ts`.
  *
  * Returned as a **callback ref** rather than an effect over an object ref so
  * it fires on mount, on unmount, and on any element swap, with no dependency

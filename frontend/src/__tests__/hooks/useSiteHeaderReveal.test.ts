@@ -257,14 +257,19 @@ afterEach(() => {
 });
 
 /** Mount the hook with a measured header attached. */
-const mount = (h = 72) => {
+const mount = (h = 72, { holdRevealed = false } = {}) => {
   const observer = installResizeObserverMock();
-  const rendered = renderHook(() => useSiteHeaderReveal());
+  const rendered = renderHook(
+    (props: { holdRevealed: boolean }) => useSiteHeaderReveal(props),
+    { initialProps: { holdRevealed } },
+  );
   const header = headerEl(h);
   act(() => { rendered.result.current.headerRef(header.el); });
   /** Text zoom, a breakpoint — anything that changes the header's height. */
   const growHeaderTo = (to: number) => { header.grow(to); observer.trigger(); };
-  return { ...rendered, growHeaderTo };
+  /** Open or close whatever is holding the header — in practice, the filter panel. */
+  const hold = (held: boolean) => act(() => { rendered.rerender({ holdRevealed: held }); });
+  return { ...rendered, growHeaderTo, hold };
 };
 
 /**
@@ -1670,5 +1675,93 @@ describe('useSiteHeaderReveal — which gestures count as scrolling', () => {
     gesture('wheel');
     frameScrollTo(12_807 + REVEAL_THRESHOLD);
     expect(result.current.revealed).toBe(false);
+  });
+});
+
+
+/**
+ * Holding the header open (#274 phase 3).
+ *
+ * The filter panel is a fixed overlay hanging off the header's bottom edge.
+ * If the header hid while the panel was open, the panel would be left
+ * floating against nothing — so an open panel suspends the rule.
+ */
+describe('useSiteHeaderReveal — held open', () => {
+  it('does not hide on a downward gesture while held', () => {
+    const { result, hold } = mount(72);
+    hold(true);
+
+    scrollTo(1_000);
+
+    expect(result.current.revealed).toBe(true);
+    expect(offset()).toBe(`var(${HEIGHT}, 0px)`);
+  });
+
+  // The hold has to REVEAL, not merely freeze. The reader can scroll the
+  // header away and only then reach for the filters — on a phone that is the
+  // ordinary case, since the funnel is in the header and the header comes back
+  // on the upward flick that precedes the tap.
+  it('reveals a hidden header when the hold begins', () => {
+    const { result, hold } = mount(72);
+    scrollTo(1_000);
+    expect(result.current.revealed).toBe(false);
+    expect(offset()).toBe('0px');
+
+    hold(true);
+
+    expect(result.current.revealed).toBe(true);
+    expect(offset()).toBe(`var(${HEIGHT}, 0px)`);
+  });
+
+  // One-directional on purpose: releasing hands the rule back, it does not
+  // hide. Hiding on release would move chrome the reader never asked to move —
+  // and the gesture that dismisses the panel is itself about to be judged.
+  it('leaves the header shown when the hold is released', () => {
+    const { result, hold } = mount(72);
+    scrollTo(1_000);
+    hold(true);
+
+    hold(false);
+
+    expect(result.current.revealed).toBe(true);
+  });
+
+  // The one that fails if `decide` returns without resyncing while held.
+  //
+  // The direction matters, and the first version of this test got it wrong and
+  // passed against both the correct code and the broken code. A reader who
+  // scrolls DOWN while held leaves a stale baseline ABOVE them, so the next
+  // downward gesture still measures a large positive delta and hides the
+  // header either way — the bug is invisible. It is scrolling UP while held
+  // that strands the baseline BELOW the reader: a small downward gesture after
+  // release then measures thousands of pixels of *upward* travel against it
+  // and pins the header open against the very gesture asking it to go.
+  it('keeps the baseline current while held, so the next gesture is judged honestly', () => {
+    const { result, hold } = mount(72);
+    scrollTo(5_000);
+    hold(true);
+
+    scrollTo(1_000);
+    hold(false);
+    scrollTo(1_000 + REVEAL_THRESHOLD + 1);
+
+    expect(result.current.revealed).toBe(false);
+  });
+
+  // And the mirror: an upward gesture after release still reveals. Both
+  // directions have to work off the same restored baseline, or "hands the rule
+  // back" is only half true.
+  it('reveals again on an upward gesture after release', () => {
+    const { result, hold } = mount(72);
+    scrollTo(1_000);
+    hold(true);
+    scrollTo(5_000);
+    hold(false);
+    scrollTo(5_000 + REVEAL_THRESHOLD + 1);
+    expect(result.current.revealed).toBe(false);
+
+    scrollTo(5_000 - REVEAL_THRESHOLD);
+
+    expect(result.current.revealed).toBe(true);
   });
 });

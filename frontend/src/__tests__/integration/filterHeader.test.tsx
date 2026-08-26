@@ -23,13 +23,22 @@ import { chqDateAt } from '@/lib/utils/chqTime';
  *
  * jsdom cannot reproduce that loop (no layout, no scroll anchoring), and no
  * jsdom test ever will. What it CAN pin is the composition the loop was made
- * of: that the card is never taken out of flow, that the header parks by a
- * negative offset instead, that the sentinel sits below the header, and that
- * the card is `inert` exactly when it is out of reach. Those are the pieces a
- * refactor would have to break to bring the bug back, and until now a
- * refactor could break every one of them with the suite still green.
+ * of.
  *
- * The browser harnesses remain the only thing that can see the bug itself.
+ * #274 phase 3 changed what that composition is. The card used to be in-flow
+ * content parked above the viewport on a negative sticky offset, with a
+ * sentinel to notice it had gone and an `inert` treatment for the window in
+ * which it was pinned out of sight and still Tab-reachable. It is now a
+ * `position: fixed` overlay that is never in flow in any state, so all of that
+ * is deleted and what remains to pin is the invariant itself: **the panel is
+ * fixed whether it is open, closed or exiting, and the page carries no in-flow
+ * filter card at all.** That is the single property a refactor would have to
+ * break to bring the bug back.
+ *
+ * The browser harnesses remain the only thing that can see the bug itself —
+ * `verify-filter-reveal` asserts document height is identical with the panel
+ * open and closed, which is this invariant stated in the one place it can
+ * actually be measured.
  */
 
 // The year the PAGE will ask for, not the year it happens to be. The app's
@@ -87,38 +96,36 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/** The sticky container holding the filter card and the rail. */
-const header = () => document.querySelector('[data-filter-header]') as HTMLElement;
+/** The fixed overlay the filter panel lives inside. */
+const overlay = () => document.querySelector('[data-filter-overlay]') as HTMLElement;
 
 /**
- * The filter card, found the way the accessibility tree finds it — the
- * element the Filters toggle names. When the toggle is not rendered yet
- * (top of the page), fall back to the card that owns the search field.
+ * The filter panel, found the way the accessibility tree finds it — the
+ * element the header's Filters toggle names.
  *
- * `[aria-label="Filters"]` is load-bearing, not decorative: the rail now
- * carries TWO `[aria-expanded]` buttons — the week chooser trigger
- * (`data-week-chooser-trigger`, #274) sits before the Filters toggle in DOM
- * order and always renders, and has no `aria-controls`. Without the label
- * this always matched the chooser trigger and silently fell through to the
- * `header().querySelector('div[id]')` fallback below on every call.
+ * `[aria-label="Filters"]` is load-bearing, not decorative: `[aria-expanded]`
+ * alone also matches the day rail's week-chooser trigger and the header's own
+ * link menus. Phase 2 shipped that exact collision into two e2e suites; the
+ * same lesson applies to every query for "the" control of a given ARIA shape.
  */
 function card(): HTMLElement {
-  const toggle = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
-  const id = toggle?.getAttribute('aria-controls');
-  if (id) return document.getElementById(id) as HTMLElement;
-  return header().querySelector('div[id]') as HTMLElement;
+  const id = toggleButton()!.getAttribute('aria-controls')!;
+  return document.getElementById(id) as HTMLElement;
 }
 
-/** The zero-height sentinel that drives the "scrolled past" signal. */
-const sentinel = () =>
-  document.querySelector('main > div[aria-hidden="true"]') as HTMLElement;
-
+/**
+ * The Filters funnel — in the SITE HEADER now, not on the day rail, and
+ * present from the first paint rather than only once the reader has scrolled.
+ */
 const toggleButton = () =>
-  document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]') as HTMLButtonElement | null;
+  document.querySelector('[data-site-header] button[aria-label="Filters"]') as HTMLButtonElement | null;
+
+/** The day rail's own root, which is the sticky element now. */
+const rail = () => document.querySelector('[data-day-rail]') as HTMLElement;
 
 async function renderPage() {
   render(<Home />);
-  // Waits for the first commit that has the header in it. Deliberately NOT
+  // Waits for the first commit that has the rail in it. Deliberately NOT
   // described as "once events have loaded" any more, which is what it used to
   // say and was never true: the rail is built from the season's navigable
   // bounds, so it renders whether the feed brought anything back or not. That
@@ -126,13 +133,7 @@ async function renderPage() {
   await waitFor(() => expect(document.querySelector('[data-day-rail]')).toBeTruthy());
 }
 
-/** Put the reader past the header: the card has left, and so has the rail. */
-function scrollPastHeader() {
-  io.triggerFor(card(), false);
-  io.triggerFor(sentinel(), false);
-}
-
-describe('page.tsx — the sticky filter header', () => {
+describe('page.tsx — the filter panel as a fixed overlay', () => {
   // Guards the fixture against the app's October 1 season turnover directly,
   // rather than trusting both sides to call `getDefaultYear` forever. If the
   // page ever asks for a year these events are not dated in, the window this
@@ -159,10 +160,6 @@ describe('page.tsx — the sticky filter header', () => {
   // reading). The outer `catch` only logs, so `events` stays empty and the
   // page renders as though the feed were down.
   //
-  // Note it is NOT `useEventData`'s own category/tag derivation that chokes —
-  // that code never runs on this path. An earlier version of this comment
-  // said it did, which would have sent the next reader to the wrong function.
-  //
   // Every other assertion in this file still passed throughout, because they
   // are all about header geometry, which renders with or without events. This
   // file spent its life exercising a page that had none.
@@ -179,132 +176,122 @@ describe('page.tsx — the sticky filter header', () => {
     );
   });
 
-  it('renders the filter card in flow at the top of the page, with no toggle', async () => {
-    await renderPage();
-
-    expect(card()).toBeInTheDocument();
-    expect(screen.getByLabelText('Search events')).toBeVisible();
-    // No toggle at the top: the controls are already there.
-    expect(toggleButton()).toBeNull();
-  });
-
-  // The bug, stated as a rule. `display: none` on the card is what removed
-  // ~290px of flow height above the reader and started the loop.
-  it('never removes the filter card from flow, in any scroll state', async () => {
-    await renderPage();
-    const notInFlow = () => {
-      const el = card();
-      return el.classList.contains('hidden') || el.style.display === 'none';
-    };
-
-    expect(notInFlow()).toBe(false);
-
-    scrollPastHeader();
-    expect(notInFlow()).toBe(false);
-
-    fireEvent.click(toggleButton()!);
-    expect(notInFlow()).toBe(false);
-  });
-
-  // The card leaves by riding up on the header's negative offset instead.
+  // THE invariant. Stated as a rule, in every state the panel has.
   //
-  // The `--site-header-offset` term is the site header's reveal on scroll up
-  // (#272): `0px` while it is hidden, so this parks exactly as it always did,
-  // and its measured height while it is revealed, which rides the rail down to
-  // sit below it. It is a CSS variable rather than a prop precisely so the
-  // reveal does not re-render this page.
-  const PARKED = 'calc(var(--site-header-offset, 0px) - var(--filter-card-h, 0px))';
-
-  it('parks the header by the measured card offset when the panel is not overlaying', async () => {
+  // The bug was `display: none` on an IN-FLOW card, which removed ~290px of
+  // flow height above the reader and started the loop. A fixed element
+  // contributes nothing to document height in any state, so hiding it is free
+  // — the fix is not "never hide it", it is "never let it be in flow", and
+  // this is what says so.
+  it('is position:fixed whether closed, open, or exiting', async () => {
     await renderPage();
 
-    expect(header().style.top).toBe(PARKED);
+    // Closed.
+    expect(overlay().className).toMatch(/\bfixed\b/);
 
-    scrollPastHeader();
-    expect(header().style.top).toBe(PARKED);
+    // Open.
+    fireEvent.click(toggleButton()!);
+    expect(overlay().className).toMatch(/\bfixed\b/);
+
+    // Exiting — the panel is still mounted and painted while its transition
+    // runs, which is the state the old code needed a frozen rect to survive.
+    fireEvent.click(toggleButton()!);
+    expect(overlay().className).toMatch(/\bfixed\b/);
   });
 
-  it('pins the header at the viewport top while the panel is open over the list', async () => {
+  // The corollary, and the thing an eye would notice: at the top of the page
+  // there is no filter card. Search lives behind the funnel everywhere now,
+  // which is the accepted cost of giving the list its space back.
+  it('shows no filter card at the top of the page', async () => {
     await renderPage();
-    scrollPastHeader();
+
+    expect(overlay().hasAttribute('hidden')).toBe(true);
+    // In the DOM but not shown. `queryByLabelText` finds hidden nodes — it
+    // does not filter on visibility — so asserting it is null would fail
+    // against correct code and tempt the next reader to weaken it. `hidden`
+    // on an ancestor is what `toBeVisible` walks the tree for.
+    expect(screen.getByLabelText('Search events')).not.toBeVisible();
+  });
+
+  // And there is no sticky container wrapping a card and the rail together.
+  // That element existed only to park the card; the rail is its own sticky
+  // element now.
+  it('has no in-flow filter header container at all', async () => {
+    await renderPage();
+
+    expect(document.querySelector('[data-filter-header]')).toBeNull();
+  });
+
+  // The funnel is in the header and is present immediately — no scrolling
+  // required, because there is no in-flow card it would be redundant with.
+  // Reachability from deep in the list comes from the header itself, which
+  // returns on any upward flick (#272).
+  it('offers the Filters funnel from the first paint, in the site header', async () => {
+    await renderPage();
+
+    const toggle = toggleButton();
+    expect(toggle).toBeTruthy();
+    expect(toggle!.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('[data-day-rail] button[aria-label="Filters"]')).toBeNull();
+  });
+
+  it('opens the panel, with the search field in it, when the funnel is pressed', async () => {
+    await renderPage();
 
     fireEvent.click(toggleButton()!);
 
-    expect(header().style.top).toBe('var(--site-header-offset, 0px)');
+    expect(toggleButton()!.getAttribute('aria-expanded')).toBe('true');
+    expect(overlay().hasAttribute('hidden')).toBe(false);
+    expect(screen.getByLabelText('Search events')).toBeVisible();
+    expect(toggleButton()!.getAttribute('aria-controls')).toBe(card().id);
   });
 
-  // Below, not above. Above the header the sentinel stops moving with the
-  // height the exit animation temporarily removes, and the signal flips
-  // underneath its own animation.
-  it('places the scroll sentinel after the sticky header, not before it', async () => {
+  // Closed is `display: none`, which takes the panel out of the tab order and
+  // the accessibility tree for free. The `inert` treatment the parked card
+  // needed is gone with the parking — and this is only safe BECAUSE the panel
+  // was never in flow.
+  it('needs no inert treatment while closed, because hiding it is free', async () => {
     await renderPage();
 
-    const position = header().compareDocumentPosition(sentinel());
-
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(overlay().hasAttribute('hidden')).toBe(true);
+    expect(card().hasAttribute('inert')).toBe(false);
   });
 
-  // A parked card is still in flow and still focusable. Without `inert` a
-  // keyboard reader Tabs into it, and the browser cannot scroll a pinned
-  // sticky element into view — it chases the position instead.
-  it('makes the parked card inert and hidden from screen readers', async () => {
+  // Mid-exit it is a decorative echo of a panel that has already closed:
+  // visible for the ~200ms the transition runs, and beyond reach for all of
+  // it. `inert` rather than `aria-hidden` alone, because `aria-hidden` leaves
+  // a very real SearchBar in the tab order.
+  it('puts the exiting panel beyond reach while its transition runs', async () => {
     await renderPage();
+    fireEvent.click(toggleButton()!);
     expect(card().hasAttribute('inert')).toBe(false);
 
-    scrollPastHeader();
+    fireEvent.click(toggleButton()!);
 
     expect(card().hasAttribute('inert')).toBe(true);
     expect(card().getAttribute('aria-hidden')).toBe('true');
   });
 
-  // Driven by the card's own visibility, not by the sentinel below the whole
-  // header — which reports the card gone a rail-height after it went.
-  it('keeps the card reachable while it is still partly on screen', async () => {
+  // The panel hangs off the site header's bottom edge, and the rail sticks at
+  // the same line — one expression, from one module, so they cannot be edited
+  // apart and leave the panel floating away from the header it belongs to.
+  it('hangs the panel and sticks the rail at the same line below the header', async () => {
     await renderPage();
 
-    // The reader has scrolled past the header's foot, but the card itself is
-    // still intersecting the viewport.
-    io.triggerFor(sentinel(), false);
-    io.triggerFor(card(), true);
-
-    expect(card().hasAttribute('inert')).toBe(false);
+    expect(overlay().style.top).toBe('var(--site-header-offset, 0px)');
+    expect(rail().style.top).toBe('var(--site-header-offset, 0px)');
   });
 
-  it('makes the card reachable again when the panel is opened', async () => {
-    await renderPage();
-    scrollPastHeader();
-    expect(card().hasAttribute('inert')).toBe(true);
-
-    fireEvent.click(toggleButton()!);
-
-    expect(card().hasAttribute('inert')).toBe(false);
-    expect(card().getAttribute('aria-hidden')).toBeNull();
-  });
-
-  // WHERE the height observer is attached is the fix, not just what it
-  // measures. `--filter-card-h` must re-publish when the card's margin
-  // changes at a breakpoint, and `ResizeObserver` never reports a margin —
-  // so an observer on the card would never fire and the rail would park off
-  // the viewport's top edge. The container's height is card + margin + rail,
-  // so it changes whenever any of them does.
-  it('observes the header container for the park offset, not the card', async () => {
+  // #238: `position: sticky` is bounded by its element's containing block. A
+  // wrapper `<div>` sized to fit only the rail BECOMES that containing block
+  // and gives sticky zero travel — eleven green task reviews missed it once
+  // already, and the wrapper that used to be here is exactly what this phase
+  // deleted.
+  it('sticks the rail on its own root, directly inside main', async () => {
     await renderPage();
 
-    expect(ro.isObserving(header())).toBe(true);
-    expect(ro.isObserving(card())).toBe(false);
-  });
-
-  it('shows the Filters toggle only once the reader has scrolled past the header', async () => {
-    await renderPage();
-    expect(toggleButton()).toBeNull();
-
-    scrollPastHeader();
-
-    const toggle = toggleButton();
-    expect(toggle).toBeTruthy();
-    expect(toggle!.getAttribute('aria-label')).toBe('Filters');
-    expect(toggle!.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle!.getAttribute('aria-controls')).toBe(card().id);
+    expect(rail().className).toMatch(/\bsticky\b/);
+    expect(rail().parentElement?.tagName).toBe('MAIN');
   });
 });
 
