@@ -9,6 +9,7 @@
 // environment, where `URL` resolves relative to the importing file as
 // `readFileSync` expects.
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   RAIL_BACKDROP, RAIL_BAND_LABEL, RAIL_PILL, UNREACHABLE_FILL_OPACITY,
@@ -212,6 +213,16 @@ describe('RAIL_BACKDROP and the rail\'s own background classes', () => {
     expect(dayRailSrc).toMatch(new RegExp(`\\b${cls.replace(':', '\\:')}\\b`));
     expect(RAIL_BACKDROP[theme]).toBe(hex);
   });
+
+  it.each(THEMES)('the chooser popover surface is the same backdrop in %s', theme => {
+    // The unreachable-fade proof elsewhere in this file composites against
+    // RAIL_BACKDROP. That is the right backdrop for the grid only while the
+    // popover paints the same surface the rail does.
+    const src = readFileSync(
+      resolve(__dirname, '../../../components/calendar/WeekChooser.tsx'), 'utf8');
+    const { class: cls } = CLASS_HEX[theme];
+    expect(src).toMatch(new RegExp(`\\b${cls.replace(':', '\\:')}\\b`));
+  });
 });
 
 describe('rampBackground', () => {
@@ -229,5 +240,42 @@ describe('rampBackground', () => {
     expect(rampPercent(-3)).toBe(0);
     expect(rampPercent(7)).toBe(100);
     expect(rampPercent(Number.NaN)).toBe(0);
+  });
+});
+
+describe("the chooser icon's lit cell", () => {
+  // AA for non-text: a graphical object needs 3:1 against what is behind it.
+  const AA_NON_TEXT = 3;
+
+  it.each(THEMES)('cannot be identified by its tone alone in %s', theme => {
+    // THE REASON THE RING EXISTS, as a measurement rather than a comment.
+    // The lit cell is painted in its week's ramp tone, on the rail's own
+    // backdrop. Early steps of the ramp are nearly the backdrop: ~1.5:1 in
+    // light, ~1.03:1 in dark. A future reader who deletes the ring as
+    // redundant decoration makes weeks 1-3 unfindable in dark mode.
+    const worst = Math.min(...STEPS.map(s => ratio(rampHex(theme, s), RAIL_BACKDROP[theme])));
+    expect(worst).toBeLessThan(AA_NON_TEXT);
+  });
+
+  it.each(THEMES)('is identified by its ring, which clears AA for a graphic in %s', theme => {
+    // The ring is drawn in `--foreground`, which is `RAIL_BAND_LABEL`.
+    expect(ratio(RAIL_BAND_LABEL[theme], RAIL_BACKDROP[theme]))
+      .toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  it('draws the ring in a token the stylesheet actually defines', () => {
+    // `var(--foreground)` and RAIL_BAND_LABEL are already pinned to each other
+    // above; this pins the icon to that variable rather than to a literal.
+    const src = readFileSync(
+      resolve(__dirname, '../../../components/calendar/WeekChooserIcon.tsx'), 'utf8');
+    expect(src).toContain('var(--foreground)');
+  });
+});
+
+describe("the current week's cell in the chooser grid", () => {
+  it("reads white on the pill, the rail's one saturated fill", () => {
+    // Same pairing as the rail's highlight: the pill means "you are here", in
+    // exactly one place, in exactly one colour.
+    expect(ratio('#ffffff', RAIL_PILL)).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 });

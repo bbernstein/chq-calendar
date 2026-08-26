@@ -645,6 +645,12 @@ function HomeContent() {
             bandSegments={bandSegments}
             weekDestinations={weekDestinations}
             onSelectWeek={goToWeek}
+            // The chooser's grid shows every week of the SEASON, which is not
+            // the same set as the band's segments: `navigableBounds` can start
+            // or end mid-season, and a week with no segment must still appear
+            // in the grid (dimmed, from `weekDestinations`) rather than vanish.
+            seasonWeeks={seasonWeeks}
+            weekThemes={weeklyThemes}
             rootRef={railRef}
             filtersToggle={{
               open: filtersOpen,

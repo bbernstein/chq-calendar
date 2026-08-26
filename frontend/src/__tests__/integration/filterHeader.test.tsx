@@ -94,9 +94,16 @@ const header = () => document.querySelector('[data-filter-header]') as HTMLEleme
  * The filter card, found the way the accessibility tree finds it — the
  * element the Filters toggle names. When the toggle is not rendered yet
  * (top of the page), fall back to the card that owns the search field.
+ *
+ * `[aria-label="Filters"]` is load-bearing, not decorative: the rail now
+ * carries TWO `[aria-expanded]` buttons — the week chooser trigger
+ * (`data-week-chooser-trigger`, #274) sits before the Filters toggle in DOM
+ * order and always renders, and has no `aria-controls`. Without the label
+ * this always matched the chooser trigger and silently fell through to the
+ * `header().querySelector('div[id]')` fallback below on every call.
  */
 function card(): HTMLElement {
-  const toggle = document.querySelector('[data-day-rail] button[aria-expanded]');
+  const toggle = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
   const id = toggle?.getAttribute('aria-controls');
   if (id) return document.getElementById(id) as HTMLElement;
   return header().querySelector('div[id]') as HTMLElement;
@@ -107,7 +114,7 @@ const sentinel = () =>
   document.querySelector('main > div[aria-hidden="true"]') as HTMLElement;
 
 const toggleButton = () =>
-  document.querySelector('[data-day-rail] button[aria-expanded]') as HTMLButtonElement | null;
+  document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]') as HTMLButtonElement | null;
 
 async function renderPage() {
   render(<Home />);

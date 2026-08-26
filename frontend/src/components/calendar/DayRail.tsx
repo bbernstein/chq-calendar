@@ -1,8 +1,11 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { DayChip } from '@/lib/utils/dayWindow';
+import type { SeasonWeek } from '@/lib/types';
+import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import { FiltersIcon } from '@/components/filters/FiltersIcon';
 import { WeekBandCell } from '@/components/calendar/WeekBandCell';
-import { bridgesGutter, type WeekBandDestination, type WeekBandSegment } from '@/lib/utils/weekBands';
+import { WeekChooser } from '@/components/calendar/WeekChooser';
+import { anchorWeekNumber, bridgesGutter, type WeekBandDestination, type WeekBandSegment } from '@/lib/utils/weekBands';
 import { RAIL_CHIP_GUTTER_PX } from '@/lib/utils/railMetrics';
 import { RAIL_CHIP_SELECTOR, useRailHighlight } from '@/hooks/useRailHighlight';
 
@@ -144,6 +147,20 @@ export interface DayRailProps {
   weekDestinations: Map<number, WeekBandDestination>;
   /** A band tap. The caller turns the week into a day and calls `goToDay`. */
   onSelectWeek: (week: number) => void;
+  /**
+   * The season's weeks, for the chooser's grid.
+   *
+   * Passed rather than derived from `bandSegments` because the grid must show
+   * every week of the season — including one entirely outside `navigableBounds`,
+   * which has no segment at all and would silently vanish from a grid built
+   * from the segments.
+   */
+  seasonWeeks: SeasonWeek[];
+  /**
+   * The weekly themes, if they have loaded. Optional throughout: the themes
+   * file can 404 for a season, and the chooser has to work without it.
+   */
+  weekThemes?: Record<number, WeekTheme>;
 }
 
 export interface DayRailFiltersToggleProps {
@@ -220,11 +237,24 @@ export interface DayRailFiltersToggleProps {
 export function DayRail({
   chips, anchorDay, prevDay, nextDay, scopeHasWindow, todayKey,
   onSelectDay, onStepDay, onGoToToday, rootRef, filtersToggle, windowDayKeys,
-  bandSegments, weekDestinations, onSelectWeek,
+  bandSegments, weekDestinations, onSelectWeek, seasonWeeks, weekThemes,
 }: DayRailProps) {
   const chipKeys = useMemo(() => chips.map(c => c.key), [chips]);
   const { stripRef, contentRef, pillRef, clipRef, contentEl, resume } =
     useRailHighlight(chipKeys, windowDayKeys);
+
+  // Stable, so `WeekChooser`'s `memo` actually has something to compare.
+  // `resume` is itself a `useCallback` with an empty dependency array
+  // (`useRailHighlight`), so this only changes identity when `onSelectWeek`
+  // — DayRail's own prop, `page.tsx`'s `goToWeek` — does, which is rare.
+  // An inline arrow here would recreate on every render regardless of
+  // whether the reader touched the chooser, defeating the memo on exactly
+  // the renders it exists to skip (the filter panel opening and closing
+  // re-renders this whole row without changing anything about the chooser).
+  const handleSelectWeek = useCallback((week: number) => {
+    resume();
+    onSelectWeek(week);
+  }, [resume, onSelectWeek]);
 
   // Reachability, not adjacency: `chips` spans every calendar day in the
   // navigable bounds, so `anchorIdx ± 1` is enabled on days a step cannot
@@ -251,12 +281,10 @@ export function DayRail({
   const tabStopKey = chips.some(c => c.key === anchorDay) ? anchorDay : chips[0]?.key;
 
   // The band is one tab stop, like the chip row: the week the reader is
-  // actually in, resolved from the band's own model rather than from a second
-  // date computation. A shared Saturday lights the LATER of its two weeks —
-  // the one the reader is scrolling into. Falls back to the first labelled
-  // week so the band is never unreachable from the keyboard.
-  const anchorSegment = bandSegments.find(s => s.dayKey === anchorDay);
-  const anchorWeek = anchorSegment?.weekNumbers[anchorSegment.weekNumbers.length - 1] ?? null;
+  // actually in, resolved once in `weekBands.ts` so the band's tab stop and the
+  // chooser's lit cell cannot answer this differently. Falls back to the first
+  // labelled week so the band is never unreachable from the keyboard.
+  const anchorWeek = anchorWeekNumber(anchorDay, bandSegments);
   const bandTabStopWeek = anchorWeek
     ?? bandSegments.find(s => s.labelledWeek !== null)?.labelledWeek
     ?? null;
@@ -451,6 +479,23 @@ export function DayRail({
           ⟳ Now
         </button>
       )}
+
+      {/*
+        The week chooser. Right end of the rail, next to `⟳ Now` — the two
+        controls that answer "take me somewhere in the season" rather than
+        "take me one step".
+      */}
+      <WeekChooser
+        seasonWeeks={seasonWeeks}
+        destinations={weekDestinations}
+        currentWeek={anchorWeek}
+        themes={weekThemes}
+        // `resume()` for the same reason a band tap and a chip tap call it: the
+        // highlight is scroll-linked and paused while the reader is dragging the
+        // rail, and a jump has to hand control back to the scroll position it is
+        // about to land on. Stabilized above so `WeekChooser`'s `memo` holds.
+        onSelectWeek={handleSelectWeek}
+      />
 
       {filtersToggle?.visible && (
         <button

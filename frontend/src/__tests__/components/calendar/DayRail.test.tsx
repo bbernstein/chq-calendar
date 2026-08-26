@@ -27,6 +27,7 @@ function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
     scopeHasWindow: true, todayKey: '2026-07-05',
     windowDayKeys: ['2026-07-04', '2026-07-05', '2026-07-06'],
     bandSegments: defaultBandSegments, weekDestinations: defaultWeekDestinations, onSelectWeek: vi.fn(),
+    seasonWeeks: getChautauquaSeasonWeeks(2026),
     onSelectDay: vi.fn(), onStepDay: vi.fn(), onGoToToday: vi.fn(),
     ...overrides,
   };
@@ -42,6 +43,7 @@ function renderRailIn(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
       scopeHasWindow todayKey="2026-07-05"
       windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
       bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
+      seasonWeeks={getChautauquaSeasonWeeks(2026)}
       onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
       {...overrides}
     />
@@ -234,6 +236,7 @@ describe('DayRail', () => {
       <DayRail chips={chips} anchorDay={null} prevDay={null} nextDay={null}
         scopeHasWindow={false} todayKey={null} windowDayKeys={[]}
         bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
+        seasonWeeks={getChautauquaSeasonWeeks(2026)}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
@@ -256,9 +259,10 @@ describe('DayRail', () => {
       renderRail();
       // Every button the rail exposes, counted outright: 3 day chips + 2
       // chevrons + 1 week-band button (the default fixture's sole labelled
-      // segment, 2026-07-06 — see the week-band describe block below). No
-      // `⟳ Now` (the anchor already is today) and no Filters toggle (no
-      // `filtersToggle` prop).
+      // segment, 2026-07-06 — see the week-band describe block below) + 1
+      // week-chooser trigger (always rendered — the fixture's season has
+      // weeks). No `⟳ Now` (the anchor already is today) and no Filters
+      // toggle (no `filtersToggle` prop).
       //
       // Deliberately NOT filtered to `[data-chip]`: the copy's chips carry
       // no `data-chip`, so such a filter would exclude exactly the elements
@@ -267,7 +271,7 @@ describe('DayRail', () => {
       // below — so unhiding the copy does not change this count; the guard
       // that would catch a reintroduced `<button>` there is the chevron-
       // selector test just below.)
-      expect(screen.getAllByRole('button')).toHaveLength(6);
+      expect(screen.getAllByRole('button')).toHaveLength(7);
     });
 
     it('puts nothing extra in the tab order', () => {
@@ -291,13 +295,16 @@ describe('DayRail', () => {
     it('contributes nothing to the rail\'s chevron selector', () => {
       const { container } = renderRailIn();
       const rail = container.querySelector<HTMLElement>('[data-day-rail]')!;
-      // Excludes `[data-week-band-button]` deliberately: the default fixture
-      // has one real band button (see above), and it is a genuine control on
-      // the REAL row, not a leak from the clipped copy — this test's whole
-      // job is to prove the copy contributes nothing here, so the band
-      // button must be excluded by attribute rather than folded into the
-      // count, or a future leak in the copy could hide behind it.
-      const nonChipButtons = rail.querySelectorAll('button:not([data-chip]):not([data-week-band-button])');
+      // Excludes `[data-week-band-button]` and `[data-week-chooser-trigger]`
+      // deliberately: the default fixture has one real band button (see
+      // above) and always renders the chooser trigger (see above), and both
+      // are genuine controls on the REAL row, not a leak from the clipped
+      // copy — this test's whole job is to prove the copy contributes
+      // nothing here, so both must be excluded by attribute rather than
+      // folded into the count, or a future leak in the copy could hide
+      // behind them.
+      const nonChipButtons = rail.querySelectorAll(
+        'button:not([data-chip]):not([data-week-band-button]):not([data-week-chooser-trigger])');
       // The two chevrons, and nothing else. No `⟳ Now` (anchor is today) and
       // no Filters toggle (no `filtersToggle` prop).
       expect(nonChipButtons).toHaveLength(2);
@@ -338,6 +345,7 @@ describe('DayRail', () => {
             scopeHasWindow todayKey="2026-07-05"
             windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
             bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
+            seasonWeeks={getChautauquaSeasonWeeks(2026)}
             onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
           />
         );
@@ -389,6 +397,7 @@ describe('DayRail', () => {
     const { container } = render(
       <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} scopeHasWindow todayKey={null} windowDayKeys={[]}
         bandSegments={[]} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
+        seasonWeeks={getChautauquaSeasonWeeks(2026)}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
@@ -424,6 +433,7 @@ describe('DayRail', () => {
       const { container } = render(
         <DayRail chips={chips} anchorDay="2026-07-04" prevDay={null} nextDay="2026-07-05" scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
           bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
+          seasonWeeks={getChautauquaSeasonWeeks(2026)}
           onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
       );
       // Stubbed only after mount: the layout effect that places the initial
@@ -459,6 +469,7 @@ describe('DayRail', () => {
     render(
       <DayRail chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null} scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
         bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
+        seasonWeeks={getChautauquaSeasonWeeks(2026)}
         onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
         rootRef={(el) => { ref.current = el; }} />
     );
@@ -678,5 +689,63 @@ describe('DayRail — the week band', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('the week chooser', () => {
+  it('sits on the rail, inside the measured root', () => {
+    // Persistent chrome outside this root would widen the stuck header
+    // without widening `--day-rail-h`, undercounting the clearance
+    // `dayHeaderTop()` and `useDayAnchor` compute against it.
+    const { container } = renderRailIn();
+    const rail = container.querySelector('[data-day-rail]')!;
+    expect(rail.querySelector('[data-week-chooser-trigger]')).not.toBeNull();
+  });
+
+  it('lights the week the anchor is in', () => {
+    renderRail();
+    // July 5 2026 is inside week 2 of the 2026 season (week 1 is Jun 27–Jul 4,
+    // week 2 is Jul 4–Jul 11); the chooser and the band's tab stop resolve it
+    // through the same `anchorWeekNumber`.
+    const lit = Array.from(document.querySelectorAll('[data-week-chooser-cell][data-lit]'));
+    expect(lit.map(c => c.getAttribute('data-week-chooser-cell'))).toEqual(['2']);
+  });
+
+  it('offers the same weeks the band does, from the same map', () => {
+    renderRail();
+    fireEvent.click(document.querySelector('[data-week-chooser-trigger]')!);
+    // The default fixture reaches weeks 1 and 2 only.
+    const enabled = Array.from(document.querySelectorAll('[data-week-cell]'))
+      .filter(c => c.getAttribute('aria-disabled') !== 'true')
+      .map(c => c.getAttribute('data-week-cell'));
+    expect(enabled).toEqual(['1', '2']);
+  });
+
+  it("routes a choice through the rail's own onSelectWeek", () => {
+    const props = renderRail();
+    fireEvent.click(document.querySelector('[data-week-chooser-trigger]')!);
+    fireEvent.click(document.querySelector('[data-week-cell="2"]')!);
+    expect(props.onSelectWeek).toHaveBeenCalledWith(2);
+  });
+
+  it("contributes nothing to the rail's chevron selector", () => {
+    // Same guard as the band button's, by attribute rather than by a bigger
+    // count: a count that absorbed the trigger could no longer distinguish
+    // "the clipped copy leaked a button" from "the rail gained one".
+    const { container } = renderRailIn();
+    const rail = container.querySelector<HTMLElement>('[data-day-rail]')!;
+    const nonChipButtons = rail.querySelectorAll(
+      'button:not([data-chip]):not([data-week-band-button]):not([data-week-chooser-trigger])');
+    expect(nonChipButtons).toHaveLength(2);
+  });
+
+  it("does not answer to the band's keyboard walk", () => {
+    // The trigger is neither a chip nor a band button, so an arrow key on it
+    // must fall through rather than teleporting focus into a row it is not in.
+    const { container } = renderRailIn();
+    const trigger = document.querySelector<HTMLElement>('[data-week-chooser-trigger]')!;
+    trigger.focus();
+    fireEvent.keyDown(container.querySelector('[data-day-rail]')!, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(trigger);
   });
 });

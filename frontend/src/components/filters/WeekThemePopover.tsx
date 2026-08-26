@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import type { SeasonWeek } from '@/lib/types';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 
 interface WeekThemePopoverProps {
@@ -25,6 +26,16 @@ function formatIsoAsShort(iso: string): string {
 
 export function formatThemeDateRange(theme: WeekTheme): string {
   return `${formatIsoAsShort(theme.startDate)}–${formatIsoAsShort(theme.endDate)}`;
+}
+
+/**
+ * A week cell's `title`, for a sighted mouse user who has no other way to
+ * discover the theme. Lives here rather than in either control so the filter
+ * strip and the chooser grid cannot title the same week differently.
+ */
+export function buildWeekTitle(week: SeasonWeek, theme: WeekTheme | undefined): string {
+  if (!theme) return week.label;
+  return `Week ${week.number} — "${theme.title}" (${formatThemeDateRange(theme)})`;
 }
 
 export function WeekThemePopover({ themes, onClose, triggerRef }: WeekThemePopoverProps) {
