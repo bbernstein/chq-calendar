@@ -127,24 +127,34 @@ export function useDayAnchor(windowDayKeys: string[]): {
   /**
    * Drop the hold because the reader has asked for something else.
    *
-   * The other direction of the arbitration `EventList`'s `revealDay` effect
-   * already performs: that effect clears `EventList`'s prepend hold whenever a
-   * rail navigation starts, but nothing cleared THIS hold when a prepend
-   * started, so "Show earlier" could arm its own correction while this one was
-   * still armed on a different day. The prepend changes document height, which
-   * fires the `ResizeObserver` below, whose reassert yanks the old rail target
-   * back and cancels the prepend correction. A mouse click on "Show earlier"
-   * fires none of the `wheel`/`touchstart`/`keydown` gestures that would
-   * otherwise end the hold, so it has to be ended explicitly.
+   * `page.tsx`'s `showEarlier` calls this before prepending earlier days: an
+   * explicit click means the reader is asking to look somewhere else, and if
+   * a hold armed by an earlier rail navigation were left in place, the
+   * prepend's own height change would fire the `ResizeObserver` below and
+   * yank the reader back to that stale rail target. A mouse click fires none
+   * of the `wheel`/`touchstart`/`keydown` gestures that would otherwise end
+   * the hold, so it has to be ended explicitly.
+   *
+   * There is no longer a second hold on the `EventList` side to arbitrate
+   * against here — #274 phase 4 deleted `EventList`'s own upward-prepend
+   * settle correction outright, along with `revealDay` and the render window
+   * it used to grow (see that file's module doc). One consequence recorded
+   * there, not fixed here: a prepend itself is no longer corrected for at
+   * all, so "Show earlier" can still produce a visible jump on a browser with
+   * no scroll anchoring. `cancelHold` still has a real job — protecting a
+   * *different* hold, this hook's own, from reasserting against content the
+   * prepend is about to move — it just isn't arbitrating with a peer anymore.
    */
   const cancelHold = useCallback(() => { settleRef.current = null; }, []);
 
   // Holds the day `scrollToDay` last targeted at the sticky offset until it
   // stops moving or the reader takes over.
   //
-  // This is the exact settle pattern `EventList` uses for its upward-prepend
-  // correction, reused here for the identical failure class: a scroll
-  // decision invalidated by content changing height *after* it was made.
+  // `EventList` used to hold the identical pattern for its own
+  // upward-prepend correction — #274 phase 4 deleted that half (see
+  // `EventList.tsx`'s module doc) — so this hook's hold is now the only one
+  // of its kind in the app. What it covers hasn't changed: a scroll decision
+  // invalidated by content changing height *after* it was made.
   // Lives here, not in `page.tsx`'s pending-scroll effect, because holding a
   // position requires knowing the target day's element and the sticky
   // offset — both already private to this hook (`daySectionElement`,
@@ -158,11 +168,13 @@ export function useDayAnchor(windowDayKeys: string[]): {
   // nothing happens.
   //
   // Keyed on `keysId`, and the hold is dropped in the cleanup, so it lives no
-  // longer than the day list it was armed against. `EventList`'s equivalent
-  // hold is commit-scoped — nulled on any commit that produces no fresh
-  // correction — while this one was set up in a `useEffect(..., [])` and
-  // cleared ONLY by `wheel`/`touchstart`/`keydown` or its target leaving the
-  // DOM. It therefore survived filter changes, scope changes and arbitrary
+  // longer than the day list it was armed against. `EventList` used to carry
+  // a comparably-bounded hold of its own — commit-scoped, nulled on any
+  // commit that produced no fresh correction — but #274 phase 4 deleted it
+  // along with the render window it belonged to, so there is no longer a
+  // second lifetime to compare this one against. This one was set up in a
+  // `useEffect(..., [])` and cleared ONLY by `wheel`/`touchstart`/`keydown` or
+  // its target leaving the DOM. It therefore survived filter changes, scope changes and arbitrary
   // elapsed time, and neither a scrollbar-thumb drag nor a mouse click fires
   // any of those cancel gestures: a hold armed minutes ago could still
   // arbitrate against a resize now. `keysId` is the closest equivalent bound

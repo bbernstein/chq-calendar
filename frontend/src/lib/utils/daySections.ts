@@ -54,10 +54,11 @@ export function daySectionMetrics(key: string): { height: number; headerHeight: 
 /**
  * The viewport-relative top of a mounted day section, or `null`.
  *
- * This is the measurement the prepend correction is built on: it moves by
- * exactly the height inserted above it, whatever inserted it and whatever
- * else on the page changed size at the same time. Total document height
- * cannot make that distinction.
+ * This is the measurement `resolveAnchor` walks (via `useDayAnchor` and
+ * `useRailHighlight`) and the one `useDayAnchor`'s own settle hold reasserts
+ * against after `scrollToDay`: it moves by exactly the height inserted above
+ * it, whatever inserted it and whatever else on the page changed size at the
+ * same time. Total document height cannot make that distinction.
  */
 export function daySectionTop(key: string): number | null {
   const el = daySectionElement(key);

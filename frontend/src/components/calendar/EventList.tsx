@@ -24,6 +24,19 @@ export interface EventListProps extends Omit<EventListViewProps, 'groups'> {
  * `extendRenderEndIndex`, `renderResetKey`, the anchor latch, the
  * upward-prepend correction, the settle window and its `ResizeObserver`
  * reassert, and `revealDay` — went with it.
+ *
+ * **Recorded gap, not fixed here**: the deleted upward-prepend correction is
+ * NOT replaced by anything. The spec's original claim that `useDayAnchor`'s
+ * settle hold "still covers the height change" was wrong — that hold is only
+ * ever armed by `scrollToDay`, a prepend arms nothing, and `page.tsx`'s
+ * `showEarlier` explicitly `cancelHold()`s it besides. So "Show earlier" now
+ * inserts content above the reader with no correction at all — a guaranteed
+ * jump on a browser with no scroll anchoring (WebKit). This is deliberately
+ * not restored: task 5 deletes `showEarlier`, `expandWindowStart`/
+ * `expandWindowEnd` and the view window outright, so nothing is ever
+ * inserted above the reader after it and the correction would have no
+ * subject to protect. Rebuilding it now would be building something to
+ * delete one task later.
  */
 export function EventList({ groupedEvents, earlierDay, onShowEarlier, ...view }: EventListProps) {
   const handleShowEarlier = useCallback(() => { onShowEarlier?.(); }, [onShowEarlier]);

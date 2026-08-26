@@ -348,10 +348,11 @@ function HomeContent() {
   useEffect(() => {
     if (!pendingScroll) return;
     // Checking the DOM node directly rather than trusting `groupedEvents`
-    // membership: a day can pass the date filter on this render and still
-    // have no section mounted yet if `filters.expandWindowStart`/`expandEnd`
-    // above hasn't committed its re-render — the wait here is for the
-    // reducer's next commit, and nothing more.
+    // membership: if `filters.expandWindowStart`/`expandWindowEnd` above just
+    // widened the window, that expansion hasn't landed yet on THIS render —
+    // `dateWindow` (and `groupedEvents`, derived from it) still reflect the
+    // window before the widen, so the target day is in neither. The wait
+    // here is for the reducer's next commit, and nothing more.
     if (daySectionElement(pendingScroll)) {
       setPendingScroll(null);
       scrollToDay(pendingScroll);

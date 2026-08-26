@@ -12,11 +12,13 @@ import type { Event } from '@/lib/types';
  *
  * What it is good for is *identity*: every later stage is a pure function of
  * this array, so two raw strings with the same terms produce the same
- * results. Exported so callers needing that equivalence (a render-window
- * reset key) share this definition rather than writing a second normalizer
- * that could drift from it.
+ * results. `renderResetKey` (#274 phase 4, deleted with the render window)
+ * was the one caller outside this file that needed that equivalence; nothing
+ * external needs it now, so this is no longer exported. If a future caller
+ * needs the same identity guarantee, re-export it rather than writing a
+ * second normalizer that could drift from this one.
  */
-export function searchTermsOf(term: string): string[] {
+function searchTermsOf(term: string): string[] {
   return term.toLowerCase().split(' ').filter(t => t.length > 0);
 }
 

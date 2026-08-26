@@ -140,9 +140,14 @@ const eventListBaseProps = {
  *
  * `earlierKey`, when given, also wires up `EventList`'s own "Show earlier"
  * control, mirroring `page.tsx`'s `showEarlier`: a click calls
- * `cancelHold()` on `useDayAnchor` before prepending — the mechanism the
- * `cancelHold` test below exercises. `groupedEvents` is local state (not a
- * plain passthrough prop) for exactly that reason: the prepend needs
+ * `cancelHold()` on `useDayAnchor` before prepending. No test in this file
+ * currently exercises that path end to end — see the standalone comment
+ * below, between this describe block and the next, for why an
+ * integration-level version of that test was tried and deleted, and where
+ * `cancelHold()` itself is actually covered. Kept here anyway because it is
+ * still an accurate mirror of `page.tsx`'s wiring, cheap to keep, and one a
+ * future test in this file may still want. `groupedEvents` is local state
+ * (not a plain passthrough prop) for exactly that reason: the prepend needs
  * somewhere to insert into.
  *
  * `withFilterPanel`, when given, also mounts the real `useFilterPanel` —
@@ -253,60 +258,42 @@ describe('goToDay -> scrollToDay chain', () => {
   });
 });
 
-describe('cancelHold: an explicit "Show earlier" click supersedes a pending rail hold', () => {
-  // #274 phase 4 deleted `EventList`'s own upward-prepend settle hold — the
-  // two tests this block used to hold ("clears the stale prepend hold...",
-  // "lets a later prepend keep its own correction...") pinned an arbitration
-  // between THAT hold and `useDayAnchor`'s. With `EventList`'s side gone
-  // there is nothing left to arbitrate, so restating either of those tests
-  // against the new component would just be asserting that `useDayAnchor`'s
-  // own hold behaves as it always has — already covered by
-  // `useDayAnchor.test.ts`. What is still real, and still worth pinning
-  // here, is `cancelHold()` itself: `page.tsx`'s `showEarlier` calls it for
-  // the reason recorded on that callback — an explicit click is the reader
-  // asking to look somewhere else, and a stale rail hold reasserting on the
-  // very next resize (the prepend's own height change) would fight them for
-  // the viewport.
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    document.documentElement.style.removeProperty('--day-rail-h');
-  });
-
-  it('cancels a pending rail hold so a later resize does not drag the reader back', { timeout: 15000 }, () => {
-    installIntersectionObserverMock();
-    const resize = installResizeObserverMock();
-    document.documentElement.style.setProperty('--day-rail-h', '50px');
-    const keys = Array.from({ length: 12 }, (_, i) => `2026-07-${String(i + 1).padStart(2, '0')}`);
-    const scrollBy = vi.fn();
-    vi.stubGlobal('scrollBy', scrollBy);
-
-    const { getByRole } = render(
-      <Harness groupedEvents={makeGroups(keys)} earlierKey="2026-06-30" />
-    );
-
-    // Arm useDayAnchor's hold on 2026-07-12 via a rail navigation.
-    fireEvent.click(getByRole('button', { name: 'Go' }));
-    expect(scrollBy).toHaveBeenCalledWith(0, -50);
-    scrollBy.mockClear();
-
-    // Then, with no intervening wheel/touchstart/keydown — which would
-    // otherwise have ended the hold on their own — click "Show earlier".
-    // Harness's `showEarlier`, mirroring `page.tsx`'s, calls `cancelHold()`
-    // before prepending.
-    fireEvent.click(getByRole('button', { name: /show earlier/i }));
-
-    // The prepend's own layout change would move day 12 in a real browser;
-    // simulate that here to prove the point either way — if the hold
-    // survived, this is exactly what its reassert would react to.
-    document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-12"]`)!
-      .getBoundingClientRect = () => ({ top: 900 }) as DOMRect;
-    resize.trigger();
-
-    // A live hold would have reasserted with a nonzero delta here. None
-    // fired, because the click cancelled it.
-    expect(scrollBy).not.toHaveBeenCalled();
-  });
-});
+// #274 phase 4 deleted `EventList`'s own upward-prepend settle hold — the two
+// tests a `describe('cancelHold: ...')` block used to hold here ("clears the
+// stale prepend hold...", "lets a later prepend keep its own correction...")
+// pinned an arbitration between THAT hold and `useDayAnchor`'s. With
+// `EventList`'s side gone there is nothing left to arbitrate.
+//
+// A replacement integration test was written and then deleted again, on
+// review: it drove `Harness`'s "Show earlier" via `fireEvent.click` (arms
+// `cancelHold()`, then prepends), then a shared `resize.trigger()`, and
+// asserted no stale `scrollBy` fired. It passed — and kept passing with
+// `cancelHold()` deleted from the Harness entirely, because the prepend's own
+// `setGroupedEvents` changes `dayKeysList`/`keysId`, and `fireEvent.click`'s
+// `act()` wrapper synchronously flushes `useDayAnchor`'s settle effect's OWN
+// cleanup (`useDayAnchor.ts`, the `return () => { settleRef.current = null;
+// ... }` keyed on `keysId`) before `resize.trigger()` ever runs — so the hold
+// is already gone for a reason that has nothing to do with `cancelHold()`.
+// That ordering is a jsdom/`act()` artifact: in a real browser a passive
+// effect's cleanup runs after paint, while `ResizeObserver` delivers before
+// it, so the stale hold's reassert genuinely can fire first — which is
+// exactly the failure `cancelHold()` exists to prevent. jsdom has no
+// discriminating way to reproduce that ordering short of forcing the resize
+// callback to fire synchronously from inside the click dispatch, ahead of
+// `act()`'s flush — a rig that would be testing the harness's plumbing more
+// than the behaviour.
+//
+// `cancelHold()` itself IS still covered, without this confound:
+// `useDayAnchor.test.ts`'s "drops the hold on demand, so an explicit prepend
+// is not fought" calls `result.current.cancelHold()` directly against a
+// `useDayAnchor` whose `windowDayKeys` never changes, so nothing else in that
+// test can null the hold — a genuinely discriminating unit test of the exact
+// mechanism this integration test tried and failed to add coverage for.
+// `page.tsx`'s `showEarlier` calling `cancelHold()` is not independently
+// re-verified at the integration level, and per this task's coordinator that
+// gap is accepted rather than chased further: task 5 deletes `showEarlier`,
+// `expandWindowStart`/`expandWindowEnd` and the view window outright, taking
+// `cancelHold`'s only caller with it.
 
 describe('composition: a day-chip tap dismisses the panel and still navigates', () => {
   afterEach(() => {

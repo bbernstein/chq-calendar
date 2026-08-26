@@ -37,10 +37,11 @@ function EventListViewInner({
     <>
       {groups.map((dayGroup) => (
         // The day-key attribute is the anchor every scroll consumer resolves
-        // against — the prepend correction, the rail's scrollspy, and its
-        // scroll-to. It is on the section wrapper rather than the sticky
-        // header, because a sticky header's rect stops reporting the
-        // section's real position the moment it sticks.
+        // against — `useDayAnchor`'s scrollspy and its scroll-to
+        // (`scrollToDay`/the settle hold it reasserts). It is on the section
+        // wrapper rather than the sticky header, because a sticky header's
+        // rect stops reporting the section's real position the moment it
+        // sticks.
         <div
           key={dayGroup.key}
           {...{ [DAY_SECTION_ATTR]: dayGroup.key }}

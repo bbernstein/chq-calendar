@@ -57,8 +57,10 @@ export const RAMP_MAX_PX = 200;
  * days. Two copies of the walk could drift; one cannot.
  *
  * `topOf` returns null for a day that is in the view window but has no
- * mounted section — the render window's subset is smaller than the view
- * window's day list — and such days are skipped rather than ending the walk.
+ * mounted section yet — the view window's own reducer commit hasn't landed
+ * as DOM at the instant this runs, not a separate render window's subset
+ * (#274 phase 4 deleted that) — and such days are skipped rather than
+ * ending the walk.
  */
 export function resolveAnchor(
   keys: string[],
