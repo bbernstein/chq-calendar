@@ -13,8 +13,8 @@ const railHeight = (el: HTMLElement) => el.getBoundingClientRect().height;
  * true — the gotcha #225 called out by name — so it is measured rather than
  * declared, and re-measured on every resize.
  *
- * See `usePublishedElementHeight` for the mechanism, which the filter card's
- * own measurement shares.
+ * See `usePublishedElementHeight` for the mechanism, which the site header's
+ * own measurement (`--site-header-h`) shares.
  */
 export function useDayRailHeight() {
   return usePublishedElementHeight(PROPERTY, railHeight);

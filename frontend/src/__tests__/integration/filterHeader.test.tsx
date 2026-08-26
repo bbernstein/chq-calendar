@@ -78,13 +78,16 @@ function eventsPayload() {
 }
 
 let mock: FetchMock;
-let io: ReturnType<typeof installIntersectionObserverMock>;
-let ro: ReturnType<typeof installResizeObserverMock>;
 
 beforeEach(() => {
   localStorage.clear();
-  io = installIntersectionObserverMock();
-  ro = installResizeObserverMock();
+  // Installed for their side effect — stubbing the globals `page.tsx` and its
+  // hooks construct on mount — and no longer captured. The handles existed to
+  // drive the sentinel's IntersectionObserver and to assert WHICH element the
+  // park offset observed; both went with the in-flow filter card (#274 phase
+  // 3). Nothing here now needs to trigger an observation by hand.
+  installIntersectionObserverMock();
+  installResizeObserverMock();
   mock = installFetchMock({ allowUnhandled: true });
   mock.on('GET', /all-events-\d{4}\.json/, eventsPayload());
 });

@@ -21,6 +21,15 @@ import { useCallback, useRef } from 'react';
  * which is the margin case above. It is gone with the in-flow filter card
  * itself (#274 phase 3) — see `filterHeaderLayout.ts`.
  *
+ * `measure` returned `number | null` for that caller alone: mid-exit the card
+ * was `position: fixed`, so the distance it would have measured was
+ * momentarily nonsense, and `null` meant "keep the last good value rather than
+ * publish a wrong one". Both remaining callers always return a number, so that
+ * branch became unreachable and is deleted rather than re-documented — a guard
+ * nothing can trigger is a guard nobody can test, and the type now says so. If
+ * a future caller needs to decline a measurement, widen this back
+ * deliberately.
+ *
  * Returned as a **callback ref** rather than an effect over an object ref so
  * it fires on mount, on unmount, and on any element swap, with no dependency
  * array to get wrong.
@@ -31,7 +40,7 @@ import { useCallback, useRef } from 'react';
  */
 export function usePublishedElementHeight(
   property: string,
-  measure: (el: HTMLElement) => number | null,
+  measure: (el: HTMLElement) => number,
 ) {
   const observerRef = useRef<ResizeObserver | null>(null);
   const measureRef = useRef(measure);
@@ -50,15 +59,8 @@ export function usePublishedElementHeight(
     }
 
     const publish = () => {
-      const value = measureRef.current(el);
-      // `null` means "the layout cannot be read meaningfully right now" —
-      // keep the last good value rather than publishing a wrong one. The
-      // filter card uses this while it is mid-exit and `position: fixed`,
-      // where the distance it would measure is momentarily nonsense and
-      // publishing it would flash the card back into view as the animation
-      // ends.
-      if (value === null) return;
-      document.documentElement.style.setProperty(propertyRef.current, `${value}px`);
+      document.documentElement.style.setProperty(
+        propertyRef.current, `${measureRef.current(el)}px`);
     };
     publish();
 
