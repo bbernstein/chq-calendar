@@ -66,10 +66,48 @@ export async function enterList(page) {
   }
 
   if (first === 'empty') {
-    throw new Error(
-      'enterList: the default screen is the generic empty state, which means ' +
-      'the feed came back empty or a filter leaked in from storage'
-    );
+    // Not necessarily the answer — it may be the *first* answer.
+    //
+    // `useEventData` starts with `events: []` and `loading: false` (loading
+    // only goes true once the fetch branch is reached), so there is a window
+    // on every load in which the page has no events and is not loading, and
+    // `EmptyState` is what renders in it. `goto`'s `networkidle` does not
+    // close that window: the feed fetch is issued from the app's own code
+    // after hydration, so it can start *after* the network has already gone
+    // quiet once.
+    //
+    // Measured 2026-08-26 under WebKit against the preview server: the race
+    // below resolved to `empty` while a plain `waitForTimeout(4000)` on the
+    // same page found 89 day sections. Chromium is fast enough here to lose
+    // that race the other way, which is exactly how a flake of this shape
+    // stays invisible until a second engine runs.
+    //
+    // So the empty state is confirmed rather than believed: it is the answer
+    // only if nothing else has arrived a few seconds later. The real
+    // condition this branch exists to catch — a filter leaked in from
+    // storage, a feed that came back empty — is permanent and survives the
+    // wait.
+    const later = await Promise.race([
+      page.waitForSelector(DAY, { timeout: 15000 }).then(() => 'day'),
+      page.waitForSelector(LANDING, { timeout: 15000 }).then(() => 'landing'),
+    ]).catch(() => 'still-empty');
+
+    if (later === 'still-empty') {
+      throw new Error(
+        'enterList: the default screen is still the generic empty state 15s ' +
+        'later, which means the feed came back empty or a filter leaked in ' +
+        'from storage'
+      );
+    }
+    if (later === 'day') {
+      announce('in-season');
+      return regime;
+    }
+    announce('off-season');
+    await enterSeasonFromLanding(page);
+    await page.waitForSelector(DAY, { timeout: 30000 });
+    await settleAtTop(page);
+    return regime;
   }
 
   announce('off-season');
