@@ -23,7 +23,7 @@ const URL = process.env.URL ?? 'http://localhost:3000/';
 
 const browser = await chromium.launch();
 
-async function phone({ reducedMotion } = {}) {
+async function phone({ reducedMotion, viewport } = {}) {
   // Chautauqua's own timezone, kept for belt-and-braces — it is not
   // load-bearing. The paragraph that used to be here claimed the app "treats
   // the browser's clock as event-time" and that whether `now` should be
@@ -41,7 +41,7 @@ async function phone({ reducedMotion } = {}) {
   // is not hour-sensitive; it is pinned below all the same, so that `E2E_NOW`
   // can reach it and its off-season branch is testable on any date.
   const ctx = await browser.newContext({
-    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    viewport: viewport ?? { width: 390, height: 844 }, isMobile: true, hasTouch: true,
     timezoneId: 'America/New_York',
     ...(reducedMotion ? { reducedMotion: 'reduce' } : {}),
   });
@@ -64,12 +64,45 @@ async function phone({ reducedMotion } = {}) {
   return page;
 }
 
-// `[aria-label="Filters"]` is load-bearing, not decorative: the rail now
-// carries TWO `[aria-expanded]` buttons — the week chooser trigger
-// (`data-week-chooser-trigger`, #274) sits before the Filters toggle in DOM
-// order, so `.first()` used to grab the chooser instead. Narrowed the same
-// way `filterHeader.test.tsx` already narrows its own DOM query.
-const toggle = p => p.locator('[data-day-rail] button[aria-expanded][aria-label="Filters"]').first();
+// The funnel lives in the SITE HEADER now (#274 phase 3), not on the day
+// rail.
+//
+// `[aria-label="Filters"]` is load-bearing, not decorative, and narrowing on
+// `[aria-expanded]` instead is what broke this suite once already: the day
+// rail's week-chooser trigger carries `aria-expanded` too, and so do the
+// header's own link menus. Any query for "the" control of a given ARIA shape
+// needs a selector specific enough to survive a sibling gaining the same
+// shape.
+const toggle = p => p.locator('[data-site-header] button[aria-label="Filters"]').first();
+
+/**
+ * Bring the site header back, the way a reader does: a small upward flick.
+ *
+ * Required before every toggle press that follows a downward gesture. A hidden
+ * header is parked above the viewport AND `inert`, so the funnel inside it is
+ * neither hittable nor scrollable-into-view (it is sticky; there is nowhere to
+ * scroll it to). That is the reachability contract this phase depends on —
+ * #272's reveal is what replaces the rail toggle's `visible` flag.
+ */
+const revealHeader = async (p) => {
+  await p.mouse.move(195, 500);
+  await p.mouse.wheel(0, -80);
+  await p.waitForTimeout(450);
+};
+
+/** Reveal the header, then open the panel from it. */
+const openFilters = async (p) => {
+  await revealHeader(p);
+  await toggle(p).click();
+  await p.waitForTimeout(600);
+};
+
+/** Whether the site header is showing, by its own painted position. */
+const headerShown = p => p.evaluate(() => {
+  const h = document.querySelector('[data-site-header]');
+  if (!h) return false;
+  return Math.round(h.getBoundingClientRect().top) >= -1;
+});
 const searchVisible = p => p.evaluate(() => {
   const el = document.querySelector('input[type="text"], input[type="search"]');
   if (!el) return false;
@@ -85,14 +118,29 @@ const pickRef = p => p.evaluate(() => {
 });
 const refTop = (p, k) => p.evaluate(
   key => Math.round(document.querySelector(`[data-day-key="${key}"]`).getBoundingClientRect().top), k);
-const fixedGhosts = p => p.evaluate(() =>
-  [...document.querySelectorAll('div')].filter(e => getComputedStyle(e).position === 'fixed'
-    && e.querySelector('input[type="text"], input[type="search"]')).length);
+/**
+ * Filter panels still being PAINTED — the "stranded ghost" signal.
+ *
+ * Counting `position: fixed` panels is what this used to do, and it stopped
+ * meaning anything in #274 phase 3: the panel is fixed in every state now,
+ * closed included, so that count is 1 forever and the check it fed could
+ * never fail. What must be zero after an exit is panels still occupying
+ * screen — which `display: none` (from the overlay's `hidden`) makes a
+ * zero-height rect.
+ */
+const strandedPanels = p => p.evaluate(() =>
+  [...document.querySelectorAll('[data-filter-card]')]
+    .filter(e => e.getBoundingClientRect().height > 0).length);
 
 // ─────────────────────────────────────────────── reveal still works
 {
   const p = await phone();
-  check('1 search visible at page top', await searchVisible(p));
+  // No filter card at the top of the page any more — search lives behind the
+  // funnel everywhere (#274 phase 3). The funnel itself is present from the
+  // first paint, which is the change: the rail's toggle only appeared once the
+  // reader had scrolled past the in-flow card.
+  check('1 no filter card in flow at page top, and a funnel in the header',
+    !(await searchVisible(p)) && await toggle(p).count() > 0);
   const chips = await p.$$eval('[data-day-rail] [data-chip]:not([aria-disabled="true"])', e => e.map(x => x.dataset.chip));
   const last = chips[chips.length - 1];
   await p.evaluate(k => document.querySelector(`[data-day-rail] [data-chip="${k}"]`).click(), last);
@@ -100,20 +148,80 @@ const fixedGhosts = p => p.evaluate(() =>
   check('2 rail teleports to the last day', (await p.evaluate(() => window.scrollY)) > 3000,
     `scrollY=${await p.evaluate(() => Math.round(window.scrollY))}, chip=${last}`);
   check('3 search is NOT reachable after the jump', !(await searchVisible(p)));
-  check('4 a filters toggle is present', await toggle(p).count() > 0);
 
   const refKey = await pickRef(p);
   const before = await refTop(p, refKey);
+  const railTopBefore = await p.evaluate(
+    () => Math.round(document.querySelector('[data-day-rail]').getBoundingClientRect().top));
   await toggle(p).click();
   await p.waitForTimeout(600);
   check('5 opening reveals the search field', await searchVisible(p));
+  // Stronger than it was. The panel used to insert real in-flow content above
+  // the reader and `useFilterPanel` corrected for it; now there is nothing to
+  // correct, so any movement at all is a defect rather than a correction that
+  // came out even.
   check('6 opening does not move the reader', Math.abs((await refTop(p, refKey)) - before) <= 2,
     `day ${refKey}: ${before} → ${await refTop(p, refKey)}`);
   check('7 toggle reports expanded', (await toggle(p).getAttribute('aria-expanded')) === 'true');
-  check('8 rail still visible with panel open', await p.evaluate(() => {
-    const r = document.querySelector('[data-day-rail]')?.getBoundingClientRect();
-    return !!r && r.top >= -1 && r.bottom <= window.innerHeight + 1 && r.height > 0;
-  }));
+  // The panel OVERLAYS the rail rather than displacing it — the rail's own
+  // `top` is unchanged by opening. That is deliberate: the rail's height is
+  // what every day header and scroll target is computed against
+  // (`dayHeaderTop`), so a panel that moved the rail would move all of them.
+  const railTopAfter = await p.evaluate(
+    () => Math.round(document.querySelector('[data-day-rail]').getBoundingClientRect().top));
+  check('8 the panel overlays the rail rather than displacing it',
+    Math.abs(railTopAfter - railTopBefore) <= 1,
+    `railTop ${railTopBefore} → ${railTopAfter}`);
+  await p.context().close();
+}
+
+// ───────────────────── the funnel comes back with the header, from anywhere
+//
+// This is what replaces the rail toggle's `visible` flag. The rail's Filters
+// button appeared once the reader had scrolled past the in-flow card; the
+// header's funnel is always there, and reachability comes from #272's reveal
+// instead — so the reveal is what has to be proved, not the flag.
+//
+// Its own page, deliberately. Running it after the rail teleport in the block
+// above did not work and reported a failure against a correct app: the
+// teleport leaves `useDayAnchor`'s hold pinning the anchored day across
+// content changes, so a `window.scrollTo` into the middle of the list is
+// undone and the reader stays at the document's end — where a downward wheel
+// scrolls nothing, `scrollY` never changes, and the reveal rule is right to
+// decide nothing. Probed directly: five 200px wheels, scrollY 7573 every
+// time.
+{
+  const p = await phone();
+  await p.evaluate(() => window.scrollTo(0, 6000));
+  await p.waitForTimeout(800);
+
+  // Wheel until it is actually hidden rather than assuming one tick does it —
+  // the lesson `verify-header-reveal`'s own `deepAndHidden` already carries.
+  // One tick is not a reliable unit of scrolling: WebKit on Linux splits a
+  // single tick across frames, and a correction still in flight can net
+  // against it.
+  let hidden = false;
+  for (let i = 0; i < 5 && !hidden; i++) {
+    await p.mouse.move(195, 500);
+    await p.mouse.wheel(0, 120);
+    await p.waitForTimeout(450);
+    hidden = !(await headerShown(p));
+  }
+  // The precondition is asserted, not assumed. A funnel that "came back" from
+  // a header that never left proves nothing.
+  check('4a the header, and the funnel with it, goes away on a downward flick',
+    hidden, `headerShown=${await headerShown(p)}`);
+
+  await revealHeader(p);
+  check('4b a small upward flick brings both back, and the funnel is usable',
+    await headerShown(p) && await toggle(p).isEnabled()
+      && !(await p.evaluate(() =>
+        !!document.querySelector('[data-site-header]')?.hasAttribute('inert'))),
+    `headerShown=${await headerShown(p)}`);
+
+  await toggle(p).click();
+  await p.waitForTimeout(600);
+  check('4c and the panel opens from it, deep in the list', await searchVisible(p));
   await p.context().close();
 }
 
@@ -122,20 +230,25 @@ const fixedGhosts = p => p.evaluate(() =>
   const p = await phone();
   await p.evaluate(() => window.scrollTo(0, 6000));
   await p.waitForTimeout(800);
-  await toggle(p).click();
-  await p.waitForTimeout(600);
+  await openFilters(p);
   check('9 panel opens when scrolled', await searchVisible(p));
 
   // A filter change must NOT dismiss — picking a venue, a category and a week
   // is one intent. This is the guard against keying dismissal off `scroll`.
   //
   // `All Season`, not `Today`, and the difference is regime, not taste.
-  // Off-season `Today` matches nothing: the list empties, the document
-  // collapses from ~11,000px to ~985px, the "scrolled past" signal resets and
-  // the rail's Filters toggle goes with it — so the panel is gone for a
-  // reason that has nothing to do with dismissal, and checks 10, 11 and 15
-  // all failed on a correct app. Measured off-season, pinned to 2026-09-15:
-  // days 4 → 0, docH 11042 → 985, toggle true → false.
+  // Off-season `Today` matches nothing: the list empties and the document
+  // collapses from ~11,000px to ~985px, pulling the page out from under every
+  // check that follows. Measured off-season, pinned to 2026-09-15: days 4 → 0,
+  // docH 11042 → 985.
+  //
+  // The original reason was sharper and is now gone: the collapse also reset
+  // the "scrolled past" signal, which took the rail's Filters toggle with it,
+  // so the panel vanished for a reason that had nothing to do with dismissal
+  // and checks 10, 11 and 15 all failed on a correct app. #274 phase 3 deleted
+  // both the signal and that toggle — the header's funnel is unconditional —
+  // so that particular failure is unreachable. The document collapse is not,
+  // which is why the choice stands.
   //
   // `All Season` is the same kind of thing — a date scope the reader picked —
   // and leaves a populated list in either regime, so the check keeps its
@@ -206,8 +319,8 @@ const fixedGhosts = p => p.evaluate(() =>
         Math.abs(moved + WHEEL) <= 4, `moved ${moved}px, wheel was ${WHEEL}px`);
     }
   }
-  check('14 no fixed ghost left behind after the exit', (await fixedGhosts(p)) === 0,
-    `${await fixedGhosts(p)} fixed panel(s)`);
+  check('14 no panel left painted after the exit', (await strandedPanels(p)) === 0,
+    `${await strandedPanels(p)} painted panel(s)`);
   // Scrolling back up must NOT bring it back — only the toggle does.
   await p.evaluate(() => window.scrollBy(0, -400));
   await p.waitForTimeout(700);
@@ -220,8 +333,7 @@ const fixedGhosts = p => p.evaluate(() =>
   const p = await phone();
   await p.evaluate(() => window.scrollTo(0, 6000));
   await p.waitForTimeout(800);
-  await toggle(p).click();
-  await p.waitForTimeout(600);
+  await openFilters(p);
   await p.touchscreen.tap(195, 780);
   await p.waitForTimeout(900);
   check('16 a touch gesture dismisses the panel', !(await searchVisible(p)));
@@ -233,8 +345,7 @@ const fixedGhosts = p => p.evaluate(() =>
   const p = await phone();
   await p.evaluate(() => window.scrollTo(0, 6000));
   await p.waitForTimeout(800);
-  await toggle(p).click();
-  await p.waitForTimeout(600);
+  await openFilters(p);
   // A chip's Tailwind colour transition ends and bubbles to the panel. If the
   // exit listener does not filter on target, that cuts the slide short.
   //
@@ -248,7 +359,7 @@ const fixedGhosts = p => p.evaluate(() =>
   await p.waitForTimeout(60);
   await p.evaluate(() => {
     // aria-label narrows past the week chooser trigger — see `toggle` above.
-    const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+    const t = document.querySelector('[data-site-header] button[aria-label="Filters"]');
     const panel = t && document.getElementById(t.getAttribute('aria-controls'));
     panel?.querySelector('button')?.dispatchEvent(
       new TransitionEvent('transitionend', { bubbles: true, propertyName: 'color' }));
@@ -256,7 +367,7 @@ const fixedGhosts = p => p.evaluate(() =>
   await p.waitForTimeout(60);
   const midSlide = await p.evaluate(() => {
     // aria-label narrows past the week chooser trigger — see `toggle` above.
-    const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+    const t = document.querySelector('[data-site-header] button[aria-label="Filters"]');
     const el = t && document.getElementById(t.getAttribute('aria-controls'));
     if (!el) return { found: false };
     const cs = getComputedStyle(el);
@@ -266,23 +377,27 @@ const fixedGhosts = p => p.evaluate(() =>
     midSlide.found && midSlide.position === 'fixed' && midSlide.opacity > 0 && midSlide.opacity < 1,
     `position=${midSlide.position} opacity=${midSlide.opacity} display=${midSlide.display}`);
 
-  // The dismissal's own correction scrolls ~panel-height toward the top, which
-  // can carry the reader back above the sentinel mid-exit. If the gate is not
-  // latched, the half-faded ghost snaps back into flow, fully opaque.
   await p.context().close();
 }
 {
   const p = await phone();
-  // Park just past the sentinel, so the correction's upward scroll crosses it.
+  // A shallow scroll position, just past the rail.
+  //
+  // This block used to exist for a race that is gone: the dismissal's own
+  // scroll correction could carry the reader back across the sentinel
+  // mid-exit, dropping the ghost out of `position: fixed` at full opacity.
+  // There is no correction and no sentinel now. It is kept because the depth
+  // is where the FIRST dismissal of a session happens for most readers, and
+  // the first dismissal is the one that was broken — a shallow position is a
+  // different exit from the deep one every other block here uses.
   const justPast = await p.evaluate(() => {
     const rail = document.querySelector('[data-day-rail]');
     return Math.round(rail.getBoundingClientRect().top + window.scrollY + 120);
   });
   await p.evaluate(y => window.scrollTo(0, y), justPast);
   await p.waitForTimeout(800);
-  if (await toggle(p).count() > 0) {
-    await toggle(p).click();
-    await p.waitForTimeout(500);
+  {
+    await openFilters(p);
     await p.mouse.move(195, 700);
     await p.mouse.wheel(0, 100);
     // Sample mid-exit, inside the animation window.
@@ -293,7 +408,7 @@ const fixedGhosts = p => p.evaluate(() =>
     // earlier version of this check report a false failure.
     const mid = await p.evaluate(() => {
       // aria-label narrows past the week chooser trigger — see `toggle` above.
-      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+      const t = document.querySelector('[data-site-header] button[aria-label="Filters"]');
       const el = t && document.getElementById(t.getAttribute('aria-controls'));
       if (!el) return { found: false };
       const cs = getComputedStyle(el);
@@ -306,9 +421,7 @@ const fixedGhosts = p => p.evaluate(() =>
       !mid.found || (mid.position === 'fixed' && mid.opacity > 0 && mid.opacity < 1),
       `mid-exit position=${mid.position} opacity=${mid.opacity}`);
     await p.waitForTimeout(900);
-    check('19 it finishes and leaves nothing behind', (await fixedGhosts(p)) === 0);
-  } else {
-    check('18/19 sentinel-race scenario reachable', false, 'no toggle at that scroll position');
+    check('19 it finishes and leaves nothing behind', (await strandedPanels(p)) === 0);
   }
   await p.context().close();
 }
@@ -318,8 +431,7 @@ const fixedGhosts = p => p.evaluate(() =>
   const p = await phone();
   await p.evaluate(() => window.scrollTo(0, 6000));
   await p.waitForTimeout(800);
-  await toggle(p).click();
-  await p.waitForTimeout(600);
+  await openFilters(p);
 
   const caret = p.getByRole('button', { name: /hide filters/i });
   check('20 a Hide filters caret is present', await caret.count() > 0);
@@ -379,8 +491,7 @@ const fixedGhosts = p => p.evaluate(() =>
   const sample = async () => {
     await p.evaluate(() => window.scrollTo(0, 6000));
     await p.waitForTimeout(700);
-    await toggle(p).click();
-    await p.waitForTimeout(500);
+    await openFilters(p);
     // Diagnostic, gathered in the same round trip as arming the trace below
     // so it adds none of its own delay before the gesture: confirms the
     // panel actually opened (and isn't already mid-exit from a previous
@@ -391,7 +502,7 @@ const fixedGhosts = p => p.evaluate(() =>
     // would dismiss.
     const openedBefore = await p.evaluate(() => {
       const at = document.elementFromPoint(195, 700);
-      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+      const t = document.querySelector('[data-site-header] button[aria-label="Filters"]');
       const el = t && document.getElementById(t.getAttribute('aria-controls'));
       return {
         atPointInPanel: !!(el && at && el.contains(at)),
@@ -404,36 +515,38 @@ const fixedGhosts = p => p.evaluate(() =>
     const scrollYBeforeWheel = await p.evaluate(() => window.scrollY);
     // Arm the trace BEFORE the gesture, so the first frame after the exit's
     // own commit is inside the recorded window rather than racing a
-    // fixed-delay sample against the compositor. Runs until the panel
-    // settles back OUT of its `position: fixed` ghost state, or ~1500ms
-    // elapses.
+    // fixed-delay sample against the compositor. Runs until the panel stops
+    // being painted, or ~1500ms elapses.
     //
-    // Deliberately NOT waiting for `display: none` or removal: per
-    // `useFilterPanel.ts`'s "Exit animation" doc, a finished exit re-enters
-    // flow PARKED off-screen (`filterCardParked` in `filterHeaderLayout.ts`)
-    // — still in the DOM, still `display: block` — so those never happen and
-    // waiting for them would hang. Confirmed against a live preview build:
-    // the settled panel is `position: static`, parked above the viewport.
+    // The settle signal used to be "the panel left `position: fixed`", and
+    // #274 phase 3 made that unreachable: the panel is fixed in EVERY state
+    // now, so the loop would run to its ceiling every time and `endedGone`
+    // would be false against perfectly correct code. The end of an exit is
+    // the overlay going `hidden`, which is a zero-height rect — measured
+    // rather than read off `getComputedStyle().display`, which reports a
+    // descendant of a `display: none` ancestor as its own specified value
+    // rather than as `none`.
     await p.evaluate(() => {
-      const t = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
+      const t = document.querySelector('[data-site-header] button[aria-label="Filters"]');
       const el = t && document.getElementById(t.getAttribute('aria-controls'));
       window.__exitTrace = [];
       window.__exitTraceDone = false;
       if (!el) { window.__exitTraceDone = true; return; }
       const start = performance.now();
-      let sawFixed = false;
+      let sawExitClass = false;
       const frame = () => {
         const cs = getComputedStyle(el);
-        const fixed = cs.position === 'fixed';
-        sawFixed = sawFixed || fixed;
+        const painted = el.getBoundingClientRect().height > 0;
+        sawExitClass = sawExitClass || el.classList.contains('filter-panel-exit');
         window.__exitTrace.push({
           t: Math.round(performance.now() - start),
           opacity: Number(cs.opacity),
           position: cs.position,
-          display: cs.display,
+          painted,
+          exitClass: el.classList.contains('filter-panel-exit'),
           connected: el.isConnected,
         });
-        const settled = !el.isConnected || (sawFixed && !fixed);
+        const settled = !el.isConnected || (sawExitClass && !painted);
         if (settled || performance.now() - start > 1500) { window.__exitTraceDone = true; return; }
         requestAnimationFrame(frame);
       };
@@ -447,7 +560,8 @@ const fixedGhosts = p => p.evaluate(() =>
     const trace = await p.evaluate(() => window.__exitTrace);
     const scrollYAfterWheel = await p.evaluate(() => window.scrollY);
     const opacities = trace.map(f => f.opacity);
-    const everFixed = trace.some(f => f.position === 'fixed');
+    const alwaysFixed = trace.every(f => f.position === 'fixed');
+    const sawExitClass = trace.some(f => f.exitClass);
     const lastFrame = trace[trace.length - 1] ?? null;
     return {
       openedBefore,
@@ -455,13 +569,14 @@ const fixedGhosts = p => p.evaluate(() =>
       scrollYAfterWheel,
       frames: trace.length,
       minOpacity: opacities.length ? Math.min(...opacities) : null,
-      everFixed,
+      // The invariant, checked on every frame of the one state that used to
+      // break it: an exiting panel is fixed for the whole animation.
+      alwaysFixed,
       hadIntermediateOpacity: opacities.some(o => o > 0 && o < 1),
-      // A real exit ended: the ghost genuinely went `position: fixed` at
-      // some point and, by the time the loop stopped, genuinely settled
-      // back out of it (see the "NOT waiting for `display: none`" note
-      // above for why this, not display or removal, is the end signal).
-      endedGone: everFixed && !!lastFrame && lastFrame.position !== 'fixed',
+      // A real exit ran and ended: the panel genuinely carried the transition
+      // class at some point, and by the time the loop stopped it was no
+      // longer painted.
+      endedGone: sawExitClass && !!lastFrame && !lastFrame.painted,
     };
   };
   const first = await sample();
@@ -471,11 +586,13 @@ const fixedGhosts = p => p.evaluate(() =>
   //  - `hadIntermediateOpacity` is the actual bug this block exists to
   //    catch — a dismissal that SNAPS goes opacity 1 -> gone with no frame
   //    in between, exactly what an unthrottled/instant transition produces.
-  //  - `everFixed && endedGone` is a sanity check that a real exit happened
-  //    at all (as opposed to, say, the gesture being swallowed and nothing
-  //    moving), matching what the original check asserted about `position`.
-  const passed = r => r.hadIntermediateOpacity && r.everFixed && r.endedGone;
-  const detail = r => `frames=${r.frames} minOpacity=${r.minOpacity} everFixed=${r.everFixed} `
+  //  - `endedGone` is a sanity check that a real exit happened at all (as
+  //    opposed to, say, the gesture being swallowed and nothing moving).
+  //  - `alwaysFixed` is the phase-3 invariant, sampled on every painted frame
+  //    of the exit — the one state in which the old code switched the panel
+  //    out of flow and back.
+  const passed = r => r.hadIntermediateOpacity && r.alwaysFixed && r.endedGone;
+  const detail = r => `frames=${r.frames} minOpacity=${r.minOpacity} alwaysFixed=${r.alwaysFixed} `
     + `endedGone=${r.endedGone} hadIntermediateOpacity=${r.hadIntermediateOpacity} `
     + `scrollY=${r.scrollYBeforeWheel}->${r.scrollYAfterWheel} openedBefore=${JSON.stringify(r.openedBefore)}`;
   check('28 the FIRST dismissal animates', passed(first), detail(first));
@@ -488,13 +605,12 @@ const fixedGhosts = p => p.evaluate(() =>
   const p = await phone({ reducedMotion: true });
   await p.evaluate(() => window.scrollTo(0, 6000));
   await p.waitForTimeout(800);
-  await toggle(p).click();
-  await p.waitForTimeout(500);
+  await openFilters(p);
   await p.mouse.move(195, 700);
   await p.mouse.wheel(0, 120);
   await p.waitForTimeout(60);           // well inside the animation window
-  check('27 reduced motion removes it immediately, no ghost', (await fixedGhosts(p)) === 0
-    && !(await searchVisible(p)), `ghosts=${await fixedGhosts(p)}`);
+  check('27 reduced motion removes it immediately, no ghost', (await strandedPanels(p)) === 0
+    && !(await searchVisible(p)), `painted=${await strandedPanels(p)}`);
   await p.context().close();
 }
 
@@ -529,34 +645,149 @@ const fixedGhosts = p => p.evaluate(() =>
   check('31 slow scrolling never snaps the reader backwards', reversals === 0,
     `${reversals} of ${TICKS} ticks moved up`);
 
-  // The mechanism, asserted directly, so a refactor back to `display: none`
-  // fails here even if the scroll numbers happened to look acceptable.
-  const parked = await p.evaluate(() => {
-    // Identify the card the way the accessibility tree does — the element the
-    // toggle names — not by guessing at a class or a shape. A fallback
-    // selector here found a different element entirely on a build where the
-    // card was `display: none`, and reported it as passing.
-    // aria-label narrows past the week chooser trigger — see `toggle` above.
-    const btn = document.querySelector('[data-day-rail] button[aria-expanded][aria-label="Filters"]');
-    const id = btn?.getAttribute('aria-controls');
-    const card = id ? document.getElementById(id) : null;
-    if (!card) return null;
-    const cs = getComputedStyle(card);
-    const rail = document.querySelector('[data-day-rail]');
+  await p.context().close();
+}
+
+// ─────────────── the invariant itself: the panel is never in flow
+//
+// This is the strongest check in the suite, and the one that would have caught
+// the original bug directly rather than through its symptom. Checks 30 and 31
+// above measure the symptom — a page that could not be scrolled slowly. This
+// measures the cause: **opening the filter panel must not change document
+// height by one pixel.** Nothing above the reader can move if the document
+// does not grow, so there is nothing for scroll anchoring to correct and
+// nothing for the collapse to destroy.
+//
+// The checks that used to live here asserted the OPPOSITE half of the old
+// design — that the card stayed in flow, that it was `inert` while parked, and
+// that it sat exactly above the viewport with the rail flush at the top. All
+// three are meaningless now, and deleting them is only acceptable because this
+// replaces them with something stronger: they described one particular way of
+// surviving the failure, and this describes the failure being unreachable.
+{
+  const p = await phone();
+  await p.evaluate(() => window.scrollTo(0, 6000));
+  await p.waitForTimeout(800);
+
+  const docHeight = () => p.evaluate(() => document.documentElement.scrollHeight);
+  // Reveal the header FIRST, then take the closed baseline. The reveal is a
+  // real wheel gesture, and a wheel moves the reader — which can grow the
+  // render window and change document height for reasons that have nothing to
+  // do with the panel. Measuring across it made this check report a 27px
+  // change against code whose panel changes nothing (probed directly: 7417px
+  // in all three states). The only thing allowed to vary between the two
+  // measurements is the panel.
+  await revealHeader(p);
+  const closedBefore = await docHeight();
+  await toggle(p).click();
+  await p.waitForTimeout(700);
+  const opened = await docHeight();
+  const openedScrollY = await p.evaluate(() => Math.round(window.scrollY));
+
+  check('32 opening the panel does not change document height',
+    opened === closedBefore, `${closedBefore}px → ${opened}px`);
+
+  // And it must not move the reader either — the same claim check 6 makes,
+  // restated at depth and against the document rather than a day section, so
+  // a correction that happened to come out even would still be visible as a
+  // height change above.
+  await p.evaluate(() => {
+    const t = document.querySelector('[data-site-header] button[aria-label="Filters"]');
+    t?.click();
+  });
+  await p.waitForTimeout(900);
+  const closedAfter = await docHeight();
+  check('33 closing the panel does not change document height either',
+    closedAfter === closedBefore, `${closedBefore}px → ${opened}px → ${closedAfter}px`);
+  check('34 neither open nor close moved the reader',
+    Math.abs((await p.evaluate(() => Math.round(window.scrollY))) - openedScrollY) <= 1,
+    `scrollY ${openedScrollY} → ${await p.evaluate(() => Math.round(window.scrollY))}`);
+  await p.context().close();
+}
+
+// ───────────────────────── an open panel holds the site header revealed
+//
+// The one genuinely new behaviour in #274 phase 3. The panel hangs off the
+// header's bottom edge; a header that hid out from under it would leave the
+// panel floating against nothing.
+//
+// The release is one-directional and that is checked too: closing the panel
+// hands the rule back rather than hiding a revealed header, and the reader's
+// NEXT downward gesture is what hides it.
+{
+  const p = await phone();
+  await p.evaluate(() => window.scrollTo(0, 6000));
+  await p.waitForTimeout(800);
+  await openFilters(p);
+  check('35 the panel opens with the header shown', await headerShown(p));
+
+  // A downward wheel over the list dismisses the panel — and during that same
+  // gesture the header must not have gone anywhere underneath it.
+  await p.mouse.move(195, 700);
+  await p.mouse.wheel(0, 120);
+  await p.waitForTimeout(900);
+  check('36 the dismissing gesture leaves the header where the reader can reach it',
+    await headerShown(p), `headerShown=${await headerShown(p)}`);
+
+  // Rule handed back: a fresh downward gesture, with no panel open, hides it
+  // again. A hold that was never released would pin the header open forever.
+  await p.mouse.move(195, 500);
+  await p.mouse.wheel(0, 300);
+  await p.waitForTimeout(600);
+  check('37 the header hides again once the panel is closed',
+    !(await headerShown(p)), `headerShown=${await headerShown(p)}`);
+  await p.context().close();
+}
+
+// ─────────────── the drawer handle stays a handle when the drawer overflows
+//
+// The panel caps its own height and scrolls internally, and the caret lives
+// inside that scroll container. When the contents exceed the cap, an ordinary
+// caret scrolls away with them — a drawer handle the reader has to scroll the
+// drawer to find is not a drawer handle. `sticky bottom-0` on the caret is
+// what stops that.
+//
+// Not a #274 phase 3 regression, despite a review flagging it as one: the
+// caret sat inside the `max-h-[70vh] overflow-y-auto` element before that
+// phase too. It has been worth fixing since it was written.
+//
+// **A landscape phone (844x390), not the portrait one every other block uses.**
+// Portrait does not overflow and never will at this content size — measured
+// 313px of content against a 768px cap at 390x844, and still 313 against 404
+// at 390x480. A check written at 390x844 would pass with the `sticky` removed
+// and prove nothing. The precondition is asserted below rather than assumed,
+// for exactly that reason.
+{
+  const p = await phone({ viewport: { width: 844, height: 390 } });
+  await p.evaluate(() => window.scrollTo(0, 3000));
+  await p.waitForTimeout(700);
+  await openFilters(p);
+
+  const caret = await p.evaluate(() => {
+    const box = document.querySelector('[data-filter-panel-box]');
+    const el = [...document.querySelectorAll('button')]
+      .find(b => b.getAttribute('aria-label') === 'Hide filters');
+    if (!box || !el) return null;
+    const b = box.getBoundingClientRect();
+    const c = el.getBoundingClientRect();
     return {
-      display: cs.display,
-      inert: card.hasAttribute('inert'),
-      bottom: Math.round(card.getBoundingClientRect().bottom),
-      railTop: rail ? Math.round(rail.getBoundingClientRect().top) : null,
+      // The precondition: the panel really is scrolling internally here.
+      overflows: box.scrollHeight > box.clientHeight + 1,
+      scrollH: box.scrollHeight,
+      clientH: box.clientHeight,
+      // And the caret is inside the panel's VISIBLE box, without anyone
+      // having scrolled the panel first.
+      visible: c.bottom <= b.bottom + 1 && c.top >= b.top - 1 && c.height > 0,
+      caret: `${Math.round(c.top)}→${Math.round(c.bottom)}`,
+      boxBottom: Math.round(b.bottom),
     };
   });
-  check('32 the parked card stays in flow rather than being removed from it',
-    !!parked && parked.display !== 'none', JSON.stringify(parked));
-  check('33 the parked card is out of reach of keyboard and screen readers',
-    !!parked && parked.inert, `inert=${parked?.inert}`);
-  check('34 the card is parked above the viewport with the rail flush at the top',
-    !!parked && parked.bottom <= 1 && Math.abs(parked.railTop) <= 1,
-    `cardBottom=${parked?.bottom} railTop=${parked?.railTop}`);
+  check('38-pre the panel actually overflows its cap at this size',
+    !!caret && caret.overflows,
+    caret ? `scrollHeight=${caret.scrollH} clientHeight=${caret.clientH}` : 'no panel');
+  check('38 the Hide filters caret stays on screen when the panel overflows',
+    !!caret && caret.overflows && caret.visible,
+    caret ? `caret ${caret.caret}, panel bottom ${caret.boxBottom}` : 'no caret');
   await p.context().close();
 }
 

@@ -62,8 +62,9 @@ const HIDDEN = '0px';
  *
  * ## Why the decision is published as a CSS variable, not returned as state
  *
- * Two surfaces have to move together: the header itself, and the sticky
- * filter/rail container that rides down to sit below it. Threading the
+ * Several surfaces have to move together: the header itself, the day rail
+ * that rides down to sit below it, and the filter panel that hangs off its
+ * bottom edge as a fixed overlay. Threading the
  * decision through `page.tsx` would work, and would re-render the whole
  * calendar — 1,470 events and every memo above them — on each direction
  * change. Writing `--site-header-offset` on `:root` instead lets both
@@ -73,18 +74,46 @@ const HIDDEN = '0px';
  * `revealed` is still returned, because one thing genuinely cannot be done in
  * CSS: a hidden header is parked just above the viewport, still in the DOM
  * and still in flow, so it is Tab-reachable. The caller needs it for `inert`.
- * This is the same trap `filterCardParked` documents — the browser will chase
- * a focused control inside a pinned sticky element it cannot scroll into
- * view.
+ * The browser will chase a focused control inside a pinned sticky element it
+ * cannot scroll into view — see `filterHeaderLayout.ts`, which documents the
+ * same trap for the filter card that used to be parked the same way.
  *
  * The property is written only when the decision actually flips, not on every
  * `scroll` event.
+ *
+ * ## Holding it open
+ *
+ * `holdRevealed` suspends the rule entirely: the header stays shown however
+ * the reader scrolls. It exists for the filter panel (#274 phase 3), which
+ * hangs off the header's bottom edge as a fixed overlay — a header that hid
+ * underneath an open panel would leave the panel floating against nothing.
+ *
+ * The hold is one-directional by design. Turning it on reveals a hidden
+ * header; turning it off does NOT hide a revealed one, it just hands the rule
+ * back. Releasing into a hide would move chrome the reader never asked to
+ * move, and the panel's own dismissal already comes from a scroll gesture —
+ * so the sequence is: gesture → panel dismisses → header resumes its normal
+ * reveal/hide on the reader's NEXT gesture.
  */
-export function useSiteHeaderReveal() {
+export function useSiteHeaderReveal({ holdRevealed = false }: {
+  /**
+   * Keep the header shown regardless of scrolling, for as long as this is
+   * true. See "Holding it open" above.
+   */
+  holdRevealed?: boolean;
+} = {}) {
   const [revealed, setRevealed] = useState(true);
   const stateRef = useRef(initialHeaderReveal(0));
   /** The current decision, readable from callbacks captured on first render. */
   const revealedRef = useRef(true);
+  /**
+   * Whether something is holding the header open.
+   *
+   * A ref rather than a closed-over prop for the same reason `revealedRef` is
+   * one: every listener below is captured once, on first render, and would
+   * read the value `holdRevealed` had then forever.
+   */
+  const heldRef = useRef(false);
 
   // The top zone is the header's own height: within it the header has not yet
   // reached the position it would stick at, so "hidden" is not a state the
@@ -136,12 +165,15 @@ export function useSiteHeaderReveal() {
      * covers what the browser does in reaction to OUR scrolls, because those
      * announce themselves; it cannot cover what the browser does in reaction
      * to a layout change we made without scrolling at all. Measured in
-     * WebKit: opening the filter panel from the rail found no day section to
-     * anchor to, so `useFilterPanel` captured no reference, corrected nothing
-     * and announced nothing — and WebKit's scroll anchoring moved the page
-     * 44px by itself. The header hid on a tap nobody scrolled. Requiring a
-     * gesture holds for layout-changing code nobody has written yet, which
-     * making every such site announce does not.
+     * WebKit, back when the filter panel was in-flow content: opening it from
+     * the rail found no day section to anchor to, so `useFilterPanel`
+     * captured no reference, corrected nothing and announced nothing — and
+     * WebKit's scroll anchoring moved the page 44px by itself. The header hid
+     * on a tap nobody scrolled. That particular site is gone (#274 phase 3
+     * made the panel a fixed overlay, so opening it changes no layout at
+     * all), but the rule it bought is kept deliberately: requiring a gesture
+     * holds for layout-changing code nobody has written yet, which making
+     * every such site announce does not.
      *
      * A window rather than "consume it on the next scroll", because a gesture
      * is not one scroll event — see `GESTURE_WINDOW_MS`, where consuming it
@@ -222,6 +254,17 @@ export function useSiteHeaderReveal() {
       // No `&& !settling` here: `readerDriven` below already requires it, and
       // settling only ends at a gesture, which refreshes this anyway.
       if (coasting) lastGestureAt = now;
+      // Held open — today, by an open filter panel. Resync rather than a bare
+      // return, and that distinction is the whole of the release behaviour: a
+      // baseline frozen at wherever the page was when the panel opened would
+      // measure the reader's first gesture after it closes against a stale
+      // position, so a reader who scrolled 500px with the panel open would
+      // find the header deciding on a 500px delta they made minutes ago. The
+      // resync keeps the baseline current while deciding nothing.
+      if (heldRef.current) {
+        stateRef.current = resyncHeaderReveal(previous, window.scrollY);
+        return;
+      }
       // `coasting` outranks the settle. A settle is closed by a gesture, and a
       // flick has none left to give — so a correction landing before the coast
       // had accumulated its 24px used to discard every remaining frame of the
@@ -399,6 +442,23 @@ export function useSiteHeaderReveal() {
       publishRef.current = null;
     };
   }, []);
+
+  // Declared after the effect that creates `publish`, so `publishRef` is
+  // populated by the time this first runs — effects fire in declaration order.
+  useEffect(() => {
+    heldRef.current = holdRevealed;
+    if (!holdRevealed) return;
+    // A fresh baseline AT the current position, revealed. Not
+    // `resyncHeaderReveal`, which preserves whatever `revealed` already was:
+    // holding a hidden header open has to change that flag, or the rule would
+    // resume from "hidden" the moment the hold ends and the first upward
+    // gesture would reveal a header that is already shown.
+    stateRef.current = initialHeaderReveal(window.scrollY);
+    if (revealedRef.current) return;
+    revealedRef.current = true;
+    setRevealed(true);
+    publishRef.current?.(true);
+  }, [holdRevealed]);
 
   return { revealed, headerRef };
 }

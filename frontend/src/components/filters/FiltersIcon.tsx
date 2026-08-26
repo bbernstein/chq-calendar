@@ -1,14 +1,21 @@
 /**
- * D5: a funnel icon replaces the word "Filters" on the rail, where
- * horizontal space is scarcest. Purely presentational — it knows nothing
- * about the panel's open/closed state, only whether to paint the
- * active-filter dot, so it stays testable without a panel harness.
+ * D5: a funnel icon in place of the word "Filters". Purely presentational —
+ * it knows nothing about the panel's open/closed state, only whether to paint
+ * the active-filter dot, so it stays testable without a panel harness.
  *
- * Decorative in both parts: the toggle button that renders this already
- * carries `aria-label="Filters"` (see DayRail.tsx), so the funnel SVG and
- * the dot are each marked `aria-hidden="true"` individually — letting
- * either paint into the accessible name would silently rename the control
- * a screen-reader user has already learned.
+ * It was introduced for the day rail, where horizontal space is scarcest, and
+ * moved with the toggle into the site header in #274 phase 3 (see
+ * `Header.tsx`; the rail hosts no Filters control at all now). The space
+ * argument still holds where it landed — the header's right cluster carries
+ * the funnel plus one or three link controls on a phone-width row.
+ *
+ * Decorative in both parts: the toggle button that renders this carries its
+ * own `aria-label="Filters"`, so the funnel SVG and the dot are each marked
+ * `aria-hidden="true"` individually. Worth being exact about what that buys,
+ * because the obvious reading is wrong and was falsified: an explicit
+ * `aria-label` on the button already outranks its contents, so a label on the
+ * SVG could not rename the control anyway. What `aria-hidden` prevents is the
+ * icon and the dot being announced as content in their own right.
  */
 export function FiltersIcon({ active }: { active: boolean }) {
   return (

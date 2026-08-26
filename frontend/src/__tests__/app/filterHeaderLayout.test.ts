@@ -1,100 +1,96 @@
 import { describe, expect, it } from 'vitest';
-import { dayHeaderTop, filterCardParked, filterHeaderTop, siteHeaderTop } from '@/app/filterHeaderLayout';
+import {
+  belowHeaderTop, dayHeaderTop, filterPanelMaxHeight, siteHeaderTop,
+} from '@/app/filterHeaderLayout';
 
 // The rule these pin is the fix for a bug jsdom cannot reproduce: hiding the
 // filter card removed ~290px of flow height above the reader, scroll
 // anchoring subtracted that from `scrollY`, and the page could not be
 // scrolled slowly at all — 2400px of wheel input advanced it 0px in both
-// Chromium and WebKit. The browser probe in
-// `.superpowers/sdd/.../probes/probe-negative-top.mjs` is what measures
-// that; these pin the decision the fix turns on, so a refactor that quietly
-// restores "collapse by removing it from flow" fails here rather than in
-// production.
-describe('filterHeaderTop', () => {
-  it('parks the header by the filter card height when the panel is not overlaying', () => {
-    expect(filterHeaderTop({ overlaying: false }))
-      .toBe('calc(var(--site-header-offset, 0px) - var(--filter-card-h, 0px))');
+// Chromium and WebKit. The panel is now `position: fixed` in both states, so
+// the failure is unreachable rather than survived; these pin the geometry
+// that overlay depends on, so a refactor that quietly puts the panel back in
+// flow fails here rather than in production.
+//
+// What this file no longer tests, deliberately: `filterHeaderTop` and
+// `filterCardParked`. Both existed only to park an in-flow card above the
+// viewport and make it unreachable while parked, and both are deleted with
+// the card's flow participation (#274 phase 3).
+
+/**
+ * The line the day rail sticks at and the filter panel hangs from — one
+ * function for both, because they are the same line and must not be changed
+ * apart.
+ */
+describe('belowHeaderTop', () => {
+  // Exactly the offset, with no term of its own: the rail's top edge IS the
+  // revealed header's bottom edge. Anything added here would open a gap
+  // between the header and the rail, or slide the rail under it.
+  it('is the site header offset exactly', () => {
+    expect(belowHeaderTop()).toBe('var(--site-header-offset, 0px)');
   });
 
-  it('pins the header below the site header while the panel overlays the list', () => {
-    expect(filterHeaderTop({ overlaying: true })).toBe('var(--site-header-offset, 0px)');
+  // Before the reveal hook's first effect there is no value, and a header
+  // that has not been measured is at `top: 0` — so the chrome below it
+  // belongs at 0 too, not at a broken `calc()` the browser drops.
+  it('degrades to the viewport top when nothing has been measured', () => {
+    expect(belowHeaderTop()).toContain('--site-header-offset, 0px');
   });
 
-  // The parked offset is what lets the card stay in flow. A `top` that never
-  // goes negative means the card can only be got rid of by removing it from
-  // flow, which is the bug.
-  it('parks with a negative offset, never a zero or positive one', () => {
-    const parked = filterHeaderTop({ overlaying: false });
-    expect(parked).toContain('- var(--filter-card-h');
-    expect(parked).not.toBe('0px');
-    expect(parked).not.toBe('var(--site-header-offset, 0px)');
-  });
-
-  // #272: the site header reveals on scroll up, and the reader chose to have
-  // the rail ride down below it rather than be covered by it. That is this
-  // one additive term — and it is a CSS variable rather than a parameter on
-  // purpose. Routing the reveal through React state would re-render the whole
-  // calendar page on every flick; as a variable the reveal touches only
-  // `Header`, and the rail follows without the page knowing anything happened.
-  it('offsets both states by the revealed site header, in the same direction', () => {
-    expect(filterHeaderTop({ overlaying: true })).toContain('var(--site-header-offset, 0px)');
-    expect(filterHeaderTop({ overlaying: false })).toContain('var(--site-header-offset, 0px) -');
-  });
-
-  // The two surfaces must move as one. The variable is animated once, on
-  // `:root`, so the header's own `top` and the rail's are the same value
-  // every frame; anything that transitioned `top` here instead would also
-  // animate the filter panel's reveal, which is choreographed separately.
-  it('falls back to 0px for the site header offset, so a missing reveal parks as before', () => {
-    expect(filterHeaderTop({ overlaying: false })).toContain('--site-header-offset, 0px');
-    expect(filterHeaderTop({ overlaying: true })).toContain('--site-header-offset, 0px');
-  });
-
-  // A missing measurement (no ResizeObserver, a render before mount) has to
-  // degrade to an ordinary top-0 sticky header, not to a broken `calc()`
-  // that the browser drops — which would leave `top` unset and the header
-  // static.
-  it('falls back to 0px inside the calc when the measurement is missing', () => {
-    expect(filterHeaderTop({ overlaying: false })).toContain('--filter-card-h, 0px');
-  });
-});
-
-describe('filterCardParked', () => {
-  it('is parked once the card itself has left the viewport with the panel closed', () => {
-    expect(filterCardParked({ outOfView: true, open: false, exitingVisible: false })).toBe(true);
-  });
-
-  it('is not parked while the card is on screen', () => {
-    expect(filterCardParked({ outOfView: false, open: false, exitingVisible: false })).toBe(false);
-  });
-
-  // Reachable while open is the entire point of the toggle: an open panel
-  // that is `inert` is a panel the reader can see and cannot use. `open`
-  // wins even if the observer has not yet reported the card back in view —
-  // its callback lands a frame later than the state that revealed it.
-  it('is not parked while the panel is open, whatever the observer last said', () => {
-    expect(filterCardParked({ outOfView: true, open: true, exitingVisible: false })).toBe(false);
-  });
-
-  // Mid-exit the panel is `position: fixed`, not parked. It still ends up
-  // beyond reach — page.tsx ORs the two — but by a different route, and
-  // conflating them here would hide which one is driving.
-  it('is not parked while the exit animation is running', () => {
-    expect(filterCardParked({ outOfView: true, open: false, exitingVisible: true })).toBe(false);
-  });
-
-  // Partly on screen is still reachable: mid-slide the reader can see the
-  // card and must be able to use it.
-  it('is not parked while the card is only partly scrolled away', () => {
-    expect(filterCardParked({ outOfView: false, open: true, exitingVisible: false })).toBe(false);
+  // The whole sticky stack is built from this one term, so a change to it
+  // moves the rail, the panel and the day titles together rather than letting
+  // them drift apart — a panel floating a few pixels off the header it hangs
+  // from is cosmetic enough to ship unnoticed.
+  //
+  // Note what is NOT here: an `expect(belowHeaderTop()).toBe(belowHeaderTop())`
+  // that used to sit above this line. Comparing a pure function to itself is a
+  // tautology that cannot fail, and it read as though it were checking that
+  // two consumers agree. They are consumers, not callers of each other, so
+  // this file cannot see them both — `filterHeader.test.tsx` is where that is
+  // actually checked, by asserting the rendered rail and the rendered panel
+  // carry the same `style.top`.
+  it('is the term the day headers are stacked on too', () => {
+    expect(dayHeaderTop()).toContain(belowHeaderTop());
   });
 });
 
 /**
- * The site header's own park (#272). It lives beside `filterHeaderTop`
- * because the two have to compose: the site header's height is the term the
- * filter header adds, and a change to one that is not mirrored in the other
- * leaves the rail overlapping the header or floating below it.
+ * The panel's internal height cap. Unconditional now: the panel is always an
+ * overlay, so there is no in-flow state in which the page itself scrolls past
+ * it.
+ */
+describe('filterPanelMaxHeight', () => {
+  it('caps the panel to the viewport below the revealed header', () => {
+    expect(filterPanelMaxHeight()).toBe('calc(100dvh - var(--site-header-offset, 0px) - 1rem)');
+  });
+
+  // `dvh`, not `vh`, and the unit is the bug. `vh` on a phone resolves
+  // against the LARGEST viewport — bottom browser chrome retracted — so a
+  // panel capped in `vh` runs under that chrome whenever it is showing and
+  // its last control cannot be reached. That is the exact failure the cap
+  // exists to prevent, reintroduced one unit along.
+  it('measures against the dynamic viewport, never the largest one', () => {
+    expect(filterPanelMaxHeight()).toContain('100dvh');
+    // Negated with a lookbehind rather than a plain `not.toContain('100vh')`,
+    // which `100dvh` does not contain but which would also pass for a value
+    // that never mentioned a viewport unit at all.
+    expect(/(?<!d)100vh/.test(filterPanelMaxHeight())).toBe(false);
+  });
+
+  // Subtracts the header, so a revealed header shortens the panel rather than
+  // pushing its bottom edge off screen. Falls back to the full viewport when
+  // nothing has been measured, which is the safe direction: too short is
+  // scrollable, too tall is unreachable.
+  it('shortens by the revealed header and degrades to the full viewport', () => {
+    expect(filterPanelMaxHeight()).toContain('- var(--site-header-offset, 0px)');
+  });
+});
+
+/**
+ * The site header's own park (#272). It lives beside `belowHeaderTop` because
+ * the two have to compose: the site header's height is the term everything
+ * below it adds, and a change to one that is not mirrored in the other leaves
+ * the rail overlapping the header or floating below it.
  */
 describe('siteHeaderTop', () => {
   // Parked and revealed are the same expression evaluated at the two ends of

@@ -36,12 +36,17 @@ export function installResizeObserverMock() {
     /**
      * Whether anything live is observing this element.
      *
-     * WHICH element is observed can be the whole point: `--filter-card-h`
-     * has to re-publish when the filter card's margin changes at a
-     * breakpoint, and `ResizeObserver` never reports a margin — so an
-     * observer on the card would never fire, while one on the header
-     * container (card + margin + rail) does. A test that only exercises the
+     * WHICH element is observed can be the whole point. The case this was
+     * built for: `--filter-card-h` had to re-publish when the filter card's
+     * MARGIN changed at a breakpoint, and `ResizeObserver` never reports a
+     * margin — so an observer on the card itself would never fire, while one
+     * on the container around it did. A test that only exercises the
      * measurement cannot tell those apart.
+     *
+     * That property is gone with the in-flow filter card (#274 phase 3). This
+     * stays because the distinction it makes visible is general, and the
+     * remaining publishers (`--day-rail-h`, `--site-header-h`) are one
+     * layout change away from needing it again.
      */
     isObserving(el: Element) {
       return instances.some(i => !i.disconnected && i.targets.includes(el));

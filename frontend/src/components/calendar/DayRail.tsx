@@ -2,9 +2,9 @@ import { useCallback, useMemo } from 'react';
 import type { DayChip } from '@/lib/utils/dayWindow';
 import type { SeasonWeek } from '@/lib/types';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
-import { FiltersIcon } from '@/components/filters/FiltersIcon';
 import { WeekBandCell } from '@/components/calendar/WeekBandCell';
 import { WeekChooser } from '@/components/calendar/WeekChooser';
+import { belowHeaderTop } from '@/app/filterHeaderLayout';
 import { anchorWeekNumber, bridgesGutter, type WeekBandDestination, type WeekBandSegment } from '@/lib/utils/weekBands';
 import { RAIL_CHIP_GUTTER_PX } from '@/lib/utils/railMetrics';
 import { RAIL_CHIP_SELECTOR, useRailHighlight } from '@/hooks/useRailHighlight';
@@ -101,20 +101,6 @@ export interface DayRailProps {
    */
   rootRef?: (el: HTMLElement | null) => void;
   /**
-   * The "Filters" toggle, rendered inside this component's own row rather
-   * than as a separate element beside it.
-   *
-   * That placement is deliberate, not cosmetic: `useDayRailHeight` measures
-   * only this component's root (`rootRef`, above), so any new *persistent*
-   * chrome added outside this row — visible whenever the reader has
-   * scrolled, not just while the panel is open — would silently widen the
-   * actual stuck header without widening `--day-rail-h`, undercounting the
-   * clearance day headers and `useDayAnchor` compute against it. Inside the
-   * row, the toggle is already part of what gets measured, so no offset
-   * math anywhere else has to learn about it.
-   */
-  filtersToggle?: DayRailFiltersToggleProps;
-  /**
    * The view window's day list, in order — the same array `useDayAnchor` is
    * given in `page.tsx`.
    *
@@ -158,41 +144,6 @@ export interface DayRailProps {
   weekThemes?: Record<number, WeekTheme>;
 }
 
-export interface DayRailFiltersToggleProps {
-  /** Whether the revealed filter panel is currently open. */
-  open: boolean;
-  /** Opens or closes the panel. */
-  onToggle: () => void;
-  /** The panel's id — used for `aria-controls`. */
-  panelId: string;
-  /**
-   * Whether to render the toggle at all. True once the reader has scrolled
-   * past the in-flow filter card (see `useScrolledPastFilters`, owned by the
-   * caller, not this component). At the top of the page the filter card is
-   * already visible and a toggle for it would be redundant — matching the
-   * design's own state table.
-   */
-  visible: boolean;
-  /**
-   * Callback ref for the toggle button itself. The caller uses the node to
-   * return focus here when the panel closes via `Escape`.
-   */
-  toggleRef?: (el: HTMLButtonElement | null) => void;
-  /**
-   * Whether the reader has narrowed the list themselves —
-   * `useFilterState`'s `hasNonDefaultFilters`, passed straight through.
-   * Drives the small dot D5 adds to the icon. An icon alone can't tell the
-   * reader "everything" from "a slice", and neither could the word
-   * "Filters" it replaces; the dot is the one place this change adds
-   * something rather than merely preserving it.
-   *
-   * Deliberately NOT `hasFilters`, which is true on a default visit (the
-   * app starts on the `next` scope, a date filter) and would light the dot
-   * for every reader before they touched anything.
-   */
-  hasActiveFilters: boolean;
-}
-
 /**
  * The day rail — the fine-grained half of D4's two strips, sticky beneath
  * the week strip.
@@ -231,7 +182,7 @@ export interface DayRailFiltersToggleProps {
  */
 export function DayRail({
   chips, anchorDay, scopeHasWindow, todayKey,
-  onSelectDay, onGoToToday, rootRef, filtersToggle, windowDayKeys,
+  onSelectDay, onGoToToday, rootRef, windowDayKeys,
   bandSegments, weekDestinations, onSelectWeek, seasonWeeks, weekThemes,
 }: DayRailProps) {
   const chipKeys = useMemo(() => chips.map(c => c.key), [chips]);
@@ -315,7 +266,19 @@ export function DayRail({
       aria-label="Days"
       data-day-rail
       onKeyDown={onKeyDown}
-      className="sticky top-0 z-20 flex items-center gap-1 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-1 py-1"
+      // Sticky on THIS element, never on a wrapper the caller supplies. In
+      // #238 a wrapper `<div>` sized to fit only the rail became its
+      // containing block and gave sticky zero travel — eleven green task
+      // reviews missed it and the browser pass caught it. `<main>` is the
+      // containing block, and it is tall.
+      //
+      // `top` is the site header's bottom edge, so the rail rides down while
+      // the header is revealed instead of hiding under it (#272). Before #274
+      // phase 3 a sticky wrapper in `page.tsx` did this for the rail; the
+      // wrapper existed to hold the filter card too, and the card is now a
+      // fixed overlay, so the rail owns its own position.
+      style={{ top: belowHeaderTop() }}
+      className="sticky z-20 flex items-center gap-1 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-1 py-1"
     >
       {/*
         Three stacked layers inside one scroller, so all of them share a
@@ -451,7 +414,7 @@ export function DayRail({
 
         The accessible name does not change — the chip is `aria-hidden` and
         this explicit `aria-label` is what a screen reader announces, the same
-        contract `FiltersIcon` and `WeekChooserIcon` follow — and `title`
+        contract `WeekChooserIcon` and the header's Filters button follow — and `title`
         repeats it for a sighted mouse user, matching `WeekChooser`'s trigger.
       */}
       {todayKey && anchorDay !== todayKey && (
@@ -494,36 +457,6 @@ export function DayRail({
         // about to land on. Stabilized above so `WeekChooser`'s `memo` holds.
         onSelectWeek={handleSelectWeek}
       />
-
-      {filtersToggle?.visible && (
-        <button
-          type="button"
-          ref={filtersToggle.toggleRef}
-          // D5: the label is now a funnel icon, not the word "Filters" —
-          // horizontal space on the rail is scarcest right here. The
-          // accessible name does not change: FiltersIcon's SVG and dot are
-          // both aria-hidden, so this explicit aria-label is what a screen
-          // reader announces, same as when the button's own text did.
-          aria-label="Filters"
-          aria-expanded={filtersToggle.open}
-          aria-controls={filtersToggle.panelId}
-          onClick={filtersToggle.onToggle}
-          // `min-h-11 min-w-11` = 44px square, the platform minimum, on the
-          // one control this whole feature depends on — at the rail's
-          // rightmost edge, on a phone-first app. The word "Filters" it
-          // replaced was ~54px wide; a 16px icon in `px-2 py-1` alone would
-          // be roughly 32x28. This costs the rail no visual height: the day
-          // chips are ~50px tall (three lines of `leading-tight` text plus
-          // `py-1`), so the row is already taller than 44px and the parent's
-          // `items-center` centres this inside it rather than growing it.
-          // `inline-flex` + centring because a `min-h` on a plain
-          // inline-block button would leave the icon top-aligned in the
-          // taller box.
-          className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
-        >
-          <FiltersIcon active={filtersToggle.hasActiveFilters} />
-        </button>
-      )}
     </div>
   );
 }
