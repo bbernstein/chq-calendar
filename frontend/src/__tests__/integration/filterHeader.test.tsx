@@ -96,12 +96,14 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/** The fixed overlay the filter panel lives inside. */
-const overlay = () => document.querySelector('[data-filter-overlay]') as HTMLElement;
-
 /**
  * The filter panel, found the way the accessibility tree finds it — the
  * element the header's Filters toggle names.
+ *
+ * That element is also the `position: fixed` one, deliberately: an earlier
+ * shape put the positioning on an outer wrapper and left the card inside it
+ * `static`, so this query read `static` and the invariant was invisible to
+ * every check that resolved the panel by `aria-controls`.
  *
  * `[aria-label="Filters"]` is load-bearing, not decorative: `[aria-expanded]`
  * alone also matches the day rail's week-chooser trigger and the header's own
@@ -112,6 +114,9 @@ function card(): HTMLElement {
   const id = toggleButton()!.getAttribute('aria-controls')!;
   return document.getElementById(id) as HTMLElement;
 }
+
+/** The same element, named for the property being asserted about it. */
+const overlay = card;
 
 /**
  * The Filters funnel — in the SITE HEADER now, not on the day rail, and

@@ -396,3 +396,97 @@ fail.
    positioning, the height cap, the overlay's width and the document-height
    invariant are all browser-pass properties. The unit suite pins the
    mechanism; the browser pass is the only thing that tests the seams.
+
+---
+
+## Addendum, 2026-08-26 — what the implementation changed about this plan
+
+Five things came out differently from the plan above. All five were found by
+running something, not by reading.
+
+### 1. The positioned element must be the one `aria-controls` names
+
+The plan's Task 5 put `position: fixed` on an outer shell and the panel's `id`
+on the white card inside it. That satisfies the invariant — the card is out of
+flow because its ancestor is — but it makes the invariant **unobservable**:
+every check that resolves the panel the way the accessibility tree does
+(`aria-controls` → `getElementById`) read `position: static` and could not see
+it. Three browser checks failed against correct code, and the "always fixed"
+trace in checks 28/29 read `alwaysFixed=false`.
+
+Fixed by collapsing the two: one element carries the `id`, the `panelRef`, the
+positioning, the `hidden`, the `inert` and the exit class. The `max-w-7xl
+mx-auto` centring and the white card are plain children.
+
+**The general form:** an invariant that must be checkable has to hold on the
+element the checker can find. No unit test could have caught this — jsdom
+computes no `position`.
+
+### 2. Deleting the scroll correction was right, and its guard needed teeth
+
+The extra deletion the plan proposed (beyond the spec's list) was correct: the
+panel changes no layout, so the correction computed zero. What the plan did not
+say is that a "never calls `scrollBy`" test is worthless on a fixture where
+nothing moves. The tests keep `mockDaySectionTrackingPanel` — a day section
+rigged to shift 281px with the panel's open/hidden class — as an **adversarial**
+fixture: it models a world that no longer exists, which is exactly what makes it
+a guard, because it is the input under which the old code demonstrably
+corrected.
+
+### 3. Three falsifications passed, and each exposed a weak test
+
+- **`useSiteHeaderReveal`'s baseline-during-hold test.** The first version had
+  the reader scroll *down* while held, which leaves a stale baseline *above*
+  them — so the next downward gesture measures a large positive delta and hides
+  the header either way. It had to be scrolling *up* while held, which strands
+  the baseline *below* the reader and pins the header open against the very
+  gesture asking it to go.
+- **The Filters toggle's accessible name, twice.** `FiltersIcon`'s `aria-hidden`
+  does not protect the name — an explicit `aria-label` outranks the button's
+  contents entirely. Nor does the `aria-label` alone: `title="Filters"` is the
+  last resort in the accessible-name computation and silently takes over. The
+  honest claim is that the name survives unless *both* are dropped.
+
+### 4. Two browser checks were measuring the harness, not the app
+
+- **The reachability check could not be run after the rail teleport.** The
+  teleport leaves `useDayAnchor`'s hold pinning the anchored day, so a
+  `window.scrollTo` into the middle of the list is undone and the reader stays
+  at the document's end — where a downward wheel scrolls nothing, `scrollY`
+  never changes, and the reveal rule is right to decide nothing. Probed
+  directly: five 200px wheels, `scrollY` 7573 every time. It now has its own
+  page, and asserts its precondition (the header actually left) rather than
+  assuming it.
+- **The document-height check was measuring its own setup.** `revealHeader` is
+  a real wheel gesture, and a wheel moves the reader — which can grow the render
+  window. Measuring the closed baseline across it reported a 27px change against
+  code whose panel changes nothing (probed: 7417px in all three states). The
+  baseline is now taken after the reveal, so the only thing varying between the
+  two measurements is the panel.
+
+### 5. The narrow-phone threshold moved, and one diagnostic became a guard
+
+`verify-rail`'s check 10 measured 191px of day strip (4.06 chips) at 375pt
+before this phase and 239px (5.06) after — the funnel's 44px plus a 4px gutter.
+The threshold is raised 4 → 5, because a threshold left at 4 would pass with the
+funnel put straight back. `filtersVisible` was a diagnostic in the detail
+string; it is now asserted, since where that control lives is a claim this phase
+makes.
+
+Falsified by adding a 44px control back to the rail: 239 → 191px, 5.06 → 4.06
+chips, exactly the state the original bug report described.
+
+### What did not change
+
+Checks 30 and 31 ("slow scrolling actually advances the page", "never snaps the
+reader backwards") survive verbatim and pass. The invariant check that replaces
+32–34 was falsified by making the panel `relative`: document height 7417 →
+7730px and the reader moved 313px — the original bug's mechanism, reproduced on
+demand.
+
+### Results
+
+- Unit: 1454 passed / 104 files.
+- Browser: 150 checks across five suites, **0 failed, 0 skipped**. Check 14 in
+  `verify-header-reveal` had been skipping ("no Filters toggle on the rail") and
+  now runs.

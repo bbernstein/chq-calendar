@@ -77,6 +77,28 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
   return page;
 }
 
+/**
+ * Open the filter panel, so the scope buttons inside it are in the
+ * accessibility tree.
+ *
+ * Required since #274 phase 3: the panel is a fixed overlay that is
+ * `display: none` while closed, and the funnel that opens it moved from the
+ * day rail into the site header. `getByRole` walks the accessibility tree, so
+ * a control inside a hidden panel is correctly invisible to it — a check that
+ * reaches for `All Season` without this times out rather than failing with a
+ * useful message.
+ *
+ * A DOM click, not `locator.click()`: Playwright scrolls an element into view
+ * before clicking it, and that scroll is a real one the app cannot know is
+ * ours — it would hide the header out from under the funnel.
+ */
+async function openFilters(page) {
+  await page.evaluate(() => {
+    document.querySelector('[data-site-header] button[aria-label="Filters"]')?.click();
+  });
+  await page.waitForTimeout(400);
+}
+
 const railChips = p => p.$$eval('[data-day-rail] [data-chip]', els => els.map(e => e.dataset.chip));
 
 /**
@@ -145,6 +167,7 @@ const railHeight = p => p.evaluate(() =>
 // ---------------------------------------------------------------- 1. scopes
 {
   const page = await newPage();
+  await openFilters(page);
   const names = await page.$$eval('button', els => els.map(e => e.textContent.trim()));
   const wanted = ['Now', 'Today', 'All Season', 'All Year'];
   check('1a four scopes present', wanted.every(w => names.includes(w)), names.filter(n => wanted.includes(n)).join(', '));
@@ -156,6 +179,7 @@ const railHeight = p => p.evaluate(() =>
 // ------------------------------------------------------- 2. mutual exclusion
 {
   const page = await newPage();
+  await openFilters(page);
   await page.getByRole('button', { name: 'All Season', exact: true }).click();
   await page.waitForTimeout(300);
   const pressed = await page.getByRole('button', { name: 'All Season', exact: true }).getAttribute('aria-pressed');
@@ -311,13 +335,22 @@ for (const scrolled of [false, true]) {
 // that run).
 //
 // Measured with every optional control present, not on the fresh, unscrolled
-// landing state: a first load has the anchor on today (so `⟳ Now` is hidden)
-// and sits above the filter card (so the Filters toggle is hidden too), which
-// understates real crowding and would leave this check unable to catch the
-// very regression it exists for. A far chip tap moves the anchor off today
-// (revealing `⟳ Now`, same as check 11), and the wheel scroll after it
-// clears the filter card (revealing the Filters toggle, same as check 15) —
-// both controls present is the fully crowded rail the bug report described.
+// landing state: a first load has the anchor on today, so `⟳ Now` is hidden,
+// which understates real crowding and would leave this check unable to catch
+// the very regression it exists for. A far chip tap moves the anchor off
+// today, revealing it (same as check 11).
+//
+// **Threshold raised from 4 to 5 in #274 phase 3**, and the raise is the
+// point. That phase moved the Filters funnel off the rail and into the site
+// header, freeing its 44px plus a 4px gutter: measured 191px of strip (4.06
+// chips) before, 239px (5.06) after. A threshold left at 4 would be a guard
+// that had stopped guarding — it would pass with the funnel put straight back
+// and the reader down to four chips again, which is the state the bug report
+// was about.
+//
+// `filtersVisible` is asserted rather than merely reported for the same
+// reason: it is now a claim about where that control lives, not a note about
+// which controls happened to be on screen.
 {
   const page = await newPage({ width: 375, height: 812 });
   const far = await pickFarTarget(page);
@@ -353,7 +386,8 @@ for (const scrolled of [false, true]) {
   // `(strip + gutter) / pitch`.
   const gutter = pitch > 0 && chipWidth > 0 ? pitch - chipWidth : 0;
   const chipsWorth = pitch > 0 ? (stripWidth + gutter) / pitch : 0;
-  check('10 day strip holds at least 4 chips at 375pt', chipsWorth >= 4,
+  check('10 day strip holds at least 5 chips at 375pt, with no funnel on the rail',
+    chipsWorth >= 5 && !filtersVisible,
     `strip=${stripWidth.toFixed(1)}px chip=${chipWidth.toFixed(1)}px ` +
     `gutter=${gutter.toFixed(1)}px pitch=${pitch.toFixed(1)}px ≈ ${chipsWorth.toFixed(2)} chips ` +
     `(⟳Now=${nowVisible} Filters=${filtersVisible})`);

@@ -436,30 +436,54 @@ function HomeContent() {
           panel contributes nothing to document height ever, so the failure is
           unreachable rather than survived.
 
-          `left-0 right-0` plus `<main>`'s own `px-*` and `max-w-7xl mx-auto`,
-          copied, so the overlay lands on the content column at every
-          breakpoint without measuring anything.
-
           `z-30`: above the rail's `z-20` and the day headers' `z-10`
           (EventListView), below the site header's `z-40` — the panel hangs
           from the header, so the header paints over it.
-
-          `hidden` when neither open nor exiting. `display: none` takes it out
-          of the tab order and the accessibility tree for free, which is safe
-          here precisely BECAUSE it was never in flow: hiding an in-flow card
-          is what caused the bug above, and hiding this one costs nothing.
         */}
         <div
-          data-filter-overlay
-          className="fixed left-0 right-0 z-30 px-4 sm:px-6 lg:px-8"
+          id={filtersPanelId}
+          data-filter-card
+          ref={filtersPanelRef}
+          // `left-0 right-0` plus `<main>`'s own `px-*` and (below)
+          // `max-w-7xl mx-auto`, copied, so the overlay lands on the content
+          // column at every breakpoint without measuring anything.
+          //
+          // The positioned element is the one `aria-controls` names, and that
+          // is deliberate rather than incidental. An earlier shape put
+          // `position: fixed` on an outer wrapper and the id on the white card
+          // inside it — which left the card `position: static`, so every
+          // check that resolves the panel the way the accessibility tree does
+          // (`aria-controls` → `getElementById`) read `static` and could not
+          // see the invariant at all. Found by the browser pass; no unit test
+          // could have. One element carries the id, the ref, the position and
+          // the exit.
+          className={`fixed left-0 right-0 z-30 px-4 sm:px-6 lg:px-8 ${
+            // The exit transition — see globals.css. Nothing has to be
+            // choreographed around it: the element was already
+            // `position: fixed`, so the class alone is the whole exit.
+            filtersExiting ? 'filter-panel-exit' : ''
+          }`}
           style={{ top: belowHeaderTop() }}
+          // `display: none` while closed, which takes the panel out of the tab
+          // order and the accessibility tree for free. That is safe here
+          // precisely BECAUSE it was never in flow: hiding an IN-FLOW card is
+          // what removed ~290px above the reader and made the page
+          // unscrollable — see `filterHeaderLayout.ts`.
           hidden={!filtersOpen && !filtersExiting}
+          // Mid-exit the panel is a decorative echo of one that has already
+          // closed (`filtersOpen` is false and focus has already been
+          // returned) — visible for the ~200ms the transition runs, and beyond
+          // the reader's reach for all of it.
+          //
+          // `inert` rather than `aria-hidden` alone: `aria-hidden` hides it
+          // from the accessibility tree but leaves its very real SearchBar and
+          // filter controls in the tab order.
+          aria-hidden={filtersExiting ? 'true' : undefined}
+          inert={filtersExiting || undefined}
         >
           <div className="max-w-7xl mx-auto">
           <div
-            id={filtersPanelId}
-            data-filter-card
-            ref={filtersPanelRef}
+            data-filter-panel-box
             // Capped and internally scrollable unconditionally: the panel is
             // always an overlay, so there is no in-flow state in which the
             // page itself scrolls past it. On a 390x844 phone this block —
@@ -468,22 +492,7 @@ function HomeContent() {
             // controls would be unreachable, reproducing the bug this feature
             // exists to fix one level down.
             style={{ maxHeight: filterPanelMaxHeight() }}
-            className={`bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto ${
-              // The exit transition — see globals.css. Nothing has to be
-              // choreographed around it any more: the element was already
-              // `position: fixed`, so the class alone is the whole exit.
-              filtersExiting ? 'filter-panel-exit' : ''
-            }`}
-            // Mid-exit the panel is a decorative echo of one that has already
-            // closed (`filtersOpen` is false and focus has already been
-            // returned) — visible for the ~200ms the transition runs, and
-            // beyond the reader's reach for all of it.
-            //
-            // `inert` rather than `aria-hidden` alone: `aria-hidden` hides it
-            // from the accessibility tree but leaves its very real SearchBar
-            // and filter controls in the tab order.
-            aria-hidden={filtersExiting ? 'true' : undefined}
-            inert={filtersExiting || undefined}
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto"
           >
             <div className="p-2 sm:p-4">
               <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
