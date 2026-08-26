@@ -326,8 +326,9 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       resolved.nextKey ? extents.current.get(resolved.nextKey) ?? null : null,
       progress,
     );
-    // The anchor day has no chip — reachable if the view window and the
-    // navigable bounds ever disagree. Nothing to highlight.
+    // The anchor day has no chip — reachable if the rendered day list and
+    // the navigable bounds the chips span ever disagree. Nothing to
+    // highlight.
     if (!geometry) { hide(); return; }
 
     const { left, width } = geometry;

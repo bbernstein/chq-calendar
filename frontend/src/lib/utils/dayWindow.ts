@@ -158,7 +158,7 @@ export interface DayChip {
   dayOfMonth: string;
   /** `'Jul'` on the first chip and whenever the month changes; else `null`. */
   month: string | null;
-  /** Matching events on that day under the current non-date filters. */
+  /** Matching events on that day under the reader's current filters. */
   count: number;
   /**
    * The full accessible name — labelled by target, never by direction.
@@ -175,13 +175,11 @@ export interface DayChip {
 /**
  * How many of `events` fall on each day, by day key.
  *
- * Takes the events themselves rather than the day groups the list renders,
- * because the rail is a navigation surface and not a filter readout: it must
- * be fed the set that navigation can reach (everything matching the
- * *non-date* filters), not the date-windowed subset currently on screen.
- * Counting the rendered groups instead would mark every day outside the
- * current scope "no events" — which is the same wall in a new control, since
- * a chip is judged empty on the strength of that count.
+ * Takes the events themselves rather than the day groups the list renders.
+ * The rail spans the navigable bounds, which includes days that group to
+ * nothing at all, and this gives every such day a 0 without needing a group
+ * to exist for it — a chip is judged empty on the strength of that count, and
+ * a missing entry and a zero must not read differently.
  *
  * Unparseable dates are dropped, matching `eventDayKeys` and every other
  * call site in the app.

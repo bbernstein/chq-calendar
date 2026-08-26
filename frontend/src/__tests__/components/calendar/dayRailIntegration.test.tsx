@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { render, fireEvent } from '@testing-library/preact';
 import { railTarget, reachableTodayKey } from '@/app/dayRailNavigation';
 import { EventListView } from '@/components/calendar/EventListView';
@@ -99,8 +99,6 @@ const eventListBaseProps = {
  * data, season weeks, favourites, article/program links and every route it
  * also imports — none of which this wiring depends on.
  *
- * `groupedEvents` is local state rather than a plain passthrough prop so a
- * test can still change the list under the hook if it needs to.
  *
  * `withFilterPanel`, when given, also mounts the real `useFilterPanel` —
  * toggle button and panel `<div>`, wired exactly like the minimal Harness in
@@ -108,10 +106,9 @@ const eventListBaseProps = {
  * test below, which needs a real gesture-dismiss listener (attached only
  * while the panel is `open`) alongside the real day-chip navigation.
  */
-function Harness({ groupedEvents: initialGroups, withFilterPanel }: {
+function Harness({ groupedEvents, withFilterPanel }: {
   groupedEvents: DayGroup[]; withFilterPanel?: boolean;
 }) {
-  const [groupedEvents] = useState(initialGroups);
   // No argument: the panel is a fixed overlay in every state now (#274 phase
   // 3), so there is no "has the reader scrolled past the card yet" question
   // for the hook to answer.

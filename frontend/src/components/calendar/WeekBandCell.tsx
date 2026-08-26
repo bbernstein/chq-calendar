@@ -12,7 +12,7 @@ export interface WeekBandCellProps {
    */
   segment: WeekBandSegment | null;
   /**
-   * Which weeks can be reached under the current non-date filters.
+   * Which weeks can be reached under the reader's current filters.
    *
    * A week absent from this map — including every week, when the map is
    * empty — is unreachable: its fill dims, its label says so, and its tap

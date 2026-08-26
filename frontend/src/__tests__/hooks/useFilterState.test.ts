@@ -28,6 +28,20 @@ describe('useFilterState', () => {
     expect(result.current.hasFilters).toBe(true);
   });
 
+  // The other direction, and the one nothing pinned: that the payload the app
+  // WRITES has stopped carrying the date keys. Without this a reducer that
+  // still persisted them would look identical from the read side, because
+  // `loadInitialState` ignores them either way.
+  it('writes a payload with nothing date-shaped in it', () => {
+    const { result } = renderHook(() => useFilterState());
+    act(() => { result.current.setSearchTerm('organ'); });
+
+    const written = JSON.parse(localStorage.getItem('chq-calendar-user-state')!);
+    expect(written.searchTerm).toBe('organ');
+    expect(written).not.toHaveProperty('dateFilter');
+    expect(written).not.toHaveProperty('selectedWeeks');
+  });
+
   it('an untouched visit has no filters', () => {
     const { result } = renderHook(() => useFilterState());
     expect(result.current.hasFilters).toBe(false);

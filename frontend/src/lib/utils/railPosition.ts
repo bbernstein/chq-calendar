@@ -56,11 +56,12 @@ export const RAMP_MAX_PX = 200;
  * function, so the pill and the announced current day cannot name different
  * days. Two copies of the walk could drift; one cannot.
  *
- * `topOf` returns null for a day that is in the view window but has no
- * mounted section yet — the view window's own reducer commit hasn't landed
- * as DOM at the instant this runs, not a separate render window's subset
- * (#274 phase 4 deleted that) — and such days are skipped rather than
- * ending the walk.
+ * `topOf` returns null for a day that is in the rendered list but has no
+ * mounted section yet — the commit that produced the list hasn't landed as
+ * DOM at the instant this runs. (It is never a windowing artefact: #274
+ * phase 4 deleted the render window and then the view window, so there is no
+ * subset left to lag behind.) Such days are skipped rather than ending the
+ * walk.
  */
 export function resolveAnchor(
   keys: string[],

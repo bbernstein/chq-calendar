@@ -123,9 +123,12 @@ export function belowHeaderTop(): string {
 /**
  * How tall the filter panel is allowed to get before it scrolls internally.
  *
- * On a 390x844 phone the panel's contents — search, four scopes, a nine-week
- * strip, venues, categories, active chips — exceed the viewport, and uncapped
- * its bottom controls are unreachable. That is the same class of bug this
+ * On a 390x844 phone the panel's contents — search, the favourites toggle,
+ * venues, categories, active chips — exceed the viewport, and uncapped its
+ * bottom controls are unreachable. (#274 phase 4 deleted the scope row and
+ * the nine-week strip, so the panel is materially shorter than when this cap
+ * was chosen — shorter, but still taller than 844px once a season's venues
+ * and categories are listed, which is what the cap is for.) That is the same class of bug this
  * whole feature exists to fix, one level down.
  *
  * `dvh`, not `vh`, and that is not a stylistic preference. `vh` on a phone

@@ -330,6 +330,97 @@ describe('page.tsx — the filter panel as a fixed overlay', () => {
   });
 });
 
+/**
+ * Two ways the filter pipeline and the header count can disagree with the
+ * list under them. Both are new in #274 phase 4 and neither is visible from
+ * a unit test of `filterEvents` alone — they live in `page.tsx`'s wiring.
+ */
+describe('page.tsx — the list and the count agree', () => {
+  // A whitespace-only search used to be harmless because `hasFilters` was
+  // `hasDateFilters || hasNonDateFilters` and the default `next` scope kept
+  // the first true, so the "Show all events" escape always rendered. Phase 4
+  // collapsed that to one TRIMMED flag; if the search term reaching
+  // `filterEvents` is not trimmed to match, `searchEvents` tokenises `'   '`
+  // to no terms, scores every event zero and hands back nothing — an empty
+  // list with no chip, no escape button, and a header still reading the full
+  // count.
+  it('treats a whitespace-only search as no search at all', async () => {
+    vi.setSystemTime(chqDateAt(YEAR, 7, 1, 10));
+    await renderPage();
+    await waitFor(() => expect(screen.getByText('Events (2)')).toBeInTheDocument());
+
+    fireEvent.click(toggleButton()!);
+    fireEvent.input(screen.getByLabelText('Search events'), { target: { value: '   ' } });
+
+    // Past the 200ms search debounce, and then some.
+    await new Promise(r => setTimeout(r, 350));
+
+    expect(screen.getByText('Events (2)')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0);
+  });
+
+  // The date stage was the only thing rejecting an event with an unparseable
+  // `startDate`: `'all'` was a real MIN..MAX instant window and every
+  // comparison against `NaN` is false. With the stage deleted such a row
+  // survives `filterEvents` and is dropped one step later, by
+  // `groupEventsByDay`, so a count taken from the filter's output overstates
+  // the list by one.
+  it('counts what is on screen, not the row it could not place', async () => {
+    mock.reset();
+    mock.on('GET', /all-events-\d{4}\.json/, {
+      data: [
+        {
+          id: 'good', title: 'Morning Lecture',
+          startDate: `${YEAR}-07-06T10:45:00`, endDate: `${YEAR}-07-06T11:45:00`,
+          location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+        },
+        {
+          id: 'bad', title: 'Broken Row',
+          startDate: 'not a date', endDate: 'not a date',
+          location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+        },
+      ],
+    });
+    vi.setSystemTime(chqDateAt(YEAR, 7, 1, 10));
+    await renderPage();
+
+    await waitFor(() => expect(screen.getByText('Events (1)')).toBeInTheDocument());
+    expect(document.querySelectorAll('[data-day-key]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-event-id]')).toHaveLength(1);
+  });
+
+  // The other half: when EVERY surviving row is unplaceable, `filteredEvents`
+  // is non-empty while `groupedEvents` is empty. Keyed on the wrong one, the
+  // reader gets a silently blank panel instead of being told the filter
+  // matched nothing. The search seed is what puts `showLanding` out of the
+  // way — with no filter set, the landing covers this case for its own
+  // reasons.
+  it('says the filter matched nothing rather than rendering a blank list', async () => {
+    mock.reset();
+    mock.on('GET', /all-events-\d{4}\.json/, {
+      data: [
+        {
+          id: 'bad', title: 'Broken Row',
+          startDate: 'not a date', endDate: 'not a date',
+          location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+        },
+      ],
+    });
+    localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+      searchTerm: 'broken', selectedTags: [], selectedLocations: [],
+      expandedDescriptions: [], recentLocations: [], recentCategories: [],
+      showFavoritesOnly: false, lastSaved: Date.now(),
+    }));
+    vi.setSystemTime(chqDateAt(YEAR, 7, 1, 10));
+    await renderPage();
+
+    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
+    expect(document.querySelectorAll('[data-day-key]')).toHaveLength(0);
+    expect(screen.getByText('Events (0/0)')).toBeInTheDocument();
+  });
+});
+
 describe('page.tsx — a week band tap', () => {
   // `[data-chip][aria-current]` — the obvious thing to assert here — is not
   // usable as the "landed on the right day" signal: `useDayAnchor` derives it

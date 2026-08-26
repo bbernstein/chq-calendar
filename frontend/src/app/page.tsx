@@ -105,7 +105,14 @@ function HomeContent() {
   // this one now that the rendered list *is* everything navigation reaches
   // (#274 phase 4).
   const filterOpts: FilterOptions = useMemo(() => ({
-    searchTerm: debouncedSearch,
+    // Trimmed, and that is load-bearing rather than tidy. `searchEvents`
+    // early-returns everything for `''` but not for `'   '`, which is truthy:
+    // it tokenises to no terms, every event scores zero, and the list comes
+    // back empty. `hasFilters` trims (`useFilterState`), so with one space in
+    // the box the reader would get an empty list with no chip, no "Show all
+    // events" button and a header still reading the full count — a dead end
+    // with no control to escape it. Both sides trim, or neither can.
+    searchTerm: debouncedSearch.trim(),
     selectedTagsLowerSet: filters.selectedTagsLowerSet,
     selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
     showFavoritesOnly: filters.showFavoritesOnly,
@@ -198,6 +205,33 @@ function HomeContent() {
   const navDayCounts = useMemo(() => eventCountsByDay(filteredEvents), [filteredEvents]);
 
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
+
+  // Both counts under the filters describe events the app can actually place
+  // on a day, not raw feed rows — so they agree with what is on screen.
+  //
+  // The two can differ, by any event with an unparseable `startDate`.
+  // `filterEvents` has no date stage left to reject one (#274 phase 4): the
+  // old `'all'` scope was a real MIN..MAX instant window, and every
+  // comparison against `NaN` is false, so such a row never reached the list
+  // under ANY scope. It reaches it now, and `groupEventsByDay` — the one
+  // place that has to file an event under a day — is where it is dropped.
+  // Counting `filteredEvents`/`events` instead would print "Events (1470)"
+  // over 1,469 rendered rows.
+  const renderedCount = useMemo(
+    () => groupedEvents.reduce((n, g) => n + g.events.length, 0),
+    [groupedEvents]
+  );
+  // The same rule over the unfiltered set, and the same one-line form
+  // `navigableBounds`, `eventDayKeys` and `eventCountsByDay` already use.
+  // Memoised on `events` alone, so it costs one parse pass per feed load and
+  // nothing at all per filter change.
+  const placeableTotal = useMemo(
+    () => events.reduce(
+      (n, e) => n + (Number.isNaN(parseEventDate(e.startDate).getTime()) ? 0 : 1),
+      0
+    ),
+    [events]
+  );
 
   // The rail spans the navigable bounds — the whole season, widened by any
   // event outside it — which is also exactly what the list below renders.
@@ -456,8 +490,8 @@ function HomeContent() {
                   />
                 </div>
                 <ActiveFilters
-                  filteredCount={filteredEvents.length}
-                  totalCount={events.length}
+                  filteredCount={renderedCount}
+                  totalCount={placeableTotal}
                   hasFilters={filters.hasFilters}
                   chips={activeChips}
                   onClear={filters.clearFilters}
@@ -525,7 +559,11 @@ function HomeContent() {
                 onPreviewNextSeason={previewNextSeason}
                 onBrowseArchiveSeason={browseArchiveSeason}
               />
-            ) : filteredEvents.length === 0 ? (
+            ) : groupedEvents.length === 0 ? (
+              // `groupedEvents`, not `filteredEvents`: the two disagree when
+              // every surviving row has an unparseable `startDate`, and the
+              // list below would then render as a silent blank rather than
+              // saying anything at all.
               <EmptyState />
             ) : (
               // `EventListView` directly: `EventList` was a pass-through

@@ -3,9 +3,17 @@ import type { LandingState } from '@/lib/utils/landingState';
 
 export interface OffSeasonLandingProps {
   state: LandingState;
-  /** Show the given year instead, with the date scope opened right up. */
+  /**
+   * Show the given year instead. Nothing but a year change: it used to also
+   * open the date scope right up, because `next`'s adaptive window had
+   * nothing to adapt to that far ahead, and #274 phase 4 deleted the scopes.
+   */
   onPreviewNextSeason: (year: number) => void;
-  /** Show the whole of the year already selected. Takes no year on purpose. */
+  /**
+   * Stop covering the year already selected with this landing — it is over,
+   * and the reader wants to look at it anyway. Takes no year on purpose: the
+   * year on screen is already the one that ended.
+   */
   onBrowseArchiveSeason: () => void;
 }
 

@@ -85,8 +85,8 @@ export interface DayRailProps {
    */
   rootRef?: (el: HTMLElement | null) => void;
   /**
-   * The view window's day list, in order — the same array `useDayAnchor` is
-   * given in `page.tsx`.
+   * The rendered day list, in order — the same array `useDayAnchor` is given
+   * in `page.tsx`.
    *
    * Passed rather than derived from `chips` so both the discrete anchor and
    * this component's continuous highlight walk *identical* input through the
@@ -105,7 +105,7 @@ export interface DayRailProps {
    */
   bandSegments: WeekBandSegment[];
   /**
-   * Which weeks the band can reach under the current non-date filters. A week
+   * Which weeks the band can reach under the reader's current filters. A week
    * absent from the map renders faded and refuses its tap — including every
    * week, when the map itself is empty.
    */
@@ -143,10 +143,10 @@ export interface DayRailProps {
  * test on plain markup; anything about *where the highlight is* needs stated
  * geometry, which is what `useRailHighlight.test.tsx` provides.
  *
- * It spans the navigable bounds, **not** the current scope. It is a
- * navigation surface, not a filter readout: in `Today` scope it still shows
- * the week around you, because "where am I in the season" is the question it
- * exists to answer.
+ * It spans the navigable bounds — the whole season, widened by any event
+ * outside it — and names a day with no matching events as a fact rather than
+ * a destination. It is a navigation surface, not a filter readout: "where am
+ * I in the season" is the question it exists to answer.
  *
  * Accessibility: `role="group"` with an `aria-label`. Not `role="menu"` — a
  * row of navigation targets is not a menu — and not a bare `<div>` carrying
