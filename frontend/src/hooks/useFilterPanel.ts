@@ -171,9 +171,12 @@ export function useFilterPanel(): {
   // than a functional update) because closing now needs `beginExit`'s side
   // effect, not just a flip.
   //
-  // Two controls call this: the rail's Filters button (outside the panel)
-  // and the caret (inside it). The containment check is a no-op for the
-  // former and the whole point for the latter.
+  // Two controls call this: the site header's Filters funnel (outside the
+  // panel) and the caret (inside it). The containment check is a no-op for the
+  // former and the whole point for the latter — which is why it is about
+  // WHERE the caller sits, not which control it is. #274 phase 3 moved that
+  // outside caller from the day rail to the header without changing anything
+  // here, because "outside" was always the property that mattered.
   const toggle = useCallback(() => {
     if (open) {
       beginExit();

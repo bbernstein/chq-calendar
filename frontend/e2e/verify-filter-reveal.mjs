@@ -23,7 +23,7 @@ const URL = process.env.URL ?? 'http://localhost:3000/';
 
 const browser = await chromium.launch();
 
-async function phone({ reducedMotion } = {}) {
+async function phone({ reducedMotion, viewport } = {}) {
   // Chautauqua's own timezone, kept for belt-and-braces — it is not
   // load-bearing. The paragraph that used to be here claimed the app "treats
   // the browser's clock as event-time" and that whether `now` should be
@@ -41,7 +41,7 @@ async function phone({ reducedMotion } = {}) {
   // is not hour-sensitive; it is pinned below all the same, so that `E2E_NOW`
   // can reach it and its off-season branch is testable on any date.
   const ctx = await browser.newContext({
-    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    viewport: viewport ?? { width: 390, height: 844 }, isMobile: true, hasTouch: true,
     timezoneId: 'America/New_York',
     ...(reducedMotion ? { reducedMotion: 'reduce' } : {}),
   });
@@ -730,6 +730,58 @@ const strandedPanels = p => p.evaluate(() =>
   await p.waitForTimeout(600);
   check('37 the header hides again once the panel is closed',
     !(await headerShown(p)), `headerShown=${await headerShown(p)}`);
+  await p.context().close();
+}
+
+// ─────────────── the drawer handle stays a handle when the drawer overflows
+//
+// The panel caps its own height and scrolls internally, and the caret lives
+// inside that scroll container. When the contents exceed the cap, an ordinary
+// caret scrolls away with them — a drawer handle the reader has to scroll the
+// drawer to find is not a drawer handle. `sticky bottom-0` on the caret is
+// what stops that.
+//
+// Not a #274 phase 3 regression, despite a review flagging it as one: the
+// caret sat inside the `max-h-[70vh] overflow-y-auto` element before that
+// phase too. It has been worth fixing since it was written.
+//
+// **A landscape phone (844x390), not the portrait one every other block uses.**
+// Portrait does not overflow and never will at this content size — measured
+// 313px of content against a 768px cap at 390x844, and still 313 against 404
+// at 390x480. A check written at 390x844 would pass with the `sticky` removed
+// and prove nothing. The precondition is asserted below rather than assumed,
+// for exactly that reason.
+{
+  const p = await phone({ viewport: { width: 844, height: 390 } });
+  await p.evaluate(() => window.scrollTo(0, 3000));
+  await p.waitForTimeout(700);
+  await openFilters(p);
+
+  const caret = await p.evaluate(() => {
+    const box = document.querySelector('[data-filter-panel-box]');
+    const el = [...document.querySelectorAll('button')]
+      .find(b => b.getAttribute('aria-label') === 'Hide filters');
+    if (!box || !el) return null;
+    const b = box.getBoundingClientRect();
+    const c = el.getBoundingClientRect();
+    return {
+      // The precondition: the panel really is scrolling internally here.
+      overflows: box.scrollHeight > box.clientHeight + 1,
+      scrollH: box.scrollHeight,
+      clientH: box.clientHeight,
+      // And the caret is inside the panel's VISIBLE box, without anyone
+      // having scrolled the panel first.
+      visible: c.bottom <= b.bottom + 1 && c.top >= b.top - 1 && c.height > 0,
+      caret: `${Math.round(c.top)}→${Math.round(c.bottom)}`,
+      boxBottom: Math.round(b.bottom),
+    };
+  });
+  check('38-pre the panel actually overflows its cap at this size',
+    !!caret && caret.overflows,
+    caret ? `scrollHeight=${caret.scrollH} clientHeight=${caret.clientH}` : 'no panel');
+  check('38 the Hide filters caret stays on screen when the panel overflows',
+    !!caret && caret.overflows && caret.visible,
+    caret ? `caret ${caret.caret}, panel bottom ${caret.boxBottom}` : 'no caret');
   await p.context().close();
 }
 

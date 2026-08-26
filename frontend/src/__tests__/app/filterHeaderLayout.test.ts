@@ -37,12 +37,19 @@ describe('belowHeaderTop', () => {
     expect(belowHeaderTop()).toContain('--site-header-offset, 0px');
   });
 
-  // The panel and the rail read ONE expression. Two expressions that happen
-  // to evaluate the same today are two expressions that can be edited apart
-  // tomorrow, and the failure — a panel floating a few pixels off the header
-  // it hangs from — is cosmetic enough to ship unnoticed.
-  it('is the same expression the day rail and the panel both use', () => {
-    expect(belowHeaderTop()).toBe(belowHeaderTop());
+  // The whole sticky stack is built from this one term, so a change to it
+  // moves the rail, the panel and the day titles together rather than letting
+  // them drift apart — a panel floating a few pixels off the header it hangs
+  // from is cosmetic enough to ship unnoticed.
+  //
+  // Note what is NOT here: an `expect(belowHeaderTop()).toBe(belowHeaderTop())`
+  // that used to sit above this line. Comparing a pure function to itself is a
+  // tautology that cannot fail, and it read as though it were checking that
+  // two consumers agree. They are consumers, not callers of each other, so
+  // this file cannot see them both — `filterHeader.test.tsx` is where that is
+  // actually checked, by asserting the rendered rail and the rendered panel
+  // carry the same `style.top`.
+  it('is the term the day headers are stacked on too', () => {
     expect(dayHeaderTop()).toContain(belowHeaderTop());
   });
 });

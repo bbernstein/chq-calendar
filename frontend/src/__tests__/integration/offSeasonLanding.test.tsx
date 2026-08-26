@@ -233,9 +233,10 @@ describe('page.tsx — the off-season landing', () => {
     // `getByRole` correctly cannot see them. Opening the panel is what a
     // reader would do to check the scope, and it is what this has to do to
     // assert on it.
-    fireEvent.click(
-      document.querySelector<HTMLButtonElement>('[data-site-header] button[aria-label="Filters"]')!
-    );
+    // By role, not `document.querySelector(...)!` — the funnel is a real
+    // accessible control, so a role query fails with "unable to find a button
+    // named Filters" instead of a null-deref if the markup moves.
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'All Year' }).getAttribute('aria-pressed')
