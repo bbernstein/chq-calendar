@@ -365,6 +365,20 @@ export function formatDayLabel(key: DayKey): string {
   });
 }
 
+/**
+ * `"Saturday, July 25"` — the long spoken form every rail control names its
+ * target by.
+ *
+ * Extracted from `dayChips` so the week band names a day exactly as the chip
+ * under it does. Two spellings of the same day in one strip is the kind of
+ * drift a screen-reader user hears and a sighted reviewer never sees.
+ */
+export function spokenDayTitle(key: DayKey): string {
+  return startOfDay(key).toLocaleDateString('en-US', {
+    timeZone: CHQ_ZONE, weekday: 'long', month: 'long', day: 'numeric',
+  });
+}
+
 /** `"Sat, Jul 4 – Thu, Jul 9"` — how the date chip names the window it covers. */
 export function formatDayRange(from: DayKey, through: DayKey): string {
   // An inverted range is not representable as a sentence; an empty string is
@@ -437,7 +451,7 @@ export function dayChips(days: DayKey[], countsByDay: Map<DayKey, number>): DayC
     const showMonth = month !== lastMonth;
     lastMonth = month;
     const count = countsByDay.get(key) ?? 0;
-    const spoken = date.toLocaleDateString('en-US', { timeZone: CHQ_ZONE, weekday: 'long', month: 'long', day: 'numeric' });
+    const spoken = spokenDayTitle(key);
     const events = count === 0 ? 'no events' : count === 1 ? '1 event' : `${count} events`;
     return {
       key,

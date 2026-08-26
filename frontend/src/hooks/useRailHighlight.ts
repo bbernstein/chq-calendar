@@ -21,6 +21,22 @@ export const JUMP_CHIPS = 1.5;
 const FALLBACK_PITCH = 48;
 
 /**
+ * The real chip row, and only it.
+ *
+ * `:scope >` restricts every walk to the content element's own columns. The
+ * highlighted copy row is a descendant of that same element and carries its
+ * own `[data-rail-column]` children, so an unscoped query would measure and
+ * walk every chip twice.
+ *
+ * Exported because `DayRail`'s keyboard walk needs the identical string: the
+ * chips are grandchildren of the content element (each sits under the column
+ * that also holds its week-band cell), and a copy of this selector that fell
+ * out of step would match **nothing** — the pill would silently stop painting
+ * and the arrow keys would stop moving, with no error anywhere.
+ */
+export const RAIL_CHIP_SELECTOR = ':scope > [data-rail-column] > [data-chip]';
+
+/**
  * Callback refs, not ref objects.
  *
  * The listener effect below has to re-run when these elements actually
@@ -240,7 +256,7 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     // start measuring every chip twice the day anything under `content`
     // gained a chip key, and the failure would be a mispositioned pill
     // rather than an error.
-    for (const el of Array.from(content.querySelectorAll<HTMLElement>(':scope > [data-chip]'))) {
+    for (const el of Array.from(content.querySelectorAll<HTMLElement>(RAIL_CHIP_SELECTOR))) {
       const key = el.dataset.chip;
       if (!key || next.has(key)) continue;
       const rect = el.getBoundingClientRect();

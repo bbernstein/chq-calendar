@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
 import type { DayChip } from '@/lib/utils/dayWindow';
 import { FiltersIcon } from '@/components/filters/FiltersIcon';
-import { useRailHighlight } from '@/hooks/useRailHighlight';
+import { WeekBandCell } from '@/components/calendar/WeekBandCell';
+import { bridgesGutter, type WeekBandDestination, type WeekBandSegment } from '@/lib/utils/weekBands';
+import { RAIL_CHIP_GUTTER_PX } from '@/lib/utils/railMetrics';
+import { RAIL_CHIP_SELECTOR, useRailHighlight } from '@/hooks/useRailHighlight';
 
 /**
  * Everything that decides a chip's box, shared verbatim by the two layers.
@@ -19,6 +22,21 @@ function chipBoxClass(isEmpty: boolean): string {
     isEmpty ? 'border border-dashed border-gray-300 dark:border-gray-600' : 'border border-transparent'
   }`;
 }
+
+/**
+ * The column that holds one day's band cell and its chip.
+ *
+ * Shared verbatim by the two layers for the same reason `chipBoxClass` is: the
+ * clipped copy is positioned on top of the real row, so a column that laid out
+ * differently in one layer would show as a seam. `items-stretch` on the rows
+ * (not `items-center`) is what keeps every band cell on the same baseline —
+ * a chip carrying a month label is a line taller than its neighbours, and
+ * centring the columns would push those days' band segments out of line.
+ */
+const railColumnClass = 'flex shrink-0 flex-col';
+
+/** The band's own row, for the keyboard walk. Excludes the clipped copy's columns. */
+const BAND_BUTTON_SELECTOR = ':scope > [data-rail-column] [data-week-band-button]';
 
 /** A chip's three lines. Rendered identically into both layers. */
 function ChipFace({ chip }: { chip: DayChip }) {
@@ -110,6 +128,22 @@ export interface DayRailProps {
    * drift onto different days the first time the two ranges diverge.
    */
   windowDayKeys: string[];
+  /**
+   * One segment per chip, in the same order — `weekBandSegments(chipKeys, …)`.
+   *
+   * Passed rather than derived here so the band's model stays a pure function
+   * of the season that can be tested without a view, and so the reachability
+   * map beside it is built once per filter change rather than per render.
+   */
+  bandSegments: WeekBandSegment[];
+  /**
+   * Which weeks the band can reach under the current non-date filters. A week
+   * absent from the map renders faded and refuses its tap — including every
+   * week, when the map itself is empty.
+   */
+  weekDestinations: Map<number, WeekBandDestination>;
+  /** A band tap. The caller turns the week into a day and calls `goToDay`. */
+  onSelectWeek: (week: number) => void;
 }
 
 export interface DayRailFiltersToggleProps {
@@ -186,6 +220,7 @@ export interface DayRailFiltersToggleProps {
 export function DayRail({
   chips, anchorDay, prevDay, nextDay, scopeHasWindow, todayKey,
   onSelectDay, onStepDay, onGoToToday, rootRef, filtersToggle, windowDayKeys,
+  bandSegments, weekDestinations, onSelectWeek,
 }: DayRailProps) {
   const chipKeys = useMemo(() => chips.map(c => c.key), [chips]);
   const { stripRef, contentRef, pillRef, clipRef, contentEl, resume } =
@@ -215,6 +250,17 @@ export function DayRail({
   // null anchor would leave the whole strip unreachable from the keyboard.
   const tabStopKey = chips.some(c => c.key === anchorDay) ? anchorDay : chips[0]?.key;
 
+  // The band is one tab stop, like the chip row: the week the reader is
+  // actually in, resolved from the band's own model rather than from a second
+  // date computation. A shared Saturday lights the LATER of its two weeks —
+  // the one the reader is scrolling into. Falls back to the first labelled
+  // week so the band is never unreachable from the keyboard.
+  const anchorSegment = bandSegments.find(s => s.dayKey === anchorDay);
+  const anchorWeek = anchorSegment?.weekNumbers[anchorSegment.weekNumbers.length - 1] ?? null;
+  const bandTabStopWeek = anchorWeek
+    ?? bandSegments.find(s => s.labelledWeek !== null)?.labelledWeek
+    ?? null;
+
   // The highlight — where it sits, and what moves the strip — now lives in
   // `useRailHighlight`, driven continuously from scroll position rather than
   // from `anchorDay` changing. `anchorDay` is still what this component
@@ -227,28 +273,23 @@ export function DayRail({
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const content = contentEl.current;
     if (!content) return;
-    // `:scope >` restricts the walk to the real chip row. The highlighted
-    // copy below carries no `data-chip` and holds no focusable elements, so
-    // this is defence in depth rather than the only thing keeping the copy
-    // out — but it is the cheap half of that pair, and it keeps the walk
-    // correct against any future descendant of `content` that does carry a
-    // chip key.
-    const buttons = Array.from(content.querySelectorAll<HTMLElement>(':scope > [data-chip]'));
-    const current = buttons.indexOf(document.activeElement as HTMLElement);
+    const active = document.activeElement as HTMLElement | null;
+    // Which row the walk applies to is decided by where focus already is, so
+    // the band and the chips each behave like the single strip they look like.
+    const onBand = active?.hasAttribute('data-week-band-button') ?? false;
+    const buttons = Array.from(content.querySelectorAll<HTMLElement>(
+      onBand ? BAND_BUTTON_SELECTOR : RAIL_CHIP_SELECTOR));
+    const current = buttons.indexOf(active as HTMLElement);
     if (current < 0) return;
     let next = -1;
     if (e.key === 'ArrowRight') next = Math.min(current + 1, buttons.length - 1);
     else if (e.key === 'ArrowLeft') next = Math.max(current - 1, 0);
     else if (e.key === 'Home') {
-      // `todayKey` and `chips` are computed independently in `page.tsx`
-      // (`reachableTodayKey` against `navBounds`, `railChips` against the
-      // same bounds) — today, that keeps them in agreement, but nothing
-      // enforces it structurally. If a future change ever let them drift,
-      // `findIndex` returning -1 here would otherwise swallow the keypress
-      // with no feedback at all; falling back to the first chip means Home
-      // always does something.
-      const idx = todayKey ? buttons.findIndex(b => b.dataset.chip === todayKey) : 0;
-      next = idx < 0 ? 0 : idx;
+      if (onBand) next = 0;
+      else {
+        const idx = todayKey ? buttons.findIndex(b => b.dataset.chip === todayKey) : 0;
+        next = idx < 0 ? 0 : idx;
+      }
     }
     else return;
     if (next < 0) return;
@@ -298,36 +339,49 @@ export function DayRail({
         half-and-half state the reader sees if they stop mid-scroll.
       */}
       <div ref={stripRef} data-rail-strip className="flex-1 overflow-x-auto scrollbar-hide">
-        <div ref={contentRef} data-rail-content className="relative flex items-center gap-1 w-max">
-          {chips.map((chip) => {
-            // A day with nothing on it is not a destination. It keeps its
-            // place on the strip — the rail is a calendar and a gap is
-            // information — and it keeps its focusability, but it is
-            // announced and painted as unavailable rather than offering a
-            // trip that cannot happen.
+        <div
+          ref={contentRef}
+          data-rail-content
+          className="relative flex items-stretch w-max"
+          // The gutter the band's bleed is derived from — one constant, not a
+          // Tailwind class and a literal that happen to agree.
+          style={{ gap: `${RAIL_CHIP_GUTTER_PX}px` }}
+        >
+          {chips.map((chip, index) => {
             const isEmpty = chip.count === 0;
+            // Looked up by index, then confirmed by day key. Index alignment
+            // is structural today (both arrays are built from the same chip
+            // list, in order), but a segment drawn over the wrong day is a
+            // silent, plausible-looking defect, so the band says nothing
+            // rather than guessing.
+            const raw = bandSegments[index];
+            const segment = raw?.dayKey === chip.key ? raw : null;
             return (
-              <button
-                key={chip.key}
-                type="button"
-                data-chip={chip.key}
-                aria-label={chip.label}
-                aria-current={chip.key === anchorDay ? 'date' : undefined}
-                aria-disabled={isEmpty || undefined}
-                // One tab stop for the whole strip: a season is ~64 chips,
-                // and every one of them being a tab stop between the filters
-                // and the list is what the ArrowLeft/ArrowRight/Home handler
-                // above exists to replace.
-                tabIndex={chip.key === tabStopKey ? 0 : -1}
-                onClick={() => { if (!isEmpty) { resume(); onSelectDay(chip.key); } }}
-                className={`${chipBoxClass(isEmpty)} text-gray-700 dark:text-gray-300 ${
-                  // The dimming says "nothing to press" — paint only, so it
-                  // stays out of the shared box class.
-                  isEmpty ? 'opacity-50 cursor-default' : 'hover:bg-blue-50 dark:hover:bg-gray-700'
-                }`}
-              >
-                <ChipFace chip={chip} />
-              </button>
+              <div key={chip.key} data-rail-column className={railColumnClass}>
+                <WeekBandCell
+                  segment={segment}
+                  destinations={weekDestinations}
+                  bridgesLeading={bridgesGutter(index - 1, bandSegments)}
+                  bridgesTrailing={bridgesGutter(index, bandSegments)}
+                  isTabStop={segment?.labelledWeek !== null
+                    && segment?.labelledWeek === bandTabStopWeek}
+                  onSelectWeek={(week) => { resume(); onSelectWeek(week); }}
+                />
+                <button
+                  type="button"
+                  data-chip={chip.key}
+                  aria-label={chip.label}
+                  aria-current={chip.key === anchorDay ? 'date' : undefined}
+                  aria-disabled={isEmpty || undefined}
+                  tabIndex={chip.key === tabStopKey ? 0 : -1}
+                  onClick={() => { if (!isEmpty) { resume(); onSelectDay(chip.key); } }}
+                  className={`${chipBoxClass(isEmpty)} text-gray-700 dark:text-gray-300 ${
+                    isEmpty ? 'opacity-50 cursor-default' : 'hover:bg-blue-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <ChipFace chip={chip} />
+                </button>
+              </div>
             );
           })}
 
@@ -335,39 +389,35 @@ export function DayRail({
             ref={pillRef}
             data-rail-pill
             aria-hidden="true"
-            className="absolute inset-y-0 left-0 z-10 rounded-md bg-blue-600 pointer-events-none"
-            // Placed before first paint by `useRailHighlight`'s layout
-            // effect; hidden until then so it cannot flash at x=0.
-            style={{ opacity: 0 }}
+            className="absolute left-0 z-10 rounded-md bg-blue-600 pointer-events-none"
+            // Re-based below the band: `inset-y-0` would paint the highlight
+            // over the week it is meant to sit under. Vertical placement is
+            // static; `useRailHighlight` writes only width and transform.
+            style={{ opacity: 0, top: 'var(--rail-band-h)', bottom: '0px' }}
           />
 
           <div
             ref={clipRef}
             data-rail-clip
             aria-hidden="true"
-            className="absolute inset-0 z-20 flex items-center gap-1 text-white pointer-events-none"
-            style={{ clipPath: 'inset(0 100% 0 0)' }}
+            className="absolute inset-0 z-20 flex items-stretch text-white pointer-events-none"
+            style={{ gap: `${RAIL_CHIP_GUTTER_PX}px`, clipPath: 'inset(0 100% 0 0)' }}
           >
             {chips.map((chip) => (
-              // Divs, not buttons, and carrying no `data-chip`. This row is
+              // Divs, not buttons, and carrying no `data-chip` — this row is
               // paint: it must not be a control, and it must not answer to a
               // selector looking for one.
-              //
-              // Both halves of that are load-bearing, and each was learned the
-              // hard way. `<button>` here (chosen originally for box-metric
-              // parity) made the copy match the rail's own
-              // `button:not([data-chip])` chevron selector, so a click landed
-              // on inert paint with the real chip intercepting beneath it —
-              // caught by `e2e/verify-rail.mjs`, not by any unit test. Adding
-              // `data-chip` to fix *that* would instead double every
-              // `[data-day-rail] [data-chip]` query in the same suite. A plain
-              // `<div>` is the only shape that satisfies both, and it is the
-              // honest one. Tailwind's preflight normalises a button's font,
-              // padding, border and margin to a div's, so the box metrics are
-              // identical anyway — browser-measured at 0px worst delta across
-              // all 251 pairs.
-              <div key={chip.key} className={chipBoxClass(chip.count === 0)}>
-                <ChipFace chip={chip} />
+              <div key={chip.key} data-rail-column className={railColumnClass}>
+                {/*
+                  The band's height, spent on nothing. Without it the copy's
+                  chips sit one band higher than the real ones and every digit
+                  gets a seam through it — the exact failure the shared
+                  `chipBoxClass` exists to prevent, one level up.
+                */}
+                <div data-band-spacer className="h-[var(--rail-band-h)] shrink-0" />
+                <div className={chipBoxClass(chip.count === 0)}>
+                  <ChipFace chip={chip} />
+                </div>
               </div>
             ))}
           </div>

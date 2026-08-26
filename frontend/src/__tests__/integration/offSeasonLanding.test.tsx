@@ -176,7 +176,13 @@ describe('page.tsx — the off-season landing', () => {
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
   });
 
-  it('browsing the archive puts the season on screen', async () => {
+  // Same shape and the same growth driver as the test below it — mount, then
+  // click through to a second full render — so it gets the same budget. It
+  // measured 493ms before the band and 710ms after, which is comfortable
+  // today; it is raised now rather than after it starts flaking, because the
+  // rail's element count tracks the navigable range and production data spans
+  // far more of the year than this fixture does.
+  it('browsing the archive puts the season on screen', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();
     await waitFor(() =>
@@ -191,7 +197,24 @@ describe('page.tsx — the off-season landing', () => {
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
   });
 
-  it('previewing next season switches the year and opens the date scope', async () => {
+  // Explicit timeout, following the four in `dayRailIntegration.test.tsx`.
+  // This is the most expensive test in the suite: it mounts the whole page,
+  // then drives a *year switch*, which fetches a second season and re-renders
+  // the entire list and rail against it — two full page loads in one test.
+  //
+  // Measured locally with coverage on, as CI runs it: 1173ms before the #274
+  // week band, 1766ms after. The band puts one segment above every day chip,
+  // so the rail's element count grows with the navigable range — that is the
+  // structural alignment the design rests on, not a regression to tune away.
+  // (Most of the 1.5x is the per-day column wrapper; only about a third is
+  // `WeekBandCell` itself, measured by stubbing it out.)
+  //
+  // CI runs ~3x slower than that on a loaded 2-core runner with coverage
+  // instrumentation, which put this test at roughly two thirds of the default
+  // 5s budget *before* the band and over it after. 15s is the same headroom
+  // the day-rail integration tests already take. The budget was always wrong
+  // for this test; the band is only what made that visible.
+  it('previewing next season switches the year and opens the date scope', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();
     await waitFor(() =>
