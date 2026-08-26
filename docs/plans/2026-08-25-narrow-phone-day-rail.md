@@ -1,6 +1,6 @@
 # The day rail on a narrow phone
 
-**Status:** Implemented in PR #279, plus one follow-up fix. Measured 2.3 → 4.34
+**Status:** Implemented in PR #279, plus two follow-up fixes. Measured 2.3 → 4.06
 chips at 375pt.
 **Scope:** Bounded — `DayRail.tsx` plus the browser checks that guard it. No spec doc.
 **Origin:** User report with an iPhone 13 mini (375pt) screenshot: the day strip
@@ -63,7 +63,7 @@ text rather than an icon — the anomaly the user spotted.
    the `onStepDay` callback, and `page.tsx`'s `stepTargets` plumbing that feeds
    them.
 
-Result at 375pt: ~215px of strip, about **4.5 chips** — and roughly 5.5 once
+Result at 375pt: 191px of strip against a 48px per-chip pitch — **4.06 chips** — and roughly 5.5 once
 phase 3 of #274 moves the Filters toggle into the site header.
 
 ## What removing the chevrons costs, stated plainly

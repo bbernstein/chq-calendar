@@ -325,19 +325,37 @@ for (const scrolled of [false, true]) {
   await page.waitForTimeout(1200);
   await page.mouse.wheel(0, 2000);
   await page.waitForTimeout(700);
-  const { stripWidth, chipWidth, nowVisible, filtersVisible } = await page.evaluate(() => {
+  const { stripWidth, chipWidth, pitch, nowVisible, filtersVisible } = await page.evaluate(() => {
     const strip = document.querySelector('[data-rail-strip]');
-    const chip = document.querySelector('[data-day-rail] [data-chip]');
+    const chips = [...document.querySelectorAll('[data-day-rail] [data-chip]')];
+    const [a, b] = chips;
     return {
       stripWidth: strip ? strip.getBoundingClientRect().width : 0,
-      chipWidth: chip ? chip.getBoundingClientRect().width : 0,
+      chipWidth: a ? a.getBoundingClientRect().width : 0,
+      // The distance from one chip's left edge to the next one's — the real
+      // repeat unit, chip plus gutter. MEASURED from two adjacent chips rather
+      // than read from `RAIL_CHIP_GUTTER_PX`, for the same reason the chip
+      // width is measured: a constant the browser turned out not to honour is
+      // exactly what this check exists to catch.
+      pitch: a && b
+        ? b.getBoundingClientRect().left - a.getBoundingClientRect().left
+        : 0,
       nowVisible: !!document.querySelector('[data-day-rail] button[aria-label="Go to today"]'),
       filtersVisible: !!document.querySelector('[data-day-rail] button[aria-label="Filters"]'),
     };
   });
-  const chipsWorth = chipWidth > 0 ? stripWidth / chipWidth : 0;
+  // How many chips actually FIT, which is not `strip / chipWidth`: chips are
+  // laid out with a gutter between them, so n of them occupy
+  // `n*chip + (n-1)*gutter`. Dividing by the chip alone silently credits the
+  // strip with the gutters it also has to pay for, and overstates the count by
+  // roughly 8% at these sizes — enough to let the guard read 4.0 while the
+  // reader can see fewer than four. Solving that inequality for n gives
+  // `(strip + gutter) / pitch`.
+  const gutter = pitch > 0 && chipWidth > 0 ? pitch - chipWidth : 0;
+  const chipsWorth = pitch > 0 ? (stripWidth + gutter) / pitch : 0;
   check('10 day strip holds at least 4 chips at 375pt', chipsWorth >= 4,
-    `strip=${stripWidth.toFixed(1)}px chip=${chipWidth.toFixed(1)}px ≈ ${chipsWorth.toFixed(2)} chips ` +
+    `strip=${stripWidth.toFixed(1)}px chip=${chipWidth.toFixed(1)}px ` +
+    `gutter=${gutter.toFixed(1)}px pitch=${pitch.toFixed(1)}px ≈ ${chipsWorth.toFixed(2)} chips ` +
     `(⟳Now=${nowVisible} Filters=${filtersVisible})`);
   await page.close();
 }
