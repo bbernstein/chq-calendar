@@ -175,6 +175,34 @@ describe('WeekGrid', () => {
     expect(props.onDismiss).not.toHaveBeenCalled();
   });
 
+
+  it('reports the theme popover closed when the grid unmounts', () => {
+    // The contract `WeekChooser` relies on: this grid is the only thing that
+    // knows whether a theme popover is up, and its caller keeps that in a ref.
+    // A grid that vanished while one was open without saying so would leave
+    // that ref stuck at `true`.
+    //
+    // Asserted at the reporting layer rather than through the chooser's
+    // behaviour on purpose: every route that unmounts this grid also remounts
+    // it, and the mount pass writes `false` before the caller's listener is
+    // reattached — so a behavioural test passes with or without the cleanup
+    // and could never fail. This one can.
+    const onThemeOpenChange = vi.fn();
+    const themes = {
+      6: {
+        number: 6, title: 'Water', description: 'All about water.',
+        startDate: '2026-08-01', endDate: '2026-08-07',
+      },
+    };
+    const { unmount } = renderGrid({ themes, onThemeOpenChange });
+    fireEvent.contextMenu(cell(6));
+    expect(onThemeOpenChange).toHaveBeenLastCalledWith(true);
+
+    unmount();
+
+    expect(onThemeOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
   it('renders nothing for a season with no weeks', () => {
     const { container } = renderGrid({ seasonWeeks: [] });
     expect(container.querySelector('[data-week-grid]')).toBeNull();

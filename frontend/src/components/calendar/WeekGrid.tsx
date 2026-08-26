@@ -82,6 +82,19 @@ export function WeekGrid({
   // to re-fire when the boolean itself changes.
   useEffect(() => {
     onThemeOpenChange?.(themePopover.isOpen);
+    // Report "closed" on the way out. Without this the caller's ref keeps the
+    // last value this grid ever reported, and a grid unmounted while a theme
+    // popover was open leaves it stuck at `true`.
+    //
+    // Today nothing breaks, because every route that unmounts this grid also
+    // remounts it later and the mount pass of this same effect writes `false`
+    // before the caller's own listener is reattached. That is effect ORDERING
+    // doing the work, not the contract — it holds only while the grid is
+    // remounted rather than kept alive, and while the caller keeps attaching
+    // its listener after its children commit. Neither is a property this
+    // component can see or defend. Reporting the transition honestly costs one
+    // line and removes the dependence entirely.
+    return () => onThemeOpenChange?.(false);
   }, [themePopover.isOpen]);
 
   // Focus enters the grid on open, on the week the reader is already in. Doing
