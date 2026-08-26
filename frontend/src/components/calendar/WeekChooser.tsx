@@ -114,6 +114,16 @@ export const WeekChooser = memo(function WeekChooser({
         title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
+        // Deliberately does NOT defer to an open theme popover, unlike the
+        // outside-press handler below and `WeekGrid`'s Escape. Those two
+        // defer because they are ambiguous: a press somewhere else on the
+        // page, or an Escape while a second popover is up, is far more likely
+        // to mean "close the thing I just opened" than "close everything". A
+        // click on this trigger is neither — the reader aimed at the
+        // chooser's own control, which means the chooser, so it closes and
+        // takes the theme popover with it. Stated rather than left implicit:
+        // the asymmetry is the kind a later reader would otherwise "fix" into
+        // consistency and change the behaviour.
         onClick={() => (open ? close() : setOpen(true))}
         // 44px square, the platform minimum, on a phone-first app's primary
         // navigation surface. `inline-flex` + centring because a `min-h` on a

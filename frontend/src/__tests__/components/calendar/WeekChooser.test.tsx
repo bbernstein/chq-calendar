@@ -166,6 +166,32 @@ describe('WeekChooser', () => {
     expect(screen.getByRole('dialog', { name: 'Week 6 theme' })).toBeTruthy();
   });
 
+  it('DOES close from the trigger while a theme popover is open', () => {
+    // The deliberate counterpart to the test above, pinned so the asymmetry is
+    // a decision rather than an oversight. A press elsewhere on the page and an
+    // Escape are both ambiguous — far more likely to mean "close the thing I
+    // just opened" than "close everything" — so they defer to the theme
+    // popover. A click on the chooser's own trigger is not ambiguous: the
+    // reader aimed at the chooser, so it closes and takes the theme popover
+    // with it. Without this test, "make the three paths consistent" reads like
+    // a tidy-up rather than a behaviour change.
+    const themes = {
+      6: {
+        number: 6, title: 'Water', description: 'All about water.',
+        startDate: '2026-08-01', endDate: '2026-08-07',
+      },
+    };
+    renderChooser({ themes });
+    fireEvent.click(trigger());
+    fireEvent.contextMenu(document.querySelector('[data-week-cell="6"]')!);
+    expect(screen.getByRole('dialog', { name: 'Week 6 theme' })).toBeTruthy();
+
+    fireEvent.click(trigger());
+
+    expect(popover()).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Week 6 theme' })).toBeNull();
+  });
+
   it('navigates, closes, and returns focus when a week is chosen', () => {
     const { props } = renderChooser();
     fireEvent.click(trigger());
