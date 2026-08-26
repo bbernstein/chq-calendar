@@ -1,9 +1,20 @@
 # The day rail on a narrow phone
 
-**Status:** Design approved in chat 2026-08-25. Not yet implemented.
+**Status:** Implemented in PR #279, plus one follow-up fix. Measured 2.3 → 4.34
+chips at 375pt.
 **Scope:** Bounded — `DayRail.tsx` plus the browser checks that guard it. No spec doc.
 **Origin:** User report with an iPhone 13 mini (375pt) screenshot: the day strip
 was down to one full chip and two slivers.
+
+**Follow-up, same PR:** the first pass made `⟳ Now` icon-only by keeping the
+bare `⟳` glyph. That was wrong, and the same reader reported it as
+unreadable — `⟳` is the standard *refresh/reload* symbol, so a control that had
+been merely decorated by it now meant "reload the page". It is now a miniature
+day chip carrying today's date; see "`⟳ Now` becomes icon-only" below, which
+records what the icon actually is and why it is outlined rather than filled.
+The lesson generalises: **a glyph that rides alongside a word is decoration and
+can be wrong without anyone noticing; the same glyph alone is the whole
+message.** Dropping a label is not a purely spatial change.
 
 ---
 
@@ -29,9 +40,25 @@ text rather than an icon — the anomaly the user spotted.
 ## What was decided
 
 1. **`⟳ Now` becomes icon-only**, 44×44, matching the chooser and the funnel.
-   The accessible name (`"Go to today"`) does not change: the glyph is
+   The accessible name (`"Go to today"`) does not change: the icon is
    `aria-hidden` and the button keeps its explicit `aria-label`, the same
    contract `FiltersIcon` and `WeekChooserIcon` already follow.
+
+   **The icon is a miniature day chip carrying today's date**, not a symbol —
+   an outlined rounded box with the day of the month in it. Same move the week
+   chooser's 3×3 trigger makes: the control is a small copy of the thing it
+   points at, so "go to that chip" needs no symbol vocabulary at all. It is
+   **outlined, never filled**, because the solid blue fill belongs to the
+   highlight pill and means "you are here", while this button renders only
+   when the reader is somewhere else. It also answers "what is today's date",
+   which neither a glyph nor the word "Today" does, and which is exactly what
+   a reader who has scrolled away from today has lost track of.
+
+   The date is **sliced out of the day key, never parsed through `Date`**: a
+   day key is already resolved in the Institution's timezone (#243), and
+   re-resolving it in the browser's is how today becomes yesterday west of
+   Chautauqua. Pinned by a test using `2026-07-01`, which `new Date` renders
+   as June 30 in every US timezone.
 2. **Both chevrons are removed**, along with the `prevDay` / `nextDay` props,
    the `onStepDay` callback, and `page.tsx`'s `stepTargets` plumbing that feeds
    them.
