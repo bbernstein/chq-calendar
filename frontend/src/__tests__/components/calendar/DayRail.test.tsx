@@ -139,18 +139,46 @@ describe('DayRail', () => {
   // explicit `aria-label` is what a screen reader announces — the same
   // contract `FiltersIcon` and `WeekChooserIcon` follow — and `title` gives
   // a sighted mouse user the same words `WeekChooser`'s own trigger does.
-  it('renders ⟳ Now as an icon-only glyph, keeping its accessible name', () => {
+  it('renders today as a miniature day chip, keeping its accessible name', () => {
     renderRail({ anchorDay: '2026-07-04', todayKey: '2026-07-05' });
     const button = screen.getByRole('button', { name: 'Go to today' });
     expect(button.getAttribute('title')).toBe('Go to today');
     expect(button.className).toContain('min-w-11');
-    // The glyph is the button's only content, and it is hidden from
-    // assistive tech — an unhidden glyph would risk the accessible name
-    // computed above being the glyph rather than the explicit label.
-    const glyph = button.querySelector('[aria-hidden="true"]');
-    expect(glyph).not.toBeNull();
-    expect(button.textContent?.trim()).toBe(glyph!.textContent?.trim());
+    // The chip is the button's only content, and it is hidden from assistive
+    // tech — an unhidden chip would risk the accessible name computed above
+    // being the bare date rather than the explicit label.
+    const chip = button.querySelector('[data-today-chip]');
+    expect(chip).not.toBeNull();
+    expect(chip!.getAttribute('aria-hidden')).toBe('true');
+    expect(button.textContent?.trim()).toBe(chip!.textContent?.trim());
     expect(button.textContent).not.toMatch(/now/i);
+    // The chip carries TODAY'S DATE, not a symbol. An earlier pass shipped a
+    // bare `⟳` here, which is the refresh/reload glyph — it read as "reload
+    // the page" and a reader reported it as meaningless. Asserting the date
+    // is what stops a symbol from creeping back in: no glyph can satisfy it.
+    expect(chip!.textContent?.trim()).toBe('5');
+    expect(button.textContent).not.toMatch(/⟳|↻|⭯|🔄/u);
+  });
+
+  it("drops a date's leading zero rather than showing 05", () => {
+    // Sliced out of the `yyyy-mm-dd` key, so the raw characters are "05".
+    renderRail({ anchorDay: '2026-07-04', todayKey: '2026-07-05' });
+    expect(document.querySelector('[data-today-chip]')!.textContent?.trim()).toBe('5');
+  });
+
+  it('shows a two-digit date in full', () => {
+    renderRail({ anchorDay: '2026-07-04', todayKey: '2026-07-26' });
+    expect(document.querySelector('[data-today-chip]')!.textContent?.trim()).toBe('26');
+  });
+
+  it('reads the date off the day key rather than through the browser clock', () => {
+    // A day key is already resolved in the Institution's timezone (#243).
+    // Parsing it with `new Date` would re-resolve it in the browser's, which
+    // is how "today" becomes yesterday for a reader west of Chautauqua — the
+    // exact class of bug #243 removed. `new Date('2026-07-01')` is UTC
+    // midnight, which is June 30 in every US timezone.
+    renderRail({ anchorDay: '2026-07-04', todayKey: '2026-07-01' });
+    expect(document.querySelector('[data-today-chip]')!.textContent?.trim()).toBe('1');
   });
 
   it('hides ⟳ Now once the anchor is already today', () => {

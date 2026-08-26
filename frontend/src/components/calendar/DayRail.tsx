@@ -38,6 +38,18 @@ function chipBoxClass(isEmpty: boolean): string {
  */
 const railColumnClass = 'flex shrink-0 flex-col';
 
+/**
+ * The day-of-month a `"yyyy-mm-dd"` key names, without a leading zero.
+ *
+ * Sliced rather than parsed through `Date`: a day key is already resolved in
+ * the Institution's timezone (#243), and handing it to `new Date` would
+ * re-resolve it in the browser's, which is how "today" becomes yesterday for
+ * a reader west of Chautauqua.
+ */
+function dayOfMonthOf(dayKey: string): string {
+  return String(Number(dayKey.slice(8, 10)));
+}
+
 /** The band's own row, for the keyboard walk. Excludes the clipped copy's columns. */
 const BAND_BUTTON_SELECTOR = ':scope > [data-rail-column] [data-week-band-button]';
 
@@ -418,11 +430,29 @@ export function DayRail({
         Icon-only, matching the chooser and the Filters funnel: rendering the
         word "Now" made this the one non-square control on the rail (~60px
         wide, against 44px for every other control), which is what left the
-        narrowest phones with barely two chips of strip. The accessible name
-        does not change — the glyph is `aria-hidden` and this explicit
-        `aria-label` is what a screen reader announces, the same contract
-        `FiltersIcon` and `WeekChooserIcon` follow — and `title` repeats it
-        for a sighted mouse user, matching `WeekChooser`'s own trigger.
+        narrowest phones with barely two chips of strip.
+
+        The icon is a MINIATURE DAY CHIP carrying today's date, not a symbol.
+        An earlier pass shipped `⟳` alone, which is the standard refresh/reload
+        glyph — with the word "Now" beside it that was harmless decoration, but
+        alone it carried the whole meaning and carried the wrong one. A reader
+        reported it as simply unreadable. This is the same move the week
+        chooser's 3x3 trigger makes: the control is a small copy of the thing
+        it points at, so "go to that chip" needs no symbol vocabulary at all.
+
+        Outlined, never filled: the solid blue fill is the highlight pill's,
+        and it means "you are here". This button renders only when the reader
+        is somewhere else, so wearing that fill would say the opposite of what
+        the button is for.
+
+        It also answers "what is today's date", which neither `⟳` nor the word
+        "Today" does — and the date is exactly what a reader who has scrolled
+        away from today has lost track of.
+
+        The accessible name does not change — the chip is `aria-hidden` and
+        this explicit `aria-label` is what a screen reader announces, the same
+        contract `FiltersIcon` and `WeekChooserIcon` follow — and `title`
+        repeats it for a sighted mouse user, matching `WeekChooser`'s trigger.
       */}
       {todayKey && anchorDay !== todayKey && (
         <button
@@ -430,9 +460,21 @@ export function DayRail({
           aria-label="Go to today"
           title="Go to today"
           onClick={() => { resume(); onGoToToday(); }}
-          className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 text-sm rounded-md bg-blue-50 dark:bg-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-gray-600"
+          className="shrink-0 inline-flex min-h-11 min-w-11 items-center justify-center px-2 py-1 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700"
         >
-          <span aria-hidden="true">⟳</span>
+          {/*
+            `currentColor` on the border so the outline and the digits are one
+            colour, and `tabular-nums` so a 1-digit and a 2-digit date occupy
+            the same box rather than the control changing width through the
+            month.
+          */}
+          <span
+            aria-hidden="true"
+            data-today-chip
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border-2 border-current text-xs font-semibold tabular-nums"
+          >
+            {dayOfMonthOf(todayKey)}
+          </span>
         </button>
       )}
 
