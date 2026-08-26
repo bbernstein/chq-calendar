@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { useCallback, useEffect, useState } from 'react';
 import { render, fireEvent } from '@testing-library/preact';
-import { railTarget, reachableTodayKey, shouldAbandonScroll, stepTargets } from '@/app/dayRailNavigation';
+import { railTarget, reachableTodayKey, shouldAbandonScroll } from '@/app/dayRailNavigation';
 import { EventList } from '@/components/calendar/EventList';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
@@ -69,37 +69,6 @@ describe('shouldAbandonScroll', () => {
   it('keeps waiting while the expansion has not landed yet', () => {
     expect(shouldAbandonScroll('2026-07-20', w)).toBe(false);
     expect(shouldAbandonScroll('2026-07-01', w)).toBe(false);
-  });
-});
-
-describe('stepTargets', () => {
-  // Every day with an event under the current non-date filters. 07-05 and
-  // 07-08 have none — with ★ Favourites on, or any search or venue filter
-  // that leaves gaps, that is the ordinary case rather than the exception.
-  const eventDays = ['2026-07-04', '2026-07-06', '2026-07-07', '2026-07-10'];
-
-  it('skips days with nothing on them rather than stepping one calendar day', () => {
-    // A raw addDays(±1) from 07-06 targets 07-05 and 07-07. 07-05 mounts no
-    // section, so the pending scroll gives up and the anchor — derived from
-    // scroll position — never moves: pressing again recomputes the identical
-    // dead target, with the chevron still enabled.
-    expect(stepTargets('2026-07-06', eventDays))
-      .toEqual({ prevDay: '2026-07-04', nextDay: '2026-07-07' });
-  });
-
-  it('steps from a day that is not itself an event day', () => {
-    expect(stepTargets('2026-07-08', eventDays))
-      .toEqual({ prevDay: '2026-07-07', nextDay: '2026-07-10' });
-  });
-
-  it('reports no target beyond either end', () => {
-    expect(stepTargets('2026-07-04', eventDays).prevDay).toBeNull();
-    expect(stepTargets('2026-07-10', eventDays).nextDay).toBeNull();
-  });
-
-  it('reports nothing reachable with no anchor or no event days', () => {
-    expect(stepTargets(null, eventDays)).toEqual({ prevDay: null, nextDay: null });
-    expect(stepTargets('2026-07-06', [])).toEqual({ prevDay: null, nextDay: null });
   });
 });
 

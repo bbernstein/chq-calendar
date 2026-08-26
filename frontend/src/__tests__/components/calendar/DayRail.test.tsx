@@ -23,12 +23,12 @@ const defaultWeekDestinations = new Map([
 // day a calendar step used to dead-end on.
 function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   const props = {
-    chips, anchorDay: '2026-07-05', prevDay: '2026-07-04', nextDay: null as string | null,
+    chips, anchorDay: '2026-07-05',
     scopeHasWindow: true, todayKey: '2026-07-05',
     windowDayKeys: ['2026-07-04', '2026-07-05', '2026-07-06'],
     bandSegments: defaultBandSegments, weekDestinations: defaultWeekDestinations, onSelectWeek: vi.fn(),
     seasonWeeks: getChautauquaSeasonWeeks(2026),
-    onSelectDay: vi.fn(), onStepDay: vi.fn(), onGoToToday: vi.fn(),
+    onSelectDay: vi.fn(), onGoToToday: vi.fn(),
     ...overrides,
   };
   render(<DayRail {...props} />);
@@ -39,30 +39,23 @@ function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
 function renderRailIn(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   return render(
     <DayRail
-      chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null}
+      chips={chips} anchorDay="2026-07-05"
       scopeHasWindow todayKey="2026-07-05"
       windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
       bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
       seasonWeeks={getChautauquaSeasonWeeks(2026)}
-      onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
+      onSelectDay={vi.fn()} onGoToToday={vi.fn()}
       {...overrides}
     />
   );
 }
 
 // The day chip that carries `key`. Queried by `data-chip` rather than by
-// accessible name: once the chevrons are labelled by target too, an
-// adjacent-to-anchor day's own chip and the chevron pointing at it share the
-// exact same accessible name, so a name-only query is ambiguous by design.
+// accessible name: it is the stable selector both this file and the rail's
+// own keyboard walk (`RAIL_CHIP_SELECTOR`) use, and it is unambiguous even
+// when two chips would otherwise share an accessible-name prefix.
 function chipButton(key: string): HTMLElement {
   return document.querySelector<HTMLElement>(`[data-chip="${key}"]`)!;
-}
-
-// A chevron (not a day chip) with the given accessible name. Chevrons carry
-// no `data-chip`, which is what distinguishes them from a same-named day
-// chip when the chevron's target is adjacent to the anchor.
-function chevronNamed(name: string): HTMLElement | undefined {
-  return screen.queryAllByRole('button', { name }).find((btn) => !btn.hasAttribute('data-chip'));
 }
 
 describe('DayRail', () => {
@@ -115,7 +108,7 @@ describe('DayRail', () => {
   });
 
   it('keeps a tab stop on the strip when nothing is anchored yet', () => {
-    renderRail({ anchorDay: null, prevDay: null, nextDay: null });
+    renderRail({ anchorDay: null });
     expect(chipButton('2026-07-04').getAttribute('tabindex')).toBe('0');
   });
 
@@ -131,56 +124,33 @@ describe('DayRail', () => {
     expect(onSelectDay).toHaveBeenCalledWith('2026-07-04');
   });
 
-  // Chevrons are labelled by their target, not by direction — same rule as
-  // the day chips (see DayRail's accessibility doc comment). The chevrons are
-  // found here by their target chip's own label, filtered to exclude the day
-  // chip itself via `chevronNamed`.
-  it('steps to the reachable day on each side from the chevrons', () => {
-    const { onStepDay } = renderRail({ prevDay: '2026-07-04', nextDay: '2026-07-06' });
-    fireEvent.click(chevronNamed('Go to Saturday, July 4, 12 events')!);
-    expect(onStepDay).toHaveBeenCalledWith(-1);
-    fireEvent.click(chevronNamed('Monday, July 6, no events')!);
-    expect(onStepDay).toHaveBeenCalledWith(1);
-  });
-
-  // Proves the chevron label is derived from the target it was handed, not
-  // from a fixed chip: an implementation that always named the chevron after
-  // a fixed chip (e.g. always chips[0]) would fail the second half.
-  it('names the chevrons after their target, not a fixed direction', () => {
-    renderRail({ anchorDay: '2026-07-05', prevDay: '2026-07-04' });
-    expect(chevronNamed('Go to Saturday, July 4, 12 events')).toBeTruthy();
-
-    renderRail({ anchorDay: '2026-07-06', prevDay: '2026-07-05' });
-    expect(chevronNamed('Go to Sunday, July 5, 1 event')).toBeTruthy();
-  });
-
-  // Mirrors the previous-chevron proof above for the *next* chevron: with
-  // the anchor on 07-04, the next target (07-05) diverges from a hardcoded
-  // last chip (07-06), so this is the position that catches a regression
-  // pinning the next chevron to the final chip.
-  it('names the next chevron after its target, not the last chip', () => {
-    renderRail({ anchorDay: '2026-07-04', prevDay: null, nextDay: '2026-07-05' });
-    expect(chevronNamed('Go to Sunday, July 5, 1 event')).toBeTruthy();
-  });
-
-  // The chevrons are enabled by REACHABILITY, not by position within the
-  // chips. The anchor here sits in the middle of the strip with a chip on
-  // either side, so an index-based implementation enables both — but nothing
-  // beyond it has events, so both steps would dead-end: no section mounts,
-  // the pending scroll gives up, and `anchorDay` never moves, leaving the
-  // reader pressing an enabled control that can never do anything.
-  it('disables a chevron with no reachable day, even mid-strip', () => {
-    renderRail({ anchorDay: '2026-07-05', prevDay: null, nextDay: null });
-    expect(screen.getByRole('button', { name: 'Go to the previous day' })
-      .hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Go to the next day' })
-      .hasAttribute('disabled')).toBe(true);
-  });
-
   it('offers ⟳ Now while the anchor is not today', () => {
     const { onGoToToday } = renderRail({ anchorDay: '2026-07-04', todayKey: '2026-07-05' });
     fireEvent.click(screen.getByRole('button', { name: 'Go to today' }));
     expect(onGoToToday).toHaveBeenCalled();
+  });
+
+  // The narrow-phone rail: the word "Now" becomes an icon-only glyph,
+  // matching the week chooser and the Filters funnel — rendering text made
+  // this the rail's one non-square control (~60px against 44px for every
+  // other control), which is what left a 375pt phone with barely two chips
+  // of strip (docs/plans/2026-08-25-narrow-phone-day-rail.md). The
+  // accessible name does not change: the glyph is `aria-hidden`, so this
+  // explicit `aria-label` is what a screen reader announces — the same
+  // contract `FiltersIcon` and `WeekChooserIcon` follow — and `title` gives
+  // a sighted mouse user the same words `WeekChooser`'s own trigger does.
+  it('renders ⟳ Now as an icon-only glyph, keeping its accessible name', () => {
+    renderRail({ anchorDay: '2026-07-04', todayKey: '2026-07-05' });
+    const button = screen.getByRole('button', { name: 'Go to today' });
+    expect(button.getAttribute('title')).toBe('Go to today');
+    expect(button.className).toContain('min-w-11');
+    // The glyph is the button's only content, and it is hidden from
+    // assistive tech — an unhidden glyph would risk the accessible name
+    // computed above being the glyph rather than the explicit label.
+    const glyph = button.querySelector('[aria-hidden="true"]');
+    expect(glyph).not.toBeNull();
+    expect(button.textContent?.trim()).toBe(glyph!.textContent?.trim());
+    expect(button.textContent).not.toMatch(/now/i);
   });
 
   it('hides ⟳ Now once the anchor is already today', () => {
@@ -233,11 +203,11 @@ describe('DayRail', () => {
   // branch removed from three other controls.
   it('renders nothing when the scope resolves to no window at all', () => {
     const { container } = render(
-      <DayRail chips={chips} anchorDay={null} prevDay={null} nextDay={null}
+      <DayRail chips={chips} anchorDay={null}
         scopeHasWindow={false} todayKey={null} windowDayKeys={[]}
         bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
         seasonWeeks={getChautauquaSeasonWeeks(2026)}
-        onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
+        onSelectDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
   });
@@ -257,21 +227,24 @@ describe('DayRail', () => {
 
     it('adds no announced buttons', () => {
       renderRail();
-      // Every button the rail exposes, counted outright: 3 day chips + 2
-      // chevrons + 1 week-band button (the default fixture's sole labelled
-      // segment, 2026-07-06 — see the week-band describe block below) + 1
-      // week-chooser trigger (always rendered — the fixture's season has
-      // weeks). No `⟳ Now` (the anchor already is today) and no Filters
-      // toggle (no `filtersToggle` prop).
+      // Every button the rail exposes, counted outright — deliberately
+      // exhaustive, so a stray control (or a leaked copy button) changes this
+      // number: 3 day chips + 1 week-band button (the default fixture's sole
+      // labelled segment, 2026-07-06 — see the week-band describe block
+      // below) + 1 week-chooser trigger (always rendered — the fixture's
+      // season has weeks). No chevrons (removed — see
+      // docs/plans/2026-08-25-narrow-phone-day-rail.md), no `⟳ Now` (the
+      // anchor already is today) and no Filters toggle (no `filtersToggle`
+      // prop).
       //
       // Deliberately NOT filtered to `[data-chip]`: the copy's chips carry
       // no `data-chip`, so such a filter would exclude exactly the elements
       // this test exists to catch and could never fail. (The copy's own
       // elements are plain `<div>`s, not buttons — see the regression note
       // below — so unhiding the copy does not change this count; the guard
-      // that would catch a reintroduced `<button>` there is the chevron-
-      // selector test just below.)
-      expect(screen.getAllByRole('button')).toHaveLength(7);
+      // that would catch a reintroduced `<button>` there is the stray-button
+      // test just below.)
+      expect(screen.getAllByRole('button')).toHaveLength(5);
     });
 
     it('puts nothing extra in the tab order', () => {
@@ -283,16 +256,17 @@ describe('DayRail', () => {
 
     // Regression, caught by `e2e/verify-rail.mjs` and by nothing else. The
     // copy's chips were `<button>` (chosen for box-metric parity) and carry
-    // no `data-chip`, which made them match the rail's own chevron selector
-    // `button:not([data-chip])`. Playwright then aimed a chevron click at
-    // inert paint and the real chip beneath intercepted it, timing out.
+    // no `data-chip`, which made them match a generic "non-chip button on the
+    // rail" selector Playwright used to find the (now-removed) chevrons.
+    // Playwright then aimed a chevron click at inert paint and the real chip
+    // beneath intercepted it, timing out.
     //
     // Asserted as the selector rather than as "they are divs", because the
-    // selector is the thing that has to keep working — the e2e suite's other
-    // family, `[data-day-rail] [data-chip]`, is covered by the count guard
-    // above, and between them they pin both ways the copy could collide with
-    // a real control.
-    it('contributes nothing to the rail\'s chevron selector', () => {
+    // selector shape is what has to keep working for any future non-chip
+    // control on the rail — the e2e suite's other family, `[data-day-rail]
+    // [data-chip]`, is covered by the count guard above, and between them
+    // they pin both ways the copy could collide with a real control.
+    it('contributes no stray button to the rail', () => {
       const { container } = renderRailIn();
       const rail = container.querySelector<HTMLElement>('[data-day-rail]')!;
       // Excludes `[data-week-band-button]` and `[data-week-chooser-trigger]`
@@ -305,9 +279,9 @@ describe('DayRail', () => {
       // behind them.
       const nonChipButtons = rail.querySelectorAll(
         'button:not([data-chip]):not([data-week-band-button]):not([data-week-chooser-trigger])');
-      // The two chevrons, and nothing else. No `⟳ Now` (anchor is today) and
-      // no Filters toggle (no `filtersToggle` prop).
-      expect(nonChipButtons).toHaveLength(2);
+      // Nothing else in this fixture: no chevrons (removed), no `⟳ Now`
+      // (anchor is today) and no Filters toggle (no `filtersToggle` prop).
+      expect(nonChipButtons).toHaveLength(0);
     });
 
     it('starts fully clipped, so it cannot flash before the first measurement', () => {
@@ -341,12 +315,12 @@ describe('DayRail', () => {
       act(() => {
         rerender(
           <DayRail
-            chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null}
+            chips={chips} anchorDay="2026-07-05"
             scopeHasWindow todayKey="2026-07-05"
             windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
             bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
             seasonWeeks={getChautauquaSeasonWeeks(2026)}
-            onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
+            onSelectDay={vi.fn()} onGoToToday={vi.fn()}
           />
         );
       });
@@ -395,10 +369,10 @@ describe('DayRail', () => {
 
   it('renders nothing when there are no days to show', () => {
     const { container } = render(
-      <DayRail chips={[]} anchorDay={null} prevDay={null} nextDay={null} scopeHasWindow todayKey={null} windowDayKeys={[]}
+      <DayRail chips={[]} anchorDay={null} scopeHasWindow todayKey={null} windowDayKeys={[]}
         bandSegments={[]} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
         seasonWeeks={getChautauquaSeasonWeeks(2026)}
-        onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
+        onSelectDay={vi.fn()} onGoToToday={vi.fn()} />
     );
     expect(container.firstChild).toBeNull();
   });
@@ -431,10 +405,10 @@ describe('DayRail', () => {
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
     try {
       const { container } = render(
-        <DayRail chips={chips} anchorDay="2026-07-04" prevDay={null} nextDay="2026-07-05" scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
+        <DayRail chips={chips} anchorDay="2026-07-04" scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
           bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
           seasonWeeks={getChautauquaSeasonWeeks(2026)}
-          onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()} />
+          onSelectDay={vi.fn()} onGoToToday={vi.fn()} />
       );
       // Stubbed only after mount: the layout effect that places the initial
       // highlight has already run by the time `render()` returns, so the
@@ -467,10 +441,10 @@ describe('DayRail', () => {
   it('gives rootRef the same element that is data-day-rail and sticky — no wrapper', () => {
     const ref: { current: HTMLElement | null } = { current: null };
     render(
-      <DayRail chips={chips} anchorDay="2026-07-05" prevDay="2026-07-04" nextDay={null} scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
+      <DayRail chips={chips} anchorDay="2026-07-05" scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
         bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
         seasonWeeks={getChautauquaSeasonWeeks(2026)}
-        onSelectDay={vi.fn()} onStepDay={vi.fn()} onGoToToday={vi.fn()}
+        onSelectDay={vi.fn()} onGoToToday={vi.fn()}
         rootRef={(el) => { ref.current = el; }} />
     );
     const stickyEl = document.querySelector('[data-day-rail]');
@@ -728,7 +702,7 @@ describe('the week chooser', () => {
     expect(props.onSelectWeek).toHaveBeenCalledWith(2);
   });
 
-  it("contributes nothing to the rail's chevron selector", () => {
+  it('contributes no stray button to the rail', () => {
     // Same guard as the band button's, by attribute rather than by a bigger
     // count: a count that absorbed the trigger could no longer distinguish
     // "the clipped copy leaked a button" from "the rail gained one".
@@ -736,7 +710,7 @@ describe('the week chooser', () => {
     const rail = container.querySelector<HTMLElement>('[data-day-rail]')!;
     const nonChipButtons = rail.querySelectorAll(
       'button:not([data-chip]):not([data-week-band-button]):not([data-week-chooser-trigger])');
-    expect(nonChipButtons).toHaveLength(2);
+    expect(nonChipButtons).toHaveLength(0);
   });
 
   it("does not answer to the band's keyboard walk", () => {
