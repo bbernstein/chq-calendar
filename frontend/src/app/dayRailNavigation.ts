@@ -70,40 +70,6 @@ export function shouldAbandonScroll(
 }
 
 /**
- * The nearest day with events on either side of `anchor`.
- *
- * `eventDays` is every day that has an event under the current *non-date*
- * filters, sorted — so a step always lands somewhere that will actually
- * render. A raw `addDays(anchor, ±1)` cannot: with ★ Favourites on, or any
- * search or venue filter that leaves gaps, the adjacent calendar day usually
- * has no matches, so no section mounts, the pending scroll gives up, and the
- * anchor — which is derived from scroll position — never moves. Pressing
- * again recomputes the identical dead target. That is the initiative's own
- * wall rebuilt inside the control meant to escape it.
- *
- * The chevrons stay "named for the adjacent day"; the adjacent day simply
- * becomes the one that can actually be reached, which is what an accessible
- * label should have meant all along.
- */
-export function stepTargets(
-  anchor: DayKey | null,
-  eventDays: DayKey[]
-): { prevDay: DayKey | null; nextDay: DayKey | null } {
-  if (!anchor) return { prevDay: null, nextDay: null };
-  let prevDay: DayKey | null = null;
-  let nextDay: DayKey | null = null;
-  // Sorted, so the last key below the anchor wins (the walk keeps overwriting
-  // prevDay) and the first key above it wins (guarded by the null check).
-  // Same shape as `navigationTargets`, which applies the identical rule to a
-  // window's edges rather than to a single day.
-  for (const key of eventDays) {
-    if (key < anchor) prevDay = key;
-    else if (key > anchor && nextDay === null) nextDay = key;
-  }
-  return { prevDay, nextDay };
-}
-
-/**
  * Today's key, but only when it is somewhere navigation can actually reach.
  *
  * `railTarget` refuses a target outside the navigable bounds, and off-season
