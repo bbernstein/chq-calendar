@@ -146,9 +146,9 @@ function HomeContent() {
   );
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
 
-  // Why the default screen is empty, when it is. Only consulted in the empty
-  // branch below. `events` rather than `filteredEvents` is the input on
-  // purpose — see rule 3 in `determineLandingState`: a failed feed fetch
+  // Whether the reader should see the landing instead of the list, and what
+  // it should say. `events` rather than `filteredEvents` is the input on
+  // purpose — see rule 2 in `determineLandingState`: a failed feed fetch
   // during the season must not be reported as "See you next season".
   const landingState = useMemo(
     () => determineLandingState({
@@ -398,6 +398,11 @@ function HomeContent() {
   ]);
   const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => isSelected || (filters.dateFilter === 'this-week' && currentWeekNumber === weekNumber);
 
+  // `hasNonDefaultFilters`, not `hasFilters`: the app still starts on the
+  // `next` scope until task 5 deletes it, and `hasFilters` is therefore true
+  // before the reader touches anything. Task 5 collapses the two.
+  const showLanding = landingState.kind !== 'in-season' && !filters.hasNonDefaultFilters;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       <Header
@@ -580,28 +585,27 @@ function HomeContent() {
         />
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
           <div className="p-4 sm:p-6">
-            {loading ? <LoadingSpinner /> : filteredEvents.length === 0 ? (
-              /*
-                `hasNonDefaultFilters`, NOT `hasFilters`: the app starts on
-                the `next` scope, which is a date filter, so `hasFilters` is
-                true before the reader touches anything and the landing would
-                never show. See `useFilterState` for what "default" means per
-                year — note it counts `all` as a default too, since that is
-                the archived year's own starting scope.
+            {/*
+              Out of season with no filters, the reader gets the landing INSTEAD of the
+              list — a stated branch, not a side effect of an empty result set.
 
-                The consequence is deliberate: a reader on "All Year" with
-                zero results gets the landing rather than "No events found".
-                That can only happen when the year genuinely has no events —
-                an announced-but-empty next season, say — where the countdown
-                is the better screen.
-              */
-              landingState.kind !== 'in-season' && !filters.hasNonDefaultFilters ? (
-                <OffSeasonLanding
-                  state={landingState}
-                  onPreviewNextSeason={previewNextSeason}
-                  onBrowseArchiveSeason={browseArchiveSeason}
-                />
-              ) : <EmptyState />
+              It used to be the latter: `dateFilter: 'next'` yielded nothing out of
+              season, so the empty-list branch fired and the landing appeared. Phase 4
+              lists the whole year, so the list is never empty out of season and that
+              mechanism would have removed the landing (#269) with no test failing.
+
+              `EmptyState` keeps its own, different job: a filter that matches nothing.
+            */}
+            {loading ? (
+              <LoadingSpinner />
+            ) : showLanding ? (
+              <OffSeasonLanding
+                state={landingState}
+                onPreviewNextSeason={previewNextSeason}
+                onBrowseArchiveSeason={browseArchiveSeason}
+              />
+            ) : filteredEvents.length === 0 ? (
+              <EmptyState />
             ) : (
               <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
                 onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}

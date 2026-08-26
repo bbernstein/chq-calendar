@@ -30,7 +30,7 @@ export interface LandingStateInput {
   availableYears: number[];
   /**
    * `events.length > 0` for the selected year's full, UNFILTERED event set —
-   * not the filtered list. See rule 3 in `determineLandingState`.
+   * not the filtered list. See rule 2 in `determineLandingState`.
    */
   yearHasEvents: boolean;
 }
@@ -38,6 +38,11 @@ export interface LandingStateInput {
 /** Noon on the Saturday before the 4th Sunday of June, in Institution time. */
 function seasonStart(year: number): Date {
   return getChautauquaSeasonWeeks(year)[0].start;
+}
+
+/** Noon on the Saturday nine weeks later — the close of week 9, in Institution time. */
+function seasonEnd(year: number): Date {
+  return getChautauquaSeasonWeeks(year)[8].end;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -67,20 +72,34 @@ function daysBetween(from: Date, to: Date): number {
  * 1. `now` is before `selectedYear`'s season start → `pre-season`. Both a
  *    fully-loaded future year and an announced-but-empty one belong here; the
  *    countdown is the right screen either way.
- * 2. Else, the year has events → `post-season`. The season ran and is over.
- * 3. Else → `in-season`, which the caller renders as the generic empty state.
+ * 2. Else, `now` is still before the season's own end (the close of week 9),
+ *    or the year has no events at all → `in-season`.
+ * 3. Else (the season's nine weeks have passed, and the year has events) →
+ *    `post-season`. The season ran and is over.
  *
- * **Rule 3 diverges from iOS deliberately.** iOS takes an
- * `upcomingDefaultCount` and returns `.inSeason` when it is positive. That
- * parameter would be dead here: this function is only ever called from inside
- * `page.tsx`'s `filteredEvents.length === 0` branch, so the count is always
- * zero and iOS's rule 1 could never fire. Discriminating on the *year's* event
- * set instead catches the case iOS handles separately via `AppModel`'s `guard
- * snapshot != nil`: a failed or empty feed fetch during the season gives
- * `events: []` with `now` past the season start, and a naive port would tell a
- * July visitor "See you next season". Rule 3 sends that visitor to the generic
- * empty state, which is the honest screen for "we have no data", and reserves
- * the landing for "we have the data and the season is genuinely over".
+ * **The calendar half of rule 2 exists for #274 phase 4 task 3.** Once
+ * `page.tsx` derives `showLanding` ahead of and independently of
+ * `filteredEvents.length === 0` — rather than calling this function only from
+ * inside that branch — a fresh, unfiltered visit during the live season
+ * reaches this function with `now` past `start` and the year's events
+ * present. Without a season-end check, that satisfied the old rule 2
+ * unconditionally: `post-season`, i.e. "See you next season" on day one of
+ * the season, for every reader, forever, since the default scope carries no
+ * filter that would exempt it. The `now < seasonEnd` half closes that gap;
+ * the boundary is symmetric with rule 1's `now < start` — a reader landing at
+ * the exact opening instant is in season, and a reader landing at the exact
+ * closing instant is not.
+ *
+ * **The no-events half of rule 2 diverges from iOS deliberately.** iOS takes
+ * an `upcomingDefaultCount` and returns `.inSeason` when it is positive —
+ * this port has no such parameter, and reaches the same outcome for the same
+ * case (a live-season visit) via the calendar check above instead. Where the
+ * two still differ is a failed or empty feed fetch during the season:
+ * `events: []` with `now` between the season's start and end, which a naive
+ * port would tell a July visitor "See you next season". This half of rule 2
+ * sends that visitor to the generic empty state, which is the honest screen
+ * for "we have no data", and reserves the landing for "we have the data and
+ * the season is genuinely over".
  */
 export function determineLandingState({
   now,
@@ -93,7 +112,7 @@ export function determineLandingState({
     return { kind: 'pre-season', opening: start, daysUntil: daysBetween(now, start) };
   }
 
-  if (!yearHasEvents) {
+  if (now < seasonEnd(selectedYear) || !yearHasEvents) {
     return { kind: 'in-season' };
   }
 

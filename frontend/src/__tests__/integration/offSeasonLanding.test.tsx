@@ -214,6 +214,28 @@ describe('page.tsx — the off-season landing', () => {
   // 5s budget *before* the band and over it after. 15s is the same headroom
   // the day-rail integration tests already take. The budget was always wrong
   // for this test; the band is only what made that visible.
+  // The phase 4 world, reachable today by seeding the widest scope: a
+  // post-season visit with a full feed. The list is NOT empty, and the
+  // landing must still be what the reader sees — a stated branch ahead of
+  // the deletion that removes date filtering (#274 phase 4), rather than a
+  // side effect of an empty result set that phase 4 would otherwise erase
+  // silently.
+  it('the landing shows out of season even when the year has events to list', async () => {
+    localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+      dateFilter: 'all', searchTerm: '',
+      selectedTags: [], selectedLocations: [], selectedWeeks: [],
+      expandedDescriptions: [], recentLocations: [], recentCategories: [],
+      showFavoritesOnly: false, lastSaved: Date.now(),
+    }));
+    pin(chqDateAt(2026, 9, 20, 10));
+    render(<Home />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+    expect(document.querySelectorAll('[data-day-key]')).toHaveLength(0);
+  });
+
   it('previewing next season switches the year and opens the date scope', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();

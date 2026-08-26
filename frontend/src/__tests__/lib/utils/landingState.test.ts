@@ -37,20 +37,58 @@ describe('determineLandingState', () => {
 
   // The opening instant itself is IN season: the comparison is `<`, so a
   // reader refreshing at noon on opening Saturday must not be told the
-  // season has not started.
-  it('is not pre-season at the exact opening instant', () => {
+  // season has not started — and, since #274 phase 4 task 3 made this
+  // function reachable with `now` genuinely inside the season (not just from
+  // an empty-list branch), must not be told it has already ended either.
+  it('is in-season, not pre-season, at the exact opening instant', () => {
     const state = determineLandingState({
       now: opening(2026),
       selectedYear: 2026,
       availableYears: [2026],
       yearHasEvents: true,
     });
-    expect(state.kind).toBe('post-season');
+    expect(state.kind).toBe('in-season');
   });
 
-  // Rule 3. A failed or empty feed fetch during the season must NOT produce
-  // "See you next season" for a July visitor — it means "we have no data",
-  // which is what the generic EmptyState says.
+  // The mirror image of the opening-instant test above, and the case that
+  // was unreachable before task 3: a reader visiting with no filters while
+  // the season is genuinely running must see the list, not the landing. This
+  // is exactly the gap the calendar half of rule 2 exists to close.
+  it('is in-season, not post-season, in the middle of a season with events', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2026, 7, 15, 10),
+      selectedYear: 2026,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+    });
+    expect(state).toEqual({ kind: 'in-season' });
+  });
+
+  // The season's own closing instant is the other half of that symmetry:
+  // still open at the last moment, closed the instant after.
+  it('is not yet post-season at the exact closing instant', () => {
+    const seasonWeeks = getChautauquaSeasonWeeks(2026);
+    const state = determineLandingState({
+      now: seasonWeeks[8].end,
+      selectedYear: 2026,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+    });
+    expect(state.kind).toBe('post-season');
+
+    const justBefore = new Date(seasonWeeks[8].end.getTime() - 1);
+    const stillOpen = determineLandingState({
+      now: justBefore,
+      selectedYear: 2026,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+    });
+    expect(stillOpen.kind).toBe('in-season');
+  });
+
+  // The no-events half of rule 2. A failed or empty feed fetch during the
+  // season must NOT produce "See you next season" for a July visitor — it
+  // means "we have no data", which is what the generic EmptyState says.
   it('is in-season when the year has no events at all and the season has opened', () => {
     const state = determineLandingState({
       now: chqDateAt(2026, 7, 15, 10),
