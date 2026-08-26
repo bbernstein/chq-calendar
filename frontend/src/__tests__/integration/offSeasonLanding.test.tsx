@@ -265,7 +265,12 @@ describe('page.tsx — the off-season landing', () => {
   // mounts `EventListView` in the same commit), so there is no window in
   // which to grab a specific element and stub it individually the way
   // `dayRailIntegration.test.tsx`'s composition test does.
-  it('a rail day tap dismisses the landing and lands on the TAPPED day, not the default', async () => {
+  //
+  // Explicit timeout, matching the two siblings below it and the four in
+  // `dayRailIntegration.test.tsx`: a real `EventListView` + `useDayAnchor`
+  // render is the cost class those already carry a 15s budget for, and this
+  // test renders the identical fixture through the same mount.
+  it('a rail day tap dismisses the landing and lands on the TAPPED day, not the default', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();
     await waitFor(() =>
@@ -295,6 +300,132 @@ describe('page.tsx — the off-season landing', () => {
       // landing day this fixture would otherwise fall back to).
       expect(scrollBy).toHaveBeenCalledWith(0, 61);
       expect(scrollBy).not.toHaveBeenCalledWith(0, 949);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      document.documentElement.style.removeProperty('--day-rail-h');
+    }
+  });
+
+  // Task 6 fix round 1, Route B (Critical). The landing page itself scrolls —
+  // it is `min-h-screen` plus the footer's own content, which on any phone
+  // already exceeds the viewport, and the rail is `position: sticky`, so it
+  // stays tappable at any scroll offset. Before this fix, `useInitialLanding`
+  // applied its "don't teleport a reader who already scrolled"
+  // `window.scrollY > 0` guard to this EXPLICIT tap too, and the tap was
+  // swallowed: the landing still vanished (that part never depended on the
+  // hook) but the page never moved, leaving the reader wherever they
+  // happened to be rather than at the day they asked for.
+  //
+  // Same fixture and same assertion as the test above it — `scrollBy(0, 61)`
+  // is the tapped day, `scrollBy(0, 949)` would be the default landing day —
+  // with `window.scrollY` pinned nonzero before the tap instead of left at 0.
+  it('a rail day tap still lands when the reader had already scrolled the landing page', { timeout: 15000 }, async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const key = this.getAttribute('data-day-key');
+      if (key === '2026-07-06') return { top: 111 } as DOMRect;
+      if (key === '2026-07-07') return { top: 999 } as DOMRect;
+      return originalRect.call(this);
+    };
+    // jsdom implements a real, settable `window.scrollY` — the reader has
+    // scrolled the landing page itself before ever tapping a rail control.
+    window.scrollY = 40;
+
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /Go to Monday, July 6/ }));
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+      );
+      expect(scrollBy).toHaveBeenCalledWith(0, 61);
+      expect(scrollBy).not.toHaveBeenCalledWith(0, 949);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      document.documentElement.style.removeProperty('--day-rail-h');
+      window.scrollY = 0;
+    }
+  });
+
+  // Task 6 fix round 1, Route A. A filter toggled on then off, off-season,
+  // needs no scroll at all to swallow a rail tap: turning the filter on
+  // narrows the list to a day that still HAS events (a favourites-only
+  // toggle in this fixture — no favourites are saved — would empty the list
+  // to zero days instead, and `listMounted` requires `groupedEvents.length >
+  // 0`, so the automatic landing would never even attempt to fire; a search
+  // matching exactly one of the fixture's two events is what actually
+  // reaches this bug). `hasFilters` makes `showLanding` false, the list
+  // mounts with its one remaining day, and the AUTOMATIC landing consumes
+  // its once-per-year latch by scrolling to that same day (it is also
+  // `landingDayKey`'s own fallback — the sole remaining day, `now` past it).
+  // Clearing the search brings the landing back (`browsingArchive` is
+  // untouched by a filter change); the next rail tap on that SAME day used
+  // to hit `landedFor.current === year` and return having done nothing.
+  //
+  // `search` uses `useDebounce` (200ms), and `hasFilters` (which drives
+  // `showLanding`) does not — so `waitFor`ing only the landing's own
+  // re/disappearance can race the rail's day counts, which lag the raw
+  // search term by the debounce. Every wait below is instead on something
+  // that can only be true once the DEBOUNCED value has actually applied —
+  // the narrowed day-section count, then the specific chip's own label —
+  // under this file's `pin()`-installed fake timers (`shouldAdvanceTime:
+  // true`, so real 200ms elapses and the debounce genuinely fires).
+  it('a rail day tap still lands after a filter toggled the landing on and off first', { timeout: 15000 }, async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const search = screen.getByRole('textbox', { name: 'Search events' });
+    fireEvent.input(search, { target: { value: 'Lecture' } });
+
+    // The filtered list mounts with exactly one day (2026-07-06's lecture);
+    // the landing is gone while the filter is active.
+    await waitFor(() => expect(document.querySelectorAll('[data-day-key]').length).toBe(1));
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+    // The automatic landing has now run once for this year, against the
+    // narrowed set — consuming `landedFor` before the reader ever taps
+    // anything.
+
+    fireEvent.input(search, { target: { value: '' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+    // Both days are back once the debounce has actually applied — this is
+    // the wait that would otherwise race the search term above.
+    const chip = await waitFor(() => screen.getByRole('button', { name: /Go to Monday, July 6/ }));
+
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const key = this.getAttribute('data-day-key');
+      if (key === '2026-07-06') return { top: 111 } as DOMRect;
+      return originalRect.call(this);
+    };
+
+    try {
+      // Fresh spy, installed only now — any scroll the automatic landing
+      // made earlier (against the real, unmocked `scrollBy`) is irrelevant;
+      // this call must be the TAP's, made despite `landedFor` already being
+      // spent on this exact day.
+      fireEvent.click(chip);
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+      );
+      expect(scrollBy).toHaveBeenCalledWith(0, 61);
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalRect;
       document.documentElement.style.removeProperty('--day-rail-h');

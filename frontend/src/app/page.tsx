@@ -309,6 +309,20 @@ function HomeContent() {
     seasonStartDay: dayKeyOf(seasonWeeks[0].start),
   }), [isCurrentYear, navEventDays, seasonWeeks]);
 
+  // Wraps `scrollToDay` so the override it was called for is consumed the
+  // moment it resolves — task 6 fix round 1. Without this,
+  // `dismissedLandingTarget` survived every commit after a successful rail
+  // tap, for the rest of that year: harmless by itself (a re-arrival at the
+  // same day is a no-op once `force` below has also latched `landedFor`),
+  // but it meant the ONLY thing standing between a stale prior-year day key
+  // and a fresh year's list was the reset in the `selectedYear` effect above
+  // — one line, load-bearing, and (before this round) never exercised by any
+  // test that reached it through an actual rail tap.
+  const scrollToDayForLanding = useCallback((key: string) => {
+    scrollToDay(key);
+    setDismissedLandingTarget(null);
+  }, [scrollToDay]);
+
   useInitialLanding({
     // A rail control tapped while the landing was still up overrides the
     // load's own choice — see `goToDay` below for why. `null` once nothing
@@ -316,7 +330,12 @@ function HomeContent() {
     targetDay: dismissedLandingTarget ?? landingDay,
     year: selectedYear,
     listMounted: !showLanding && !loading && groupedEvents.length > 0,
-    scrollToDay,
+    scrollToDay: scrollToDayForLanding,
+    // An override is always an explicit request, never this hook's own
+    // guess — see `force`'s own doc comment on `useInitialLanding` for the
+    // two routes (a scrolled landing page, a filter toggled on then off)
+    // that silently swallowed a rail tap without it.
+    force: dismissedLandingTarget !== null,
   });
 
   // The filter panel. A fixed overlay hanging off the site header's bottom

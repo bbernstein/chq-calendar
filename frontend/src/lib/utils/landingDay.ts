@@ -26,8 +26,10 @@ export function landingDayKey({ now, isCurrentYear, eventDays, seasonStartDay }:
   if (eventDays.length === 0) return null;
   const from = isCurrentYear ? dayKeyOf(now) : seasonStartDay;
   // The last day rather than null when everything is behind us: a
-  // post-season visitor to the current year with filters applied (no
-  // filters gets them the landing instead) should see the end of the season
-  // they just had, not the January of a year that is over.
+  // post-season visitor to the current year — whether they narrowed the
+  // list with a filter, or reached it by dismissing the landing outright
+  // (task 6 fix round 1: a rail tap, or "Browse this season") — should see
+  // the end of the season they just had, not the January of a year that is
+  // over.
   return eventDays.find(d => d >= from) ?? eventDays[eventDays.length - 1];
 }

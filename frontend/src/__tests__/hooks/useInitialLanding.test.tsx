@@ -92,3 +92,71 @@ test('a null target scrolls nowhere', () => {
   renderHook(() => useInitialLanding({ targetDay: null, year: 2026, listMounted: true, scrollToDay }));
   expect(scrollToDay).not.toHaveBeenCalled();
 });
+
+// ---------------------------------------------------------------------------
+// Task 6 fix round 1. Two independently reachable bugs the review found: a
+// rail tap's explicit target got silently swallowed by guards written for
+// the automatic landing (`force` fixes this), and a year switch inherited a
+// stale, nonzero `window.scrollY` from the OLD year's document and never
+// landed on the new one (the `landedFor.current === null` scoping fixes
+// this). See the hook's own doc comment for the mechanism.
+// ---------------------------------------------------------------------------
+
+test('force bypasses the once-per-year latch', () => {
+  mountDay('2026-07-04');
+  mountDay('2026-07-05');
+  const scrollToDay = vi.fn();
+  const { rerender } = renderHook(
+    ({ target, force }) => useInitialLanding({ targetDay: target, year: 2026, listMounted: true, scrollToDay, force }),
+    { initialProps: { target: '2026-07-04', force: false } }
+  );
+  expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-04');
+
+  // Filters toggled on, list mounted, the automatic landing consumed its
+  // once-per-year latch on '2026-07-04' — then a rail tap on a DIFFERENT
+  // day, explicit (`force: true`), must still land.
+  rerender({ target: '2026-07-05', force: true });
+  expect(scrollToDay).toHaveBeenCalledTimes(2);
+  expect(scrollToDay).toHaveBeenLastCalledWith('2026-07-05');
+});
+
+test('force bypasses the "reader already scrolled" guard', () => {
+  mountDay('2026-07-06');
+  window.scrollY = 9001;
+  const scrollToDay = vi.fn();
+  renderHook(() => useInitialLanding({
+    targetDay: '2026-07-06', year: 2026, listMounted: true, scrollToDay, force: true,
+  }));
+  expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-06');
+});
+
+test('an unforced call still waits for the section to exist, even when forced calls do not gate on it either', () => {
+  const scrollToDay = vi.fn();
+  renderHook(() => useInitialLanding({
+    targetDay: '2026-07-09', year: 2026, listMounted: true, scrollToDay, force: true,
+  }));
+  // No section was ever mounted for this key — `force` bypasses the
+  // once-per-year and already-scrolled guards, not the "does the target
+  // exist at all" one.
+  expect(scrollToDay).not.toHaveBeenCalled();
+});
+
+test('a year switch lands on the new year even from a scroll position left over from the previous one', () => {
+  mountDay('2026-07-04');
+  mountDay('2025-07-04');
+  const scrollToDay = vi.fn();
+  const { rerender } = renderHook(
+    ({ target, year }) => useInitialLanding({ targetDay: target, year, listMounted: true, scrollToDay }),
+    { initialProps: { target: '2026-07-04', year: 2026 } }
+  );
+  expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-04');
+
+  // The reader scrolled deep into 2026's list, then picked 2025 from the
+  // header. Nothing resets `window.scrollY` on a year switch, so this large,
+  // stale offset is exactly what a real one leaves behind.
+  window.scrollY = 30000;
+  rerender({ target: '2025-07-04', year: 2025 });
+
+  expect(scrollToDay).toHaveBeenCalledTimes(2);
+  expect(scrollToDay).toHaveBeenLastCalledWith('2025-07-04');
+});
