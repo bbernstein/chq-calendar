@@ -96,46 +96,53 @@ test('a null target scrolls nowhere', () => {
 // ---------------------------------------------------------------------------
 // Task 6 fix round 1. Two independently reachable bugs the review found: a
 // rail tap's explicit target got silently swallowed by guards written for
-// the automatic landing (`force` fixes this), and a year switch inherited a
-// stale, nonzero `window.scrollY` from the OLD year's document and never
-// landed on the new one (the `landedFor.current === null` scoping fixes
-// this). See the hook's own doc comment for the mechanism.
+// the automatic landing (`explicit` fixes this — named in fix round 2 for
+// what it tells the two guards below, not for what it does to them: it was
+// called `force` in round 1, and "bypasses two of the three guards" is a
+// comment `force` needed and `explicit` does not), and a year switch
+// inherited a stale, nonzero `window.scrollY` from the OLD year's document
+// and never landed on the new one (the `landedFor.current === null` scoping
+// fixes this). See the hook's own doc comment for the mechanism.
 // ---------------------------------------------------------------------------
 
-test('force bypasses the once-per-year latch', () => {
+test('explicit bypasses the once-per-year latch', () => {
   mountDay('2026-07-04');
   mountDay('2026-07-05');
   const scrollToDay = vi.fn();
   const { rerender } = renderHook(
-    ({ target, force }) => useInitialLanding({ targetDay: target, year: 2026, listMounted: true, scrollToDay, force }),
-    { initialProps: { target: '2026-07-04', force: false } }
+    ({ target, explicit }) => useInitialLanding({ targetDay: target, year: 2026, listMounted: true, scrollToDay, explicit }),
+    { initialProps: { target: '2026-07-04', explicit: false } }
   );
   expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-04');
 
   // Filters toggled on, list mounted, the automatic landing consumed its
   // once-per-year latch on '2026-07-04' — then a rail tap on a DIFFERENT
-  // day, explicit (`force: true`), must still land.
-  rerender({ target: '2026-07-05', force: true });
+  // day, an explicit request, must still land.
+  rerender({ target: '2026-07-05', explicit: true });
   expect(scrollToDay).toHaveBeenCalledTimes(2);
   expect(scrollToDay).toHaveBeenLastCalledWith('2026-07-05');
 });
 
-test('force bypasses the "reader already scrolled" guard', () => {
+test('explicit bypasses the "reader already scrolled" guard', () => {
   mountDay('2026-07-06');
   window.scrollY = 9001;
   const scrollToDay = vi.fn();
   renderHook(() => useInitialLanding({
-    targetDay: '2026-07-06', year: 2026, listMounted: true, scrollToDay, force: true,
+    targetDay: '2026-07-06', year: 2026, listMounted: true, scrollToDay, explicit: true,
   }));
   expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-06');
 });
 
-test('an unforced call still waits for the section to exist, even when forced calls do not gate on it either', () => {
+// Task 6 fix round 2: this test's title and its trailing comment previously
+// said "unforced" and asserted the opposite of what the body actually
+// proves. The body was always correct — `explicit: true` below — it is the
+// title and comment that were wrong.
+test('an explicit request still waits for the section to exist — explicit is not a bypass of every guard', () => {
   const scrollToDay = vi.fn();
   renderHook(() => useInitialLanding({
-    targetDay: '2026-07-09', year: 2026, listMounted: true, scrollToDay, force: true,
+    targetDay: '2026-07-09', year: 2026, listMounted: true, scrollToDay, explicit: true,
   }));
-  // No section was ever mounted for this key — `force` bypasses the
+  // No section was ever mounted for this key — `explicit` bypasses the
   // once-per-year and already-scrolled guards, not the "does the target
   // exist at all" one.
   expect(scrollToDay).not.toHaveBeenCalled();

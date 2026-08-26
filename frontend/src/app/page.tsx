@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -31,6 +31,7 @@ import { OffSeasonLanding } from '@/components/layout/OffSeasonLanding';
 import { determineLandingState } from '@/lib/utils/landingState';
 import { landingDayKey } from '@/lib/utils/landingDay';
 import { useInitialLanding } from '@/hooks/useInitialLanding';
+import { useLandingDismissal } from '@/hooks/useLandingDismissal';
 import { SearchBar } from '@/components/filters/SearchBar';
 import { LocationFilter } from '@/components/filters/LocationFilter';
 import { CategoryFilter } from '@/components/filters/CategoryFilter';
@@ -174,35 +175,24 @@ function HomeContent() {
   // listed already.
   //
   // Browsing the archive deliberately does NOT touch the year: the year on
-  // screen is already the one that ended. What it changes is this component's
-  // own mind about whether to keep showing the landing over it. That state
-  // has to exist: `browseArchiveSeason`'s only previous action was
-  // `setDateFilter('season')`, and without a replacement the button would be
-  // visible, enabled, and do nothing — leaving an archived-year landing with
-  // no way past it.
-  const [browsingArchive, setBrowsingArchive] = useState(false);
-
-  // Where a rail control (a day chip, ⟳ Now, a week-band cell) sends the
-  // reader when it is tapped while the landing is still covering the list —
-  // see `goToDay` below. `null` means no override: the load's own computed
-  // `landingDay` (below) is what `useInitialLanding` is given.
-  const [dismissedLandingTarget, setDismissedLandingTarget] = useState<string | null>(null);
-
-  // A different year is a different question, so neither dismissal carries
-  // across one. Reset rather than keyed state because `selectedYear` also
-  // changes underneath us when the manifest resolves a `?year=` param.
-  useEffect(() => {
-    setBrowsingArchive(false);
-    setDismissedLandingTarget(null);
-  }, [selectedYear]);
+  // screen is already the one that ended. What it changes is this
+  // component's own mind about whether to keep showing the landing over it —
+  // `browseArchiveSeason`'s only previous action was `setDateFilter('season')`,
+  // and without a replacement the button would be visible, enabled, and do
+  // nothing, leaving an archived-year landing with no way past it.
+  //
+  // Both halves of that dismissal — plain (`browseArchiveSeason`) and a rail
+  // tap's own target (`dismissForDay`, consumed by `useInitialLanding` below)
+  // — live in `useLandingDismissal` rather than local state here: see its own
+  // doc for why. In short, a re-review found the year-reset it owns was
+  // previously falsifiable only against a test's own hand-rolled copy of it,
+  // never against production — pulling it into an importable unit fixes that.
+  const { browsingArchive, dismissedLandingTarget, browseArchiveSeason, dismissForDay, clearDismissedTarget } =
+    useLandingDismissal(selectedYear);
 
   const previewNextSeason = useCallback((year: number) => {
     setSelectedYear(year);
   }, [setSelectedYear]);
-
-  const browseArchiveSeason = useCallback(() => {
-    setBrowsingArchive(true);
-  }, []);
 
   // Out of season, the landing replaces the list — unless the reader has
   // narrowed the list themselves (they asked a question, and an answer of
@@ -313,15 +303,15 @@ function HomeContent() {
   // moment it resolves — task 6 fix round 1. Without this,
   // `dismissedLandingTarget` survived every commit after a successful rail
   // tap, for the rest of that year: harmless by itself (a re-arrival at the
-  // same day is a no-op once `force` below has also latched `landedFor`),
+  // same day is a no-op once `explicit` below has also latched `landedFor`),
   // but it meant the ONLY thing standing between a stale prior-year day key
-  // and a fresh year's list was the reset in the `selectedYear` effect above
-  // — one line, load-bearing, and (before this round) never exercised by any
-  // test that reached it through an actual rail tap.
+  // and a fresh year's list was `useLandingDismissal`'s own year-reset — one
+  // line, load-bearing, and (before fix round 1) never exercised by any test
+  // that reached it through an actual rail tap.
   const scrollToDayForLanding = useCallback((key: string) => {
     scrollToDay(key);
-    setDismissedLandingTarget(null);
-  }, [scrollToDay]);
+    clearDismissedTarget();
+  }, [scrollToDay, clearDismissedTarget]);
 
   useInitialLanding({
     // A rail control tapped while the landing was still up overrides the
@@ -331,11 +321,11 @@ function HomeContent() {
     year: selectedYear,
     listMounted: !showLanding && !loading && groupedEvents.length > 0,
     scrollToDay: scrollToDayForLanding,
-    // An override is always an explicit request, never this hook's own
-    // guess — see `force`'s own doc comment on `useInitialLanding` for the
-    // two routes (a scrolled landing page, a filter toggled on then off)
-    // that silently swallowed a rail tap without it.
-    force: dismissedLandingTarget !== null,
+    // A reader's own request, never this hook's own guess — see
+    // `explicit`'s own doc comment on `useInitialLanding` for the two routes
+    // (a scrolled landing page, a filter toggled on then off) that silently
+    // swallowed a rail tap without it.
+    explicit: dismissedLandingTarget !== null,
   });
 
   // The filter panel. A fixed overlay hanging off the site header's bottom
@@ -384,16 +374,15 @@ function HomeContent() {
       // and the list underneath the landing is not mounted, so there is
       // nothing to find. "Take me to that day" implies showing the day, so
       // dismiss the landing the same way "Browse this season" does
-      // (`browsingArchive`), and hand the target to `useInitialLanding`
-      // (wired above with this as its override) to carry out once the list
-      // actually mounts — the same "wait for the section to exist" handling
-      // `landingDay` itself gets on a normal load.
-      setDismissedLandingTarget(target);
-      setBrowsingArchive(true);
+      // (`dismissForDay` sets `browsingArchive` too), and hand the target to
+      // `useInitialLanding` (wired above with this as its override) to carry
+      // out once the list actually mounts — the same "wait for the section
+      // to exist" handling `landingDay` itself gets on a normal load.
+      dismissForDay(target);
       return;
     }
     scrollToDay(target);
-  }, [navBounds, scrollToDay, showLanding]);
+  }, [navBounds, scrollToDay, showLanding, dismissForDay]);
 
   // ⟳ Now is navigation, never a filter change: it scrolls to today and
   // touches no category, venue or search.

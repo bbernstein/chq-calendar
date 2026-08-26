@@ -37,7 +37,7 @@ import type { DayKey } from '@/lib/utils/dayWindow';
  * absolute offset computed by summing them would land near the day rather
  * than on it. Measured in the spec's addendum.
  */
-export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, force = false }: {
+export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, explicit = false }: {
   targetDay: DayKey | null;
   year: number;
   /**
@@ -53,10 +53,17 @@ export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, f
   listMounted: boolean;
   scrollToDay: (key: DayKey) => void;
   /**
-   * True when `targetDay` is an explicit request — a rail control (a day
+   * True when `targetDay` is a reader's own request — a rail control (a day
    * chip, `⟳ Now`, a week-band cell) tapped while the landing was still
-   * covering the list — rather than this hook's own automatic choice of
-   * where to put the reader.
+   * covering the list — rather than this hook's automatic GUESS at where to
+   * put the reader on load.
+   *
+   * Named for what the two guards below actually distinguish (an automatic
+   * guess vs. a reader's request), not for what it does to them (task 6 fix
+   * round 2 renamed this from `force`: "bypasses two of the three guards" is
+   * a comment `force` needed and `explicit` does not — the next person
+   * adding a guard to this hook can ask "does an explicit request skip
+   * this one" without first learning what the current guards happen to be).
    *
    * Task 6 fix round 1: without this, `goToDay`'s landing-dismiss path (see
    * `page.tsx`) handed its target to this same hook and got silently
@@ -77,21 +84,37 @@ export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, f
    *   tap then hit `landedFor.current === year` and returned having done
    *   nothing.
    *
-   * `force` bypasses both guards — an explicit "take me to that day" is a
-   * request, not a suggestion the reader might already have acted on or
-   * scrolled past — while still requiring `targetDay`/`listMounted` and the
-   * target's own section to exist, and still latching `landedFor` on success
-   * so the automatic landing cannot ALSO fire in the same commit. Exactly one
+   * `explicit` bypasses both guards — a reader's own "take me to that day" is
+   * a request, not a suggestion they might already have acted on or scrolled
+   * past — while still requiring `targetDay`/`listMounted` and the target's
+   * own section to exist, and still latching `landedFor` on success so the
+   * automatic landing cannot ALSO fire in the same commit. Exactly one
    * `scrollToDay` call per commit either way; no ordering between two hook
    * instances to depend on.
+   *
+   * If the target's section never mounts at all — `⟳ Now` can point at a day
+   * with no events, since `reachableTodayKey` checks only the navigable
+   * bounds, not whether today has any — `explicit` stays true for the rest
+   * of that year (nothing here clears it; `page.tsx`'s caller does, only on
+   * success). The reader will be scrolled there the instant that day ever
+   * does gain a section, however far they have since scrolled on their own.
+   * Narrow, and they did ask for that specific day — a documented
+   * consequence of `explicit` having no expiry, not a bug to fix here.
+   *
+   * A stricter alternative was considered and declined: folding this into
+   * `targetDay` as a single `{ day, source: 'rail' | 'auto' }` makes an
+   * explicit call with the automatic landing day unrepresentable at the type
+   * level. Better typing, but it reshapes this hook's signature and all
+   * eleven of its own tests for an illegal state that is currently unwritten
+   * and has exactly one caller — declined for now, not overlooked.
    */
-  force?: boolean;
+  explicit?: boolean;
 }): void {
   const landedFor = useRef<number | null>(null);
 
   useEffect(() => {
     if (!targetDay || !listMounted) return;
-    if (!force) {
+    if (!explicit) {
       if (landedFor.current === year) return;
       if (landedFor.current === null && window.scrollY > 0) {
         landedFor.current = year;
@@ -101,5 +124,5 @@ export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, f
     if (!daySectionElement(targetDay)) return;
     landedFor.current = year;
     scrollToDay(targetDay);
-  }, [targetDay, year, listMounted, scrollToDay, force]);
+  }, [targetDay, year, listMounted, scrollToDay, explicit]);
 }
