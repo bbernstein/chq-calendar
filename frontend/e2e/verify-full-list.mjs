@@ -92,6 +92,37 @@ async function settle(page, { quietMs = 600, timeoutMs = 12000 } = {}) {
   return last;
 }
 
+/**
+ * Wait until the main thread has been quiet for `quietMs`.
+ *
+ * Load is not over when the list appears. The article- and program-link
+ * sidecars arrive on their own schedule and change `EventListView`'s props,
+ * which re-renders all 1,687 cards — measured 2026-08-26 at 4x throttle as a
+ * single 689ms long task landing several seconds after the day sections did.
+ * A scroll measurement that starts before that has happened attributes it to
+ * scrolling, and reports a 753ms "frame" for a page that was not scrolling
+ * badly at all. With this wait in front of it the same scroll records zero
+ * long tasks.
+ *
+ * `longtask` rather than a fixed sleep: the arrival time depends on the CDN
+ * and the throttle rate, so any constant is either wrong or wasteful.
+ */
+async function waitForQuiet(page, { quietMs = 2000, timeoutMs = 25000 } = {}) {
+  await page.evaluate(() => {
+    if (window.__quiet) return;
+    window.__quiet = { last: performance.now() };
+    new PerformanceObserver(() => { window.__quiet.last = performance.now(); })
+      .observe({ type: 'longtask' });
+  });
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const since = await page.evaluate(() => performance.now() - window.__quiet.last);
+    if (since >= quietMs) return Math.round(since);
+    await page.waitForTimeout(250);
+  }
+  return null;
+}
+
 /** The year the app itself says it is showing — the header's own pill. */
 const selectedYear = page => page.evaluate(() => {
   const pill = [...document.querySelectorAll('header button')]
@@ -447,10 +478,9 @@ for (const engineName of ['chromium', 'webkit']) {
   // setup: in season the landing parks the reader on today, which in late
   // August is ~149,000px into a ~160,000px document, so 40 x 600px of wheel
   // ran out of document after about nine gestures and the rest scrolled a
-  // clamped page. It reported 129 frames where the spike saw 253, and the
-  // handful of frames it did sample were dominated by the sections around
-  // the season's end. Measured 2026-08-26: p95 55ms, worst 168ms from the
-  // clamped start, against p95 17ms from the top on the same build.
+  // clamped page. Measured 2026-08-26 on the shipped build: p95 55ms, worst
+  // 168ms and 129 frames sampled from the clamped start, against p95 25-30ms
+  // and ~142 frames from the top of the list.
   //
   // A rail tap rather than `scrollTo`: it is the app's own navigation, it
   // leaves the settle hold in the state a reader's jump would, and the first
@@ -461,15 +491,27 @@ for (const engineName of ['chromium', 'webkit']) {
     first?.click();
   });
   await page.waitForTimeout(1500);
+  await waitForQuiet(page);
+  // One warm-up gesture INSIDE the recording, then the frame log is cleared.
+  // The first interval a fresh rAF loop records spans the gap between
+  // registering the callback and the first wheel arriving over CDP — idle
+  // time, not a rendered frame, and it reported 110-149ms on a page that was
+  // not doing anything. Clearing after a real gesture removes it by
+  // construction rather than by slicing an arbitrary count off the front.
   await page.evaluate(() => {
     window.__frames = [];
-    window.__startY = Math.round(window.scrollY);
     let last = performance.now();
     const tick = now => {
       window.__frames.push(now - last); last = now;
       if (!window.__stop) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
+  });
+  await page.mouse.wheel(0, 600);
+  await page.waitForTimeout(200);
+  await page.evaluate(() => {
+    window.__frames = [];
+    window.__startY = Math.round(window.scrollY);
   });
   for (let i = 0; i < 40; i++) { await page.mouse.wheel(0, 600); await page.waitForTimeout(50); }
   const f = await page.evaluate(() => {
