@@ -1,11 +1,17 @@
 /**
  * The DOM contract for a day section.
  *
- * One attribute, declared once, consumed by three unrelated things: the
- * upward-prepend scroll correction, the day rail's scrollspy, and its
- * scroll-to. Keeping the name here rather than inline at each site is what
- * stops a rename in the list from silently disabling navigation — every
- * consumer imports the same constant, so a rename is a compile error.
+ * Declared once, consumed by two surviving things and one deleted one. The
+ * rail's scrollspy resolves against it twice over — the discrete anchor
+ * (`useDayAnchor`) and the continuous highlight (`useRailHighlight`), both
+ * via this file's own `daySectionTop`/`daySectionMetrics` — and
+ * `useDayAnchor.scrollToDay` (plus the settle hold it reasserts) uses it to
+ * scroll to a day on demand. An upward-prepend scroll correction used to be
+ * a third consumer; #274 phase 4 deleted it along with the render window
+ * (see `EventList.tsx`'s module doc). Keeping the name here rather than
+ * inline at each site is what stops a rename from silently disabling
+ * navigation — every consumer imports the same constant, so a rename is a
+ * compile error.
  *
  * A day key is `yyyy-mm-dd`, or the literal `NaN-NaN-NaN` that
  * `groupEventsByDay` emits for an unparseable `startDate`. Both are made
