@@ -1,11 +1,11 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { render, fireEvent } from '@testing-library/preact';
-import { railTarget, reachableTodayKey, shouldAbandonScroll } from '@/app/dayRailNavigation';
-import { EventList } from '@/components/calendar/EventList';
+import { railTarget, reachableTodayKey } from '@/app/dayRailNavigation';
+import { EventListView } from '@/components/calendar/EventListView';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
-import { daySectionElement, DAY_SECTION_ATTR } from '@/lib/utils/daySections';
+import { DAY_SECTION_ATTR } from '@/lib/utils/daySections';
 import { installIntersectionObserverMock } from '@/__tests__/helpers/intersectionObserver';
 import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
@@ -14,61 +14,25 @@ import type { Event } from '@/lib/types';
 describe('railTarget', () => {
   const bounds = { startDay: '2026-06-27', endDay: '2026-08-30' };
 
-  it('expands the start when the target is before the window', () => {
-    expect(railTarget({ target: '2026-07-01', window: { startDay: '2026-07-04', endDay: '2026-07-09' }, bounds }))
-      .toEqual({ expandStart: '2026-07-01', expandEnd: null, scrollTo: '2026-07-01' });
+  // D1: a chip tap is a scroll. Every day inside the bounds is mounted, so
+  // there is nothing to widen and nothing to wait for — the expansion plan
+  // this used to return, and the `shouldAbandonScroll` guard that decided
+  // whether a missing section meant "not yet" or "never", went with the view
+  // window (#274 phase 4).
+  it('returns the target when it is inside the navigable bounds', () => {
+    expect(railTarget('2026-07-06', bounds)).toBe('2026-07-06');
   });
 
-  it('expands the end when the target is after the window', () => {
-    expect(railTarget({ target: '2026-07-20', window: { startDay: '2026-07-04', endDay: '2026-07-09' }, bounds }))
-      .toEqual({ expandStart: null, expandEnd: '2026-07-20', scrollTo: '2026-07-20' });
+  it('keeps a target sitting exactly on either bound', () => {
+    expect(railTarget('2026-06-27', bounds)).toBe('2026-06-27');
+    expect(railTarget('2026-08-30', bounds)).toBe('2026-08-30');
   });
 
-  // D1: stepping scrolls if it can, and widens only if it must. A target
-  // already inside the window is a scroll and nothing else — dispatching an
-  // expansion for it would refilter the whole list for no reason and, worse,
-  // mark the window "expanded" so the date chip starts naming a range the
-  // reader never asked for.
-  it('only scrolls when the target is already inside the window', () => {
-    expect(railTarget({ target: '2026-07-06', window: { startDay: '2026-07-04', endDay: '2026-07-09' }, bounds }))
-      .toEqual({ expandStart: null, expandEnd: null, scrollTo: '2026-07-06' });
-  });
-
+  // Such a day has no section and never will, so a "successful" tap would
+  // scroll nowhere with no feedback.
   it('refuses a target outside the navigable bounds', () => {
-    expect(railTarget({ target: '2026-12-25', window: { startDay: '2026-07-04', endDay: '2026-07-09' }, bounds }))
-      .toBeNull();
-  });
-
-  // Reachable for 'this-week' outside the season (a value this branch keeps
-  // working from persisted localStorage), where the scope matches nothing at
-  // all. The plan this used to return was inert by composition: `viewWindow`
-  // returns null from `baseWindow` before it ever reads the expansion inputs,
-  // so both expansions widened nothing, no section could mount, and the
-  // pending scroll was left waiting on a day that could never appear.
-  it('refuses a tap in a scope that matches nothing rather than planning an inert expansion', () => {
-    expect(railTarget({ target: '2026-07-06', window: null, bounds })).toBeNull();
-  });
-});
-
-describe('shouldAbandonScroll', () => {
-  const w = { startDay: '2026-07-04', endDay: '2026-07-09' };
-
-  // The bug this replaces: the guard read `dateWindow && covered`, which is
-  // `null` — falsy — when there is no window, so nothing cleared and the
-  // pending target survived every later commit. A scope change would then
-  // re-run the effect and scroll the reader to a day they tapped under a
-  // different scope.
-  it('abandons a target when the scope matches nothing at all', () => {
-    expect(shouldAbandonScroll('2026-07-06', null)).toBe(true);
-  });
-
-  it('abandons a target the window already covers — the day simply has no events', () => {
-    expect(shouldAbandonScroll('2026-07-06', w)).toBe(true);
-  });
-
-  it('keeps waiting while the expansion has not landed yet', () => {
-    expect(shouldAbandonScroll('2026-07-20', w)).toBe(false);
-    expect(shouldAbandonScroll('2026-07-01', w)).toBe(false);
+    expect(railTarget('2026-12-25', bounds)).toBeNull();
+    expect(railTarget('2026-01-05', bounds)).toBeNull();
   });
 });
 
@@ -128,27 +92,15 @@ const eventListBaseProps = {
 };
 
 /**
- * Reproduces the parent/child effect topology `goToDay -> scrollToDay`
- * depends on in `page.tsx`: a real `EventList` under a real `useDayAnchor`
- * (whose `scrollToDay` reads the DOM), driven by the same DOM-based
- * pending-scroll effect `page.tsx` uses. Rendering the actual
- * `page.tsx`/`HomeContent` would require mocking event data, season weeks,
- * favourites, article/program links and every route it also imports — none
- * of which this race depends on. This harness keeps only the two components
- * whose effect ordering the bug lives in, wired together exactly as
- * `page.tsx` wires them.
+ * Reproduces the wiring `goToDay -> scrollToDay` depends on in `page.tsx`: a
+ * real list of day sections under a real `useDayAnchor` (whose `scrollToDay`
+ * reads the DOM), navigated through the same `railTarget` bounds check.
+ * Rendering the actual `page.tsx`/`HomeContent` would require mocking event
+ * data, season weeks, favourites, article/program links and every route it
+ * also imports — none of which this wiring depends on.
  *
- * `earlierKey`, when given, also wires up `EventList`'s own "Show earlier"
- * control, mirroring `page.tsx`'s `showEarlier`: a click calls
- * `cancelHold()` on `useDayAnchor` before prepending. No test in this file
- * currently exercises that path end to end — see the standalone comment
- * below, between this describe block and the next, for why an
- * integration-level version of that test was tried and deleted, and where
- * `cancelHold()` itself is actually covered. Kept here anyway because it is
- * still an accurate mirror of `page.tsx`'s wiring, cheap to keep, and one a
- * future test in this file may still want. `groupedEvents` is local state
- * (not a plain passthrough prop) for exactly that reason: the prepend needs
- * somewhere to insert into.
+ * `groupedEvents` is local state rather than a plain passthrough prop so a
+ * test can still change the list under the hook if it needs to.
  *
  * `withFilterPanel`, when given, also mounts the real `useFilterPanel` —
  * toggle button and panel `<div>`, wired exactly like the minimal Harness in
@@ -156,46 +108,21 @@ const eventListBaseProps = {
  * test below, which needs a real gesture-dismiss listener (attached only
  * while the panel is `open`) alongside the real day-chip navigation.
  */
-function Harness({ groupedEvents: initialGroups, earlierKey, withFilterPanel }: {
-  groupedEvents: DayGroup[]; earlierKey?: string; withFilterPanel?: boolean;
+function Harness({ groupedEvents: initialGroups, withFilterPanel }: {
+  groupedEvents: DayGroup[]; withFilterPanel?: boolean;
 }) {
-  const [groupedEvents, setGroupedEvents] = useState(initialGroups);
+  const [groupedEvents] = useState(initialGroups);
   // No argument: the panel is a fixed overlay in every state now (#274 phase
   // 3), so there is no "has the reader scrolled past the card yet" question
   // for the hook to answer.
   const filterPanel = useFilterPanel();
   const dayKeysList = groupedEvents.map(g => g.key);
   const bounds = { startDay: dayKeysList[0], endDay: dayKeysList[dayKeysList.length - 1] };
-  const { scrollToDay, cancelHold } = useDayAnchor(dayKeysList);
-  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+  const { scrollToDay } = useDayAnchor(dayKeysList);
 
   const goToDay = useCallback((target: string) => {
-    const plan = railTarget({ target, window: bounds, bounds });
-    if (!plan) return;
-    setPendingScroll(plan.scrollTo);
-  }, [bounds.startDay, bounds.endDay]);
-
-  const showEarlier = useCallback(() => {
-    if (!earlierKey) return;
-    // `page.tsx` cancels the rail hold here for the same reason it dispatches
-    // the expansion here: this is the click, and the click is the reader
-    // saying they want something else.
-    cancelHold();
-    setGroupedEvents(prev => [group(earlierKey, 1), ...prev]);
-  }, [earlierKey, cancelHold]);
-
-  useEffect(() => {
-    if (!pendingScroll) return;
-    if (daySectionElement(pendingScroll)) {
-      setPendingScroll(null);
-      scrollToDay(pendingScroll);
-      return;
-    }
-    // The same give-up decision `page.tsx` makes, imported rather than
-    // restated — a re-implementation here would prove nothing about the
-    // page.
-    if (shouldAbandonScroll(pendingScroll, bounds)) setPendingScroll(null);
-  }, [pendingScroll, scrollToDay, bounds.startDay, bounds.endDay]);
+    if (railTarget(target, bounds)) scrollToDay(target);
+  }, [bounds.startDay, bounds.endDay, scrollToDay]);
 
   return (
     <div>
@@ -211,9 +138,9 @@ function Harness({ groupedEvents: initialGroups, earlierKey, withFilterPanel }: 
         </div>
       )}
       <button type="button" onClick={() => goToDay('2026-07-12')}>Go</button>
-      <EventList {...eventListBaseProps} groupedEvents={groupedEvents}
-        earlierDay={earlierKey ?? null}
-        onShowEarlier={earlierKey ? showEarlier : undefined} />
+      <div className="space-y-4 sm:space-y-6">
+        <EventListView {...eventListBaseProps} groups={groupedEvents} />
+      </div>
     </div>
   );
 }
@@ -225,7 +152,7 @@ describe('goToDay -> scrollToDay chain', () => {
   });
 
   // Explicit timeout: this is an integration test rendering a real
-  // `EventList` + `useDayAnchor` through ~60 `EventCard`s (12 days x 5
+  // `EventListView` + `useDayAnchor` through ~60 `EventCard`s (12 days x 5
   // events — see the fixture note on `makeGroups` above). Locally on Node 24
   // it runs in well under a second, but the default 5s budget is tight on a
   // loaded, 2-core CI runner running with coverage instrumentation and
@@ -258,42 +185,13 @@ describe('goToDay -> scrollToDay chain', () => {
   });
 });
 
-// #274 phase 4 deleted `EventList`'s own upward-prepend settle hold — the two
-// tests a `describe('cancelHold: ...')` block used to hold here ("clears the
-// stale prepend hold...", "lets a later prepend keep its own correction...")
-// pinned an arbitration between THAT hold and `useDayAnchor`'s. With
-// `EventList`'s side gone there is nothing left to arbitrate.
-//
-// A replacement integration test was written and then deleted again, on
-// review: it drove `Harness`'s "Show earlier" via `fireEvent.click` (arms
-// `cancelHold()`, then prepends), then a shared `resize.trigger()`, and
-// asserted no stale `scrollBy` fired. It passed — and kept passing with
-// `cancelHold()` deleted from the Harness entirely, because the prepend's own
-// `setGroupedEvents` changes `dayKeysList`/`keysId`, and `fireEvent.click`'s
-// `act()` wrapper synchronously flushes `useDayAnchor`'s settle effect's OWN
-// cleanup (`useDayAnchor.ts`, the `return () => { settleRef.current = null;
-// ... }` keyed on `keysId`) before `resize.trigger()` ever runs — so the hold
-// is already gone for a reason that has nothing to do with `cancelHold()`.
-// That ordering is a jsdom/`act()` artifact: in a real browser a passive
-// effect's cleanup runs after paint, while `ResizeObserver` delivers before
-// it, so the stale hold's reassert genuinely can fire first — which is
-// exactly the failure `cancelHold()` exists to prevent. jsdom has no
-// discriminating way to reproduce that ordering short of forcing the resize
-// callback to fire synchronously from inside the click dispatch, ahead of
-// `act()`'s flush — a rig that would be testing the harness's plumbing more
-// than the behaviour.
-//
-// `cancelHold()` itself IS still covered, without this confound:
-// `useDayAnchor.test.ts`'s "drops the hold on demand, so an explicit prepend
-// is not fought" calls `result.current.cancelHold()` directly against a
-// `useDayAnchor` whose `windowDayKeys` never changes, so nothing else in that
-// test can null the hold — a genuinely discriminating unit test of the exact
-// mechanism this integration test tried and failed to add coverage for.
-// `page.tsx`'s `showEarlier` calling `cancelHold()` is not independently
-// re-verified at the integration level, and per this task's coordinator that
-// gap is accepted rather than chased further: task 5 deletes `showEarlier`,
-// `expandWindowStart`/`expandWindowEnd` and the view window outright, taking
-// `cancelHold`'s only caller with it.
+// The `describe('cancelHold: ...')` block that used to sit here is gone with
+// its subject. It pinned an arbitration between `EventList`'s own
+// upward-prepend settle hold and `useDayAnchor`'s; #274 phase 4 deleted the
+// first half with the render window, and then deleted `cancelHold` itself
+// along with `showEarlier`, `expandWindowStart`/`expandWindowEnd` and the
+// view window — every path that could insert a day above the reader. There is
+// no prepend left for a hold to fight.
 
 describe('composition: a day-chip tap dismisses the panel and still navigates', () => {
   afterEach(() => {
@@ -323,7 +221,7 @@ describe('composition: a day-chip tap dismisses the panel and still navigates', 
   // this composition shows up here as an extra entry rather than as nothing.
   //
   // Explicit timeout: same integration-test cost as the three tests above
-  // (~60 EventCards from a real EventList + useDayAnchor render), plus a
+  // (~60 EventCards from a real EventListView + useDayAnchor render), plus a
   // real `useFilterPanel` with its own effects and a window-level gesture
   // listener — at least as expensive as the tests that already carry this
   // guard. Comfortably under a second locally on Node 24, but that is not

@@ -141,8 +141,8 @@ export const WeekChooser = memo(function WeekChooser({
           aria-label="Choose a week"
           className="fixed z-50 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-2 shadow-lg"
           style={{
-            // Rendered off-screen until measured, exactly as `WeekSelector`'s
-            // theme popover is: `useFloatingCoords` needs the popover's own box
+            // Rendered off-screen until measured, exactly as the week theme
+            // popover is: `useFloatingCoords` needs the popover's own box
             // to clamp it, so the first paint has to happen somewhere.
             top: coords ? `${coords.top}px` : '-9999px',
             left: coords ? `${coords.left}px` : '0px',

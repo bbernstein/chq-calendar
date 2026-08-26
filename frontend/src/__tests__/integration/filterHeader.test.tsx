@@ -179,8 +179,12 @@ describe('page.tsx — the filter panel as a fixed overlay', () => {
   it('parses the fixture into the page, rather than silently loading none', async () => {
     await renderPage();
 
+    // `Events (2)`, not `Events (n/2)`: with the date filters deleted a
+    // default visit has no filter in effect at all, so `ActiveFilters` shows
+    // the plain total. The point of the assertion is unchanged — the fixture
+    // parsed into two events rather than silently into none.
     await waitFor(() =>
-      expect(screen.getByText(/^Events \(\d+\/2\)$/)).toBeInTheDocument()
+      expect(screen.getByText('Events (2)')).toBeInTheDocument()
     );
   });
 
@@ -219,6 +223,29 @@ describe('page.tsx — the filter panel as a fixed overlay', () => {
     // against correct code and tempt the next reader to weaken it. `hidden`
     // on an ancestor is what `toBeVisible` walks the tree for.
     expect(screen.getByLabelText('Search events')).not.toBeVisible();
+  });
+
+  // The favourites toggle moved into the panel in #274 phase 4. It used to sit
+  // on `DateFilter`'s scope row — the one control on that row that was never
+  // a date filter — and when the scopes went it needed somewhere to live.
+  // Nothing about it changed except where it is, so this pins that it is
+  // still there and still toggles.
+  it('carries the favourites toggle in the panel, above the venue filter', async () => {
+    await renderPage();
+    fireEvent.click(toggleButton()!);
+
+    const star = screen.getByRole('button', { name: 'Show favorites only' });
+    expect(overlay().contains(star)).toBe(true);
+    expect(star.textContent).toBe('\u2605 0');
+    expect(star.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(star);
+
+    const pressed = screen.getByRole('button', { name: 'Stop showing favorites only' });
+    expect(pressed.getAttribute('aria-pressed')).toBe('true');
+    // Nothing is starred in this fixture, so the list empties — which is the
+    // toggle reaching `filterEvents`, not merely repainting itself.
+    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
   });
 
   // And there is no sticky container wrapping a card and the rail together.
@@ -308,17 +335,20 @@ describe('page.tsx — a week band tap', () => {
   // usable as the "landed on the right day" signal: `useDayAnchor` derives it
   // from scroll position via `getBoundingClientRect`, which jsdom stubs to an
   // identical zero rect for every mounted section, so it always resolves to
-  // the LAST section in the window regardless of which day was tapped.
+  // the LAST section regardless of which day was tapped.
   //
-  // Instead this fixture puts one event a full week before the band's
-  // destination and asserts its section is NOT pulled into the window by the
-  // tap. `goToDay` only ever grows the window's edge to the exact target it is
-  // given (`railTarget`), so a wire that passed the wrong day — e.g. the
-  // rail's very first day, as step 6's falsification injects — would grow the
-  // window past the earlier event too and this assertion would catch it.
-  // Asserting only that *something* changed would not: an over-wide
-  // expansion still contains the correct destination as a subset.
-  it("expands the window to that week's destination day, and no further", async () => {
+  // This test used to read the signal off the view window instead: it put one
+  // event a full week before the band's destination and asserted that day's
+  // section was NOT pulled into the window by the tap. #274 phase 4 deleted
+  // the window — every day is mounted from the first commit — so that signal
+  // is gone with it.
+  //
+  // What replaces it observes the scroll itself. Each section is given a
+  // distinct `getBoundingClientRect().top`, so `scrollToDay`'s
+  // `top - stickyOffset` delta names exactly one day: a wire that passed the
+  // wrong destination — the rail's very first day, say — lands a different
+  // number here.
+  it("scrolls to that week's destination day, and to no other", async () => {
     const seasonWeeks = getChautauquaSeasonWeeks(YEAR);
     const spans = weekDayKeySpans(seasonWeeks);
     // Two days inside their weeks, not on a shared boundary Saturday — same
@@ -378,17 +408,32 @@ describe('page.tsx — a week band tap', () => {
     expect(expected?.dayKey).toBe(week2Day);
 
     // Pinned so the assertions hold regardless of which real-world day this
-    // suite happens to run on — the "next" scope's own window otherwise
-    // depends on it. Set after computing the fixture's days above, which are
-    // real-time-independent by construction.
+    // suite happens to run on: `determineLandingState` and `⟳ Now`'s
+    // reachability both read the clock, and off-season this fixture would
+    // otherwise show the landing instead of the list. Set after computing the
+    // fixture's days above, which are real-time-independent by construction.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(chqDateAt(YEAR, 8, 1, 10));
 
     await renderPage();
-    await waitFor(() => expect(screen.getByText(/^Events \(\d+\/3\)$/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Events (3)')).toBeInTheDocument());
 
-    expect(document.querySelector(`[data-day-key="${week2Day}"]`)).toBeNull();
-    expect(document.querySelector(`[data-day-key="${week1Day}"]`)).toBeNull();
+    // Every day the list produced is mounted from the first commit — there is
+    // no window left for a tap to grow, which is what this test's old signal
+    // depended on.
+    const days = [week1Day, week2Day, laterDay];
+    const sections = days.map(k => document.querySelector<HTMLElement>(`[data-day-key="${k}"]`));
+    expect(sections.every(Boolean)).toBe(true);
+
+    // A real, nonzero sticky offset so the asserted delta cannot coincide
+    // with "scrollToDay never ran".
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const tops = [1000, 5000, 9000];
+    sections.forEach((el, i) => {
+      el!.getBoundingClientRect = () => ({ top: tops[i] }) as DOMRect;
+    });
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
 
     const band = await waitFor(() => {
       const el = document.querySelector<HTMLElement>('[data-week-band-button="2"]');
@@ -398,12 +443,11 @@ describe('page.tsx — a week band tap', () => {
 
     fireEvent.click(band);
 
-    await waitFor(() =>
-      expect(document.querySelector(`[data-day-key="${week2Day}"]`)).toBeInTheDocument()
-    );
-    // The window must not have grown any further back than week 2's own
-    // destination — in particular not all the way to the rail's very first
-    // day, a full week earlier, where the week 1 event lives.
-    expect(document.querySelector(`[data-day-key="${week1Day}"]`)).toBeNull();
+    // Week 2's own destination day, at 5000, less the 50px of chrome — not
+    // week 1's 1000 and not week 8's 9000.
+    expect(scrollBy).toHaveBeenCalledWith(0, 4950);
+
+    vi.unstubAllGlobals();
+    document.documentElement.style.removeProperty('--day-rail-h');
   });
 });

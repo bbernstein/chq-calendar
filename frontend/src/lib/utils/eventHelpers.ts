@@ -104,6 +104,16 @@ export function groupEventsByDay(events: Event[], seasonWeeks: SeasonWeek[]): Da
 
   for (const event of events) {
     const eventDate = parseEventDate(event.startDate);
+    // An unparseable `startDate` has no day to be filed under. Without this
+    // it produced a real `'NaN-NaN-NaN'` group with an "Invalid Date" header
+    // and sorted to the very bottom of the list, because `'N'` sorts above
+    // every digit. `filterEvents` used to drop such a row first — its date
+    // stage compared the `Invalid Date` against the view window and every
+    // comparison against `NaN` is false — and #274 phase 4 deleted that
+    // stage, so the guard moves here, to the one function that turns events
+    // into days. Every other call site already just drops such a row
+    // (`navigableBounds`, `eventDayKeys`, `eventCountsByDay`).
+    if (Number.isNaN(eventDate.getTime())) continue;
     startTimes.set(event, eventDate.getTime());
     const key = dayKeyOf(eventDate);
     let group = grouped.get(key);

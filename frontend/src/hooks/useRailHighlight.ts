@@ -295,8 +295,9 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     // either threading a subscription from `useDayAnchor` through `page.tsx`
     // into this component, or hoisting a third hook that both depend on;
     // both trade a measured 4% worst case for a new coupling across the
-    // boundary this design keeps clean. Revisit if the render window ever
-    // stops being bounded — that, not the day list, is what sets this cost.
+    // boundary this design keeps clean. Revisit if the mounted day count
+    // grows well past a season's worth — the walk is over mounted sections,
+    // and that is what sets this cost.
     const limit = topChromeHeightPx() + 1;
     const resolved = resolveAnchor(windowDayKeys, limit, daySectionTop);
     if (!resolved) {
@@ -364,11 +365,12 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   // `nodeGeneration` is a dependency on both effects below for the same
   // reason the listener effect has it, and missing it is subtler here: the
   // chip row can appear without the chip *list* changing at all. `DayRail`
-  // renders nothing while `scopeHasWindow` is false — an off-season
-  // `'this-week'` restored from localStorage — with `chips` populated the
-  // whole time. When the scope then resolves, `chipsId` and `keysId` are
-  // unchanged, so without this the row would never be measured, `extents`
-  // would stay empty, and the pill would not paint at all.
+  // returns null whenever it has no chips, and the whole rail is mounted
+  // inside the list's own conditional branches, so the row can be unmounted
+  // and remounted with `chips` populated the entire time. When it comes
+  // back, `chipsId` and `keysId` are unchanged, so without this the row
+  // would never be measured, `extents` would stay empty, and the pill would
+  // not paint at all.
   // Two effects, not one, and the split is not cosmetic: `measureChips` walks
   // every chip in the row calling `getBoundingClientRect` — 251 of them in a
   // full season — and the row's geometry depends on the *chips*, never on the

@@ -237,9 +237,10 @@ export function useSiteHeaderReveal({ holdRevealed = false }: {
      *
      * The mouse and touch answers genuinely differ: a DRAG beginning on a
      * button is that button's, while a SWIPE beginning on it still scrolls the
-     * page. What actually stops a pan is a control that cancels it —
-     * `WeekSelector` calls `preventDefault()` on `touchstart` — and that is
-     * what the platform acts on, so it is what this asks.
+     * page. What actually stops a pan is a control that cancels it — the
+     * filter panel's old `WeekSelector` called `preventDefault()` on
+     * `touchstart`, which is where this rule came from — and that is what the
+     * platform acts on, so it is what this asks.
      */
     let touchPanCancelled = false;
     let touchScrolledPage = false;

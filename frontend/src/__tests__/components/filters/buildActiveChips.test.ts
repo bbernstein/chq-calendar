@@ -5,19 +5,12 @@ function baseArgs(overrides: Partial<Parameters<typeof buildActiveChips>[0]> = {
   return {
     searchTerm: '',
     setSearchTerm: vi.fn(),
-    dateFilter: 'all',
-    setDateFilter: vi.fn(),
-    selectedWeeks: [],
-    setSelectedWeeks: vi.fn(),
     selectedLocations: [],
     toggleLocation: vi.fn(),
     selectedTags: [],
     toggleTag: vi.fn(),
     showFavoritesOnly: false,
     toggleFavoritesOnly: vi.fn(),
-    viewWindow: null,
-    windowExpanded: false,
-    resetWindow: vi.fn(),
     ...overrides,
   };
 }
@@ -45,36 +38,6 @@ describe('buildActiveChips', () => {
     const chips = buildActiveChips(baseArgs({ searchTerm: '  symphony  ' }));
     expect(chips).toHaveLength(1);
     expect(chips[0].label).toBe('"symphony"');
-  });
-
-  it('emits a date chip with a friendly label and a remove that resets to "all"', () => {
-    const setDateFilter = vi.fn();
-    const chips = buildActiveChips(baseArgs({ dateFilter: 'next', setDateFilter }));
-    expect(chips).toHaveLength(1);
-    expect(chips[0].category).toBe('date');
-    expect(chips[0].label).toBe('Now');
-    chips[0].onRemove();
-    expect(setDateFilter).toHaveBeenCalledWith('all');
-  });
-
-  it('emits no date chip when dateFilter is "all"', () => {
-    expect(buildActiveChips(baseArgs({ dateFilter: 'all' }))).toEqual([]);
-  });
-
-  it('emits one chip per selected week with the label "Week N"', () => {
-    const setSelectedWeeks = vi.fn();
-    const chips = buildActiveChips(baseArgs({ selectedWeeks: [1, 3, 5], setSelectedWeeks }));
-    expect(chips.map(c => c.label)).toEqual(['Week 1', 'Week 3', 'Week 5']);
-  });
-
-  it('week chip remove only filters out its own week (closure captures the right value)', () => {
-    let weeks = [1, 3, 5];
-    const setSelectedWeeks = vi.fn((updater: number[] | ((prev: number[]) => number[])) => {
-      weeks = typeof updater === 'function' ? updater(weeks) : updater;
-    });
-    const chips = buildActiveChips(baseArgs({ selectedWeeks: weeks, setSelectedWeeks }));
-    chips[1].onRemove();
-    expect(weeks).toEqual([1, 5]);
   });
 
   it('emits a chip per location and removes via toggleLocation', () => {
@@ -108,83 +71,13 @@ describe('buildActiveChips', () => {
     expect(toggleFavoritesOnly).toHaveBeenCalledTimes(1);
   });
 
-  it('emits chips in a stable order: search, date, weeks, locations, tags, favorites', () => {
+  it('emits chips in a stable order: search, locations, tags, favorites', () => {
     const chips = buildActiveChips(baseArgs({
       searchTerm: 'q',
-      dateFilter: 'today',
-      selectedWeeks: [2],
       selectedLocations: ['Hall'],
       selectedTags: ['Lecture'],
       showFavoritesOnly: true,
     }));
-    expect(chips.map(c => c.category)).toEqual(['search', 'date', 'week', 'location', 'tag', 'favorites']);
-  });
-});
-
-describe('date chip and the view window', () => {
-  const window = {
-    startDay: '2026-07-04', endDay: '2026-07-09',
-    start: new Date(2026, 6, 4), endExclusive: new Date(2026, 6, 10),
-  };
-
-  it('names the scope while the window is still the scope’s own', () => {
-    const chips = buildActiveChips(baseArgs({
-      dateFilter: 'next', viewWindow: window, windowExpanded: false,
-    }));
-    expect(chips.find(c => c.category === 'date')?.label).toBe('Now');
-  });
-
-  it('names the actual days once the window has grown past the scope', () => {
-    const chips = buildActiveChips(baseArgs({
-      dateFilter: 'next', viewWindow: window, windowExpanded: true,
-    }));
-    expect(chips.find(c => c.category === 'date')?.label).toBe('Sat, Jul 4 – Thu, Jul 9');
-  });
-
-  it('clears the scope when the window has not grown', () => {
-    const setDateFilter = vi.fn();
-    const resetWindow = vi.fn();
-    const chips = buildActiveChips(baseArgs({
-      dateFilter: 'next', viewWindow: window, windowExpanded: false,
-      setDateFilter, resetWindow,
-    }));
-    chips.find(c => c.category === 'date')!.onRemove();
-    expect(setDateFilter).toHaveBeenCalledWith('all');
-    expect(resetWindow).not.toHaveBeenCalled();
-  });
-
-  // Two distinct escapes, deliberately not conflated: ✕ on a grown window
-  // puts the window back to the scope's base and leaves the scope alone.
-  it('resets the window without touching the scope once it has grown', () => {
-    const setDateFilter = vi.fn();
-    const resetWindow = vi.fn();
-    const chips = buildActiveChips(baseArgs({
-      dateFilter: 'next', viewWindow: window, windowExpanded: true,
-      setDateFilter, resetWindow,
-    }));
-    chips.find(c => c.category === 'date')!.onRemove();
-    expect(resetWindow).toHaveBeenCalled();
-    expect(setDateFilter).not.toHaveBeenCalled();
-  });
-
-  it('shows a date chip for a grown window even on the All Year scope', () => {
-    const chips = buildActiveChips(baseArgs({
-      dateFilter: 'all', viewWindow: window, windowExpanded: true,
-    }));
-    expect(chips.find(c => c.category === 'date')?.label).toBe('Sat, Jul 4 – Thu, Jul 9');
-  });
-
-  it('shows no date chip on All Year with an untouched window', () => {
-    const chips = buildActiveChips(baseArgs({
-      dateFilter: 'all', viewWindow: window, windowExpanded: false,
-    }));
-    expect(chips.find(c => c.category === 'date')).toBeUndefined();
-  });
-
-  it('names the new All Season scope', () => {
-    const chips = buildActiveChips(baseArgs({
-      dateFilter: 'season', viewWindow: window, windowExpanded: false,
-    }));
-    expect(chips.find(c => c.category === 'date')?.label).toBe('All Season');
+    expect(chips.map(c => c.category)).toEqual(['search', 'location', 'tag', 'favorites']);
   });
 });

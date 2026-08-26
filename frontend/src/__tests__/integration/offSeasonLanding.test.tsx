@@ -56,6 +56,11 @@ function pin(now: Date) {
 
 beforeEach(() => {
   localStorage.clear();
+  // `useSelectedYear` writes the chosen year into the URL with
+  // `history.replaceState`, and jsdom carries the URL across tests in a file.
+  // Without this reset, a test that switches year silently seeds `?year=…`
+  // into every test after it.
+  window.history.replaceState({}, '', '/');
   // Installed for their side effect only — jsdom has neither observer, and
   // page.tsx's hooks construct both on mount. Nothing here drives them, so
   // unlike filterHeader.test.tsx the handles are not kept.
@@ -150,8 +155,8 @@ describe('page.tsx — the off-season landing', () => {
   it('keeps the generic empty state when the READER emptied the list', async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     localStorage.setItem('chq-calendar-user-state', JSON.stringify({
-      dateFilter: 'all', searchTerm: 'zzzznothingmatchesthis',
-      selectedTags: [], selectedLocations: [], selectedWeeks: [],
+      searchTerm: 'zzzznothingmatchesthis',
+      selectedTags: [], selectedLocations: [],
       expandedDescriptions: [], recentLocations: [], recentCategories: [],
       showFavoritesOnly: false, lastSaved: Date.now(),
     }));
@@ -219,6 +224,11 @@ describe('page.tsx — the off-season landing', () => {
   // today; it is raised now rather than after it starts flaking, because the
   // rail's element count tracks the navigable range and production data spans
   // far more of the year than this fixture does.
+  // The landing's other way forward, and the one #274 phase 4 had to give
+  // new state. `browseArchiveSeason`'s only action used to be
+  // `setDateFilter('season')`; with the scopes deleted it sets a
+  // `browsingArchive` flag instead, or the button would be visible, enabled,
+  // and do nothing, leaving an archived-year landing with no way past it.
   it('browsing the archive puts the season on screen', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();
@@ -251,19 +261,12 @@ describe('page.tsx — the off-season landing', () => {
   // 5s budget *before* the band and over it after. 15s is the same headroom
   // the day-rail integration tests already take. The budget was always wrong
   // for this test; the band is only what made that visible.
-  // The phase 4 world, reachable today by seeding the widest scope: a
-  // post-season visit with a full feed. The list is NOT empty, and the
-  // landing must still be what the reader sees — a stated branch ahead of
-  // the deletion that removes date filtering (#274 phase 4), rather than a
-  // side effect of an empty result set that phase 4 would otherwise erase
-  // silently.
+  // A post-season visit with a full feed. The list is NOT empty — every day
+  // of the year is listed now — and the landing must still be what the reader
+  // sees: a stated branch, not a side effect of an empty result set. Before
+  // #274 phase 4 this case needed the widest scope seeded into localStorage
+  // to reach; now it is simply what a post-season visit is.
   it('the landing shows out of season even when the year has events to list', async () => {
-    localStorage.setItem('chq-calendar-user-state', JSON.stringify({
-      dateFilter: 'all', searchTerm: '',
-      selectedTags: [], selectedLocations: [], selectedWeeks: [],
-      expandedDescriptions: [], recentLocations: [], recentCategories: [],
-      showFavoritesOnly: false, lastSaved: Date.now(),
-    }));
     pin(chqDateAt(2026, 9, 20, 10));
     render(<Home />);
 
@@ -273,7 +276,7 @@ describe('page.tsx — the off-season landing', () => {
     expect(document.querySelectorAll('[data-day-key]')).toHaveLength(0);
   });
 
-  it('previewing next season switches the year and opens the date scope', { timeout: 15000 }, async () => {
+  it('previewing next season switches the year', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();
     await waitFor(() =>
@@ -286,20 +289,34 @@ describe('page.tsx — the off-season landing', () => {
       const requested = mock.calls(/all-events-/).map(r => new URL(r.url).pathname);
       expect(requested.some(p => p.endsWith('all-events-2027.json'))).toBe(true);
     });
-    // The scope buttons live inside the filter panel, which is a fixed
-    // overlay and `display: none` while closed (#274 phase 3) — so they are
-    // out of the accessibility tree until the reader opens it, and
-    // `getByRole` correctly cannot see them. Opening the panel is what a
-    // reader would do to check the scope, and it is what this has to do to
-    // assert on it.
-    // By role, not `document.querySelector(...)!` — the funnel is a real
-    // accessible control, so a role query fails with "unable to find a button
-    // named Filters" instead of a null-deref if the markup moves.
-    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    // It used to also assert the `All Year` scope button had gone
+    // `aria-pressed="true"`, because previewing opened the date scope right
+    // up. #274 phase 4 deleted the scopes and their buttons; a year change is
+    // now the whole of what this control does.
+  });
+
+  // A different year is a different question. Without the reset, dismissing
+  // the landing for 2026 would silently suppress 2027's own.
+  it('a year change brings the landing back', { timeout: 15000 }, async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'All Year' }).getAttribute('aria-pressed')
-      ).toBe('true')
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse the 2026 season' }));
+    await waitFor(() =>
+      expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+    );
+
+    // Through the header's year picker, so the reset is exercised from a year
+    // change the reader can actually make rather than from the landing's own
+    // preview button.
+    fireEvent.click(screen.getByRole('button', { name: /2026 Season/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /2027 Season/ }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
     );
   });
 });

@@ -62,11 +62,11 @@ describe('groupEventsByDay — week-number metadata on day headers', () => {
   it('keys each day group with the same day-key format dayWindow uses', () => {
     // groupEventsByDay's key and dayWindow's dayKeyOf used to be two
     // independent implementations of the same format (byte-identical, but
-    // free to drift). renderEndIndex matches the render-window anchor
-    // against DayGroup.key while navigationTargets compares against
-    // dayKeyOf output — if the two ever disagreed, the render window and
-    // the navigation targets would silently stop agreeing on which day is
-    // which, with no test failing. This pins them to the same function.
+    // free to drift). The rail's chips come from `dayKeyOf` (via
+    // `navigableBounds`/`eventCountsByDay`) while the sections they scroll
+    // to are keyed by `DayGroup.key` — if the two ever disagreed, a chip tap
+    // would find no section, with no test failing. This pins them to the
+    // same function.
     const event = evt('1', '2026-07-06T14:00:00');
     const groups = groupEventsByDay([event], seasonWeeks);
 
@@ -99,9 +99,23 @@ describe('groupEventsByDay in Institution time', () => {
     expect(groups[0].baseLabel).toBe('Sunday, July 26, 2026');
   });
 
-  it('keeps an unparseable date out of the real days rather than crashing', () => {
-    const groups = groupEventsByDay([ev('bad', 'not a date')], []);
-    expect(groups[0].key).toBe('NaN-NaN-NaN');
+  // It used to produce a real `'NaN-NaN-NaN'` group here, and `filterEvents`
+  // dropped the row before it ever arrived — the date stage compared the
+  // `Invalid Date` against the view window, and every comparison against
+  // `NaN` is false. #274 phase 4 deleted that stage, so the guard lives here
+  // now: a row with no day cannot be filed under one, and an "Invalid Date"
+  // section at the bottom of the list is the visible failure.
+  it('drops an unparseable date rather than making a day out of it', () => {
+    const groups = groupEventsByDay([
+      ev('good', '2026-07-26 10:00:00'),
+      ev('bad', 'not a date'),
+    ], []);
+    expect(groups.map(g => g.key)).toEqual(['2026-07-26']);
+    expect(groups[0].events.map(e => e.id)).toEqual(['good']);
+  });
+
+  it('returns no groups at all when every row is unparseable', () => {
+    expect(groupEventsByDay([ev('bad', 'not a date')], [])).toEqual([]);
   });
 
   it('sorts within a day by true instant', () => {

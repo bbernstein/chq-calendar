@@ -1,5 +1,5 @@
-import type { Event, SeasonWeek } from '@/lib/types';
-import { CHQ_ZONE, chqDateAt, chqParts, parseEventDate } from '@/lib/utils/chqTime';
+import type { SeasonWeek } from '@/lib/types';
+import { CHQ_ZONE, chqDateAt, chqParts } from '@/lib/utils/chqTime';
 
 export function getChautauquaSeasonWeeks(year: number): SeasonWeek[] {
   // The 4th Sunday of June, found by walking Institution calendar days.
@@ -77,44 +77,6 @@ export function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]
   return numbers;
 }
 
-/**
- * The half-open instant range `[start, end)` covering every Institution
- * calendar day that `week` touches — `weekNumbersForCalendarDate`'s rule,
- * inverted so a caller can test many event instants against one range
- * instead of deriving a day for each of them.
- *
- * A week runs noon Saturday to noon Saturday, so it touches eight calendar
- * days: it is widened backwards to the opening Saturday's midnight and
- * forwards to the midnight ending the closing Saturday. An event instant
- * falls in this range exactly when `weekNumbersForCalendarDate` would list
- * this week's number for it — day boundaries are where both rules cut, so
- * the equivalence is exact rather than approximate (pinned by a test that
- * walks the whole season hour by hour).
- *
- * Exists for the week filter's inner loop. `weekNumbersForCalendarDate`
- * costs ~7 `Intl.formatToParts` round-trips per call (one `chqParts` plus
- * two `chqDateAt`, each of which is three more), and `filterEvents` runs
- * over the full ~1,470-event corpus twice per filter change — so paying that
- * per event more than tripled the stage's cost. This is paid once per
- * selected week per filter call instead: at most 9 times, not 1,470.
- */
-export function calendarDaySpanOfWeek(week: SeasonWeek): { start: Date; end: Date } {
-  const s = chqParts(week.start);
-  const e = chqParts(week.end);
-  return {
-    start: chqDateAt(s.year, s.month, s.day, 0, 0, 0, 0),
-    // `chqDateAt` normalises an out-of-range day, so month/year rollover and
-    // a DST day of 23 or 25 hours both need no special case here.
-    end: chqDateAt(e.year, e.month, e.day + 1, 0, 0, 0, 0),
-  };
-}
-
-export function isWeekInPast(weekNumber: number, seasonWeeks: SeasonWeek[]): boolean {
-  const week = seasonWeeks[weekNumber - 1];
-  const now = new Date();
-  return week.end <= now;
-}
-
 export function getWeekNumberForDate(date: Date, seasonWeeks: SeasonWeek[]): number | null {
   for (let i = 0; i < seasonWeeks.length; i++) {
     const week = seasonWeeks[i];
@@ -123,63 +85,4 @@ export function getWeekNumberForDate(date: Date, seasonWeeks: SeasonWeek[]): num
     }
   }
   return null;
-}
-
-export function getCurrentWeekNumber(seasonWeeks: SeasonWeek[]): number | null {
-  const now = new Date();
-  for (let i = 0; i < seasonWeeks.length; i++) {
-    const week = seasonWeeks[i];
-    if (now >= week.start && now <= week.end) {
-      return week.number;
-    }
-  }
-  return null;
-}
-
-/**
- * Finds the end-of-day boundary needed to include at least `minEvents` events
- * starting from `startDate`. Returns an exclusive bound — the Institution
- * midnight immediately after the last included day — matching the half-open
- * `start <= x < end` convention used throughout.
- * Expands day-by-day until enough events are accumulated.
- */
-export function getAdaptiveEndDate(events: Event[], startDate: Date, minEvents: number): Date {
-  // Parse each startDate exactly once, up front, and reuse it through the
-  // filter/sort/loop below — parseEventDate is far from free (a regex plus
-  // up to two Intl.DateTimeFormat round-trips per call).
-  const futureEvents = events
-    .map(e => ({ date: parseEventDate(e.startDate) }))
-    .filter(e => e.date >= startDate)
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
-
-  if (futureEvents.length === 0) {
-    const p = chqParts(startDate);
-    return chqDateAt(p.year, p.month, p.day + 91, 0, 0, 0, 0);
-  }
-
-  let accumulated = 0;
-  let lastCompleteDayEnd: Date | null = null;
-  let currentDayDate: Date | null = null;
-
-  for (const { date: eventDate } of futureEvents) {
-    const p = chqParts(eventDate);
-    const eventDay = chqDateAt(p.year, p.month, p.day, 0, 0, 0, 0);
-
-    if (!currentDayDate || eventDay.getTime() !== currentDayDate.getTime()) {
-      if (currentDayDate) {
-        // Exclusive end-of-day: the next Institution midnight, so a 23- or
-        // 25-hour DST day needs no special case.
-        const c = chqParts(currentDayDate);
-        lastCompleteDayEnd = chqDateAt(c.year, c.month, c.day + 1, 0, 0, 0, 0);
-        if (accumulated >= minEvents) {
-          return lastCompleteDayEnd;
-        }
-      }
-      currentDayDate = eventDay;
-    }
-    accumulated++;
-  }
-
-  const last = chqParts(currentDayDate!);
-  return chqDateAt(last.year, last.month, last.day + 1, 0, 0, 0, 0);
 }

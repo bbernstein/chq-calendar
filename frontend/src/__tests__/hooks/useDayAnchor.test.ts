@@ -144,39 +144,11 @@ describe('useDayAnchor', () => {
       expect(scrollBy).toHaveBeenCalledWith(0, 1150);
     });
 
-    // The other half of the arbitration `EventList`'s `revealDay` effect
-    // already performs. `EventList` clears its prepend hold whenever a rail
-    // navigation starts; nothing cleared THIS hold when a prepend started,
-    // so "Show earlier" armed its own correction while this one was still
-    // armed on a different day — and the prepend's own height change is what
-    // fires the observer, so the reassert then yanked the reader back and
-    // cancelled the correction the prepend existed to make. A mouse click
-    // fires no wheel/touchstart/keydown, so nothing else could end it.
-    it('drops the hold on demand, so an explicit prepend is not fought', () => {
-      document.documentElement.style.setProperty('--day-rail-h', '50px');
-      mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
-      const scrollBy = vi.fn();
-      vi.stubGlobal('scrollBy', scrollBy);
-      const resize = installResizeObserverMock();
-      const { result } = renderHook(() => useDayAnchor(['2026-07-04', '2026-07-09']));
-      act(() => { result.current.scrollToDay('2026-07-09'); });
-      scrollBy.mockClear();
-
-      act(() => { result.current.cancelHold(); });
-
-      const el = document.querySelector<HTMLElement>(`[${DAY_SECTION_ATTR}="2026-07-09"]`)!;
-      el.getBoundingClientRect = () => ({ top: 1200 }) as DOMRect;
-      resize.trigger();
-
-      expect(scrollBy).not.toHaveBeenCalled();
-    });
-
-    // The hold's lifetime has to be bounded comparably to `EventList`'s,
-    // which is commit-scoped. This one was set up in a `useEffect(..., [])`
-    // and cleared only by a cancel gesture or its target leaving the DOM, so
-    // it survived filter changes, scope changes and arbitrary elapsed time —
-    // a scrollbar-thumb drag fires none of the cancel gestures either. The
-    // day list changing is "this is a different list now".
+    // The hold's lifetime has to be bounded. It was originally set up in a
+    // `useEffect(..., [])` and cleared only by a cancel gesture or its target
+    // leaving the DOM, so it survived filter changes and arbitrary elapsed
+    // time — a scrollbar-thumb drag fires none of the cancel gestures
+    // either. The day list changing is "this is a different list now".
     it('drops the hold once the day list it was armed against has changed', () => {
       document.documentElement.style.setProperty('--day-rail-h', '50px');
       mountWithTops({ '2026-07-04': 0, '2026-07-09': 3000 });
@@ -190,7 +162,7 @@ describe('useDayAnchor', () => {
       act(() => { result.current.scrollToDay('2026-07-09'); });
       scrollBy.mockClear();
 
-      // A window expansion, a filter change, a scope change — any of them
+      // A filter change or a year change — either of them
       // hands down a different day list. The held day itself is still
       // mounted, so the "target left the DOM" clause cannot be what saves us.
       rerender({ keys: ['2026-07-03', '2026-07-04', '2026-07-09'] });

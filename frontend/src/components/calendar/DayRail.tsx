@@ -69,22 +69,6 @@ function ChipFace({ chip }: { chip: DayChip }) {
 export interface DayRailProps {
   chips: DayChip[];
   anchorDay: string | null;
-  /**
-   * Whether the current scope resolves to a view window at all.
-   *
-   * False only for `'this-week'` outside the season — a value this branch
-   * deliberately keeps working when restored from localStorage. `railTarget`
-   * refuses every tap in that state, because expansion cannot rescue it:
-   * `viewWindow` returns null out of `baseWindow` before it ever reads the
-   * expansion inputs. The chips would otherwise render enabled and fully
-   * labelled ("Go to Saturday, July 4, 12 events") over a list that can never
-   * move — the announce-a-destination-and-do-nothing class this branch spent
-   * three findings removing. `⟳ Now` is already honest there (off-season
-   * `todayKey` is null, so the button is absent), so the chips are the only
-   * dishonest part — but a rail of nothing but dead chips is not worth
-   * showing, and the reader is looking at `EmptyState` regardless.
-   */
-  scopeHasWindow: boolean;
   /** Today's key when the current year is selected; null on an archived one. */
   todayKey: string | null;
   onSelectDay: (key: string) => void;
@@ -181,7 +165,7 @@ export interface DayRailProps {
  * below cannot stall on it.
  */
 export function DayRail({
-  chips, anchorDay, scopeHasWindow, todayKey,
+  chips, anchorDay, todayKey,
   onSelectDay, onGoToToday, rootRef, windowDayKeys,
   bandSegments, weekDestinations, onSelectWeek, seasonWeeks, weekThemes,
 }: DayRailProps) {
@@ -254,10 +238,15 @@ export function DayRail({
     buttons[next].focus();
   };
 
-  // Nothing to show, or nothing any of it could do — see `scopeHasWindow`.
+  // Nothing to show. (There is no longer a second reason to hide: the rail
+  // used to take a `scopeHasWindow` prop, false for off-season `'this-week'`
+  // restored from localStorage, where every chip would have announced a
+  // destination over a list that could never move. #274 phase 4 deleted the
+  // scopes, so that state is unreachable — every day the rail spans is
+  // mounted.)
   // After the hooks above, never before: an early return that skipped a hook
   // would change the hook order between renders.
-  if (chips.length === 0 || !scopeHasWindow) return null;
+  if (chips.length === 0) return null;
 
   return (
     <div

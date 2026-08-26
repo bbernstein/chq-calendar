@@ -2,22 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
-import { getChautauquaSeasonWeeks, getCurrentWeekNumber, getAdaptiveEndDate } from '@/lib/utils/dateHelpers';
+import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
 import { parseEventDate } from '@/lib/utils/chqTime';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { navigableBounds, viewWindow, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys, navigationTargets } from '@/lib/utils/dayWindow';
+import { navigableBounds, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys } from '@/lib/utils/dayWindow';
 import { weekBandDestinations, weekBandSegments } from '@/lib/utils/weekBands';
-import { daySectionElement } from '@/lib/utils/daySections';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
 import { useDayRailHeight } from '@/hooks/useDayRailHeight';
 import { useFilterPanel } from '@/hooks/useFilterPanel';
 import { belowHeaderTop, filterPanelMaxHeight } from '@/app/filterHeaderLayout';
 import { DayRail } from '@/components/calendar/DayRail';
-import { railTarget, reachableTodayKey, shouldAbandonScroll } from '@/app/dayRailNavigation';
+import { railTarget, reachableTodayKey } from '@/app/dayRailNavigation';
 import { useFavorites } from '@/hooks/useFavorites';
-import { useHorizontalScroll, useVerticalScroll, useWeekDragSelection } from '@/hooks/useScrollState';
+import { useHorizontalScroll, useVerticalScroll } from '@/hooks/useScrollState';
 import { useEventData } from '@/hooks/useEventData';
 import { useWeeklyThemes } from '@/hooks/useWeeklyThemes';
 import { useArticleLinks } from '@/hooks/useArticleLinks';
@@ -31,27 +30,24 @@ import { EmptyState } from '@/components/layout/EmptyState';
 import { OffSeasonLanding } from '@/components/layout/OffSeasonLanding';
 import { determineLandingState } from '@/lib/utils/landingState';
 import { SearchBar } from '@/components/filters/SearchBar';
-import { DateFilter } from '@/components/filters/DateFilter';
 import { LocationFilter } from '@/components/filters/LocationFilter';
 import { CategoryFilter } from '@/components/filters/CategoryFilter';
 import { ActiveFilters } from '@/components/filters/ActiveFilters';
 import { buildActiveChips } from '@/components/filters/buildActiveChips';
 import { FilterPanelCaret } from '@/components/filters/FilterPanelCaret';
-import { EventList } from '@/components/calendar/EventList';
+import { EventListView } from '@/components/calendar/EventListView';
 
 function HomeContent() {
   const { years: availableYears, defaultYear } = useAvailableYears();
   const { selectedYear, setSelectedYear } = useSelectedYear({ years: availableYears, defaultYear });
   const globalEventData = useGlobalEventData();
   const seasonWeeks = useMemo(() => getChautauquaSeasonWeeks(selectedYear), [selectedYear]);
-  const currentWeekNumber = useMemo(() => getCurrentWeekNumber(seasonWeeks), [seasonWeeks]);
   const filters = useFilterState();
   const favorites = useFavorites();
   const locationScroll = useHorizontalScroll();
   const categoryScroll = useHorizontalScroll();
   const locationListScroll = useVerticalScroll();
   const categoryListScroll = useVerticalScroll();
-  const weekDrag = useWeekDragSelection(currentWeekNumber, filters.dateFilter, filters.setDateFilter, filters.selectedWeeks, filters.setSelectedWeeks);
   useEffect(() => {
     locationScroll.updateScrollState(); categoryScroll.updateScrollState();
     locationListScroll.updateScrollState(); categoryListScroll.updateScrollState();
@@ -63,7 +59,21 @@ function HomeContent() {
   const isCurrentYear = selectedYear === defaultYear;
   const prevYearRef = useRef(selectedYear);
   const pendingYearChangeRef = useRef(false);
-  const initialLoadRef = useRef(true);
+  // Reconcile the category and venue selections against the year that just
+  // finished loading: a category or venue the new year does not have would
+  // otherwise sit in the filter state matching nothing.
+  //
+  // There used to be a second branch here, for an initial load on a
+  // non-current year, and it reconciled specifically when `dateFilter` held
+  // one of the time-relative scopes — the whole point being to clear a
+  // `'next'` restored from a previous current-year session. #274 phase 4
+  // deleted the scopes, so that branch has no subject: the condition it
+  // fired on cannot be written any more. Its incidental category/venue
+  // reconciliation is not re-created unconditionally, because that would be
+  // a new behaviour — silently dropping a reader's restored category on the
+  // current year too, which this app has never done. A category the year
+  // does not have still shows as a removable chip in `ActiveFilters`, and
+  // every actual year *switch* is handled below.
   useEffect(() => {
     if (prevYearRef.current !== selectedYear) {
       prevYearRef.current = selectedYear;
@@ -72,29 +82,14 @@ function HomeContent() {
     }
     // Reconcile once the new year's data has finished loading
     if (pendingYearChangeRef.current && !loading && events.length > 0) {
-      filters.reconcileFilters(filters.availableCategories, filters.availableLocations, isCurrentYear);
+      filters.reconcileFilters(filters.availableCategories, filters.availableLocations);
       pendingYearChangeRef.current = false;
     }
-    // On initial load with a non-current year, reconcile to clear time-relative filters
-    // (localStorage may have restored dateFilter:'next' from a previous current-year session)
-    // Mark initial load complete once loading finishes, regardless of event count,
-    // to avoid stale ref causing double reconciliation on subsequent year switches.
-    if (initialLoadRef.current && !loading) {
-      initialLoadRef.current = false;
-      if (!isCurrentYear && events.length > 0 && (filters.dateFilter === 'next' || filters.dateFilter === 'today' || filters.dateFilter === 'this-week')) {
-        filters.reconcileFilters(filters.availableCategories, filters.availableLocations, false);
-      }
-    }
-  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations, isCurrentYear, filters.dateFilter, filters.reconcileFilters]);
+  }, [selectedYear, loading, events.length, filters.availableCategories, filters.availableLocations, filters.reconcileFilters]);
   useEffect(() => {
     document.title = `Chautauqua Calendar | ${selectedYear} Season`;
   }, [selectedYear]);
   const debouncedSearch = useDebounce(filters.searchTerm, 200);
-  const adaptiveEndDate = useMemo(() => {
-    if (filters.dateFilter !== 'next' || !events.length) return undefined;
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    return getAdaptiveEndDate(events, oneHourAgo, 50);
-  }, [filters.dateFilter, events]);
 
   // The outer limit of everything navigation can reach: the season, widened
   // to contain any event outside it.
@@ -103,47 +98,23 @@ function HomeContent() {
     [seasonWeeks, events]
   );
 
-  // The single date filter. Every scope reduces to this range, and so does
-  // however far the user has navigated past the scope's own edge.
-  const dateWindow = useMemo(
-    () =>
-      viewWindow({
-        dateFilter: filters.dateFilter,
-        seasonWeeks,
-        currentWeekNumber,
-        now: new Date(),
-        adaptiveEndDate,
-        bounds: navBounds,
-        expandedStartDay: filters.windowStartDay,
-        expandedEndDay: filters.windowEndDay,
-      }),
-    [
-      filters.dateFilter, seasonWeeks, currentWeekNumber, adaptiveEndDate,
-      navBounds, filters.windowStartDay, filters.windowEndDay,
-    ]
-  );
-
-  // Everything except the date stage. Split out so the navigation targets
-  // below can re-run the identical filter with the date stage wide open,
-  // without recomputing on every window expansion.
-  const nonDateFilterOpts = useMemo(() => ({
+  // One filter pass, over the whole year. There is no date stage and no
+  // second pass: the list used to be filtered twice — once through the
+  // current scope's window for what to render, and once with the date stage
+  // wide open for what navigation could reach — and the two collapse into
+  // this one now that the rendered list *is* everything navigation reaches
+  // (#274 phase 4).
+  const filterOpts: FilterOptions = useMemo(() => ({
     searchTerm: debouncedSearch,
-    selectedWeeks: filters.selectedWeeks,
     selectedTagsLowerSet: filters.selectedTagsLowerSet,
     selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
-    seasonWeeks,
     showFavoritesOnly: filters.showFavoritesOnly,
     favoriteIds: favorites.favoriteIds,
   }), [
-    debouncedSearch, filters.selectedWeeks, filters.selectedTagsLowerSet,
-    filters.selectedLocationsLowerSet, seasonWeeks,
+    debouncedSearch, filters.selectedTagsLowerSet,
+    filters.selectedLocationsLowerSet,
     filters.showFavoritesOnly, favorites.favoriteIds,
   ]);
-
-  const filterOpts: FilterOptions = useMemo(
-    () => ({ ...nonDateFilterOpts, viewWindow: dateWindow }),
-    [nonDateFilterOpts, dateWindow]
-  );
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
 
   // Whether the reader should see the landing instead of the list, and what
@@ -152,30 +123,27 @@ function HomeContent() {
   // during the season must not be reported as "See you next season".
   //
   // `yearHasUpcomingEvents` — ports iOS's `upcomingDefaultCount > 0` rule:
-  // does ANY event in the year's unfiltered set start at or after the same
-  // graced instant the `next` scope's own window uses (see below), not the
-  // bare `now`? This, not the season calendar, is what makes `showLanding`
-  // safe to evaluate unconditionally rather than only inside an empty-list
-  // branch.
-  // Without it, both a published-but-not-yet-open next season (March,
-  // `dateFilter: 'next'`, events all in the future) and the live season's own
-  // last events (whenever they fall later than `getChautauquaSeasonWeeks`'
-  // fixed nine-week calendar window — #269's real Sep 1-10 shoulder) would
-  // wrongly resolve to `pre-season` / `post-season` and hide a non-empty list
-  // behind the landing. See `determineLandingState`'s own doc for why the
-  // calendar-only version of this fix was tried and rejected.
+  // does ANY event in the year's unfiltered set start at or after a graced
+  // `now` (see below), rather than the bare `now`? This, not the season
+  // calendar, is what makes `showLanding` safe to evaluate unconditionally
+  // rather than only inside an empty-list branch.
+  // Without it, both a published-but-not-yet-open next season (March, events
+  // all in the future) and the live season's own last events (whenever they
+  // fall later than `getChautauquaSeasonWeeks`' fixed nine-week calendar
+  // window — #269's real Sep 1-10 shoulder) would wrongly resolve to
+  // `pre-season` / `post-season` and hide a non-empty list behind the
+  // landing. See `determineLandingState`'s own doc for why the calendar-only
+  // version of this fix was tried and rejected.
   const landingState = useMemo(() => {
     const now = new Date();
-    // The same one hour of grace `viewWindow`'s `next` scope gives its own
-    // start (`dayWindow.ts`'s "One hour of grace so an event that has just
-    // begun is still 'next'", fed from `adaptiveEndDate` above via
-    // `oneHourAgo`) — NOT the bare `now` `determineLandingState` itself
-    // receives. Without it, the hour after the season's final event begins,
-    // the default `next` scope still lists that event while this predicate
-    // alone had already moved past its start, so `yearHasUpcomingEvents`
-    // would go false, `showLanding` true, and the landing would cover a list
-    // containing a currently-running event — "See you next season" while it
-    // is happening. iOS's own `.next` window opens the identical hour early
+    // One hour of grace, NOT the bare `now` `determineLandingState` itself
+    // receives. Without it, in the hour after the season's final event
+    // begins, this predicate would already have moved past that event's
+    // start: `yearHasUpcomingEvents` would go false, `showLanding` true, and
+    // the landing would cover a list containing a currently-running event —
+    // "See you next season" while it is happening. The web's own `next`
+    // scope used to open exactly this hour early, which is where the value
+    // comes from; iOS's `.next` window still does
     // (`ViewWindow.swift`'s `now.addingTimeInterval(-3600)`), so this also
     // keeps the two apps' opinions of "is the season over" in sync, which is
     // the promise `determineLandingState`'s module header makes.
@@ -189,62 +157,50 @@ function HomeContent() {
     });
   }, [selectedYear, availableYears, events]);
 
-  // The landing's two ways forward. Both mirror iOS's `AppModel`: previewing
-  // opens the date scope right up, because `next`'s adaptive window has
-  // nothing to adapt to that far ahead; browsing the archive deliberately
-  // does NOT touch the year, since the year on screen is already the one
-  // that ended.
+  // The landing's two ways forward. Both mirror iOS's `AppModel`.
+  //
+  // Previewing a future season is now nothing but a year change — it used to
+  // also open the date scope right up, because `next`'s adaptive window had
+  // nothing to adapt to that far ahead, and with no scopes the whole year is
+  // listed already.
+  //
+  // Browsing the archive deliberately does NOT touch the year: the year on
+  // screen is already the one that ended. What it changes is this component's
+  // own mind about whether to keep showing the landing over it. That state
+  // has to exist: `browseArchiveSeason`'s only previous action was
+  // `setDateFilter('season')`, and without a replacement the button would be
+  // visible, enabled, and do nothing — leaving an archived-year landing with
+  // no way past it.
+  const [browsingArchive, setBrowsingArchive] = useState(false);
+
+  // A different year is a different question, so the dismissal does not carry
+  // across one. Reset rather than keyed state because `selectedYear` also
+  // changes underneath us when the manifest resolves a `?year=` param.
+  useEffect(() => { setBrowsingArchive(false); }, [selectedYear]);
+
   const previewNextSeason = useCallback((year: number) => {
     setSelectedYear(year);
-    filters.setDateFilter('all');
-  }, [setSelectedYear, filters.setDateFilter]);
+  }, [setSelectedYear]);
 
   const browseArchiveSeason = useCallback(() => {
-    filters.setDateFilter('season');
-  }, [filters.setDateFilter]);
+    setBrowsingArchive(true);
+  }, []);
 
-  // Everything the *non-date* filters admit, anywhere in the navigable
-  // bounds — the same filter re-run with the date stage wide open. This is
-  // what navigation is allowed to reach: search, category, venue, week and
-  // favourites all constrain where stepping can go, but the current scope
-  // does not, because escaping the scope's own edge is the point.
-  const navMatchingEvents = useMemo(() => {
-    const unbounded = viewWindow({
-      dateFilter: 'all', seasonWeeks, currentWeekNumber, now: new Date(),
-      bounds: navBounds, expandedStartDay: null, expandedEndDay: null,
-    });
-    return filterEvents(events, { ...nonDateFilterOpts, viewWindow: unbounded });
-  }, [events, nonDateFilterOpts, seasonWeeks, currentWeekNumber, navBounds]);
+  // Every day that has a matching event. The rail names a day with none as a
+  // fact rather than a destination, and the week band dims a week it cannot
+  // reach — both read this.
+  const navEventDays = useMemo(() => eventDayKeys(filteredEvents), [filteredEvents]);
 
-  // Every day that has one — the set navigation steps through, so a step
-  // always lands on a day that will actually render something.
-  const navEventDays = useMemo(() => eventDayKeys(navMatchingEvents), [navMatchingEvents]);
-
-  // How many, per day. Fed to the rail rather than counts taken from the
-  // rendered day groups: the rail spans the navigable bounds, so counting
-  // only what the current scope rendered would mark every day outside the
-  // scope "no events" and make the rail a readout of the filter it exists to
-  // navigate past.
-  const navDayCounts = useMemo(() => eventCountsByDay(navMatchingEvents), [navMatchingEvents]);
-
-  // `laterDay` (the mirror of `earlierDay` at the window's forward edge) is
-  // deliberately not read here any more. It only ever fed `expandEnd`, the
-  // callback a bottom sentinel called once the render window ran out of
-  // loaded days to grow into (#274 phase 4's "expensive half") — and that
-  // sentinel is gone along with the render window itself. Forward navigation
-  // past the window's edge still works, just not by scrolling to the bottom:
-  // a rail chip tap or `⟳ Now` reaches `goToDay` below, whose `railTarget`
-  // plan calls `filters.expandWindowEnd` directly when the target is past it.
-  const { earlierDay } = useMemo(
-    () => navigationTargets(navEventDays, dateWindow),
-    [navEventDays, dateWindow]
-  );
+  // How many, per day. Taken from the filtered events rather than from the
+  // rendered day groups because the rail spans the whole navigable bounds
+  // including days that group to nothing — `eventCountsByDay` gives every
+  // such day a 0 without needing a group to exist for it.
+  const navDayCounts = useMemo(() => eventCountsByDay(filteredEvents), [filteredEvents]);
 
   const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
 
-  // The rail spans the navigable bounds, independent of the current scope:
-  // it is a navigation surface, not a filter readout, so in Today scope it
-  // still shows the week around you.
+  // The rail spans the navigable bounds — the whole season, widened by any
+  // event outside it — which is also exactly what the list below renders.
   // Hoisted out of `railChips` because the week band needs the same list, and
   // in the same order: the band's segments are matched to chips by index.
   const railDayKeys = useMemo(
@@ -273,15 +229,14 @@ function HomeContent() {
     [seasonWeeks, navEventDays, navBounds, navDayCounts]
   );
 
-  // Every day the *view* window produced. Every one of these mounts in the
-  // same commit that produces this list (#274 phase 4 deleted the separate
-  // render window that used to lag behind it) — but a commit still has to
-  // land before the DOM reflects it, which is why `useDayAnchor` walks this
-  // list defensively (skipping any key with no section yet) and the
-  // pending-scroll effect below checks the DOM directly rather than trusting
-  // this array as a proxy for "mounted right now".
+  // Every day the list renders. All of them mount in the commit that
+  // produced `groupedEvents` — #274 phase 4 deleted first the render window
+  // and then the view window, so there is no second, laggier list any more —
+  // but a commit still has to land before the DOM reflects it, which is why
+  // `useDayAnchor` walks this list defensively, skipping any key with no
+  // section yet.
   const windowDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
-  const { anchorDay, scrollToDay, cancelHold } = useDayAnchor(windowDayKeys);
+  const { anchorDay, scrollToDay } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
 
   // The filter panel. A fixed overlay hanging off the site header's bottom
@@ -305,19 +260,6 @@ function HomeContent() {
     panelRef: filtersPanelRef, toggleRef: filtersToggleRef, exiting: filtersExiting,
   } = useFilterPanel();
 
-  const showEarlier = useCallback(() => {
-    if (!earlierDay) return;
-    // Explicit reader intent (a click) cancels a pending rail-navigation
-    // scroll hold. Without this, prepending earlier days changes layout
-    // height above whatever `useDayAnchor.scrollToDay` last targeted, which
-    // fires its `ResizeObserver` reassert and drags the reader back to that
-    // stale target — fighting the very click that just asked to look
-    // somewhere else. A mouse click on "Show earlier" fires none of the
-    // wheel/touch/key gestures that would otherwise have ended the hold.
-    cancelHold();
-    filters.expandWindowStart(earlierDay);
-  }, [earlierDay, cancelHold, filters.expandWindowStart]);
-
   // Only when today is somewhere navigation can actually reach. Off-season
   // — most of the year — today sits outside `navBounds`, `railTarget`
   // refuses it, and an unclamped key would render a visible, enabled `⟳ Now`
@@ -325,51 +267,21 @@ function HomeContent() {
   // treatment the rail already gives an archived year.
   const todayKey = reachableTodayKey(isCurrentYear ? dayKeyOf(new Date()) : null, navBounds);
 
-  // Expanding, then scrolling, is deliberately two steps, and the second
-  // waits on the first: the reducer widens the *view* window (it never knows
-  // about scroll position), and only once that commit has landed — with every
-  // one of its days mounted, there being no second window left to grow — can
-  // we scroll to a node that exists. `pendingScroll` is state rather than a
-  // ref because the effect below needs to re-run on the reducer's next
-  // commit; a ref update would not trigger that.
-  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
-
   const goToDay = useCallback((target: string) => {
-    const plan = railTarget({ target, window: dateWindow, bounds: navBounds });
-    if (!plan) return;
-    if (plan.expandStart) filters.expandWindowStart(plan.expandStart);
-    if (plan.expandEnd) filters.expandWindowEnd(plan.expandEnd);
-    // Set it even when no expansion was needed: a target already inside the
-    // view window is mounted immediately, and the effect below scrolls and
-    // clears on the very next commit either way.
-    setPendingScroll(plan.scrollTo);
-  }, [dateWindow, navBounds, filters.expandWindowStart, filters.expandWindowEnd]);
+    // Every day of the year is mounted, so a chip tap is a scroll and nothing
+    // else. `railTarget` is down to a bounds check: a target outside the
+    // navigable bounds has no section and never will.
+    //
+    // This used to be two steps across two commits — widen the view window,
+    // then wait for the widened commit to mount the target before scrolling
+    // to it — held together by a `pendingScroll` state and an effect that
+    // had to decide, each commit, whether a missing section meant "not yet"
+    // or "never". With nothing left to widen, both are gone.
+    if (railTarget(target, navBounds)) scrollToDay(target);
+  }, [navBounds, scrollToDay]);
 
-  useEffect(() => {
-    if (!pendingScroll) return;
-    // Checking the DOM node directly rather than trusting `groupedEvents`
-    // membership: if `filters.expandWindowStart`/`expandWindowEnd` above just
-    // widened the window, that expansion hasn't landed yet on THIS render —
-    // `dateWindow` (and `groupedEvents`, derived from it) still reflect the
-    // window before the widen, so the target day is in neither. The wait
-    // here is for the reducer's next commit, and nothing more.
-    if (daySectionElement(pendingScroll)) {
-      setPendingScroll(null);
-      scrollToDay(pendingScroll);
-      return;
-    }
-    // No section for it yet, and only one of the reasons is worth waiting
-    // for — `shouldAbandonScroll` owns that call. Note that a `null`
-    // `dateWindow` must abandon rather than wait: writing this as
-    // `dateWindow && covered` made the whole expression `null` in that case,
-    // so nothing cleared, and the pending target survived to hijack a later
-    // commit — exactly what this branch exists to prevent.
-    if (shouldAbandonScroll(pendingScroll, dateWindow)) setPendingScroll(null);
-  }, [pendingScroll, dateWindow, scrollToDay]);
-
-  // ⟳ Now is navigation, never a filter change: it widens the window to
-  // contain today if it has to, and touches no scope, week, category or
-  // search.
+  // ⟳ Now is navigation, never a filter change: it scrolls to today and
+  // touches no category, venue or search.
   const goToToday = useCallback(() => {
     if (todayKey) goToDay(todayKey);
   }, [todayKey, goToDay]);
@@ -380,8 +292,8 @@ function HomeContent() {
    * Two lookups, deliberately separate: `WeekBandCell` has already asked the
    * *calendar* which week this day unambiguously means, and this asks the
    * *filters* which day of that week can actually be reached. `goToDay` then
-   * does what a chip tap does, expansion included — a band tap is navigation,
-   * and it changes no scope, week, category or search.
+   * does exactly what a chip tap does — a band tap is navigation, and it
+   * changes no category, venue or search.
    */
   const goToWeek = useCallback((week: number) => {
     const destination = weekDestinations.get(week);
@@ -390,29 +302,22 @@ function HomeContent() {
 
   const activeChips = useMemo(() => buildActiveChips({
     searchTerm: filters.searchTerm, setSearchTerm: filters.setSearchTerm,
-    dateFilter: filters.dateFilter, setDateFilter: filters.setDateFilter,
-    selectedWeeks: filters.selectedWeeks, setSelectedWeeks: filters.setSelectedWeeks,
     selectedLocations: filters.selectedLocations, toggleLocation: filters.toggleLocation,
     selectedTags: filters.selectedTags, toggleTag: filters.toggleTag,
     showFavoritesOnly: filters.showFavoritesOnly, toggleFavoritesOnly: filters.toggleFavoritesOnly,
-    viewWindow: dateWindow,
-    windowExpanded: filters.windowStartDay !== null || filters.windowEndDay !== null,
-    resetWindow: filters.resetWindow,
   }), [
     filters.searchTerm, filters.setSearchTerm,
-    filters.dateFilter, filters.setDateFilter,
-    filters.selectedWeeks, filters.setSelectedWeeks,
     filters.selectedLocations, filters.toggleLocation,
     filters.selectedTags, filters.toggleTag,
     filters.showFavoritesOnly, filters.toggleFavoritesOnly,
-    dateWindow, filters.windowStartDay, filters.windowEndDay, filters.resetWindow,
   ]);
-  const isWeekHighlighted = (weekNumber: number, isSelected: boolean) => isSelected || (filters.dateFilter === 'this-week' && currentWeekNumber === weekNumber);
 
-  // `hasNonDefaultFilters`, not `hasFilters`: the app still starts on the
-  // `next` scope until task 5 deletes it, and `hasFilters` is therefore true
-  // before the reader touches anything. Task 5 collapses the two.
-  const showLanding = landingState.kind !== 'in-season' && !filters.hasNonDefaultFilters;
+  // Out of season, the landing replaces the list — unless the reader has
+  // narrowed the list themselves (they asked a question, and an answer of
+  // "see you next season" is not one), or has already pressed past it with
+  // "Browse the N season".
+  const showLanding =
+    landingState.kind !== 'in-season' && !filters.hasFilters && !browsingArchive;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -426,13 +331,12 @@ function HomeContent() {
           onToggle: toggleFiltersPanel,
           panelId: filtersPanelId,
           toggleRef: filtersToggleRef,
-          // `hasNonDefaultFilters`, NOT `hasFilters`. `hasFilters` is true on
-          // a default visit (the default scope is `next`, which is a date
-          // filter), so the dot would be lit for every reader before they
-          // touched anything — an indicator that is always on communicates
-          // nothing, which is the opposite of the job the design gives it.
-          // See `useFilterState` for what "default" means per year.
-          hasActiveFilters: filters.hasNonDefaultFilters,
+          // One flag now. `hasFilters` used to be true on a default visit
+          // (the default scope was `next`, which was a date filter), so the
+          // dot needed a separate `hasNonDefaultFilters` to avoid being lit
+          // for every reader before they touched anything. With the scopes
+          // gone, `hasFilters` means exactly what the dot needs it to.
+          hasActiveFilters: filters.hasFilters,
         }}
       />
       <IosAppBanner />
@@ -503,8 +407,8 @@ function HomeContent() {
               // Capped and internally scrollable unconditionally: the panel is
               // always an overlay, so there is no in-flow state in which the
               // page itself scrolls past it. On a 390x844 phone this block —
-              // search, four scopes, a nine-week strip, venues, categories,
-              // active chips — exceeds the viewport, and uncapped its bottom
+              // search, favourites, venues, categories, active chips —
+              // exceeds the viewport, and uncapped its bottom
               // controls would be unreachable, reproducing the bug this feature
               // exists to fix one level down.
               style={{ maxHeight: filterPanelMaxHeight() }}
@@ -512,18 +416,31 @@ function HomeContent() {
             >
               <div className="p-2 sm:p-4">
                 <SearchBar value={filters.searchTerm} onChange={filters.setSearchTerm} />
-                <DateFilter
-                  dateFilter={filters.dateFilter} setDateFilter={filters.setDateFilter}
-                  selectedWeeks={filters.selectedWeeks} setSelectedWeeks={filters.setSelectedWeeks}
-                  seasonWeeks={seasonWeeks}
-                  weekDrag={weekDrag}
-                  isWeekHighlighted={isWeekHighlighted}
-                  showFavoritesOnly={filters.showFavoritesOnly}
-                  onToggleFavoritesOnly={filters.toggleFavoritesOnly}
-                  favoriteCount={favorites.favoriteCount}
-                  isCurrentYear={isCurrentYear}
-                  weeklyThemes={weeklyThemes}
-                />
+                {/*
+                  The favourites toggle, rehoused. It used to sit on the
+                  scope row inside `DateFilter`, sharing that row's button
+                  styling because it shared its position — and when the
+                  scopes went, it was the one control on that row that was
+                  never a date filter at all. Label, title, `aria-pressed`
+                  and `aria-label` are carried over verbatim; only where it
+                  lives changed.
+                */}
+                <div className="mb-2 sm:mb-4">
+                  <button
+                    type="button"
+                    onClick={filters.toggleFavoritesOnly}
+                    title={favorites.favoriteCount > 0 ? 'Show favorited events only' : 'No favorites saved yet'}
+                    aria-label={filters.showFavoritesOnly ? 'Stop showing favorites only' : 'Show favorites only'}
+                    aria-pressed={filters.showFavoritesOnly}
+                    className={`px-2 py-1 sm:px-4 sm:py-2 rounded-md border transition-all text-xs sm:text-sm whitespace-nowrap ${
+                      filters.showFavoritesOnly
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {`★ ${favorites.favoriteCount}`}
+                  </button>
+                </div>
                 <div className="space-y-3">
                   <LocationFilter
                     availableLocations={filters.availableLocations} selectedCount={filters.selectedLocations.length}
@@ -542,11 +459,8 @@ function HomeContent() {
                   filteredCount={filteredEvents.length}
                   totalCount={events.length}
                   hasFilters={filters.hasFilters}
-                  hasDateFilters={filters.hasDateFilters}
-                  hasNonDateFilters={filters.hasNonDateFilters}
                   chips={activeChips}
                   onClear={filters.clearFilters}
-                  onClearNonDateFilters={filters.clearNonDateFilters}
                 />
               </div>
               {/*
@@ -575,11 +489,6 @@ function HomeContent() {
           // highlight and this hook's discrete anchor resolve identical
           // input through the same `resolveAnchor`.
           windowDayKeys={windowDayKeys}
-          // Off-season 'this-week' restored from localStorage resolves to no
-          // window at all, and `railTarget` refuses every tap in that state.
-          // The rail hides rather than offering ~64 fully-labelled chips that
-          // cannot move the list.
-          scopeHasWindow={dateWindow !== null}
           todayKey={todayKey}
           onSelectDay={goToDay}
           onGoToToday={goToToday}
@@ -604,6 +513,7 @@ function HomeContent() {
               season, so the empty-list branch fired and the landing appeared. Phase 4
               lists the whole year, so the list is never empty out of season and that
               mechanism would have removed the landing (#269) with no test failing.
+              As of this step the scope it depended on no longer exists at all.
 
               `EmptyState` keeps its own, different job: a filter that matches nothing.
             */}
@@ -618,12 +528,15 @@ function HomeContent() {
             ) : filteredEvents.length === 0 ? (
               <EmptyState />
             ) : (
-              <EventList groupedEvents={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
-                onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
-                favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
-                weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks}
-                earlierDay={earlierDay}
-                onShowEarlier={showEarlier} />
+              // `EventListView` directly: `EventList` was a pass-through
+              // wrapper around it plus a "Show earlier" button, and with the
+              // whole year listed there is no earlier to show.
+              <div className="space-y-4 sm:space-y-6">
+                <EventListView groups={groupedEvents} expandedDescriptions={filters.expandedDescriptions}
+                  onToggleDescription={filters.toggleDescription} onToggleTag={filters.toggleTag} isTagSelected={filters.isTagSelected}
+                  favoriteIds={favorites.favoriteIds} onToggleFavorite={favorites.toggleFavorite}
+                  weeklyThemes={weeklyThemes} articleLinks={articleLinks} programLinks={programLinks} />
+              </div>
             )}
           </div>
         </div>

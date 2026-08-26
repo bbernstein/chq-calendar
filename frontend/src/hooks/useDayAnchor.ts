@@ -33,7 +33,6 @@ function stickyOffset(): number {
 export function useDayAnchor(windowDayKeys: string[]): {
   anchorDay: string | null;
   scrollToDay: (key: string) => void;
-  cancelHold: () => void;
 } {
   const [anchorDay, setAnchorDay] = useState<string | null>(null);
 
@@ -53,9 +52,11 @@ export function useDayAnchor(windowDayKeys: string[]): {
       // must never name different days, and one walk cannot disagree with
       // itself the way two copies could drift.
       //
-      // `windowDayKeys` is the view window's full day list, not the render
-      // window's mounted subset — a day the walk reaches may have no section
-      // yet, which is what `daySectionTop` returning null is for.
+      // `windowDayKeys` is every day the list renders, and every one of them
+      // mounts in the commit that produced the list — but a commit still has
+      // to land before the DOM reflects it, so a day the walk reaches may
+      // have no section on this pass. That is what `daySectionTop` returning
+      // null is for.
       const resolved = resolveAnchor(windowDayKeys, stickyOffset() + 1, daySectionTop);
       if (resolved) setAnchorDay(resolved.key);
     };
@@ -65,9 +66,9 @@ export function useDayAnchor(windowDayKeys: string[]): {
       frame = requestAnimationFrame(measure);
     };
 
-    // Measure once immediately: a prepend or an auto-expand moves content
-    // past the reader without producing any scroll event, and an anchor that
-    // waited for a gesture would sit on a day that is no longer on screen.
+    // Measure once immediately: a filter or year change replaces the day
+    // list without producing any scroll event, and an anchor that waited for
+    // a gesture would sit on a day that is no longer on screen.
     measure();
     // Passive: this listener must never delay a scroll.
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -107,16 +108,16 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // `focus()`-driven scroll).
     //
     // Instant, not smooth: a ~2s smooth animation leaves a ~2s window in
-    // which mounted content can keep changing height for reasons this
-    // codebase already documents as real but unexplained (see the identical
-    // "~104px of growth with no DOM mutation" note on the upward-prepend
-    // correction below in EventList) — a smooth scroll does not re-target
-    // mid-flight, so it finishes exactly as far short as the content grew
-    // above the target. Browser-measured: a chip 6 days past the render
-    // window landed the target ~1058px short after ~2s of smooth animation,
-    // during which the document grew ~1020px. Instant collapses the
-    // vulnerable window from that whole animation down to about one frame,
-    // and it is what the proven settle pattern below already assumes:
+    // which mounted content can keep changing height (day sections carry
+    // `content-visibility: auto`, so a section's real height replaces its
+    // `contain-intrinsic-size` estimate as it comes into view) — a smooth
+    // scroll does not re-target mid-flight, so it finishes exactly as far
+    // short as the content grew above the target. Browser-measured, back
+    // when a chip could land 6 days past a render window: the target landed
+    // ~1058px short after ~2s of smooth animation, during which the document
+    // grew ~1020px. Instant collapses the vulnerable window from that whole
+    // animation down to about one frame, and it is what the settle pattern
+    // below already assumes:
     // reasserting a `scrollBy` correction *while a native smooth animation
     // is still running* would fight that animation rather than replace it.
     const delta = el.getBoundingClientRect().top - stickyOffset();
@@ -124,37 +125,15 @@ export function useDayAnchor(windowDayKeys: string[]): {
     settleRef.current = { key, top: stickyOffset() };
   }, []);
 
-  /**
-   * Drop the hold because the reader has asked for something else.
-   *
-   * `page.tsx`'s `showEarlier` calls this before prepending earlier days: an
-   * explicit click means the reader is asking to look somewhere else, and if
-   * a hold armed by an earlier rail navigation were left in place, the
-   * prepend's own height change would fire the `ResizeObserver` below and
-   * yank the reader back to that stale rail target. A mouse click fires none
-   * of the `wheel`/`touchstart`/`keydown` gestures that would otherwise end
-   * the hold, so it has to be ended explicitly.
-   *
-   * There is no longer a second hold on the `EventList` side to arbitrate
-   * against here — #274 phase 4 deleted `EventList`'s own upward-prepend
-   * settle correction outright, along with `revealDay` and the render window
-   * it used to grow (see that file's module doc). One consequence recorded
-   * there, not fixed here: a prepend itself is no longer corrected for at
-   * all, so "Show earlier" can still produce a visible jump on a browser with
-   * no scroll anchoring. `cancelHold` still has a real job — protecting a
-   * *different* hold, this hook's own, from reasserting against content the
-   * prepend is about to move — it just isn't arbitrating with a peer anymore.
-   */
-  const cancelHold = useCallback(() => { settleRef.current = null; }, []);
-
   // Holds the day `scrollToDay` last targeted at the sticky offset until it
   // stops moving or the reader takes over.
   //
-  // `EventList` used to hold the identical pattern for its own
-  // upward-prepend correction — #274 phase 4 deleted that half (see
-  // `EventList.tsx`'s module doc) — so this hook's hold is now the only one
-  // of its kind in the app. What it covers hasn't changed: a scroll decision
-  // invalidated by content changing height *after* it was made.
+  // The only hold of its kind left in the app: `EventList` used to carry the
+  // identical pattern for its own upward-prepend correction, and #274 phase 4
+  // deleted that half along with the render window and, in phase 4's own last
+  // step, every path that could insert a day above the reader at all. What
+  // this one covers is unchanged: a scroll decision invalidated by content
+  // changing height *after* it was made.
   // Lives here, not in `page.tsx`'s pending-scroll effect, because holding a
   // position requires knowing the target day's element and the sticky
   // offset — both already private to this hook (`daySectionElement`,
@@ -163,24 +142,19 @@ export function useDayAnchor(windowDayKeys: string[]): {
   //
   // A `ResizeObserver` on `document.documentElement` is the broadest
   // reasonable proxy for "the page's content changed height": this hook has
-  // no reference to the list's own scroll container the way `EventList` does,
-  // and a false-positive callback is harmless — `delta` resolves to 0 and
-  // nothing happens.
+  // no reference to the list's own container, and a false-positive callback
+  // is harmless — `delta` resolves to 0 and nothing happens.
   //
   // Keyed on `keysId`, and the hold is dropped in the cleanup, so it lives no
-  // longer than the day list it was armed against. `EventList` used to carry
-  // a comparably-bounded hold of its own — commit-scoped, nulled on any
-  // commit that produced no fresh correction — but #274 phase 4 deleted it
-  // along with the render window it belonged to, so there is no longer a
-  // second lifetime to compare this one against. This one was set up in a
-  // `useEffect(..., [])` and cleared ONLY by `wheel`/`touchstart`/`keydown` or
-  // its target leaving the DOM. It therefore survived filter changes, scope changes and arbitrary
-  // elapsed time, and neither a scrollbar-thumb drag nor a mouse click fires
-  // any of those cancel gestures: a hold armed minutes ago could still
-  // arbitrate against a resize now. `keysId` is the closest equivalent bound
-  // available here — it changes on every filter change, scope change and
-  // window expansion, i.e. whenever the list this correction was computed
-  // against has become a different list. A cap on the number of reasserts
+  // longer than the day list it was armed against. It was originally set up
+  // in a `useEffect(..., [])` and cleared ONLY by
+  // `wheel`/`touchstart`/`keydown` or its target leaving the DOM. It
+  // therefore survived filter changes and arbitrary elapsed time, and
+  // neither a scrollbar-thumb drag nor a mouse click fires any of those
+  // cancel gestures: a hold armed minutes ago could still arbitrate against
+  // a resize now. `keysId` is the closest equivalent bound available here —
+  // it changes whenever the list this correction was computed against has
+  // become a different list (a filter change, or a year change). A cap on the number of reasserts
   // was the alternative and is worse: the late growth this hold exists to
   // absorb arrives in an unknown number of resize callbacks (that is the
   // whole reason it is observed rather than scheduled), so any cap is a
@@ -257,5 +231,5 @@ export function useDayAnchor(windowDayKeys: string[]): {
     // than on every render that hands down a new array identity.
   }, [keysId]);
 
-  return { anchorDay, scrollToDay, cancelHold };
+  return { anchorDay, scrollToDay };
 }

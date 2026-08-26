@@ -25,7 +25,7 @@ const defaultWeekDestinations = new Map([
 function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   const props = {
     chips, anchorDay: '2026-07-05',
-    scopeHasWindow: true, todayKey: '2026-07-05',
+    todayKey: '2026-07-05',
     windowDayKeys: ['2026-07-04', '2026-07-05', '2026-07-06'],
     bandSegments: defaultBandSegments, weekDestinations: defaultWeekDestinations, onSelectWeek: vi.fn(),
     seasonWeeks: getChautauquaSeasonWeeks(2026),
@@ -41,7 +41,7 @@ function renderRailIn(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   return render(
     <DayRail
       chips={chips} anchorDay="2026-07-05"
-      scopeHasWindow todayKey="2026-07-05"
+      todayKey="2026-07-05"
       windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
       bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
       seasonWeeks={getChautauquaSeasonWeeks(2026)}
@@ -223,24 +223,6 @@ describe('DayRail', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toContain('July 4');
   });
 
-  // Off-season `'this-week'` restored from localStorage resolves to no view
-  // window at all, and `railTarget` refuses every tap in that state. The chips
-  // would otherwise render enabled and fully labelled — "Go to Saturday,
-  // July 4, 12 events" — over a list that can never move, because the counts
-  // come from the non-date-filtered events and so are real regardless of the
-  // window. That is the announce-a-destination-and-do-nothing class this
-  // branch removed from three other controls.
-  it('renders nothing when the scope resolves to no window at all', () => {
-    const { container } = render(
-      <DayRail chips={chips} anchorDay={null}
-        scopeHasWindow={false} todayKey={null} windowDayKeys={[]}
-        bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
-        seasonWeeks={getChautauquaSeasonWeeks(2026)}
-        onSelectDay={vi.fn()} onGoToToday={vi.fn()} />
-    );
-    expect(container.firstChild).toBeNull();
-  });
-
   // The highlight is painted by duplicating the whole chip row in the
   // highlighted colour and clipping it to the pill. That copy is paint: it
   // must not be announced, must not be reachable, and must not be clickable,
@@ -326,27 +308,30 @@ describe('DayRail', () => {
     });
   });
 
-  // A returning visitor with `'this-week'` restored from localStorage while
-  // the current date is off-season gets `scopeHasWindow === false`, so the
-  // rail renders nothing on its very first commit — chips and all. The
-  // highlight's listeners must still find the strip when it appears later.
+  // The rail renders nothing until the events have loaded, so the
+  // highlight's listeners must find the strip when it appears on a later
+  // commit rather than on mount.
   //
-  // This is a distinct route to the same null render as "events have not
-  // loaded yet", and the one a real reader actually hits. It is also why the
-  // hook keys its listener effect on the elements rather than on
-  // `chips.length > 0`: chips are non-empty here throughout, so a chip-count
-  // signal would never flip and the listeners would never attach.
-  it('attaches the highlight to a strip that appears only after the scope resolves', () => {
+  // This used to be driven by `scopeHasWindow: false` — an off-season
+  // `'this-week'` restored from localStorage, where the rail rendered
+  // nothing with `chips` populated the whole time — and that made it
+  // discriminating about WHY the hook keys its listener effect on the
+  // elements rather than on `chips.length > 0`. #274 phase 4 deleted the
+  // scopes, so the only remaining route to a late strip is the chips
+  // arriving with it, and this test no longer tells those two keyings apart.
+  // The remaining coverage is still real: listeners attached to an element
+  // that did not exist at mount.
+  it('attaches the highlight to a strip that appears only after the chips arrive', () => {
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
     try {
-      const { container, rerender } = renderRailIn({ scopeHasWindow: false });
+      const { container, rerender } = renderRailIn({ chips: [] });
       expect(container.querySelector('[data-rail-strip]')).toBeNull();
 
       act(() => {
         rerender(
           <DayRail
             chips={chips} anchorDay="2026-07-05"
-            scopeHasWindow todayKey="2026-07-05"
+            todayKey="2026-07-05"
             windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
             bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
             seasonWeeks={getChautauquaSeasonWeeks(2026)}
@@ -384,11 +369,11 @@ describe('DayRail', () => {
   it('listens to nothing while it is rendering nothing', () => {
     // With no strip, every scroll frame would schedule a rAF only for the
     // highlight's `sync` to bail on null refs. The listeners go on when the
-    // elements do — see the scope-resolves test above.
+    // elements do — see the test above.
     const raf = vi.fn(() => 0);
     vi.stubGlobal('requestAnimationFrame', raf);
     try {
-      renderRailIn({ scopeHasWindow: false });
+      renderRailIn({ chips: [] });
       act(() => { window.dispatchEvent(new Event('scroll')); });
       act(() => { window.dispatchEvent(new Event('resize')); });
       expect(raf).not.toHaveBeenCalled();
@@ -399,7 +384,7 @@ describe('DayRail', () => {
 
   it('renders nothing when there are no days to show', () => {
     const { container } = render(
-      <DayRail chips={[]} anchorDay={null} scopeHasWindow todayKey={null} windowDayKeys={[]}
+      <DayRail chips={[]} anchorDay={null} todayKey={null} windowDayKeys={[]}
         bandSegments={[]} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
         seasonWeeks={getChautauquaSeasonWeeks(2026)}
         onSelectDay={vi.fn()} onGoToToday={vi.fn()} />
@@ -435,7 +420,7 @@ describe('DayRail', () => {
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
     try {
       const { container } = render(
-        <DayRail chips={chips} anchorDay="2026-07-04" scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
+        <DayRail chips={chips} anchorDay="2026-07-04" todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
           bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
           seasonWeeks={getChautauquaSeasonWeeks(2026)}
           onSelectDay={vi.fn()} onGoToToday={vi.fn()} />
@@ -471,7 +456,7 @@ describe('DayRail', () => {
   it('gives rootRef the same element that is data-day-rail and sticky — no wrapper', () => {
     const ref: { current: HTMLElement | null } = { current: null };
     render(
-      <DayRail chips={chips} anchorDay="2026-07-05" scopeHasWindow todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
+      <DayRail chips={chips} anchorDay="2026-07-05" todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
         bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
         seasonWeeks={getChautauquaSeasonWeeks(2026)}
         onSelectDay={vi.fn()} onGoToToday={vi.fn()}

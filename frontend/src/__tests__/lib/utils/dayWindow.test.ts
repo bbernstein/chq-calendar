@@ -3,22 +3,15 @@ import {
   dayKeyOf,
   startOfDay,
   dayAfter,
-  lastDayCovered,
   addDays,
   dayKeys,
   navigableBounds,
-  baseWindow,
-  viewWindow,
-  windowContains,
   eventDayKeys,
-  navigationTargets,
-  formatDayLabel,
-  formatDayRange,
   dayChips,
   eventCountsByDay,
 } from '@/lib/utils/dayWindow';
-import { getAdaptiveEndDate, getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
-import { chqDateAt, parseEventDate } from '@/lib/utils/chqTime';
+import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
+import { parseEventDate } from '@/lib/utils/chqTime';
 import type { Event } from '@/lib/types';
 
 const seasonWeeks = getChautauquaSeasonWeeks(2026);
@@ -88,13 +81,6 @@ describe('day key arithmetic', () => {
     expect(startOfDay('2026-07-15').getTime()).toBe(new Date(2026, 6, 15, 0, 0, 0, 0).getTime());
     expect(dayAfter('2026-07-15').getTime()).toBe(new Date(2026, 6, 16, 0, 0, 0, 0).getTime());
   });
-
-  it('names the last day shown, stepping back only on an exact midnight', () => {
-    // A window ending at midnight does not show that day; one ending mid-day
-    // does. `this-week` ends at noon Saturday and that Saturday has events.
-    expect(lastDayCovered(new Date(2026, 6, 16, 0, 0, 0, 0))).toBe('2026-07-15');
-    expect(lastDayCovered(new Date(2026, 6, 18, 12, 0, 0, 0))).toBe('2026-07-18');
-  });
 });
 
 describe('navigableBounds', () => {
@@ -135,306 +121,6 @@ describe('navigableBounds', () => {
   });
 });
 
-describe('windowContains', () => {
-  // A synthetic window is enough here: this is testing the half-open
-  // comparison itself, not any scope's derivation of start/endExclusive.
-  const w = {
-    startDay: '2026-07-15',
-    endDay: '2026-07-15',
-    start: new Date(2026, 6, 15, 0, 0, 0, 0),
-    endExclusive: new Date(2026, 6, 16, 0, 0, 0, 0),
-  };
-
-  it('contains an instant exactly at start', () => {
-    expect(windowContains(w, w.start)).toBe(true);
-  });
-
-  it('contains an instant strictly inside', () => {
-    expect(windowContains(w, new Date(2026, 6, 15, 12, 0, 0, 0))).toBe(true);
-  });
-
-  it('does not contain an instant exactly at endExclusive', () => {
-    // This is the half-openness the whole shared model exists to enforce:
-    // endExclusive belongs to the next window, not this one.
-    expect(windowContains(w, w.endExclusive)).toBe(false);
-  });
-});
-
-describe('baseWindow', () => {
-  const NOW = new Date(2026, 6, 15, 15, 0, 0, 0);
-  const bounds = navigableBounds(seasonWeeks, []);
-  const currentWeekNumber = (() => {
-    // getCurrentWeekNumber reads the real clock, so derive it from NOW
-    // directly rather than faking timers in a pure-module test.
-    const w = seasonWeeks.find((week) => NOW >= week.start && NOW <= week.end);
-    return w ? w.number : null;
-  })();
-
-  it("'today' spans exactly the current calendar day", () => {
-    const w = baseWindow({
-      dateFilter: 'today', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    expect(w.startDay).toBe('2026-07-15');
-    expect(w.endDay).toBe('2026-07-15');
-    expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 0, 0, 0, 0).getTime());
-    expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 16, 0, 0, 0, 0).getTime());
-  });
-
-  it("'next' starts one hour before now, not at midnight", () => {
-    // Exclusive end of Jul 17 — what the real getAdaptiveEndDate now returns
-    // (Task 4). baseWindow uses a supplied adaptiveEndDate as-is.
-    const adaptiveEndDate = chqDateAt(2026, 7, 18, 0, 0, 0, 0);
-    const w = baseWindow({
-      dateFilter: 'next', seasonWeeks, currentWeekNumber, now: NOW, adaptiveEndDate, bounds,
-    })!;
-    expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 14, 0, 0, 0).getTime());
-    expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 18, 0, 0, 0, 0).getTime());
-    expect(w.startDay).toBe('2026-07-15');
-    expect(w.endDay).toBe('2026-07-17');
-  });
-
-  it("'next' near midnight puts startDay on the previous calendar day", () => {
-    // 00:30 minus one hour is 23:30 yesterday. The navigation-facing
-    // startDay has to follow the actual bound, not "today".
-    const nearMidnight = new Date(2026, 6, 15, 0, 30, 0, 0);
-    const w = baseWindow({
-      dateFilter: 'next',
-      seasonWeeks,
-      currentWeekNumber,
-      now: nearMidnight,
-      // Exclusive end of Jul 17.
-      adaptiveEndDate: chqDateAt(2026, 7, 18, 0, 0, 0, 0),
-      bounds,
-    })!;
-    expect(w.startDay).toBe('2026-07-14');
-  });
-
-  it("'next' ends where getAdaptiveEndDate said, not a day later", () => {
-    // Regression for fix-round 1, task 4: getAdaptiveEndDate now returns an
-    // already-exclusive bound (Task 4), but this 'next' case used to
-    // re-derive an exclusive bound from it as if it were still inclusive —
-    // landing a full day past the real cutoff.
-    const events = [
-      { id: 'a', title: 'a', startDate: '2026-07-01 09:00:00' },
-      { id: 'b', title: 'b', startDate: '2026-07-01 19:00:00' },
-      { id: 'c', title: 'c', startDate: '2026-07-02 09:00:00' },
-    ] as Event[];
-    const now = new Date('2026-07-01T13:00:00Z');
-    const adaptiveEndDate = getAdaptiveEndDate(events, now, 2);
-    const w = baseWindow({
-      dateFilter: 'next', seasonWeeks, currentWeekNumber, now, adaptiveEndDate, bounds,
-    })!;
-    expect(w.endDay).toBe('2026-07-01');
-    expect(w.endExclusive.toISOString()).toBe('2026-07-02T04:00:00.000Z');
-  });
-
-  it("'this-week' carries the week's own exclusive noon bound through", () => {
-    const week = seasonWeeks[currentWeekNumber! - 1];
-    const w = baseWindow({
-      dateFilter: 'this-week', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    expect(w.start.getTime()).toBe(week.start.getTime());
-    expect(w.endExclusive.getTime()).toBe(week.end.getTime());
-  });
-
-  it("'this-week' spans both boundary Saturdays", () => {
-    const w = baseWindow({
-      dateFilter: 'this-week', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    expect(dayKeys(w.startDay, w.endDay)).toHaveLength(8);
-  });
-
-  it("'this-week' is null outside the season", () => {
-    const w = baseWindow({
-      dateFilter: 'this-week',
-      seasonWeeks,
-      currentWeekNumber: null,
-      now: new Date(2026, 11, 25, 12, 0),
-      bounds,
-    });
-    expect(w).toBeNull();
-  });
-
-  it("'all' bounds no instant, but still reports navigable days", () => {
-    const w = baseWindow({
-      dateFilter: 'all', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    expect(w.start.getTime()).toBeLessThan(new Date(1900, 0, 1).getTime());
-    expect(w.endExclusive.getTime()).toBeGreaterThan(new Date(2200, 0, 1).getTime());
-    expect(w.startDay).toBe(bounds.startDay);
-    expect(w.endDay).toBe(bounds.endDay);
-  });
-
-  it("does not leak the 'all' singleton Dates — mutating a returned window must not corrupt a later one", () => {
-    const first = baseWindow({
-      dateFilter: 'all', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    const originalStart = first.start.getTime();
-    const originalEnd = first.endExclusive.getTime();
-
-    first.start.setFullYear(2026, 6, 15);
-    first.endExclusive.setFullYear(2026, 6, 15);
-
-    const second = baseWindow({
-      dateFilter: 'all', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    expect(second.start.getTime()).toBe(originalStart);
-    expect(second.endExclusive.getTime()).toBe(originalEnd);
-  });
-
-  it("does not leak the 'this-week' SeasonWeek Dates — mutating a returned window must not corrupt the season or a later window", () => {
-    const week = seasonWeeks[currentWeekNumber! - 1];
-    const originalWeekStart = week.start.getTime();
-    const originalWeekEnd = week.end.getTime();
-
-    const first = baseWindow({
-      dateFilter: 'this-week', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    first.start.setFullYear(1999, 0, 1);
-    first.endExclusive.setFullYear(1999, 0, 1);
-
-    // The caller's seasonWeeks array itself must be untouched.
-    expect(week.start.getTime()).toBe(originalWeekStart);
-    expect(week.end.getTime()).toBe(originalWeekEnd);
-
-    const second = baseWindow({
-      dateFilter: 'this-week', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-    })!;
-    expect(second.start.getTime()).toBe(originalWeekStart);
-    expect(second.endExclusive.getTime()).toBe(originalWeekEnd);
-  });
-
-  describe("baseWindow: 'season'", () => {
-    it('spans the first week start to the last week end', () => {
-      const w = baseWindow({
-        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-      })!;
-      expect(w.start).toEqual(seasonWeeks[0].start);
-      expect(w.endExclusive).toEqual(seasonWeeks[seasonWeeks.length - 1].end);
-      expect(w.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
-      expect(w.endDay).toBe(lastDayCovered(seasonWeeks[seasonWeeks.length - 1].end));
-    });
-
-    // The season's own dates are the caller's array. Handing them back by
-    // reference would let one mutation of a returned window corrupt every
-    // later window derived from the same season — the same defensive-copy
-    // rule 'all' and 'this-week' already follow.
-    it('copies the season dates rather than aliasing seasonWeeks', () => {
-      const w = baseWindow({
-        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-      })!;
-      expect(w.start).not.toBe(seasonWeeks[0].start);
-      expect(w.endExclusive).not.toBe(seasonWeeks[seasonWeeks.length - 1].end);
-    });
-
-    // Season is absolute, not time-relative, so it is meaningful in an
-    // archived year and must not be null there.
-    it('is non-null regardless of whether the season is in progress', () => {
-      const offSeason = new Date(2026, 0, 15, 12, 0, 0);
-      expect(baseWindow({
-        dateFilter: 'season', seasonWeeks, currentWeekNumber: null, now: offSeason, bounds,
-      })).not.toBeNull();
-    });
-
-    it('is widened by navigation exactly as every other scope is', () => {
-      const w = viewWindow({
-        dateFilter: 'season', seasonWeeks, currentWeekNumber, now: NOW, bounds,
-        expandedStartDay: null, expandedEndDay: bounds.endDay,
-      })!;
-      expect(w.endDay).toBe(bounds.endDay);
-    });
-  });
-});
-
-describe('viewWindow expansion', () => {
-  const NOW = new Date(2026, 6, 15, 15, 0, 0, 0);
-  const bounds = navigableBounds(seasonWeeks, []);
-  const currentWeekNumber =
-    seasonWeeks.find((w) => NOW >= w.start && NOW <= w.end)?.number ?? null;
-
-  const todayOpts = {
-    dateFilter: 'today' as const, seasonWeeks, currentWeekNumber, now: NOW, bounds,
-  };
-
-  it('is the base window when nothing is expanded', () => {
-    const w = viewWindow(todayOpts)!;
-    expect(w.startDay).toBe('2026-07-15');
-    expect(w.endDay).toBe('2026-07-15');
-  });
-
-  it('extends the end and uses a full day for the added region', () => {
-    const w = viewWindow({ ...todayOpts, expandedEndDay: '2026-07-17' })!;
-    expect(w.endDay).toBe('2026-07-17');
-    expect(w.endExclusive.getTime()).toBe(new Date(2026, 6, 18, 0, 0, 0, 0).getTime());
-    // The start is untouched, so it keeps the base window's exact instant.
-    expect(w.start.getTime()).toBe(new Date(2026, 6, 15, 0, 0, 0, 0).getTime());
-  });
-
-  it('extends the start backwards', () => {
-    const w = viewWindow({ ...todayOpts, expandedStartDay: '2026-07-13' })!;
-    expect(w.startDay).toBe('2026-07-13');
-    expect(w.start.getTime()).toBe(new Date(2026, 6, 13, 0, 0, 0, 0).getTime());
-  });
-
-  it('drops the intra-day start instant once expanded earlier', () => {
-    // 'next' starts at now-1h. Once the user reaches back past that day,
-    // they want the whole earlier day, not a window that still begins at
-    // 14:00 on a day they have scrolled away from.
-    const w = viewWindow({
-      dateFilter: 'next',
-      seasonWeeks,
-      currentWeekNumber,
-      now: NOW,
-      // Exclusive end of Jul 17.
-      adaptiveEndDate: chqDateAt(2026, 7, 18, 0, 0, 0, 0),
-      bounds,
-      expandedStartDay: '2026-07-13',
-    })!;
-    expect(w.start.getTime()).toBe(new Date(2026, 6, 13, 0, 0, 0, 0).getTime());
-  });
-
-  it('ignores an expansion that would narrow the base window', () => {
-    const w = viewWindow({ ...todayOpts, expandedEndDay: '2026-07-10' })!;
-    expect(w.endDay).toBe('2026-07-15');
-  });
-
-  it('clamps expansion to the navigable bounds', () => {
-    const w = viewWindow({ ...todayOpts, expandedEndDay: '2030-01-01' })!;
-    expect(w.endDay).toBe(bounds.endDay);
-  });
-
-  it('stays null when the base window is null', () => {
-    const w = viewWindow({
-      dateFilter: 'this-week',
-      seasonWeeks,
-      currentWeekNumber: null,
-      now: new Date(2026, 11, 25, 12, 0),
-      bounds,
-      expandedEndDay: '2026-12-31',
-    });
-    expect(w).toBeNull();
-  });
-
-  it("does not invert an off-season 'today' window", () => {
-    // The season runs roughly June-August 2026; this 'today' sits entirely
-    // outside `bounds` for the other ~10 months of the year — the app's
-    // normal state most of the time. `bounds` must clamp how far navigation
-    // can reach, not rewrite one edge of a scope's own window: doing the
-    // latter here would put startDay/endDay in December against endDay
-    // clamped back to the August season end, inverting the window.
-    const offSeasonNow = new Date(2026, 11, 25, 12, 0, 0, 0);
-    const w = viewWindow({
-      dateFilter: 'today',
-      seasonWeeks,
-      currentWeekNumber: null,
-      now: offSeasonNow,
-      bounds,
-    })!;
-    expect(w.startDay <= w.endDay).toBe(true);
-    expect(w.start.getTime()).toBeLessThan(w.endExclusive.getTime());
-  });
-});
-
 describe('dayKeys termination', () => {
   it('returns an empty list when either endpoint is not a real day key', () => {
     // 'NaN-NaN-NaN' is what groupEventsByDay produces for an unparseable
@@ -452,75 +138,6 @@ describe('dayKeys termination', () => {
     ]);
     expect(dayKeys('2026-07-05', '2026-07-05')).toEqual(['2026-07-05']);
     expect(dayKeys('2026-07-07', '2026-07-05')).toEqual([]);
-  });
-});
-
-describe('start-direction expansion', () => {
-  // Phase 1a had no coverage in this direction at all: every expansion test
-  // widened the end. Phase 2's "Show earlier" is the first caller that
-  // widens the start, so these are the tests that make it safe.
-  // The real 2026 season: week 1 starts Saturday June 27 at noon, week 9
-  // ends Saturday August 29 at noon.
-  const bounds = { startDay: '2026-06-27', endDay: '2026-08-29' };
-  const base = {
-    seasonWeeks,
-    currentWeekNumber: 2,
-    now: new Date(2026, 6, 5, 12, 0),
-    bounds,
-  } as const;
-
-  it('widens the start to the expansion day and takes that day from midnight', () => {
-    const w = viewWindow({ ...base, dateFilter: 'today', expandedStartDay: '2026-07-03' })!;
-    expect(w.startDay).toBe('2026-07-03');
-    expect(w.endDay).toBe('2026-07-05');
-    expect(w.start).toEqual(new Date(2026, 6, 3, 0, 0, 0, 0));
-  });
-
-  it('ignores an expansion day that would narrow the window', () => {
-    const w = viewWindow({ ...base, dateFilter: 'today', expandedStartDay: '2026-07-09' })!;
-    expect(w.startDay).toBe('2026-07-05');
-    expect(w.start).toEqual(new Date(2026, 6, 5, 0, 0, 0, 0));
-  });
-
-  it('clamps an expansion day that reaches past the navigable start', () => {
-    const w = viewWindow({ ...base, dateFilter: 'today', expandedStartDay: '2026-01-01' })!;
-    expect(w.startDay).toBe('2026-06-27');
-  });
-
-  it('does not invert the window when the base sits entirely after the bounds', () => {
-    // Off-season 'today' in December: the base window is outside `bounds` in
-    // the *other* direction, so an expansion day can be both earlier than
-    // the base and later than anything navigation may reach. It clamps to
-    // the nearest reachable day — the navigable END, because that is the
-    // edge it overshot. Clamping the merged result instead of the expansion
-    // input would produce startDay > endDay here.
-    const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
-    const w = viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!;
-    expect(w.startDay).toBe('2026-08-29');
-    expect(w.endDay).toBe('2026-12-01');
-    expect(w.startDay <= w.endDay).toBe(true);
-  });
-
-  it('clamps to the near edge, never across the range', () => {
-    // A clamp moves a value to the boundary it overshot. Snapping an
-    // overshoot of the *end* down to the *start* would silently open the
-    // whole season, which is a different operation wearing a clamp's name.
-    const december = { ...base, now: new Date(2026, 11, 1, 12, 0), currentWeekNumber: null };
-    expect(viewWindow({ ...december, dateFilter: 'today', expandedStartDay: '2026-11-01' })!.startDay)
-      .not.toBe('2026-06-27');
-  });
-
-  it('widens both ends at once', () => {
-    const w = viewWindow({
-      ...base,
-      dateFilter: 'today',
-      expandedStartDay: '2026-07-03',
-      expandedEndDay: '2026-07-08',
-    })!;
-    expect(w.startDay).toBe('2026-07-03');
-    expect(w.endDay).toBe('2026-07-08');
-    expect(w.start).toEqual(new Date(2026, 6, 3, 0, 0, 0, 0));
-    expect(w.endExclusive).toEqual(new Date(2026, 6, 9, 0, 0, 0, 0));
   });
 });
 
@@ -544,70 +161,6 @@ describe('eventDayKeys', () => {
 
   it('returns an empty list for no events', () => {
     expect(eventDayKeys([])).toEqual([]);
-  });
-});
-
-describe('navigationTargets', () => {
-  const days = ['2026-07-03', '2026-07-05', '2026-07-06', '2026-07-09'];
-  const w = (startDay: string, endDay: string) => ({
-    startDay, endDay, start: startOfDay(startDay), endExclusive: dayAfter(endDay),
-  });
-
-  it('names the nearest event day outside each edge', () => {
-    expect(navigationTargets(days, w('2026-07-05', '2026-07-06')))
-      .toEqual({ earlierDay: '2026-07-03', laterDay: '2026-07-09' });
-  });
-
-  it('skips days with no events rather than stepping one calendar day', () => {
-    // 2026-07-04 and 2026-07-07/08 have no events. A calendar-day step would
-    // expand the window and add nothing to the list — a control that looks
-    // broken. The target is always a day that will actually render.
-    expect(navigationTargets(days, w('2026-07-05', '2026-07-06')).earlierDay).toBe('2026-07-03');
-    expect(navigationTargets(days, w('2026-07-05', '2026-07-06')).laterDay).toBe('2026-07-09');
-  });
-
-  it('returns null on an edge with nothing beyond it', () => {
-    expect(navigationTargets(days, w('2026-07-03', '2026-07-09')))
-      .toEqual({ earlierDay: null, laterDay: null });
-  });
-
-  it('returns nulls for a null window', () => {
-    expect(navigationTargets(days, null)).toEqual({ earlierDay: null, laterDay: null });
-  });
-
-  it('returns nulls when there are no event days at all', () => {
-    expect(navigationTargets([], w('2026-07-05', '2026-07-06')))
-      .toEqual({ earlierDay: null, laterDay: null });
-  });
-
-  it('finds a target even when the whole window sits outside the event range', () => {
-    expect(navigationTargets(days, w('2026-12-01', '2026-12-01')))
-      .toEqual({ earlierDay: '2026-07-09', laterDay: null });
-  });
-});
-
-describe('formatDayLabel', () => {
-  it('names the weekday, abbreviated month and day', () => {
-    expect(formatDayLabel('2026-07-05')).toBe('Sunday, Jul 5');
-    expect(formatDayLabel('2026-08-15')).toBe('Saturday, Aug 15');
-  });
-});
-
-describe('formatDayRange', () => {
-  it('names a single day once', () => {
-    expect(formatDayRange('2026-07-04', '2026-07-04')).toBe('Sat, Jul 4');
-  });
-
-  it('names the month on both endpoints even within a single month', () => {
-    expect(formatDayRange('2026-07-04', '2026-07-09')).toBe('Sat, Jul 4 – Thu, Jul 9');
-  });
-
-  it('keeps both months across a month boundary', () => {
-    expect(formatDayRange('2026-07-28', '2026-08-02')).toBe('Tue, Jul 28 – Sun, Aug 2');
-  });
-
-  it('returns an empty string for an inverted range rather than a nonsense one', () => {
-    expect(formatDayRange('2026-07-09', '2026-07-04')).toBe('');
   });
 });
 
@@ -710,21 +263,6 @@ describe('Institution-anchored day boundaries', () => {
     expect(dayAfter('2026-10-31').getTime()).toBe(startOfDay('2026-11-01').getTime());
   });
 
-  it('treats Institution midnight as midnight for lastDayCovered', () => {
-    // 04:00Z is midnight EDT, so the window does not show that day.
-    expect(lastDayCovered(new Date('2026-07-28T04:00:00.000Z'))).toBe('2026-07-27');
-  });
-
-  it('keeps the final day when a window ends mid-day at Chautauqua', () => {
-    // Noon EDT Saturday — 'this-week' ends here and that morning has events.
-    expect(lastDayCovered(new Date('2026-07-25T16:00:00.000Z'))).toBe('2026-07-25');
-  });
-
-  it('keeps the final day when the bound is 400ms after midnight (regression: ChqParts has no ms field)', () => {
-    // 04:00:00.400Z is 400ms past Institution midnight on the 28th — not
-    // midnight itself, so the 28th must be kept, not dropped.
-    expect(lastDayCovered(new Date('2026-07-28T04:00:00.400Z'))).toBe('2026-07-28');
-  });
 });
 
 describe('day chips and labels read Institution time', () => {
@@ -740,9 +278,5 @@ describe('day chips and labels read Institution time', () => {
     const chips = dayChips(['2026-11-01'], new Map());
     expect(chips[0].dayOfMonth).toBe('1');
     expect(chips[0].label).toBe('Sunday, November 1, no events');
-  });
-
-  it('labels a day by its Institution date', () => {
-    expect(formatDayLabel('2026-07-27')).toContain('Jul 27');
   });
 });
