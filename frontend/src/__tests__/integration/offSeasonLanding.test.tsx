@@ -98,17 +98,22 @@ describe('page.tsx — the off-season landing', () => {
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
   });
 
-  // Pre-season is reachable ONLY while the year's feed is still empty, and
-  // that is not an artefact of the fixture. `determineLandingState`'s rule 1
-  // asks the year's own events directly — does any of them start at or after
-  // `now`? — so a published season resolves to `in-season` regardless of the
-  // calendar, whether or not the `next` scope's adaptive window has reached
-  // that far forward yet. This test explicitly seeds an empty feed
-  // (`all-events-\d{4}\.json` → `{ data: [] }`) to reach pre-season at all; a
-  // March visit against the season's real, published events would see
-  // `in-season` and the list. The countdown belongs to the window between a
-  // year being announced in the manifest and its programme going up, which is
-  // exactly when a visitor has nothing else to be told.
+  // Pre-season is reachable when the year has no events upcoming relative
+  // to `now` — NOT the same thing as an empty feed (2026-08-26 review round
+  // 2: real production data carries events dated before the season's own
+  // calendar start — the 2026 feed has entries in January, February and
+  // May), and not an artefact of this fixture either. `determineLandingState`'s
+  // rule 1 asks the year's own events directly — does any of them start at
+  // or after the same graced instant the `next` scope's own window uses
+  // (not the bare `now`)? — so a published season resolves to `in-season`
+  // regardless of the calendar, whatever the feed's other, already-past
+  // entries say. This test's `all-events-\d{4}\.json` → `{ data: [] }` mock
+  // is simply the easiest way to guarantee no upcoming events, not the only
+  // way to reach pre-season; a March visit against the season's real,
+  // published events would see `in-season` and the list. The countdown
+  // belongs to the window between a year being announced in the manifest and
+  // its programme going up, which is exactly when a visitor has nothing else
+  // to be told.
   it('counts down before an announced season has been published', async () => {
     mock.reset();
     mock.on('GET', /years\.json/, { years: [2026, 2027], defaultYear: 2026, generated: '' });
@@ -178,6 +183,34 @@ describe('page.tsx — the off-season landing', () => {
     );
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+  });
+
+  // #274 phase 4 task 3, review round 2: `yearHasUpcomingEvents` must give
+  // the `next` scope's own one-hour grace to "is anything upcoming" (the
+  // same grace `viewWindow`'s `next` case gives its own window start —
+  // dayWindow.ts's "One hour of grace so an event that has just begun is
+  // still 'next'"), not compare against the bare `now`. Without it, a
+  // reader who visits within an hour of the season's FINAL event starting
+  // gets the landing covering a list that still contains that event running
+  // live — the same #269 shoulder, one hour wide. This event is the year's
+  // only one and started 30 minutes before the pinned clock.
+  it("stays in-season for the hour after the year's last event has started", async () => {
+    mock.reset();
+    mock.on('GET', /years\.json/, { years: [2025, 2026, 2027], defaultYear: 2026, generated: '' });
+    mock.on('GET', /all-events-\d{4}\.json/, {
+      data: [{
+        id: 'closing', title: 'Closing Address',
+        startDate: '2026-08-20T15:00:00', endDate: '2026-08-20T16:00:00',
+        location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+      }],
+    });
+    pin(chqDateAt(2026, 8, 20, 15, 30));
+    await renderPage();
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0)
+    );
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
   });
 
   // Same shape and the same growth driver as the test below it — mount, then

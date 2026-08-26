@@ -153,9 +153,11 @@ function HomeContent() {
   // during the season must not be reported as "See you next season".
   //
   // `yearHasUpcomingEvents` — ports iOS's `upcomingDefaultCount > 0` rule:
-  // does ANY event in the year's unfiltered set start at or after `now`?
-  // This, not the season calendar, is what makes `showLanding` safe to
-  // evaluate unconditionally rather than only inside an empty-list branch.
+  // does ANY event in the year's unfiltered set start at or after the same
+  // graced instant the `next` scope's own window uses (see below), not the
+  // bare `now`? This, not the season calendar, is what makes `showLanding`
+  // safe to evaluate unconditionally rather than only inside an empty-list
+  // branch.
   // Without it, both a published-but-not-yet-open next season (March,
   // `dateFilter: 'next'`, events all in the future) and the live season's own
   // last events (whenever they fall later than `getChautauquaSeasonWeeks`'
@@ -165,12 +167,26 @@ function HomeContent() {
   // calendar-only version of this fix was tried and rejected.
   const landingState = useMemo(() => {
     const now = new Date();
+    // The same one hour of grace `viewWindow`'s `next` scope gives its own
+    // start (`dayWindow.ts`'s "One hour of grace so an event that has just
+    // begun is still 'next'", fed from `adaptiveEndDate` above via
+    // `oneHourAgo`) — NOT the bare `now` `determineLandingState` itself
+    // receives. Without it, the hour after the season's final event begins,
+    // the default `next` scope still lists that event while this predicate
+    // alone had already moved past its start, so `yearHasUpcomingEvents`
+    // would go false, `showLanding` true, and the landing would cover a list
+    // containing a currently-running event — "See you next season" while it
+    // is happening. iOS's own `.next` window opens the identical hour early
+    // (`ViewWindow.swift`'s `now.addingTimeInterval(-3600)`), so this also
+    // keeps the two apps' opinions of "is the season over" in sync, which is
+    // the promise `determineLandingState`'s module header makes.
+    const graceStart = new Date(now.getTime() - 60 * 60 * 1000);
     return determineLandingState({
       now,
       selectedYear,
       availableYears,
       yearHasEvents: events.length > 0,
-      yearHasUpcomingEvents: events.some(e => parseEventDate(e.startDate) >= now),
+      yearHasUpcomingEvents: events.some(e => parseEventDate(e.startDate) >= graceStart),
     });
   }, [selectedYear, availableYears, events]);
 

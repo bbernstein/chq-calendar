@@ -356,9 +356,15 @@ describe('page.tsx — a week band tap', () => {
     });
 
     // Read from the pure model rather than assumed: the same function
-    // `page.tsx` itself calls, given the same inputs it would compute for
-    // this fixture (both fixture events fall inside the season, so
-    // `navigableBounds` would not widen past it here).
+    // `page.tsx` itself calls — but not fed the same inputs page.tsx would
+    // actually compute for this fixture. The real page also has the week 8
+    // event added for #274 phase 4 task 3 (review round 2's landing fix, so
+    // the year always has something upcoming at the pinned "now" below), so
+    // its own `eventDays`/`countsByDay` carry a third entry this call omits.
+    // Passing only the two days under test isolates week 2's destination
+    // from that unrelated event without changing the answer for week 2
+    // itself. All three fixture events fall inside the season regardless, so
+    // `navigableBounds` would not widen past it here either way.
     const bounds = {
       startDay: dayKeyOf(seasonWeeks[0].start),
       endDay: dayKeyOf(seasonWeeks[seasonWeeks.length - 1].end),

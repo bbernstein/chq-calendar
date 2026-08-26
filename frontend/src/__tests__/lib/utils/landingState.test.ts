@@ -7,11 +7,13 @@ const opening = (year: number) => getChautauquaSeasonWeeks(year)[0].start;
 
 describe('determineLandingState', () => {
   // Rule 2 in isolation: no upcoming events, so rule 1 does not preempt it.
-  // (A year bucket that is non-empty but has nothing left ahead of `now` is
-  // an artificial input for a pure-function test — real production data
-  // can't produce "has events, before this year's season start, none of them
-  // upcoming" — but it isolates rule 2's own `now < start` boundary from
-  // rule 1's short-circuit.)
+  // Not as artificial an input as it looks (2026-08-26 review round 2):
+  // real production data carries events dated well before a year's own
+  // season start — the 2026 feed has entries in January, February and May,
+  // all ahead of the late-June opening — so a `now` late enough to put
+  // every one of them in the past reaches exactly this state honestly. It
+  // isolates rule 2's own `now < start` boundary from rule 1's
+  // short-circuit either way.
   it('is pre-season before the selected year opens', () => {
     const state = determineLandingState({
       now: chqDateAt(2026, 3, 1, 10),
