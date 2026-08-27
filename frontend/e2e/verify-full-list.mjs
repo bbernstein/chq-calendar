@@ -585,12 +585,21 @@ if (currentRegime() === 'off-season') {
   // scroll far enough to centre anything, and pinning to the edge is the
   // correct answer there. Off-season the rail may not be on screen at all,
   // in which case there is nothing to assert.
-  const rail = await page.evaluate(() => {
+  // Asserted against the day the reader actually LANDED on, taken from
+  // geometry, rather than against whichever chip carries `aria-current`.
+  // Those are two different claims and the first version of this check made
+  // them as one: CI reported "2026-01-03 rests 11223px off centre" while
+  // `5-webkit the reader lands on today` passed on the same page, which says
+  // the highlight and the geometry disagreed and tells you nothing about
+  // whether the strip was centred. They are separate checks now, so a run
+  // names which half is wrong.
+  const rail = await page.evaluate((landedKey) => {
     const strip = document.querySelector('[data-rail-strip]');
     const content = document.querySelector('[data-rail-content]');
     if (!strip || !content) return null;
-    const chip = [...content.querySelectorAll('button[data-chip]')]
-      .find(c => c.getAttribute('aria-current'));
+    const chips = [...content.querySelectorAll('button[data-chip]')];
+    const anchor = chips.find(c => c.getAttribute('aria-current'));
+    const chip = chips.find(c => c.dataset.chip === landedKey);
     if (!chip) return null;
     const cr = content.getBoundingClientRect();
     const kr = chip.getBoundingClientRect();
@@ -598,19 +607,38 @@ if (currentRegime() === 'off-season') {
     const maxScroll = strip.scrollWidth - strip.clientWidth;
     const want = Math.min(Math.max(0, maxScroll), Math.max(0, centre - strip.clientWidth / 2));
     return {
-      key: chip.getAttribute('data-chip'),
+      landedKey,
+      anchorKey: anchor?.dataset.chip ?? null,
+      anchorCount: chips.filter(c => c.getAttribute('aria-current')).length,
       off: Math.round((strip.scrollLeft - want) * 10) / 10,
-      at: Math.round(strip.scrollLeft), want: Math.round(want), maxScroll: Math.round(maxScroll),
+      at: Math.round(strip.scrollLeft), want: Math.round(want),
+      maxScroll: Math.round(maxScroll), clientWidth: Math.round(strip.clientWidth),
     };
-  });
+  }, landed.key);
+
   if (!rail) {
     skip('5-webkit the rail centres the day it landed on (webkit)',
-      'no rail on screen, so there is no chip to centre');
+      'no rail on screen, or no chip for the landed day');
+    skip('5-webkit the rail highlights the day it landed on (webkit)',
+      'no rail on screen, or no chip for the landed day');
   } else {
+    // The clamp is not slack — near the ends of the season the strip cannot
+    // scroll far enough to centre anything, and pinning to the edge is the
+    // right answer there.
     check('5-webkit the rail centres the day it landed on (webkit)',
       Math.abs(rail.off) <= 2,
-      `${rail.key} rests ${rail.off}px off centre ` +
-      `(scrollLeft ${rail.at}, centred would be ${rail.want}, max ${rail.maxScroll})`);
+      `${rail.landedKey} rests ${rail.off}px off centre ` +
+      `(scrollLeft ${rail.at}, centred would be ${rail.want}, max ${rail.maxScroll}, ` +
+      `strip ${rail.clientWidth}px)`);
+    // `useDayAnchor` and `useRailHighlight` resolve the anchor through the
+    // same `resolveAnchor`, so they are not supposed to be able to name
+    // different days. `resolveAnchor` falls back to `keys[0]` — the first day
+    // of the YEAR — when nothing has passed the chrome, which is what a
+    // disagreement here would look like.
+    check('5-webkit the rail highlights the day it landed on (webkit)',
+      rail.anchorKey === rail.landedKey,
+      `aria-current is on ${rail.anchorKey ?? '(no chip)'}, reader landed on ` +
+      `${rail.landedKey} (${rail.anchorCount} chip(s) carry it)`);
   }
   await page.close();
   await wk.close();
