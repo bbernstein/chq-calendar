@@ -577,97 +577,82 @@ if (currentRegime() === 'off-season') {
   // centered", with the previous day clipped mid-label at the left edge.
   //
   // Asserted against the CHIP carrying `aria-current`, not against the pill:
-  // the pill is what `useRailHighlight` centres on, so centring the pill is
-  // the implementation restating itself. The chip is what the reader sees,
-  // and this also fails if the two ever come apart.
+  // Two claims, kept apart, because folding them together produced two
+  // rounds of misleading CI output.
   //
-  // The clamp is not slack — near the ends of the season the strip cannot
-  // scroll far enough to centre anything, and pinning to the edge is the
-  // correct answer there. Off-season the rail may not be on screen at all,
-  // in which case there is nothing to assert.
-  // Asserted against the day the reader actually LANDED on, taken from
-  // geometry, rather than against whichever chip carries `aria-current`.
-  // Those are two different claims and the first version of this check made
-  // them as one: CI reported "2026-01-03 rests 11223px off centre" while
-  // `5-webkit the reader lands on today` passed on the same page, which says
-  // the highlight and the geometry disagreed and tells you nothing about
-  // whether the strip was centred. They are separate checks now, so a run
-  // names which half is wrong.
-  const rail = await page.evaluate((landedKey) => {
+  // CENTRING is about the highlight, so it is measured against the chip the
+  // rail highlights. Measuring it against the day the SECTION geometry says
+  // the reader is on looks equivalent and is not: `landedSection` takes the
+  // first section with `top >= offset - 2`, `resolveAnchor` the last with
+  // `top <= offset + 1`, and with today's title resting within a pixel of
+  // that line — exactly where the landing parks it — they name adjacent
+  // days. CI duly reported "48px off centre", one chip pitch, against a rail
+  // that was correct.
+  //
+  // HIGHLIGHTING is then asked against `today` directly, the same string
+  // check 5-webkit already uses, rather than against the geometry — so the
+  // boundary cannot make this pair disagree either.
+  //
+  // The clamp is not slack: near the ends of the season the strip cannot
+  // scroll far enough to centre anything, and pinning to the edge is right.
+  const rail = await page.evaluate(() => {
     const strip = document.querySelector('[data-rail-strip]');
     const content = document.querySelector('[data-rail-content]');
     if (!strip || !content) return null;
     const chips = [...content.querySelectorAll('button[data-chip]')];
     const anchor = chips.find(c => c.getAttribute('aria-current'));
-    const chip = chips.find(c => c.dataset.chip === landedKey);
-    if (!chip) return null;
+    if (!anchor) return null;
     const cr = content.getBoundingClientRect();
-    const kr = chip.getBoundingClientRect();
+    const kr = anchor.getBoundingClientRect();
     const centre = (kr.left - cr.left) + kr.width / 2;
     const maxScroll = strip.scrollWidth - strip.clientWidth;
     const want = Math.min(Math.max(0, maxScroll), Math.max(0, centre - strip.clientWidth / 2));
     return {
-      landedKey,
-      anchorKey: anchor?.dataset.chip ?? null,
+      anchorKey: anchor.dataset.chip ?? null,
       anchorCount: chips.filter(c => c.getAttribute('aria-current')).length,
       off: Math.round((strip.scrollLeft - want) * 10) / 10,
       at: Math.round(strip.scrollLeft), want: Math.round(want),
       maxScroll: Math.round(maxScroll), clientWidth: Math.round(strip.clientWidth),
     };
-  }, landed.key);
+  });
 
-  // The tell, gathered here because this happens only on Linux WebKit in CI
-  // and reproduces on no local engine at any CPU throttle.
-  //
-  // One pixel of page scroll separates "the rail computed the wrong answer"
-  // from "the rail never computed one": its highlight and strip position are
-  // only ever updated from a `scroll` event, so if the landing's own scroll
-  // is missed and the page then goes still, the rail stays where it started
-  // — showing the first day of the YEAR — for the rest of the session. That
-  // is the same shape as the settling-tween defect fixed earlier on this
-  // branch, where a single further pixel snapped a 23.5px error to 0.5px.
-  //
-  // If the nudge repairs these values, the rail missed the movement. If it
-  // changes nothing, the rail computed the wrong answer and the cause is
-  // elsewhere.
+  // Diagnostics, kept because two theories about a CI-only failure were
+  // refuted by the next run before this existed. A real 1px scroll and a
+  // synthetic scroll event separate three things a stuck rail could mean:
+  // the sections are not measurable (the counts and tops say so —
+  // `daySectionTop` returns null only when the element is missing), nothing
+  // is listening (the synthetic event reaches any attached listener without
+  // moving the page), or the walk runs and computes the wrong answer.
   const nudged = !rail ? null : await (async () => {
     await page.evaluate(() => window.scrollBy(0, 1));
     await page.waitForTimeout(500);
-    // A SYNTHETIC scroll event as well as the real 1px one. Together they
-    // separate three things a stuck rail could mean, which two runs of
-    // guessing did not: whether the sections are measurable at all, whether
-    // anything is listening for a scroll, and whether the answer it computes
-    // is wrong. `daySectionTop` returns null only when the element is
-    // missing, so `measurable` is the direct test of the walk's input.
     await page.evaluate(() => window.dispatchEvent(new Event('scroll')));
     await page.waitForTimeout(400);
-    return page.evaluate((landedKey) => {
+    return page.evaluate(() => {
       const strip = document.querySelector('[data-rail-strip]');
       const content = document.querySelector('[data-rail-content]');
       const chips = [...content.querySelectorAll('button[data-chip]')];
       const anchor = chips.find(c => c.getAttribute('aria-current'));
-      const chip = chips.find(c => c.dataset.chip === landedKey);
       const cr = content.getBoundingClientRect();
-      const kr = chip?.getBoundingClientRect();
+      const kr = anchor?.getBoundingClientRect();
       const centre = kr ? (kr.left - cr.left) + kr.width / 2 : null;
       const maxScroll = strip.scrollWidth - strip.clientWidth;
       const want = centre === null ? null
         : Math.min(Math.max(0, maxScroll), Math.max(0, centre - strip.clientWidth / 2));
-      const secs = [...document.querySelectorAll('[data-day-key]')];
-      const tops = secs.map(e => e.getBoundingClientRect().top);
-      const passed = tops.filter(t => t <= 140).length;
+      const tops = [...document.querySelectorAll('[data-day-key]')]
+        .map(e => e.getBoundingClientRect().top);
       return {
         anchorKey: anchor?.dataset.chip ?? null,
         off: want === null ? null : Math.round((strip.scrollLeft - want) * 10) / 10,
         at: Math.round(strip.scrollLeft),
         scrollY: Math.round(window.scrollY),
-        sections: secs.length,
-        passed,
+        sections: tops.length,
+        passed: tops.filter(t => t <= 140).length,
         firstTop: tops.length ? Math.round(tops[0]) : null,
         lastTop: tops.length ? Math.round(tops[tops.length - 1]) : null,
         chips: chips.length,
       };
-    }, landed.key);
+    });
   })();
   const tell = nudged
     ? ` — after a 1px nudge and a synthetic scroll: aria-current ${nudged.anchorKey}, ` +
@@ -677,28 +662,24 @@ if (currentRegime() === 'off-season') {
     : '';
 
   if (!rail) {
-    skip('5-webkit the rail centres the day it landed on (webkit)',
-      'no rail on screen, or no chip for the landed day');
-    skip('5-webkit the rail highlights the day it landed on (webkit)',
-      'no rail on screen, or no chip for the landed day');
+    skip('5-webkit the rail centres the day it highlights (webkit)',
+      'no rail on screen, or no chip carries aria-current');
+    skip('5-webkit the rail highlights today (webkit)',
+      'no rail on screen, or no chip carries aria-current');
   } else {
-    // The clamp is not slack — near the ends of the season the strip cannot
-    // scroll far enough to centre anything, and pinning to the edge is the
-    // right answer there.
-    check('5-webkit the rail centres the day it landed on (webkit)',
+    check('5-webkit the rail centres the day it highlights (webkit)',
       Math.abs(rail.off) <= 2,
-      `${rail.landedKey} rests ${rail.off}px off centre ` +
+      `${rail.anchorKey} rests ${rail.off}px off centre ` +
       `(scrollLeft ${rail.at}, centred would be ${rail.want}, max ${rail.maxScroll}, ` +
       `strip ${rail.clientWidth}px)${tell}`);
-    // `useDayAnchor` and `useRailHighlight` resolve the anchor through the
-    // same `resolveAnchor`, so they are not supposed to be able to name
-    // different days. `resolveAnchor` falls back to `keys[0]` — the first day
-    // of the YEAR — when nothing has passed the chrome, which is what a
-    // disagreement here would look like.
-    check('5-webkit the rail highlights the day it landed on (webkit)',
-      rail.anchorKey === rail.landedKey,
-      `aria-current is on ${rail.anchorKey ?? '(no chip)'}, reader landed on ` +
-      `${rail.landedKey} (${rail.anchorCount} chip(s) carry it)${tell}`);
+    // `useDayAnchor` and `useRailHighlight` resolve through the same
+    // `resolveAnchor`, so the highlight and the announced day cannot differ.
+    // What this catches is the walk answering from its `keys[0]` fallback —
+    // the first day of the YEAR — which is what CI reported twice.
+    check('5-webkit the rail highlights today (webkit)',
+      rail.anchorKey === today,
+      `aria-current is on ${rail.anchorKey ?? '(no chip)'}, today is ${today} ` +
+      `(${rail.anchorCount} chip(s) carry it)${tell}`);
   }
   await page.close();
   await wk.close();
