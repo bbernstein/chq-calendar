@@ -111,12 +111,52 @@ export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, e
   explicit?: boolean;
 }): void {
   const landedFor = useRef<number | null>(null);
+  // Whether the READER has taken over, as distinct from the page merely
+  // sitting at a non-zero offset.
+  //
+  // This guard used to test `window.scrollY > 0`. `history.scrollRestoration`
+  // defaults to `auto`, so a browser restores an offset from the previous
+  // visit — and on a document whose height is entirely data-dependent, and
+  // which is barely a screen tall while the year is still arriving, that
+  // restore is applied against the wrong height and clamped to something
+  // arbitrary. The effect then read a non-zero `scrollY`, concluded the reader
+  // had deliberately gone somewhere, latched, and never landed. A browser
+  // restoring scroll is not a reader choosing a day.
+  //
+  // A real gesture is. These are the four `useSiteHeaderReveal` already treats
+  // as "the reader is driving", and the same principle `useDayAnchor` uses to
+  // drop its settle hold: a gesture is intent, a scroll offset is a number.
+  //
+  // Landing on today is this app's primary function — it exists to answer
+  // "what is on today, and what is on next" — so the bar for suppressing it
+  // has to be evidence the reader asked for something else.
+  const readerTookOver = useRef(false);
+
+  useEffect(() => {
+    // This app decides where a load lands, not the browser. Restoration cannot
+    // be right on a ~160,000px document that is a fraction of that height when
+    // the offset is applied, and it actively fights the landing below.
+    const previous = history.scrollRestoration;
+    try { history.scrollRestoration = 'manual'; } catch { /* older Safari */ }
+
+    const takeOver = () => { readerTookOver.current = true; };
+    const gestures = ['wheel', 'touchmove', 'keydown', 'mousedown'] as const;
+    for (const type of gestures) {
+      window.addEventListener(type, takeOver, { passive: true, capture: true });
+    }
+    return () => {
+      try { history.scrollRestoration = previous; } catch { /* older Safari */ }
+      for (const type of gestures) {
+        window.removeEventListener(type, takeOver, { capture: true });
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!targetDay || !listMounted) return;
     if (!explicit) {
       if (landedFor.current === year) return;
-      if (landedFor.current === null && window.scrollY > 0) {
+      if (landedFor.current === null && readerTookOver.current) {
         landedFor.current = year;
         return;
       }

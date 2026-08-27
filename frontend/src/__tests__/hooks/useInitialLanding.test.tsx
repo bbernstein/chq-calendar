@@ -64,12 +64,48 @@ test('scrolls again when the year changes', () => {
   expect(scrollToDay).toHaveBeenLastCalledWith('2025-07-04');
 });
 
-test('does not move a reader who has already scrolled', () => {
+// These two replace a single test that asserted "does not move a reader who
+// has already scrolled" by setting `window.scrollY = 4200`. That test encoded
+// a real defect: `history.scrollRestoration` defaults to `auto`, so Safari
+// restores an offset from a previous visit, the hook read it as deliberate,
+// and an iPhone reader was left on January 3 with today eight months down the
+// page — on an app whose primary job is to show what is happening today.
+//
+// A scroll OFFSET is not intent. A gesture is.
+test('a restored scroll offset does not suppress the landing', () => {
   mountDay('2026-07-04');
   window.scrollY = 4200;
   const scrollToDay = vi.fn();
   renderHook(() => useInitialLanding({ targetDay: '2026-07-04', year: 2026, listMounted: true, scrollToDay }));
+  expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-04');
+});
+
+test('a reader gesture before the list arrives does suppress it', () => {
+  mountDay('2026-07-04');
+  const scrollToDay = vi.fn();
+  // Mounted with no list yet, so the hook is listening but has not landed.
+  const { rerender } = renderHook(
+    ({ listMounted }) => useInitialLanding({ targetDay: '2026-07-04', year: 2026, listMounted, scrollToDay }),
+    { initialProps: { listMounted: false } }
+  );
+  // The reader starts reading before the year finishes arriving. Teleporting
+  // them to today at that point would yank the page out from under a
+  // deliberate movement.
+  window.dispatchEvent(new WheelEvent('wheel', { deltaY: 120 }));
+  rerender({ listMounted: true });
   expect(scrollToDay).not.toHaveBeenCalled();
+});
+
+test('sets scrollRestoration to manual, and puts it back on unmount', () => {
+  // The browser cannot restore usefully here: the document is ~160,000px once
+  // the year mounts and a fraction of that while it is still arriving, so a
+  // restored offset is applied against the wrong height.
+  history.scrollRestoration = 'auto';
+  const { unmount } = renderHook(() =>
+    useInitialLanding({ targetDay: null, year: 2026, listMounted: false, scrollToDay: () => {} }));
+  expect(history.scrollRestoration).toBe('manual');
+  unmount();
+  expect(history.scrollRestoration).toBe('auto');
 });
 
 test('lands when the list appears later, not only on the first render', () => {

@@ -549,6 +549,42 @@ if (currentRegime() === 'off-season') {
 // A gesture is not one scroll event: WebKit on Linux delivers one wheel tick
 // as several frames, so this drives 30 real ticks and asserts the trace, not
 // one jump.
+// 5-webkit — the reader lands on today in WEBKIT too.
+//
+// Every other check in this suite runs in Chromium, and this file's own
+// engine loop existed only for the slow-scroll pair. **The landing — the
+// app's primary function, "show me what is on today" — had never been
+// verified in the engine every iPhone actually runs.** It was reported from
+// an iPhone simulator as opening on January 3, eight months from today, and
+// the first thing that investigation found was that no check could have
+// caught it.
+//
+// Falsified by returning `eventDays[0]` from `landingDayKey`: lands on
+// 2026-01-03, FAIL in both engines.
+{
+  const wk = await webkit.launch();
+  const page = await newPageOn(wk, {});
+  await settle(page);
+  const landed = await landedSection(page);
+  const restore = await page.evaluate(() => history.scrollRestoration);
+  const today = await page.evaluate(() =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date()));
+  if (currentRegime() === 'off-season') {
+    skip('5-webkit the reader lands on today (webkit)',
+      'today is outside the season off-season, so there is no "today" section to land on');
+  } else {
+    check('5-webkit the reader lands on today (webkit)', landed.key === today,
+      `landed on ${landed.key}, today is ${today} (of ${landed.days} sections, first ${landed.first})`);
+  }
+  // The app owns where a load lands: a browser restoring an offset against a
+  // document whose height is entirely data-dependent cannot be right, and it
+  // fights the landing above.
+  check('5-webkit the app owns scroll restoration (webkit)',
+    restore === 'manual', `history.scrollRestoration = ${restore}`);
+  await page.close();
+  await wk.close();
+}
+
 for (const engineName of ['chromium', 'webkit']) {
   const launched = engineName === 'chromium' ? browser : await webkit.launch();
   const page = await newPageOn(launched, {});
