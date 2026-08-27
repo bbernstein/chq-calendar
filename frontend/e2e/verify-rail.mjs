@@ -470,6 +470,34 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     await page.waitForTimeout(600);
   }
 
+  // Take ownership of the scroll position before parking anywhere.
+  //
+  // `enterList` returns as soon as the first day section exists, which is
+  // BEFORE the app has finished moving: in season it lands the reader on
+  // today, and `useDayAnchor`'s hold then re-asserts that position on every
+  // later layout change. Neither is cancelled by `window.scrollBy`, which is
+  // all the parking loop below uses — so the harness would park on a day in
+  // June, and the app would put the reader back on today underneath it.
+  //
+  // With the whole year mounted (#274 phase 4) that is a ~149,000px
+  // correction, and `roomy()` picks the first tall day of the YEAR rather
+  // than one near today, so the two are now always far apart. Measured on
+  // this list: parked at scrollY 3,561, measured 300ms later at 152,663 —
+  // `headerTop -148,557` against a `railBottom` of 140. CI failed on exactly
+  // that, at 320px, on two commits running.
+  //
+  // One real wheel tick settles it in either order: arriving before the
+  // landing it arms `useInitialLanding`'s takeover guard, and arriving after
+  // it cancels the hold. Reproduced and fixed at 1x, 4x and 8x CPU throttle —
+  // it is an ordering bug, not a slow-machine one, which is why it passed
+  // locally and failed in CI on identical code.
+  //
+  // A wheel, not `window.scrollTo`, for the reason `settleAtTop` records:
+  // only a real gesture cancels the hold.
+  await page.mouse.move(Math.round(width / 2), 400);
+  await page.mouse.wheel(0, 1);
+  await page.waitForTimeout(800);
+
   // Park deliberately inside a day whose header is genuinely stuck, rather
   // than scrolling a fixed distance and measuring whatever is there.
   //
