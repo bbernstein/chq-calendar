@@ -633,6 +633,14 @@ if (currentRegime() === 'off-season') {
   const nudged = !rail ? null : await (async () => {
     await page.evaluate(() => window.scrollBy(0, 1));
     await page.waitForTimeout(500);
+    // A SYNTHETIC scroll event as well as the real 1px one. Together they
+    // separate three things a stuck rail could mean, which two runs of
+    // guessing did not: whether the sections are measurable at all, whether
+    // anything is listening for a scroll, and whether the answer it computes
+    // is wrong. `daySectionTop` returns null only when the element is
+    // missing, so `measurable` is the direct test of the walk's input.
+    await page.evaluate(() => window.dispatchEvent(new Event('scroll')));
+    await page.waitForTimeout(400);
     return page.evaluate((landedKey) => {
       const strip = document.querySelector('[data-rail-strip]');
       const content = document.querySelector('[data-rail-content]');
@@ -645,15 +653,27 @@ if (currentRegime() === 'off-season') {
       const maxScroll = strip.scrollWidth - strip.clientWidth;
       const want = centre === null ? null
         : Math.min(Math.max(0, maxScroll), Math.max(0, centre - strip.clientWidth / 2));
+      const secs = [...document.querySelectorAll('[data-day-key]')];
+      const tops = secs.map(e => e.getBoundingClientRect().top);
+      const passed = tops.filter(t => t <= 140).length;
       return {
         anchorKey: anchor?.dataset.chip ?? null,
         off: want === null ? null : Math.round((strip.scrollLeft - want) * 10) / 10,
         at: Math.round(strip.scrollLeft),
+        scrollY: Math.round(window.scrollY),
+        sections: secs.length,
+        passed,
+        firstTop: tops.length ? Math.round(tops[0]) : null,
+        lastTop: tops.length ? Math.round(tops[tops.length - 1]) : null,
+        chips: chips.length,
       };
     }, landed.key);
   })();
   const tell = nudged
-    ? ` — after a 1px nudge: aria-current ${nudged.anchorKey}, scrollLeft ${nudged.at}, ${nudged.off}px off`
+    ? ` — after a 1px nudge and a synthetic scroll: aria-current ${nudged.anchorKey}, ` +
+      `scrollLeft ${nudged.at}, ${nudged.off}px off, scrollY ${nudged.scrollY}, ` +
+      `${nudged.sections} sections (${nudged.passed} above the chrome, ` +
+      `first top ${nudged.firstTop}, last ${nudged.lastTop}), ${nudged.chips} chips`
     : '';
 
   if (!rail) {
