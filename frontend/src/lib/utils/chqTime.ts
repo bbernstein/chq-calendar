@@ -159,7 +159,39 @@ export function chqDateAt(
  *    naive shape yields an Invalid Date, which `groupEventsByDay` turns into
  *    its `NaN-NaN-NaN` key rather than crashing.
  */
+/**
+ * Instants already resolved from a `startDate` string, keyed by that string.
+ *
+ * `parseEventDate` is a pure function of its input, and the feed hands the
+ * same strings back on every pass: the filter reads each event's date, then
+ * `groupEventsByDay` reads it again, then the rail's day keys and counts read
+ * it again, then every rendered card formats it. Each of those calls used to
+ * go through `chqDateAt` into `Intl.formatToParts`, which a CPU profile of a
+ * cold load put at **493ms of JS self time — the single largest cost on the
+ * page**, ahead of Preact's own diffing.
+ *
+ * Stores the *timestamp*, not the `Date`. A `Date` is mutable, and handing
+ * every caller the same instance would let one `setHours` corrupt every other
+ * reader — the same hazard `dayWindow` records for its `MIN_INSTANT`
+ * singletons. A number cannot be mutated, and rebuilding a `Date` from it
+ * costs nothing next to an `Intl` round-trip.
+ *
+ * Unbounded, deliberately: it is keyed by the strings a year's feed actually
+ * contains (~1,700), it grows only when a reader switches to a year they have
+ * not seen, and every entry is 8 bytes plus its key. An eviction policy would
+ * be more code than the thing it manages.
+ */
+const parsedInstants = new Map<string, number>();
+
 export function parseEventDate(s: string): Date {
+  const cached = parsedInstants.get(s);
+  if (cached !== undefined) return new Date(cached);
+  const parsed = parseEventDateUncached(s);
+  parsedInstants.set(s, parsed.getTime());
+  return parsed;
+}
+
+function parseEventDateUncached(s: string): Date {
   // An explicit offset or `Z` means the string already names an absolute
   // instant, so honour it rather than re-reading the digits as Institution
   // wall time. The CHQ feed has never emitted one — every event carries a
