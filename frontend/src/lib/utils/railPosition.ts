@@ -62,6 +62,21 @@ export const RAMP_MAX_PX = 200;
  * phase 4 deleted the render window and then the view window, so there is no
  * subset left to lag behind.) Such days are skipped rather than ending the
  * walk.
+ *
+ * **Returns null when it could not measure a single day**, which is not the
+ * same as "nothing has passed the chrome" even though the walk reaches the
+ * end in both cases. Answering `keys[0]` for the second is right — the
+ * reader is above the first day. Answering it for the first is a confident
+ * report of the first day of the YEAR based on no evidence at all, and
+ * because both consumers only re-derive on a scroll, a wrong answer here
+ * survives until the reader's next gesture.
+ *
+ * That is not hypothetical. CI on Linux WebKit, after a landing the geometry
+ * confirms reached today: the strip at `scrollLeft 0`, `aria-current` on
+ * 2026-01-03, the reader on 2026-08-27 — and one pixel of scroll snapped
+ * both to today. Two hooks that share this walk disagreeing with the page
+ * they measure was the tell; each had re-run it against a DOM that had not
+ * caught up, and pinned itself to the fallback.
  */
 export function resolveAnchor(
   keys: string[],
@@ -74,10 +89,15 @@ export function resolveAnchor(
   // chrome, and the reader is plainly looking at the top of the list.
   let key = keys[0];
   let anchored = false;
+  // Whether any day could be measured at all. Without this the fallback
+  // above is returned in two situations that mean opposite things — see the
+  // doc comment.
+  let measured = false;
 
   for (const candidate of keys) {
     const top = topOf(candidate);
     if (top === null) continue;
+    measured = true;
     if (top <= limit) {
       key = candidate;
       anchored = true;
@@ -91,6 +111,11 @@ export function resolveAnchor(
       ? { key, nextKey: candidate, nextTop: top }
       : { key, nextKey: null, nextTop: null };
   }
+
+  // Nothing was measurable, so there is no answer to give. Deliberately not
+  // `keys[0]`: a caller that keeps its previous anchor for one frame is
+  // right far more often than one told the reader is in January.
+  if (!measured) return null;
 
   // Everything mounted has passed — the last day of the list.
   return { key, nextKey: null, nextTop: null };

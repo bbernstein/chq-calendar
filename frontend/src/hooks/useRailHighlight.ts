@@ -321,8 +321,21 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     const limit = topChromeHeightPx() + 1;
     const resolved = resolveAnchor(windowDayKeys, limit, daySectionTop);
     if (!resolved) {
-      hide();
-      lastAnchor.current = null;
+      // No days at all — there is nothing to highlight, so blank it.
+      if (windowDayKeys.length === 0) {
+        hide();
+        lastAnchor.current = null;
+        return;
+      }
+      // Otherwise the walk could not measure a single day this pass: the
+      // commit that produced the list has not landed as DOM yet. Leave the
+      // pill and the strip exactly where they are rather than blanking them
+      // or moving them on no evidence. The next pass has a DOM to read.
+      //
+      // Before `resolveAnchor` could say "I don't know", this arrived as a
+      // confident `keys[0]` instead, and the strip drove itself to the first
+      // day of the year — where it stayed, because nothing re-derives without
+      // a scroll.
       return;
     }
 

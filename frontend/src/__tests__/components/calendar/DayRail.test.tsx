@@ -37,6 +37,33 @@ function renderRail(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
 }
 
 /** As `renderRail`, but returning the container for the layer queries below. */
+/**
+ * Mount the day sections `windowDayKeys` names.
+ *
+ * Three tests below assert that the rail MOVES — that it writes `scrollLeft`
+ * rather than calling `scrollIntoView`. They named three days in
+ * `windowDayKeys` and mounted none of them, so `daySectionTop` returned null
+ * for every one and `resolveAnchor` measured nothing at all.
+ *
+ * They passed anyway, because the walk used to answer `keys[0]` in that case
+ * — a confident "the reader is on the first day" derived from no measurement.
+ * These tests were resting on exactly the defect that put the strip at
+ * `scrollLeft 0` with `aria-current` on January 3 in CI, and once the walk
+ * learned to say "I don't know", the rail correctly stopped moving and they
+ * failed.
+ *
+ * Not one assertion changed. What was missing was a world for the rail to
+ * measure, and this supplies it — jsdom's all-zero rects put every section at
+ * `top: 0`, which is above the chrome line and so genuinely "passed".
+ */
+function mountDaySections(keys = ['2026-07-04', '2026-07-05', '2026-07-06']) {
+  for (const key of keys) {
+    const section = document.createElement('div');
+    section.setAttribute('data-day-key', key);
+    document.body.appendChild(section);
+  }
+}
+
 function renderRailIn(overrides: Partial<Parameters<typeof DayRail>[0]> = {}) {
   return render(
     <DayRail
@@ -324,6 +351,7 @@ describe('DayRail', () => {
   it('attaches the highlight to a strip that appears only after the chips arrive', () => {
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
     try {
+      mountDaySections();
       const { container, rerender } = renderRailIn({ chips: [] });
       expect(container.querySelector('[data-rail-strip]')).toBeNull();
 
@@ -419,6 +447,7 @@ describe('DayRail', () => {
     // shut. Real rAF assigns before the callback runs and is unaffected.
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
     try {
+      mountDaySections();
       const { container } = render(
         <DayRail chips={chips} anchorDay="2026-07-04" todayKey="2026-07-05" windowDayKeys={['2026-07-04', '2026-07-05', '2026-07-06']}
           bandSegments={defaultBandSegments} weekDestinations={defaultWeekDestinations} onSelectWeek={vi.fn()}
