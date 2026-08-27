@@ -96,6 +96,63 @@ test('a reader gesture before the list arrives does suppress it', () => {
   expect(scrollToDay).not.toHaveBeenCalled();
 });
 
+// Copilot's finding on PR #282, reproduced in a browser before it was
+// believed: at post-season, a cold load opens on the off-season landing, the
+// list never mounts, and so NOTHING has ever landed — `landedFor` is still
+// null. Pressing "Browse the 2026 season" is a `mousedown`, which the old
+// event set took for a scroll, so the guard latched and the list it had just
+// asked for opened at `scrollY 0` on January 3. Measured: real mouse click
+// scrollY 0 / near 2026-01-03, synthetic `.click()` scrollY 159,757.
+//
+// Browser check 6 drives that exact button and passed anyway, because
+// `element.click()` dispatches a bare `click` and no `mousedown` at all. It
+// could not have caught this.
+test('pressing a control is not the reader scrolling', () => {
+  mountDay('2026-07-04');
+  const scrollToDay = vi.fn();
+  const { rerender } = renderHook(
+    ({ listMounted }) => useInitialLanding({ targetDay: '2026-07-04', year: 2026, listMounted, scrollToDay }),
+    { initialProps: { listMounted: false } }
+  );
+  const cta = document.createElement('button');
+  cta.textContent = 'Browse the 2026 season';
+  document.body.appendChild(cta);
+  cta.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+  rerender({ listMounted: true });
+  expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-04');
+});
+
+test('activating that control from the keyboard is not scrolling either', () => {
+  mountDay('2026-07-04');
+  const scrollToDay = vi.fn();
+  const { rerender } = renderHook(
+    ({ listMounted }) => useInitialLanding({ targetDay: '2026-07-04', year: 2026, listMounted, scrollToDay }),
+    { initialProps: { listMounted: false } }
+  );
+  const cta = document.createElement('button');
+  document.body.appendChild(cta);
+  // Space is the awkward one: it scrolls the document, and activates a focused
+  // button. `keyScrollsPage` separates them by target, which is why the button
+  // has to be the target here rather than `window`.
+  cta.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  cta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  rerender({ listMounted: true });
+  expect(scrollToDay).toHaveBeenCalledExactlyOnceWith('2026-07-04');
+});
+
+test('a scrolling keypress still suppresses the landing', () => {
+  mountDay('2026-07-04');
+  const scrollToDay = vi.fn();
+  const { rerender } = renderHook(
+    ({ listMounted }) => useInitialLanding({ targetDay: '2026-07-04', year: 2026, listMounted, scrollToDay }),
+    { initialProps: { listMounted: false } }
+  );
+  // Not on a control, and a key that genuinely pages the document.
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }));
+  rerender({ listMounted: true });
+  expect(scrollToDay).not.toHaveBeenCalled();
+});
+
 test('sets scrollRestoration to manual, and puts it back on unmount', () => {
   // The browser cannot restore usefully here: the document is ~160,000px once
   // the year mounts and a fraction of that while it is still arriving, so a

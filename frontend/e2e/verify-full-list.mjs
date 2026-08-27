@@ -837,6 +837,87 @@ for (const engineName of ['chromium', 'webkit']) {
 }
 
 // ---------------------------------------------------------------------------
+// 12 — pressing the off-season landing's own button still lands.
+//
+// The regime with nothing behind it: after the season's last event day and
+// before the manifest rolls over, a cold load opens on the landing and the
+// list NEVER mounts, so nothing has ever landed and `useInitialLanding`'s
+// once-per-year latch is still null. That is the only state in which its
+// "the reader took over" guard can fire on a first landing — and a press on
+// the landing's own CTA was arming it. The list the reader had just asked
+// for opened at `scrollY 0`, on January 3.
+//
+// **This must be a real mouse click.** `element.click()` dispatches a bare
+// `click` and no `mousedown` at all, which is why check 6 drives the same
+// button and could never have seen this. Measured before the fix: real click
+// scrollY 0 near 2026-01-03, synthetic click scrollY 159,757.
+//
+// `enterSeasonFromLanding` cannot stand in for it either — it taps a rail
+// chip, which travels as an EXPLICIT navigation and bypasses the guard on
+// purpose. Nothing else in any suite presses this button.
+//
+// The clock is derived from the feed rather than hardcoded: five days past
+// the last day the current year has any event on, clamped inside September so
+// it cannot cross the October manifest rollover.
+{
+  const probe = await newPage();
+  const lastDay = await probe.evaluate(() => {
+    const keys = [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey);
+    return keys.sort()[keys.length - 1] ?? null;
+  });
+  await probe.close();
+
+  if (!lastDay) {
+    skip('12 pressing the landing CTA lands on the season it asked for',
+      'no day sections to read a season end from');
+  } else {
+    const after = new Date(`${lastDay}T12:00:00Z`);
+    after.setUTCDate(after.getUTCDate() + 5);
+    const rollover = new Date(`${lastDay.slice(0, 4)}-09-30T12:00:00Z`);
+    const pinned = after > rollover ? rollover : after;
+
+    const ctx = await browser.newContext({
+      viewport: { width: 390, height: 844 }, timezoneId: 'America/New_York',
+    });
+    const page = await ctx.newPage();
+    await page.clock.setFixedTime(pinned);
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    const landing = await page.waitForSelector('[data-testid="off-season-landing"]', { timeout: 30000 })
+      .then(() => true).catch(() => false);
+
+    if (!landing) {
+      // The pin did not produce the regime this check is about. Said out
+      // loud rather than silently passing: a check that quietly stops
+      // exercising its subject is worse than one that is not there.
+      skip('12 pressing the landing CTA lands on the season it asked for',
+        `pinned to ${pinned.toISOString().slice(0, 10)} and the off-season landing did not appear`);
+      await page.close();
+    } else {
+      const buttons = await page.$$('[data-testid="off-season-landing"] button');
+      const labelled = await Promise.all(
+        buttons.map(async b => [b, (await b.textContent()).trim()]));
+      const cta = labelled.find(([, t]) => /^Browse the \d{4} season$/.test(t));
+      if (!cta) {
+        skip('12 pressing the landing CTA lands on the season it asked for',
+          `no "Browse the N season" button — offered: ${labelled.map(l => l[1]).join(' | ')}`);
+        await page.close();
+      } else {
+        await cta[0].click(); // a REAL press: mousedown, mouseup, click
+        await page.waitForSelector('[data-day-key]', { timeout: 30000 });
+        await settle(page);
+        const landed = await landedSection(page);
+        check('12 pressing the landing CTA lands on the season it asked for',
+          landed.scrollY > 0 && landed.key !== landed.first,
+          `landed on ${landed.key} at scrollY ${landed.scrollY} ` +
+          `(first section ${landed.first}, ${landed.days} sections, ` +
+          `clock pinned to ${pinned.toISOString().slice(0, 10)})`);
+        await page.close();
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 11 — axe over the list, with the whole year mounted.
 //
 // `aria-hidden-focus` specifically: 1,687 cards are in the DOM at once and

@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { daySectionElement } from '@/lib/utils/daySections';
+import {
+  dragScrollsPage, gestureScrollsPage, keyScrollsPage, pressIsOnScrollbar,
+} from '@/lib/scrollGestures';
 import type { DayKey } from '@/lib/utils/dayWindow';
 
 /**
@@ -123,9 +126,24 @@ export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, e
   // had deliberately gone somewhere, latched, and never landed. A browser
   // restoring scroll is not a reader choosing a day.
   //
-  // A real gesture is. These are the four `useSiteHeaderReveal` already treats
-  // as "the reader is driving", and the same principle `useDayAnchor` uses to
-  // drop its settle hold: a gesture is intent, a scroll offset is a number.
+  // A real gesture is — but only a gesture that actually SCROLLS. This comment
+  // used to claim the event set below was "the four `useSiteHeaderReveal`
+  // already treats as the reader driving". It was not: that hook listens for
+  // `mousemove`, never `mousedown`, and puts every event through
+  // `scrollGestures` before believing it. This hook listened for a bare
+  // `mousedown` and believed it outright.
+  //
+  // A press scrolls nothing. Pressing the off-season landing's own
+  // "Browse the N season" button is a `mousedown` milliseconds before the list
+  // it asks for mounts — so the press armed this guard, the guard latched, and
+  // the reader was left sitting on January 3 of a season they had just asked
+  // to be shown. Reproduced in a browser at `scrollY 0`; found by Copilot on
+  // PR #282. The same held for Enter or Space on that button.
+  //
+  // So the question is `scrollGestures`', not this hook's: a wheel over a
+  // nested scroller, a horizontal rail pan, a keystroke into a search field and
+  // a drag that began on a control all fail to scroll the page, and none of
+  // them is the reader asking to be somewhere else.
   //
   // Landing on today is this app's primary function — it exists to answer
   // "what is on today, and what is on next" — so the bar for suppressing it
@@ -139,15 +157,72 @@ export function useInitialLanding({ targetDay, year, listMounted, scrollToDay, e
     const previous = history.scrollRestoration;
     try { history.scrollRestoration = 'manual'; } catch { /* older Safari */ }
 
+    // The element a mouse drag began on, and the previous touch position —
+    // both are things `scrollGestures` needs and neither is readable from the
+    // event in hand. Mirrors `useSiteHeaderReveal`'s wiring, deliberately: two
+    // hooks asking "did the reader scroll?" must not answer it differently.
+    let dragOrigin: Element | null = null;
+    let lastTouchY: number | null = null;
+
     const takeOver = () => { readerTookOver.current = true; };
-    const gestures = ['wheel', 'touchmove', 'keydown', 'mousedown'] as const;
+
+    const onPress = (e: Event) => {
+      dragOrigin = e.target instanceof Element ? e.target : null;
+      if (e.type === 'touchstart') {
+        lastTouchY = (e as TouchEvent).touches?.[0]?.clientY ?? null;
+        return;
+      }
+      // A press in the scrollbar track pages the view and fires nothing else —
+      // no wheel, no key, no touch, no move. It is the one press that IS a
+      // scroll. Every other press, the CTA above included, is not.
+      if (pressIsOnScrollbar(e as MouseEvent)) takeOver();
+    };
+    const onRelease = () => { dragOrigin = null; lastTouchY = null; };
+
+    const onGesture = (e: Event) => {
+      if (e.type === 'keydown') {
+        if (keyScrollsPage(e as KeyboardEvent)) takeOver();
+        return;
+      }
+      if (e.type === 'mousemove') {
+        if (dragScrollsPage(e as MouseEvent, dragOrigin)) takeOver();
+        return;
+      }
+      // A single `touchmove` carries no direction; it has to be reconstructed
+      // from the previous position, or `gestureScrollsPage` cannot tell a pan
+      // that chains to the page from one a nested scroller keeps.
+      let delta = 0;
+      if (e.type === 'touchmove') {
+        const y = (e as TouchEvent).touches?.[0]?.clientY ?? null;
+        if (y !== null && lastTouchY !== null) delta = lastTouchY - y;
+        lastTouchY = y;
+        if (delta === 0) return;
+      }
+      if (gestureScrollsPage(e, delta)) takeOver();
+    };
+
+    const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
+    const presses = ['mousedown', 'touchstart'] as const;
+    const releases = ['mouseup', 'touchend'] as const;
     for (const type of gestures) {
-      window.addEventListener(type, takeOver, { passive: true, capture: true });
+      window.addEventListener(type, onGesture, { passive: true, capture: true });
+    }
+    for (const type of presses) {
+      window.addEventListener(type, onPress, { passive: true, capture: true });
+    }
+    for (const type of releases) {
+      window.addEventListener(type, onRelease, { passive: true, capture: true });
     }
     return () => {
       try { history.scrollRestoration = previous; } catch { /* older Safari */ }
       for (const type of gestures) {
-        window.removeEventListener(type, takeOver, { capture: true });
+        window.removeEventListener(type, onGesture, { capture: true });
+      }
+      for (const type of presses) {
+        window.removeEventListener(type, onPress, { capture: true });
+      }
+      for (const type of releases) {
+        window.removeEventListener(type, onRelease, { capture: true });
       }
     };
   }, []);
