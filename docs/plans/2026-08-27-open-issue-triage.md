@@ -1,8 +1,12 @@
 # Open-issue triage — 2026-08-27
 
-**Status:** Reference. Supersedes `2026-08-23-open-issue-triage.md`, whose
-ordering is spent: items 2–7 of that list (#235, #252, #234, #257, #254, #244)
-all shipped between 08-23 and 08-24.
+**Status:** Reference — the point-in-time *record* of this pass. The live
+work queue derived from it is **`2026-08-27-work-queue.md`**; read that one
+first if you are picking up work.
+
+Supersedes `2026-08-23-open-issue-triage.md`, whose ordering is spent: items
+2–7 of that list (#235, #252, #234, #257, #254, #244) all shipped between
+08-23 and 08-24.
 
 Every claim below was re-verified against `main` (`909a68f`) and, where the
 issue made a data claim, against the live production feed. Verification
