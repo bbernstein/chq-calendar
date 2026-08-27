@@ -125,6 +125,34 @@ export function useDayAnchor(windowDayKeys: string[]): {
     const delta = el.getBoundingClientRect().top - stickyOffset();
     scrollWindowBy(delta);
     settleRef.current = { key, top: stickyOffset() };
+
+    // Re-announce the move one frame later.
+    //
+    // `scrollWindowBy` fires a native `scroll` event already, and everything
+    // that derives from scroll position — this hook's own anchor, the rail's
+    // highlight and strip — listens for it. That is enough whenever those
+    // listeners are attached by the time it is dispatched, and on the load
+    // landing they are not reliably: the rail renders nothing until the feed
+    // arrives, so its listeners attach on a render that can land either side
+    // of the landing scroll. Lose that race and nothing re-derives, because
+    // nothing else scrolls: the page is now still, and it stays still.
+    //
+    // Measured in CI on Linux WebKit, after a landing the geometry confirms
+    // reached today: `aria-current` on 2026-01-03 and the strip at the first
+    // day of the YEAR — then a single further scroll event, with the page
+    // already settled and every one of the 89 sections measurable, put both
+    // on today and the strip 0px off centre. The listeners were fine; they
+    // had simply never been told.
+    //
+    // A frame later, so it lands after the commit that attaches them. Free
+    // when they already heard the first one: both consumers are
+    // rAF-throttled and re-derive from the same DOM, so a second
+    // notification computes the same answer. It carries no movement, so
+    // anything reading a delta (the header's reveal rule) sees zero and
+    // decides nothing.
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('scroll'));
+    });
   }, []);
 
   // Holds the day `scrollToDay` last targeted at the sticky offset until it
