@@ -27,7 +27,24 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
       }
     }
 
-    if (!forceRefresh && globalEventData.events && globalEventData.loadedAt && globalEventData.year === year) {
+    // `!dataLoaded` is what stops this branch re-delivering data the reader is
+    // already looking at.
+    //
+    // The provider's global cache lands on its own schedule, and measured on a
+    // cold load it lands ~800ms AFTER this hook's own fetch has already
+    // populated `events`: `setEvents` at 936ms from the fetch, then again at
+    // 1734ms from here. The second call re-runs `decodeEventHtmlEntities` over
+    // all 1,687 rows, so every event object is new — identical in content,
+    // different by identity — which changes the `event` prop of every mounted
+    // card and defeats `EventCard`'s memo wholesale. Measured: a second full
+    // pass of 1,687 card renders inside a 386ms long task, rendering data that
+    // was already on screen.
+    //
+    // The `dataLoaded` guard below already says "we have this year's events,
+    // stop"; it simply sat AFTER this branch, so this branch never reached it.
+    // Ordering, not logic — but the cost was a whole redundant render of the
+    // year (#274 phase 4).
+    if (!forceRefresh && !dataLoaded && globalEventData.events && globalEventData.loadedAt && globalEventData.year === year) {
       const decodedEvents = globalEventData.events.map(decodeEventHtmlEntities);
       setEvents(decodedEvents);
       setAvailableCategories(globalEventData.categories.map(cat => decodeHtmlEntities(cat) || cat));
