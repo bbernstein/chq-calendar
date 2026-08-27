@@ -613,7 +613,9 @@ function HomeContent() {
               mechanism would have removed the landing (#269) with no test failing.
               As of this step the scope it depended on no longer exists at all.
 
-              `EmptyState` keeps its own, different job: a filter that matches nothing.
+              `EmptyState` keeps its own, different job — and it has two, which is why
+              it is told which one it is in: a filter that matches nothing, and rule 3
+              of `landingState.ts` (a failed or empty feed mid-season, no filters set).
             */}
             {loading ? (
               <LoadingSpinner />
@@ -628,7 +630,7 @@ function HomeContent() {
               // every surviving row has an unparseable `startDate`, and the
               // list below would then render as a silent blank rather than
               // saying anything at all.
-              <EmptyState />
+              <EmptyState hasFilters={filters.hasFilters} />
             ) : (
               // `EventListView` directly: `EventList` was a pass-through
               // wrapper around it plus a "Show earlier" button, and with the

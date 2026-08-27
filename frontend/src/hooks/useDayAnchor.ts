@@ -6,11 +6,13 @@ import { scrollWindowBy } from '@/lib/programmaticScroll';
 /**
  * How far below the viewport top a day header counts as "the one I'm reading".
  *
- * Delegates to `topChromeHeightPx` in `daySections.ts` — the filter panel's
- * scroll correction needs the identical "behind the chrome" threshold, so
- * the measurement lives in one place rather than two copies drifting apart.
- * Kept as a local alias (not a call-site rename throughout this file) to
- * keep this file's own diff minimal.
+ * Delegates to `topChromeHeightPx` in `daySections.ts` — the rail's own
+ * highlight needs the identical "behind the chrome" threshold, so the
+ * measurement lives in one place rather than two copies drifting apart. Kept
+ * as a local alias (not a call-site rename throughout this file) to keep this
+ * file's own diff minimal. The filter panel's scroll correction was the third
+ * consumer until #274 phase 3 made the panel an overlay that changes no
+ * layout, and so needs no correction.
  */
 function stickyOffset(): number {
   return topChromeHeightPx();
@@ -130,10 +132,13 @@ export function useDayAnchor(windowDayKeys: string[]): {
   //
   // The only hold of its kind left in the app: `EventList` used to carry the
   // identical pattern for its own upward-prepend correction, and #274 phase 4
-  // deleted that half along with the render window and, in phase 4's own last
-  // step, every path that could insert a day above the reader at all. What
-  // this one covers is unchanged: a scroll decision invalidated by content
-  // changing height *after* it was made.
+  // deleted that half along with the render window and every path that could
+  // insert a day above the reader at all. What this one covers is unchanged,
+  // and is not about insertion: a scroll decision invalidated by content
+  // changing height *after* it was made. Sections carry `content-visibility:
+  // auto`, so every one of them swaps a `contain-intrinsic-size` estimate for
+  // a real height as it comes into view — which is reason enough on its own,
+  // with no window anywhere in the app.
   // Lives here, not in `page.tsx`'s pending-scroll effect, because holding a
   // position requires knowing the target day's element and the sticky
   // offset — both already private to this hook (`daySectionElement`,
@@ -195,8 +200,12 @@ export function useDayAnchor(windowDayKeys: string[]): {
     //
     // It cannot cancel the hold the same interaction is about to arm: DOM
     // event order is mousedown → mouseup → click, every rail control arms via
-    // `onClick`, and the arming itself happens later still, in the
-    // pending-scroll effect one commit after that click. And unlike `scroll`,
+    // `onClick`, and `scrollToDay` sets `settleRef.current` synchronously in
+    // that handler — so the arming is strictly after this `stop()` has run.
+    // (The reason recorded here was that the arming happened "in the
+    // pending-scroll effect one commit after that click", which was true of
+    // an earlier shape and is not of this one. The conclusion is unchanged;
+    // the margin is one call stack rather than one commit.) And unlike `scroll`,
     // a programmatic scroll synthesises no pointer event, so our own
     // correction cannot trip this. (It also announces itself via
     // `scrollWindowBy`, which is what the site header's reveal listens to —

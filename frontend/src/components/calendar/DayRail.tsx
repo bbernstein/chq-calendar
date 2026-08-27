@@ -129,12 +129,17 @@ export interface DayRailProps {
 }
 
 /**
- * The day rail — the fine-grained half of D4's two strips, sticky beneath
- * the week strip.
+ * The day rail — the day chips, and above them the week band and its chooser.
  *
- * Chips in, callbacks out. The window lives in `useFilterState` and the
- * *discrete* anchor in `useDayAnchor`; the rail owns neither, and still
- * decides nothing about which day is current.
+ * `page.tsx` renders it as a sibling of the card that holds the
+ * landing/empty/list branches, sticky in its own right rather than nested
+ * inside anything.
+ *
+ * Chips in, callbacks out. The *discrete* anchor lives in `useDayAnchor` and
+ * the continuous highlight in `useRailHighlight`; the rail owns neither, and
+ * still decides nothing about which day is current. It used to sit beneath a
+ * separate week filter strip and read a view window out of `useFilterState`;
+ * #274 phase 4 deleted both, and there is no window anywhere in the app now.
  *
  * It is no longer layout-free, though, and the old claim that it could be
  * tested without a layout stub no longer holds: `useRailHighlight` measures

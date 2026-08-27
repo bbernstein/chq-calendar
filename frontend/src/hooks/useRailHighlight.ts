@@ -364,14 +364,20 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   }, [keysId, hide, startTween, writeScrollLeft]);
 
   // `nodeGeneration` is a dependency on both effects below for the same
-  // reason the listener effect has it, and missing it is subtler here: the
-  // chip row can appear without the chip *list* changing at all. `DayRail`
-  // returns null whenever it has no chips, and the whole rail is mounted
-  // inside the list's own conditional branches, so the row can be unmounted
-  // and remounted with `chips` populated the entire time. When it comes
-  // back, `chipsId` and `keysId` are unchanged, so without this the row
-  // would never be measured, `extents` would stay empty, and the pill would
-  // not paint at all.
+  // reason the listener effect has it: `chipsId` and `keysId` describe the
+  // DATA, and what these effects need to know is when the ELEMENTS exist.
+  // `DayRail` returns null whenever it has no chips (`chips.length === 0` —
+  // before the feed lands, and for a year with no navigable days), so the row
+  // detaches and re-attaches over a page's life, and the callback refs that
+  // bump `nodeGeneration` are the only thing that observes it. Without this
+  // the row could go unmeasured, `extents` would stay empty, and the pill
+  // would not paint at all.
+  //
+  // The reason recorded here used to be that "the whole rail is mounted
+  // inside the list's own conditional branches", so the row could be
+  // unmounted and remounted with `chips` populated the entire time. That was
+  // never true of this tree: `page.tsx` renders `DayRail` as a SIBLING of the
+  // card holding the landing/empty/list branches, not inside them.
   // Two effects, not one, and the split is not cosmetic: `measureChips` walks
   // every chip in the row calling `getBoundingClientRect` — 251 of them in a
   // full season — and the row's geometry depends on the *chips*, never on the

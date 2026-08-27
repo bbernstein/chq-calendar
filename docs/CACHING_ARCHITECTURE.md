@@ -209,11 +209,15 @@ const fileData = await response.json();
 // Extract events from the data array
 const events = fileData.data;
 
-// All subsequent filtering is client-side
-const filteredEvents = events.filter(event => {
-  return matchesSearch(event, searchTerm) &&
-         matchesWeek(event, selectedWeeks) &&
-         matchesCategory(event, selectedCategories);
+// All subsequent filtering is client-side. There is no date or week stage:
+// #274 phase 4 deleted them, so the pipeline never parses an event date —
+// see `filterHelpers.ts`, and the test that holds it to that.
+const filteredEvents = filterEvents(events, {
+  searchTerm,
+  selectedLocationsLowerSet,
+  selectedTagsLowerSet,
+  showFavoritesOnly,
+  favoriteIds,
 });
 ```
 

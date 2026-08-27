@@ -783,11 +783,17 @@ describe('useSiteHeaderReveal', () => {
  * The app's own scrolls announce themselves, so the baseline can be resynced
  * for those. What cannot announce itself is what the BROWSER does in reaction
  * to a layout change we made without scrolling at all. Measured in WebKit:
- * opening the filter panel from the rail with the header revealed,
- * `topmostVisibleDaySection()` found no section to anchor to, so
- * `useFilterPanel` captured no reference, corrected nothing and announced
- * nothing — and WebKit's scroll anchoring then moved the page 44px by itself.
- * The header hid on a tap nobody scrolled.
+ * opening the filter panel from the rail with the header revealed, the
+ * panel's scroll correction found no day section to anchor to, so it captured
+ * no reference, corrected nothing and announced nothing — and WebKit's scroll
+ * anchoring then moved the page 44px by itself. The header hid on a tap
+ * nobody scrolled.
+ *
+ * That correction no longer exists — #274 phase 3 made the panel an overlay
+ * that changes no layout, and its helper `topmostVisibleDaySection` has since
+ * been deleted with its last caller. The guard below is what remains, and it
+ * is the part worth keeping: a browser-initiated scroll is still not the
+ * reader scrolling, whatever provoked it.
  *
  * Chasing that by making every layout-changing site announce is a guard that
  * has to be remembered at each new site. Requiring a gesture is a guard that

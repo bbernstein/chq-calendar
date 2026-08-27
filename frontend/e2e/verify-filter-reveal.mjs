@@ -258,6 +258,10 @@ const strandedPanels = p => p.evaluate(() =>
   // renamed — the panel then stays open because nothing happened, and the
   // check PASSES having proved nothing about dismissal. That is the vacuous
   // pass this whole suite is otherwise about, sitting in the middle of it.
+  // Measured before the filter so 10b has a number to restore TO. Without it
+  // that check read `restoredDays > 0`, which the narrowed list satisfies —
+  // see below.
+  const daysUnfiltered = await p.evaluate(() => document.querySelectorAll('[data-day-key]').length);
   const clicked = await p.evaluate(() => {
     const chips = [...document.querySelectorAll('button[title]')]
       .filter(b => b.offsetParent && b.getAttribute('title') !== 'Filters');
@@ -289,9 +293,19 @@ const strandedPanels = p => p.evaluate(() =>
   }, clicked);
   await p.waitForTimeout(900);
   const restoredDays = await p.evaluate(() => document.querySelectorAll('[data-day-key]').length);
+  // `restoredDays > 0` was the condition here, and "restores the list" was
+  // the half of this check's name that it did not test: the paragraph above
+  // records that selecting the Amphitheater takes the list from 89 day
+  // sections to 68, and 68 > 0. The check passed with the venue still
+  // applied — with the deselect click a no-op, which is exactly the "silent
+  // `?.click()` no-op" failure check 10 above was rewritten to close.
+  //
+  // Equality against the pre-filter count is the real form, and it is safe
+  // even when the chosen chip narrows nothing (the `chips[0]` fallback):
+  // both counts are then the same number and it still holds.
   check('10b deselecting it does not dismiss either, and restores the list',
-    restored && restoredDays > 0 && await searchVisible(p),
-    `${restoredDays} day sections back`);
+    restored && restoredDays === daysUnfiltered && await searchVisible(p),
+    `${restoredDays} of ${daysUnfiltered} day sections back`);
 
   // Scrolling the panel's own overflow must not dismiss either.
   await p.evaluate(() => {
@@ -329,7 +343,8 @@ const strandedPanels = p => p.evaluate(() =>
       // reader moved 449px against a 120px gesture). The window is gone and
       // every day of the year is mounted on load, so a wheel cannot mount
       // anything. What can still change the count is the filter applied by
-      // check 10 above landing late, which is exactly the same confounder.
+      // check 10 above landing late, which is exactly the same confounder —
+      // and it is why the skip reason below no longer names the window.
       //
       // Counted in day sections rather than document height, and that matters:
       // a height threshold guesses at a magnitude, and the first one tried
@@ -337,7 +352,7 @@ const strandedPanels = p => p.evaluate(() =>
       // produced a perfect -120px result. Mounting is the mechanism, so
       // mounting is what to watch.
       skip('13 dismissal moves the reader by the gesture only, not the panel height',
-        `the render window changed during the wheel (${mountedBefore} → ${mountedAfter} day sections), ` +
+        `the mounted day set changed during the wheel (${mountedBefore} → ${mountedAfter} day sections), ` +
         `so the ${moved}px the reader moved is not attributable to the dismissal`);
     } else {
       // Expected: -WHEEL (the reader's own scroll) and nothing more. An extra
@@ -698,9 +713,11 @@ const strandedPanels = p => p.evaluate(() =>
 
   const docHeight = () => p.evaluate(() => document.documentElement.scrollHeight);
   // Reveal the header FIRST, then take the closed baseline. The reveal is a
-  // real wheel gesture, and a wheel moves the reader — which can grow the
-  // render window and change document height for reasons that have nothing to
-  // do with the panel. Measuring across it made this check report a 27px
+  // real wheel gesture, and a wheel moves the reader — which changes document
+  // height for reasons that have nothing to do with the panel, as sections
+  // coming into view swap their `contain-intrinsic-size` estimates for real
+  // heights. (Before #274 phase 4 the render window mounting more days did
+  // the same thing, and was the reason recorded here.) Measuring across it made this check report a 27px
   // change against code whose panel changes nothing (probed directly: 7417px
   // in all three states). The only thing allowed to vary between the two
   // measurements is the panel.

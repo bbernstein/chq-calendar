@@ -35,9 +35,24 @@ describe('day key arithmetic', () => {
     expect(dayKeyOf(new Date(2026, 11, 31, 0, 0))).toBe('2026-12-31');
   });
 
+  // This used to sort three hardcoded strings and assert the result, calling
+  // nothing from `dayWindow` at all — a test of `Array.prototype.sort`. The
+  // property worth holding is a property of `dayKeyOf`: it zero-pads, so
+  // sorting its output as text gives the same order as sorting the dates it
+  // came from. Everything downstream leans on that — `dayKeys` ranges, the
+  // rail's chip order, `<=`/`>=` between day keys — and a lost pad would
+  // break all of it silently. January 9 is in the set on purpose: it is the
+  // single-digit month AND day that a dropped pad reorders first.
   it('sorts lexicographically in chronological order', () => {
-    const keys = ['2026-12-31', '2026-07-05', '2026-07-15'];
-    expect([...keys].sort()).toEqual(['2026-07-05', '2026-07-15', '2026-12-31']);
+    const dates = [
+      new Date(2026, 11, 31, 0, 0),
+      new Date(2026, 6, 5, 23, 30),
+      new Date(2026, 6, 15, 12, 0),
+      new Date(2026, 0, 9, 8, 0),
+    ];
+    const chronological = [...dates].sort((a, b) => a.getTime() - b.getTime()).map(dayKeyOf);
+    expect(dates.map(dayKeyOf).sort()).toEqual(chronological);
+    expect(chronological).toEqual(['2026-01-09', '2026-07-05', '2026-07-15', '2026-12-31']);
   });
 
   it('does not throw on an Invalid Date, and yields the NaN-NaN-NaN key', () => {

@@ -58,9 +58,13 @@ function formatWeekEdge(d: Date): string {
  * header's `Wk 5/6` badge and the week filter (#257): filtering to week 5
  * hands back the whole boundary Saturday, not the half of it before noon.
  *
- * Weeks therefore overlap by one calendar day and are not a partition. For
- * "which week is it right now" — a question that needs one answer — use
- * `getCurrentWeekNumber`, which stays noon-based.
+ * Weeks therefore overlap by one calendar day and are not a partition, and
+ * nothing left in the app asks for a single answer. The two noon-based
+ * helpers that gave one — `getCurrentWeekNumber` and `getWeekNumberForDate` —
+ * are both gone: the first with #274 phase 4's date filters, the second
+ * unreferenced by anything, test or source, once the week filter strip went.
+ * A future caller that genuinely needs one answer should say which side of a
+ * boundary Saturday it wants rather than inherit noon by default.
  */
 export function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]): number[] {
   const { year, month, day } = chqParts(date);
@@ -77,12 +81,3 @@ export function weekNumbersForCalendarDate(date: Date, seasonWeeks: SeasonWeek[]
   return numbers;
 }
 
-export function getWeekNumberForDate(date: Date, seasonWeeks: SeasonWeek[]): number | null {
-  for (let i = 0; i < seasonWeeks.length; i++) {
-    const week = seasonWeeks[i];
-    if (date >= week.start && date < week.end) {
-      return week.number;
-    }
-  }
-  return null;
-}

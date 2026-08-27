@@ -26,8 +26,13 @@ export interface EventListViewProps {
 /**
  * The day sections themselves — no state, no observers, no scroll.
  *
- * Returned as a fragment rather than a wrapper so each container owns the
- * spacing element its own sentinels and controls live in.
+ * Returned as a fragment rather than a wrapper so the caller's own container
+ * owns the spacing, which is what lets `page.tsx` place the sections directly
+ * inside its list card. It used to be phrased as each container owning "the
+ * spacing element its own sentinels and controls live in" — the sentinels
+ * were the render window's `IntersectionObserver` targets and the control was
+ * "Show earlier", and #274 phase 4 deleted all of them. There is nothing in
+ * that container now but the day sections.
  */
 function EventListViewInner({
   groups, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected,

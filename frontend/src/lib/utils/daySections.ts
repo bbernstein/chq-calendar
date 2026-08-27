@@ -82,11 +82,13 @@ function lengthPx(property: string): number {
 /**
  * How far below the viewport top counts as "behind the chrome".
  *
- * Shared here rather than duplicated: `useDayAnchor`'s scrollspy, the rail's
- * highlight and the filter panel's open/close scroll correction all need the
- * same answer to "is this section still clear of the chrome", and a hardcoded
- * number would drift out of step with the real heights on browser text zoom,
- * same as every other measurement in this file.
+ * Shared here rather than duplicated: `useDayAnchor`'s scrollspy and the
+ * rail's highlight both need the same answer to "is this section still clear
+ * of the chrome", and a hardcoded number would drift out of step with the
+ * real heights on browser text zoom, same as every other measurement in this
+ * file. The filter panel's open/close scroll correction was the third
+ * consumer until #274 phase 3 made the panel an overlay: it is
+ * `position: fixed`, changes no layout, and so has no correction to make.
  *
  * The chrome is the rail PLUS the site header whenever that header is
  * revealed (#272) — the offset is `0px` while it is hidden, so this is the
@@ -114,25 +116,3 @@ export function topChromeHeightPx(): number {
   return lengthPx('--site-header-offset-target') + lengthPx('--day-rail-h');
 }
 
-/**
- * The topmost mounted day section not currently hidden behind the sticky
- * rail — a stable "what the reader is looking at" reference for a scroll
- * correction that has to survive a layout change above the list (the filter
- * panel opening or closing).
- *
- * Deliberately not `useDayAnchor`'s `anchorDay`: that names the day whose
- * header has already scrolled *past* the chrome (its top can sit right at
- * the rail's edge, mostly out of view, or above it). This instead picks the
- * first section still fully clear of the rail, which is what a reader
- * actually sees as "the top of what I'm reading" — and it's a one-shot DOM
- * query, not a subscription, so it carries none of `useDayAnchor`'s
- * scroll-listening or settle-hold machinery.
- */
-export function topmostVisibleDaySection(): HTMLElement | null {
-  const limit = topChromeHeightPx();
-  const sections = document.querySelectorAll<HTMLElement>(`[${DAY_SECTION_ATTR}]`);
-  for (const el of Array.from(sections)) {
-    if (el.getBoundingClientRect().top >= limit) return el;
-  }
-  return null;
-}

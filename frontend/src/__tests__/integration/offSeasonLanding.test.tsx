@@ -164,6 +164,11 @@ describe('page.tsx — the off-season landing', () => {
 
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+    // The advice is the point, not just the panel: this reader has a search
+    // to clear.
+    expect(screen.getByTestId('empty-state')).toHaveTextContent(
+      'Try adjusting your filters or search terms'
+    );
   });
 
   // Rule 3 from landingState.ts, reaching the screen. A July visitor whose
@@ -177,6 +182,14 @@ describe('page.tsx — the off-season landing', () => {
 
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+    // ...and must not be told to adjust filters they never set. Same panel as
+    // the check above, different reader, so the copy has to differ.
+    expect(screen.getByTestId('empty-state')).not.toHaveTextContent(
+      'Try adjusting your filters'
+    );
+    expect(screen.getByTestId('empty-state')).toHaveTextContent(
+      'don’t have any events for this year yet'
+    );
   });
 
   it('shows the list, and no landing, when the window has events', async () => {

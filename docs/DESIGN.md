@@ -177,17 +177,24 @@ deliberate convention: `@preact/preset-vite` aliases `'react'` and
 `onChange` → `onInput` event normalization that React-style form
 components rely on. See `CLAUDE.md` ("Imports") for the full reasoning.
 
-```typescript
-// Main state structure with localStorage integration
-const [events, setEvents] = useState<ChautauquaEvent[]>([]);
-const [filteredEvents, setFilteredEvents] = useState<ChautauquaEvent[]>([]);
-const [selectedWeeks, setSelectedWeeks] = useState<Set<number>>(new Set());
-const [searchTerm, setSearchTerm] = useState<string>('');
-const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+There is **no date or week state**. #274 phase 4 deleted the date scopes and
+the nine-week filter strip: the list is the whole year, and which part of it
+the reader is looking at is a scroll position, not a filter. `selectedWeeks`
+and `dateFilter` appear nowhere in the app, and an old persisted payload
+carrying them is ignored rather than migrated (`useFilterState.loadInitialState`).
 
-// Recent items tracking (FIFO with localStorage persistence)
-const [recentLocations, setRecentLocations] = useState<string[]>([]);
-const [recentCategories, setRecentCategories] = useState<string[]>([]);
+```typescript
+// Filter state — one reducer in `useFilterState`, persisted to localStorage
+{
+  searchTerm: string;
+  selectedTags: string[];
+  selectedLocations: string[];
+  showFavoritesOnly: boolean;
+  expandedDescriptions: Set<string>;
+  // Recent items tracking (FIFO with localStorage persistence)
+  recentLocations: string[];
+  recentCategories: string[];
+}
 ```
 
 **localStorage Integration:**
@@ -676,18 +683,19 @@ The application implements a robust offline-first approach that enhances user ex
 localStorage.setItem('chq-calendar-events', JSON.stringify(events));
 localStorage.setItem('chq-calendar-timestamp', new Date().toISOString());
 
-// User preferences persistence
-localStorage.setItem('chq-calendar-filters', JSON.stringify({
-  selectedWeeks,
-  selectedCategories,
+// User state — ONE key, written by `useFilterState`'s persistence effect.
+// No `selectedWeeks` and no `dateFilter`: #274 phase 4 deleted the week
+// filter and the date scopes, and a payload still carrying them is ignored
+// on load rather than migrated.
+localStorage.setItem('chq-calendar-user-state', JSON.stringify({
+  searchTerm,
+  selectedTags,
   selectedLocations,
-  searchTerm
-}));
-
-// Recent items FIFO tracking
-localStorage.setItem('chq-calendar-recent', JSON.stringify({
-  locations: recentLocations.slice(-10), // Keep last 10
-  categories: recentCategories.slice(-10)
+  showFavoritesOnly,
+  expandedDescriptions,   // array; rehydrated into a Set
+  recentLocations,        // recent items, FIFO
+  recentCategories,
+  lastSaved: Date.now(),  // 30-day expiry, see USER_STATE_EXPIRY_MS
 }));
 ```
 

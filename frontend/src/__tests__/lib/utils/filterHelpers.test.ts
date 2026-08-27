@@ -7,7 +7,7 @@
 // that replaced them, then #257's day-granular week spans. All of it went
 // with its subject. What survives here is coverage of the stages that are
 // still in the pipeline, which had none of their own before.
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
 import type { Event } from '@/lib/types';
 
@@ -172,16 +172,35 @@ describe('filterEvents does not mutate its input', () => {
 // Guards the import list itself: the merged date/week pass was the only
 // thing in this module that parsed an event date, and it is what made
 // `filterEvents` the second-most expensive thing in the pipeline.
+//
+// Watches `startDate` ITSELF, through a counting getter, rather than spying
+// on `Date.prototype.getTime`. The spy was what this test used, and it named
+// a cost the codebase no longer pays: every date comparison written here now
+// is between `yyyy-mm-dd` day-key STRINGS, so the obvious way to reintroduce
+// a date stage — `e.startDate.slice(0, 10) >= fromKey` — restores the whole
+// per-event parse-and-compare cost this test is named for while constructing
+// no `Date` and calling no `getTime`. The spy stays silent through it.
+//
+// The property access is the one thing every reintroduction has in common,
+// whether it parses, slices or compares raw, so that is what is counted.
 describe('filterEvents parses no dates', () => {
   it('never touches startDate, even for a thousand events', () => {
-    const events = Array.from({ length: 1000 }, (_, i) =>
-      makeEvent(`e${i}`, new Date(2026, 6, 15, 9, 0)));
-    const spy = vi.spyOn(Date.prototype, 'getTime');
-    try {
-      filterEvents(events, options({ selectedTagsLowerSet: new Set(['music']) }));
-      expect(spy).not.toHaveBeenCalled();
-    } finally {
-      spy.mockRestore();
-    }
+    let reads = 0;
+    const events = Array.from({ length: 1000 }, (_, i) => {
+      const event = makeEvent(`e${i}`, new Date(2026, 6, 15, 9, 0));
+      const iso = event.startDate;
+      Object.defineProperty(event, 'startDate', {
+        get() { reads++; return iso; },
+        configurable: true,
+      });
+      return event;
+    });
+
+    filterEvents(events, options({ selectedTagsLowerSet: new Set(['music']) }));
+
+    // Read before any assertion that walks the events: `toEqual` on one of
+    // them would touch `startDate` itself and inflate the count it is meant
+    // to be checking.
+    expect(reads).toBe(0);
   });
 });

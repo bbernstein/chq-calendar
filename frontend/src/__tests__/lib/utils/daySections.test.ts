@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
-import { DAY_SECTION_ATTR, daySectionElement, daySectionTop, topChromeHeightPx, topmostVisibleDaySection } from '@/lib/utils/daySections';
+import { DAY_SECTION_ATTR, daySectionElement, daySectionTop, topChromeHeightPx } from '@/lib/utils/daySections';
 
 function mount(keys: string[]) {
   document.body.innerHTML = keys
@@ -95,32 +95,5 @@ describe('topChromeHeightPx', () => {
     // The animation is a third of the way through. The answer must not be.
     document.documentElement.style.setProperty('--site-header-offset', '16px');
     expect(topChromeHeightPx()).toBe(104);
-  });
-});
-
-describe('topmostVisibleDaySection', () => {
-  it('picks the first section whose top has not yet passed the rail', () => {
-    mount(['2026-06-27', '2026-06-28', '2026-06-29']);
-    document.documentElement.style.setProperty('--day-rail-h', '40px');
-    // 06-27 has already scrolled behind the rail; 06-28 is the first one
-    // still clear of it.
-    daySectionElement('2026-06-27')!.getBoundingClientRect = () => ({ top: 10 }) as DOMRect;
-    daySectionElement('2026-06-28')!.getBoundingClientRect = () => ({ top: 40 }) as DOMRect;
-    daySectionElement('2026-06-29')!.getBoundingClientRect = () => ({ top: 500 }) as DOMRect;
-
-    expect(topmostVisibleDaySection()?.getAttribute(DAY_SECTION_ATTR)).toBe('2026-06-28');
-  });
-
-  it('returns null when no mounted section is clear of the rail', () => {
-    mount(['2026-06-27']);
-    document.documentElement.style.setProperty('--day-rail-h', '40px');
-    daySectionElement('2026-06-27')!.getBoundingClientRect = () => ({ top: 10 }) as DOMRect;
-
-    expect(topmostVisibleDaySection()).toBeNull();
-  });
-
-  it('returns null when nothing is mounted', () => {
-    mount([]);
-    expect(topmostVisibleDaySection()).toBeNull();
   });
 });
