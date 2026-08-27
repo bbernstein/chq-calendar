@@ -332,7 +332,7 @@ export const WEB_SCENARIOS: Scenario[] = [
       'Filter by category and venue on top of that — the ones you picked most recently appear as a row of shortcuts beside the Locations and Categories headings. Every filter you’ve applied shows as a chip you can clear on its own.',
       'A 📰 on an event means the Chautauquan Daily covered it. A 📖 means there’s a digital program.',
     ],
-    screenshot: { base: 'web-03-filters', alt: 'The week strip and category filters in use', ...WEB_SHOT },
+    screenshot: { base: 'web-03-filters', alt: 'The filter panel open over the list, with a category selected', ...WEB_SHOT },
   },
 ];
 
@@ -359,7 +359,7 @@ export const WEB_FEATURES: Feature[] = [
   { id: 'web-go-to-today', group: 'Dates & weeks', title: '⟳ Now takes you back to today', notObvious: true,
     blurb: 'Wherever you have wandered in the season, one tap returns you to today without changing a single filter.' },
   { id: 'web-filters-toggle', group: 'Dates & weeks', title: 'A funnel icon brings the filters back once you scroll', notObvious: true,
-    blurb: 'Once you have scrolled, a funnel icon appears at the right-hand end of the day rail, with a dot on it when you have narrowed the list. Tap it and the search field and every filter slide back over the list, without losing your place. They behave like the page header they resemble: scroll and they slide away again. The caret at their bottom edge puts them away too, as does the funnel icon itself or the Escape key.' },
+    blurb: 'A funnel icon sits in the site header, with a dot on it when you have narrowed the list. Tap it and the search field and every filter slide over the list, without losing your place. The header itself comes back on any upward flick, so the filters stay one small gesture away however far down you have read. Scroll down and they slide away again. The caret at their bottom edge puts them away too, as does the funnel icon itself or the Escape key.' },
   { id: 'web-week-themes', group: 'Dates & weeks', title: 'Weekly theme popovers', notObvious: true,
     blurb: 'Tap the underlined week label in a day header to read the theme that week is programmed around.' },
 

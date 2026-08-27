@@ -35,7 +35,17 @@ const TMP = resolve(HERE, '../.about-capture.png');
  * returns null on localhost (see src/lib/utils/calendarUrls.ts), so the
  * calendar menu would be missing its subscribe option — which the /about/web
  * copy explicitly describes. Override with ABOUT_CAPTURE_URL to shoot a local
- * build, accepting that caveat.
+ * build.
+ *
+ * NOTE: shooting an unreleased branch is what the override is for, and there
+ * is a right way to do it. `vite build && vite preview --host` serves this
+ * branch's bundle while `vite.config.ts`'s preview proxy sends `/cache/**` to
+ * https://www.chqcal.org, so the page renders the real feed rather than an
+ * empty list. Point ABOUT_CAPTURE_URL at the machine's LAN address
+ * (http://192.168.x.x:3000/), NOT at localhost or 127.0.0.1 — those two
+ * hostnames are the literal values `getWebcalUrl` refuses, and shooting them
+ * drops the subscribe row from the `05-calendar` menu without failing
+ * anything.
  */
 const BASE_URL = process.env.ABOUT_CAPTURE_URL ?? 'https://www.chqcal.org';
 const VIEWPORT = { width: 1280, height: 900 };
@@ -46,18 +56,43 @@ const FAVORITES_KEY = 'chq-calendar-favorites';
 
 /** Matches the object written by useFilterState's persistence effect. */
 const baseFilterState = {
-  searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'next',
-  selectedWeeks: [], expandedDescriptions: [], recentLocations: [],
+  searchTerm: '', selectedTags: [], selectedLocations: [],
+  expandedDescriptions: [], recentLocations: [],
   recentCategories: [], showFavoritesOnly: false,
 };
 
+/**
+ * `dateFilter` and `selectedWeeks` are gone from every seed below, and that is
+ * not tidying: #274 phase 4 deleted both from `useFilterState`, so
+ * `loadInitialState` ignores them. A seed carrying only those keys seeds
+ * NOTHING — which is what `06-weeks` had become, a photograph of an unseeded
+ * default page standing in for a week strip that no longer exists. Its subject
+ * moved to the rail's week chooser, so the shot follows it.
+ *
+ * The `open*` flags carry more weight than they used to. Phase 3 made the
+ * filter panel a fixed overlay that is `hidden` until the site header's
+ * funnel is pressed, so the search field, the venue and category lists and
+ * the active-filter chips are all off screen on load. Seeding `searchTerm` or
+ * `selectedTags` alone therefore produces a picture of a shorter list with no
+ * filter UI in it at all — true, but not a picture of searching or filtering,
+ * and indistinguishable from a seed that silently did nothing. The two shots
+ * whose subject is the control open the panel; `04-favorites`, whose subject
+ * is the resulting list, deliberately does not.
+ */
 const SHOTS = [
   { id: '01-season', filters: {} },
-  { id: '02-search', filters: { searchTerm: 'lecture' } },
-  { id: '03-filters', filters: { selectedTags: ['Lecture'], dateFilter: 'all', selectedWeeks: [3, 4] } },
-  { id: '04-favorites', filters: { showFavoritesOnly: true, dateFilter: 'all' }, favorites: true },
+  { id: '02-search', filters: { searchTerm: 'lecture' }, openFilters: true },
+  {
+    id: '03-filters',
+    // `recentCategories` as well as `selectedTags`: the row of recent-filter
+    // shortcut pills is its own documented feature (`web-recent-filters`) and
+    // is populated by having *used* a filter, which a cold seed cannot do.
+    filters: { selectedTags: ['Lecture'], recentCategories: ['Lecture', 'Music', 'Recreation'] },
+    openFilters: true,
+  },
+  { id: '04-favorites', filters: { showFavoritesOnly: true }, favorites: true },
   { id: '05-calendar', filters: {}, openCalendar: true },
-  { id: '06-weeks', filters: { dateFilter: 'all', selectedWeeks: [2, 3, 4] } },
+  { id: '06-week-chooser', filters: {}, openWeekChooser: true },
 ];
 
 async function seed(page, shot, favoriteIds) {
@@ -115,6 +150,25 @@ async function main() {
       // open rather than trusting the click.
       await page.locator('[data-event-id] [aria-label="Add to calendar"]').first().click();
       await page.waitForSelector('[role="menu"][aria-label="Add to calendar"]', { timeout: 5_000 });
+    }
+
+    if (shot.openFilters) {
+      // The funnel lives in the site header (#274 phase 3), not on the day
+      // rail, and it is the ONLY route to the panel — so this click is the
+      // whole of what makes a search or filter shot show anything. Assert the
+      // panel is really on screen: `hidden` while closed means a missed click
+      // yields a plain list, which looks like a successful capture.
+      await page.locator('header button[aria-label="Filters"]').first().click();
+      await page.waitForSelector('[data-filter-panel-box]', { state: 'visible', timeout: 5_000 });
+    }
+
+    if (shot.openWeekChooser) {
+      // Same discipline as `openCalendar` above: assert the grid is really
+      // open rather than trusting the click. A chooser that failed to open
+      // photographs an ordinary list, which is exactly the silent-wrong-shot
+      // failure this whole file's header warns about.
+      await page.locator('[data-week-chooser-trigger]').first().click();
+      await page.waitForSelector('[data-week-chooser-popover]', { timeout: 5_000 });
     }
 
     await page.screenshot({ path: TMP });
