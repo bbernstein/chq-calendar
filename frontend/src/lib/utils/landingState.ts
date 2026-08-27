@@ -85,7 +85,15 @@ function daysBetween(from: Date, to: Date): number {
  *    the countdown is the right screen either way.
  * 3. Else, the year has no events at all → `in-season`.
  * 4. Else (past the season start, no upcoming events, but the year has SOME
- *    events) → `post-season`. The season ran and is over.
+ *    events) → `post-season`. The season ran and is over. Its `opening`
+ *    and `daysUntil` name the *next* announced season past `selectedYear`
+ *    — but only while that season is still ahead of `now`. Once `now` has
+ *    reached that next season's own start, it is no longer something to
+ *    count down to (a reader who picked an archived year mid-way through
+ *    the season after it must not see a countdown that has already run
+ *    negative — #274 phase 4 task 10), so `opening`/`daysUntil` go `null`
+ *    while `nextSeasonYear` itself stays populated: the caller still has a
+ *    year to send the reader to, just not a wait to announce for it.
  *
  * **Rule 1 exists for #274 phase 4 task 3.** Once `page.tsx` derives
  * `showLanding` ahead of and independently of `filteredEvents.length === 0`
@@ -139,7 +147,13 @@ export function determineLandingState({
 
   const later = availableYears.filter(y => y > selectedYear);
   const nextSeasonYear = later.length > 0 ? Math.min(...later) : null;
-  const opening = nextSeasonYear === null ? null : seasonStart(nextSeasonYear);
+  const nextOpening = nextSeasonYear === null ? null : seasonStart(nextSeasonYear);
+  // `nextOpening` is only a countdown target while it is still ahead of
+  // `now`. Once `now` has reached it, that season is current or past, not
+  // upcoming — reporting it here would render a countdown stuck at a
+  // negative day count (the archived-year defect this rule exists to
+  // close).
+  const opening = nextOpening !== null && now < nextOpening ? nextOpening : null;
   return {
     kind: 'post-season',
     endedSeasonYear: selectedYear,

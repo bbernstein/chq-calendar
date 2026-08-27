@@ -93,6 +93,61 @@ describe('OffSeasonLanding', () => {
     expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
+  // The bug this task exists to fix (#274 phase 4 task 10): an archived
+  // year (e.g. 2025, picked from the header year menu mid-2026) has a
+  // `nextSeasonYear` (2026) whose own season has already begun, so
+  // `landingState.ts` now nulls its `opening`/`daysUntil` rather than
+  // reporting a countdown that has already run negative. This asserts what
+  // the reader should see instead: no countdown block, a heading that does
+  // not promise a wait, and a button that reads as going to the season
+  // rather than previewing one still ahead.
+  it('for an archived year whose next season has already begun, shows no countdown and offers to go there', () => {
+    renderLanding({
+      kind: 'post-season',
+      endedSeasonYear: 2025,
+      nextSeasonYear: 2026,
+      opening: null,
+      daysUntil: null,
+    });
+    expect(screen.queryByTestId('off-season-countdown')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'The 2025 season has ended' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Go to the 2026 season' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Preview the/ })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Browse the 2025 season' })).toBeInTheDocument();
+  });
+
+  // Regression for #269: a season genuinely still ahead must keep the
+  // original "See you next season" / "Preview the ..." copy — this is the
+  // live post-season-wait path and must not be swept up by task 10's fix.
+  it('still says "See you next season" and "Preview the ..." when the next season has not begun', () => {
+    renderLanding(postSeason);
+    expect(
+      screen.getByRole('heading', { name: 'See you next season' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Preview the 2027 season' })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('off-season-countdown')).toBeInTheDocument();
+  });
+
+  it('clicking "Go to the ..." reports the next year, same as "Preview the ..." does', () => {
+    const { onPreviewNextSeason } = renderLanding({
+      kind: 'post-season',
+      endedSeasonYear: 2025,
+      nextSeasonYear: 2026,
+      opening: null,
+      daysUntil: null,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Go to the 2026 season' }));
+    expect(onPreviewNextSeason).toHaveBeenCalledWith(2026);
+  });
+
   it('reports the next year to preview, and asks for the archive without a year', () => {
     const { onPreviewNextSeason, onBrowseArchiveSeason } = renderLanding(postSeason);
 

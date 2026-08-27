@@ -172,6 +172,86 @@ describe('determineLandingState', () => {
     });
   });
 
+  // The defect this task exists to fix (#274 phase 4 task 10): a reader who
+  // deliberately picks an archived year gets `post-season` for it — but if
+  // the *next* announced season has itself already opened by "now" (this is
+  // mid-2026, and the archived year is 2025, so `nextSeasonYear` is 2026,
+  // whose own season started back in June), the old code still reported that
+  // season's `opening`/`daysUntil` unconditionally. `daysUntil` went
+  // negative — "-60 days away" — because a season already under way is not
+  // upcoming.
+  //
+  // Failing output pasted from the pre-fix code (`opening`/`daysUntil`
+  // computed unconditionally from `nextSeasonYear`):
+  //   - expected { nextSeasonYear: 2026, opening: null, daysUntil: null }
+  //   + received { nextSeasonYear: 2026,
+  //                 opening: 2026-06-27T16:00:00.000Z,
+  //                 daysUntil: -61 }
+  it('nulls the next-season countdown once that next season has already begun', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2026, 8, 27, 10),
+      selectedYear: 2025,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'post-season',
+      endedSeasonYear: 2025,
+      nextSeasonYear: 2026,
+      opening: null,
+      daysUntil: null,
+    });
+  });
+
+  // The boundary: the instant the next season opens is not "still ahead" —
+  // mirrors rule 2's own strict `<` (the exact opening instant is
+  // `post-season`, not `pre-season`, for the SELECTED year); here it means
+  // the exact opening instant of the NEXT year is no longer a countdown
+  // target either.
+  //
+  // Failing output pasted from the pre-fix code:
+  //   - expected { opening: null, daysUntil: null }
+  //   + received { opening: 2026-06-27T16:00:00.000Z, daysUntil: 0 }
+  it('the next season is no longer a countdown target at its own exact opening instant', () => {
+    const state = determineLandingState({
+      now: opening(2026),
+      selectedYear: 2025,
+      availableYears: [2025, 2026],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'post-season',
+      endedSeasonYear: 2025,
+      nextSeasonYear: 2026,
+      opening: null,
+      daysUntil: null,
+    });
+  });
+
+  // Regression: a next season genuinely still ahead keeps its countdown —
+  // this is #269's real "See you next season" path and must not be nulled.
+  it('keeps the countdown when the next season has not begun yet', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2026, 9, 15, 10),
+      selectedYear: 2026,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'post-season',
+      endedSeasonYear: 2026,
+      nextSeasonYear: 2027,
+      opening: opening(2027),
+      daysUntil: expect.any(Number),
+    });
+    if (state.kind === 'post-season') {
+      expect(state.daysUntil).toBeGreaterThan(0);
+    }
+  });
+
   it('picks the lowest later year from an unsorted availableYears', () => {
     const state = determineLandingState({
       now: chqDateAt(2026, 9, 15, 10),
