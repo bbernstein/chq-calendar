@@ -114,14 +114,27 @@ async function settle(page, { quietMs = 600, timeoutMs = 12000 } = {}) {
 /**
  * Wait until the main thread has been quiet for `quietMs`.
  *
- * Load is not over when the list appears. The article- and program-link
- * sidecars arrive on their own schedule and change `EventListView`'s props,
- * which re-renders all 1,687 cards — measured 2026-08-26 at 4x throttle as a
- * single 689ms long task landing several seconds after the day sections did.
- * A scroll measurement that starts before that has happened attributes it to
- * scrolling, and reports a 753ms "frame" for a page that was not scrolling
- * badly at all. With this wait in front of it the same scroll records zero
- * long tasks.
+ * Load is not necessarily over when the list appears. The article- and
+ * program-link sidecars arrive on their own schedule; if they land after the
+ * list has rendered they change `EventListView`'s props, and a scroll
+ * measurement started before that happens attributes their cost to scrolling.
+ * That is how a page which was not scrolling badly at all once reported a
+ * 753ms "frame".
+ *
+ * **The 689ms long task this comment used to describe no longer reproduces,
+ * and the note is kept rather than deleted because the wait still earns its
+ * place.** Re-measured 2026-08-27 at 4x throttle with a render counter and a
+ * response listener: both sidecars return 200, 573 link badges render, and
+ * `EventListView` renders exactly ONCE — no post-list long task above 84ms.
+ * Two changes account for it. `EventCard` is memoized and the links are
+ * passed per card (`articleLinks?.[event.id]`), so a sidecar can only
+ * re-render the cards that actually gained a link, not all 1,687. And
+ * `useEventData` no longer delivers the year twice, so the list's single
+ * render already has the sidecar data in it.
+ *
+ * The wait stays because both of those are timing arguments, not guarantees:
+ * on a slower network the sidecars land after the list, and the re-render —
+ * smaller now, but real — moves back into the scroll window.
  *
  * `longtask` rather than a fixed sleep: the arrival time depends on the CDN
  * and the throttle rate, so any constant is either wrong or wasteful.
