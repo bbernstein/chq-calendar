@@ -6,6 +6,7 @@ import {
   addDays,
   dayKeys,
   navigableBounds,
+  summarizeEventDates,
   eventDayKeys,
   dayChips,
   eventCountsByDay,
@@ -98,10 +99,15 @@ describe('day key arithmetic', () => {
   });
 });
 
+// `navigableBounds` no longer walks the events itself — `summarizeEventDates`
+// does, once, and it takes the result (see `EventDateSummary`). These cases
+// are unchanged in what they assert; they compose the two calls so that the
+// pair still has to produce the same bounds it always did, including the
+// unparseable-date case, which is now guarded inside the summary.
 describe('navigableBounds', () => {
   it('spans the season when every event is inside it', () => {
     const events = [makeEvent('mid', new Date(2026, 6, 15, 9, 0))];
-    const bounds = navigableBounds(seasonWeeks, events);
+    const bounds = navigableBounds(seasonWeeks, summarizeEventDates(events));
     expect(bounds.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
     expect(bounds.endDay).toBe(dayKeyOf(seasonWeeks[8].end));
   });
@@ -111,13 +117,13 @@ describe('navigableBounds', () => {
       makeEvent('early', new Date(2026, 4, 1, 9, 0)),
       makeEvent('late', new Date(2026, 9, 1, 9, 0)),
     ];
-    const bounds = navigableBounds(seasonWeeks, events);
+    const bounds = navigableBounds(seasonWeeks, summarizeEventDates(events));
     expect(bounds.startDay).toBe('2026-05-01');
     expect(bounds.endDay).toBe('2026-10-01');
   });
 
   it('falls back to the season alone when there are no events', () => {
-    const bounds = navigableBounds(seasonWeeks, []);
+    const bounds = navigableBounds(seasonWeeks, summarizeEventDates([]));
     expect(bounds.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
     expect(bounds.endDay).toBe(dayKeyOf(seasonWeeks[8].end));
   });
@@ -130,7 +136,7 @@ describe('navigableBounds', () => {
       { id: 'good', title: 'good', startDate: new Date(2026, 6, 20, 9, 0).toISOString() } as Event,
       { id: 'bad', title: 'bad', startDate: 'not-a-date' } as Event,
     ];
-    const bounds = navigableBounds(seasonWeeks, events);
+    const bounds = navigableBounds(seasonWeeks, summarizeEventDates(events));
     expect(bounds.startDay).toBe(dayKeyOf(seasonWeeks[0].start));
     expect(bounds.endDay).toBe(dayKeyOf(seasonWeeks[8].end));
   });

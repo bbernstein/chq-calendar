@@ -88,31 +88,94 @@ export interface NavigableBounds {
 }
 
 /**
+ * Everything the app needs to know about an unfiltered event set's dates,
+ * from ONE parse pass over it.
+ *
+ * This type exists for a performance reason and states it plainly.
+ * `page.tsx` used to walk the whole unfiltered year three separate times —
+ * `navigableBounds` for the outer day bounds, `placeableTotal` for how many
+ * rows have a usable date, and the landing's `yearHasUpcomingEvents` for
+ * whether any event is still ahead — and each pass called `parseEventDate`
+ * on every row. That call is roughly 51x `new Date` for the feed's naive
+ * wall-time strings, because it goes through `Intl.formatToParts`. Three
+ * passes over 1,687 events is three times a cost worth paying once.
+ *
+ * Every field is a fact about the same rows, and every field drops an
+ * unparseable `startDate` the same way — see `placeableCount` for what that
+ * silence is worth naming.
+ */
+export interface EventDateSummary {
+  /** Earliest day with a parseable event, or `null` if there are none. */
+  firstDay: DayKey | null;
+  /** Latest such day, or `null`. */
+  lastDay: DayKey | null;
+  /**
+   * How many rows have a parseable `startDate` — i.e. how many the app can
+   * actually place on a day. Not `events.length`: a row the feed dates
+   * unparseably survives `filterEvents` (there is no date stage left to
+   * reject it, #274 phase 4) and is dropped by `groupEventsByDay`, so
+   * counting raw rows prints a total larger than the list underneath it.
+   */
+  placeableCount: number;
+  /**
+   * The latest parseable start instant in epoch ms, or `null`.
+   *
+   * A max rather than a predicate on purpose: "does any event start at or
+   * after t" is exactly "is the latest start at or after t", and the max can
+   * be computed once here while the threshold the caller compares against
+   * (`now`, graced) changes on every render.
+   */
+  latestStartMs: number | null;
+}
+
+/**
+ * The one pass. Every consumer below reads its result rather than the array.
+ */
+export function summarizeEventDates(events: Event[]): EventDateSummary {
+  let firstDay: DayKey | null = null;
+  let lastDay: DayKey | null = null;
+  let placeableCount = 0;
+  let latestStartMs: number | null = null;
+
+  for (const event of events) {
+    const parsed = parseEventDate(event.startDate);
+    const ms = parsed.getTime();
+    // An unparseable date must not poison anything downstream: 'NaN-NaN-NaN'
+    // sorts above every real key, so a single bad row would otherwise widen
+    // `lastDay` — and with it the rail — for the whole app. Every other call
+    // site (filterHelpers, eventHelpers, dateHelpers) already just drops such
+    // a row; match that, in the one place that now parses.
+    if (Number.isNaN(ms)) continue;
+    placeableCount += 1;
+    if (latestStartMs === null || ms > latestStartMs) latestStartMs = ms;
+    const key = dayKeyOf(parsed);
+    if (firstDay === null || key < firstDay) firstDay = key;
+    if (lastDay === null || key > lastDay) lastDay = key;
+  }
+
+  return { firstDay, lastDay, placeableCount, latestStartMs };
+}
+
+/**
  * The season, widened to contain every day that has an event.
  *
  * The widening is not cosmetic: without it a pre- or post-season event
  * would be permanently unreachable by stepping. Mirrors iOS's
  * `DayWindow.bounds(year:starredDays:)`, which widens by starred days for
  * the same reason.
+ *
+ * Takes the summary rather than the events because it is no longer the thing
+ * that walks them — see `EventDateSummary`.
  */
 export function navigableBounds(
   seasonWeeks: SeasonWeek[],
-  events: Event[]
+  summary: EventDateSummary
 ): NavigableBounds {
   let startDay = dayKeyOf(seasonWeeks[0].start);
   let endDay = dayKeyOf(seasonWeeks[seasonWeeks.length - 1].end);
 
-  for (const event of events) {
-    const parsed = parseEventDate(event.startDate);
-    // An unparseable date must not poison the global bound: 'NaN-NaN-NaN'
-    // sorts above every real key, so a single bad row would otherwise widen
-    // endDay for the whole app. Every other call site (filterHelpers,
-    // eventHelpers, dateHelpers) already just drops such a row — match that.
-    if (Number.isNaN(parsed.getTime())) continue;
-    const key = dayKeyOf(parsed);
-    if (key < startDay) startDay = key;
-    if (key > endDay) endDay = key;
-  }
+  if (summary.firstDay !== null && summary.firstDay < startDay) startDay = summary.firstDay;
+  if (summary.lastDay !== null && summary.lastDay > endDay) endDay = summary.lastDay;
 
   return { startDay, endDay };
 }
@@ -124,6 +187,14 @@ export function navigableBounds(
  * with no events is presented as unavailable rather than as a destination,
  * because scrolling to it would land on nothing. Unparseable dates are
  * dropped, matching every other call site in the app.
+ *
+ * `page.tsx` no longer calls this on the hot path — it reads the same list
+ * off the day groups it already built, which saves a second
+ * `parseEventDate` pass over the filtered year. This remains the *definition*
+ * of what that list means, stated independently of how the groups happen to
+ * be assembled, and `dayWindowConsistency.test.ts` is where the two are held
+ * to the same answer. Deleting it would leave the derivation with nothing to
+ * be checked against.
  */
 export function eventDayKeys(events: Event[]): DayKey[] {
   const keys = new Set<DayKey>();
@@ -183,6 +254,17 @@ export interface DayChip {
  *
  * Unparseable dates are dropped, matching `eventDayKeys` and every other
  * call site in the app.
+ */
+/**
+ * How many events fall on each day.
+ *
+ * Note what it does NOT do: write a `0` for a day with no events. It only
+ * ever sets keys for days that have at least one, and every consumer reads it
+ * as `countsByDay.get(key) ?? 0` — the missing key IS the zero, which is what
+ * lets the rail span days no event touches.
+ *
+ * Off the hot path for the same reason as `eventDayKeys`, and kept as the
+ * same kind of reference definition. See `dayWindowConsistency.test.ts`.
  */
 export function eventCountsByDay(events: Event[]): Map<DayKey, number> {
   const counts = new Map<DayKey, number>();

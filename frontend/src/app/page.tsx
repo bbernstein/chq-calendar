@@ -3,10 +3,9 @@ import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSelectedYear } from '@/hooks/useSelectedYear';
 import { useDebounce } from '@/hooks/useDebounce';
 import { getChautauquaSeasonWeeks } from '@/lib/utils/dateHelpers';
-import { parseEventDate } from '@/lib/utils/chqTime';
 import { groupEventsByDay } from '@/lib/utils/eventHelpers';
 import { filterEvents, type FilterOptions } from '@/lib/utils/filterHelpers';
-import { navigableBounds, dayKeyOf, dayKeys, dayChips, eventCountsByDay, eventDayKeys } from '@/lib/utils/dayWindow';
+import { navigableBounds, summarizeEventDates, dayKeyOf, dayKeys, dayChips } from '@/lib/utils/dayWindow';
 import { weekBandDestinations, weekBandSegments } from '@/lib/utils/weekBands';
 import { useFilterState } from '@/hooks/useFilterState';
 import { useDayAnchor } from '@/hooks/useDayAnchor';
@@ -94,11 +93,19 @@ function HomeContent() {
   }, [selectedYear]);
   const debouncedSearch = useDebounce(filters.searchTerm, 200);
 
+  // ONE parse pass over the unfiltered year, read by three consumers that
+  // each used to walk it themselves: `navBounds` below, `placeableTotal`,
+  // and the landing's `yearHasUpcomingEvents`. `parseEventDate` is ~51x
+  // `new Date` for the feed's naive wall-time strings, so three passes over
+  // 1,687 rows was three times a cost worth paying once. See
+  // `EventDateSummary`.
+  const eventDates = useMemo(() => summarizeEventDates(events), [events]);
+
   // The outer limit of everything navigation can reach: the season, widened
   // to contain any event outside it.
   const navBounds = useMemo(
-    () => navigableBounds(seasonWeeks, events),
-    [seasonWeeks, events]
+    () => navigableBounds(seasonWeeks, eventDates),
+    [seasonWeeks, eventDates]
   );
 
   // One filter pass, over the whole year. There is no date stage and no
@@ -107,6 +114,34 @@ function HomeContent() {
   // wide open for what navigation could reach — and the two collapse into
   // this one now that the rendered list *is* everything navigation reaches
   // (#274 phase 4).
+  //
+  // The favourites set is read through this gate rather than directly, and
+  // that is the difference between starring one event costing 340ms and
+  // costing nothing.
+  //
+  // `useFavorites` returns a NEW `Set` on every star. Handed to `filterOpts`
+  // unconditionally, one star invalidated `filterOpts` -> re-ran
+  // `filterEvents` over all 1,687 events -> invalidated `filteredEvents` ->
+  // re-ran `groupEventsByDay` and everything derived from it. None of which
+  // can change the answer: `filterEvents` reads `favoriteIds` only inside
+  // `if (options.showFavoritesOnly)`. With favourites-only OFF this is
+  // `undefined` — one stable value across every star — and with it ON the
+  // real `Set` flows through, so a star that changes membership still
+  // re-filters and a day whose last favourite was un-starred still
+  // disappears. That case is pinned by
+  // `__tests__/integration/favoritesFilter.test.tsx`; gate it any harder and
+  // that test fails.
+  //
+  // The (deleted) `renderResetKey` gated on `showFavoritesOnly` the same way
+  // — `o.showFavoritesOnly ? o.favoriteCount : 'off'`.
+  //
+  // NOTE: this expression is deliberately NOT memoised. It is a ternary over
+  // two values the render already holds, and its identity is exactly as
+  // stable as `favorites.favoriteIds` is when the gate is open and a literal
+  // `undefined` when it is shut — which is the whole property `filterOpts`
+  // below depends on.
+  const favoriteIdsForFilter = filters.showFavoritesOnly ? favorites.favoriteIds : undefined;
+
   const filterOpts: FilterOptions = useMemo(() => ({
     // Trimmed, and that is load-bearing rather than tidy. `searchEvents`
     // early-returns everything for `''` but not for `'   '`, which is truthy:
@@ -119,11 +154,11 @@ function HomeContent() {
     selectedTagsLowerSet: filters.selectedTagsLowerSet,
     selectedLocationsLowerSet: filters.selectedLocationsLowerSet,
     showFavoritesOnly: filters.showFavoritesOnly,
-    favoriteIds: favorites.favoriteIds,
+    favoriteIds: favoriteIdsForFilter,
   }), [
     debouncedSearch, filters.selectedTagsLowerSet,
     filters.selectedLocationsLowerSet,
-    filters.showFavoritesOnly, favorites.favoriteIds,
+    filters.showFavoritesOnly, favoriteIdsForFilter,
   ]);
   const filteredEvents = useMemo(() => filterEvents(events, filterOpts), [events, filterOpts]);
 
@@ -163,9 +198,16 @@ function HomeContent() {
       selectedYear,
       availableYears,
       yearHasEvents: events.length > 0,
-      yearHasUpcomingEvents: events.some(e => parseEventDate(e.startDate) >= graceStart),
+      // "Does any event start at or after `graceStart`" is exactly "is the
+      // latest start at or after `graceStart`", and the latest start is
+      // already known from the single pass above. `null` means no event in
+      // the year has a parseable date at all, which is the same answer the
+      // old `.some(...)` gave: every comparison against an unparseable date
+      // is false.
+      yearHasUpcomingEvents:
+        eventDates.latestStartMs !== null && eventDates.latestStartMs >= graceStart.getTime(),
     });
-  }, [selectedYear, availableYears, events]);
+  }, [selectedYear, availableYears, events.length, eventDates]);
 
   // The landing's two ways forward. Both mirror iOS's `AppModel`.
   //
@@ -206,18 +248,39 @@ function HomeContent() {
   const showLanding =
     landingState.kind !== 'in-season' && !filters.hasFilters && !browsingArchive;
 
+  const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
+
   // Every day that has a matching event. The rail names a day with none as a
   // fact rather than a destination, and the week band dims a week it cannot
   // reach — both read this.
-  const navEventDays = useMemo(() => eventDayKeys(filteredEvents), [filteredEvents]);
+  //
+  // Read off the day groups rather than re-walking `filteredEvents` through
+  // `eventDayKeys`, because it is the same answer computed twice.
+  // `groupEventsByDay` creates a group for exactly the days `eventDayKeys`
+  // collects — one per parseable `startDate`, unparseable rows dropped by
+  // both — and returns them sorted by the same ascending key comparison
+  // `eventDayKeys`' `.sort()` applies to the same `YYYY-MM-DD` strings.
+  // `parseEventDate` is the cost being removed: roughly 51x `new Date` for
+  // the feed's naive wall-time strings, once per event, and this was the
+  // second of three passes doing it over the same array.
+  //
+  // `dayWindowConsistency.test.ts` pins the equivalence against the helpers
+  // themselves, so a change to either side that breaks it fails there rather
+  // than silently drifting the rail away from the list.
+  const navEventDays = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
 
-  // How many, per day. Taken from the filtered events rather than from the
-  // rendered day groups because the rail spans the whole navigable bounds
-  // including days that group to nothing — `eventCountsByDay` gives every
-  // such day a 0 without needing a group to exist for it.
-  const navDayCounts = useMemo(() => eventCountsByDay(filteredEvents), [filteredEvents]);
-
-  const groupedEvents = useMemo(() => groupEventsByDay(filteredEvents, seasonWeeks), [filteredEvents, seasonWeeks]);
+  // How many, per day — the third pass, removed the same way.
+  //
+  // The rail spans the whole navigable bounds, which is wider than the days
+  // that have events, so it asks about days with no group at all. That is
+  // why this is a `Map` and not an array: `dayChips` reads it as
+  // `countsByDay.get(key) ?? 0`, and a missing key IS the zero. That was
+  // equally true of `eventCountsByDay`, which also only ever set keys for
+  // days that had at least one event — it never wrote a 0 either.
+  const navDayCounts = useMemo(
+    () => new Map(groupedEvents.map(g => [g.key, g.events.length] as const)),
+    [groupedEvents]
+  );
 
   // Both counts under the filters describe events the app can actually place
   // on a day, not raw feed rows — so they agree with what is on screen.
@@ -234,17 +297,10 @@ function HomeContent() {
     () => groupedEvents.reduce((n, g) => n + g.events.length, 0),
     [groupedEvents]
   );
-  // The same rule over the unfiltered set, and the same one-line form
-  // `navigableBounds`, `eventDayKeys` and `eventCountsByDay` already use.
-  // Memoised on `events` alone, so it costs one parse pass per feed load and
-  // nothing at all per filter change.
-  const placeableTotal = useMemo(
-    () => events.reduce(
-      (n, e) => n + (Number.isNaN(parseEventDate(e.startDate).getTime()) ? 0 : 1),
-      0
-    ),
-    [events]
-  );
+  // The same rule over the unfiltered set — and no longer its own pass over
+  // it. `summarizeEventDates` counts exactly this while it is already
+  // parsing each row for the bounds, so this is a field read, not a walk.
+  const placeableTotal = eventDates.placeableCount;
 
   // The rail spans the navigable bounds — the whole season, widened by any
   // event outside it — which is also exactly what the list below renders.
@@ -282,7 +338,14 @@ function HomeContent() {
   // but a commit still has to land before the DOM reflects it, which is why
   // `useDayAnchor` walks this list defensively, skipping any key with no
   // section yet.
-  const windowDayKeys = useMemo(() => groupedEvents.map(g => g.key), [groupedEvents]);
+  //
+  // Literally `navEventDays` since that stopped re-walking `filteredEvents`:
+  // "every day the list renders" and "every day that has a matching event"
+  // are now the same list built by the same expression, so it is aliased
+  // rather than mapped a second time. Kept as a separate name because the
+  // two are separate *ideas* — the rail's reachable set and the mounted set
+  // — and every consumer below reads the one it means.
+  const windowDayKeys = navEventDays;
   const { anchorDay, scrollToDay } = useDayAnchor(windowDayKeys);
   const railRef = useDayRailHeight();
 
