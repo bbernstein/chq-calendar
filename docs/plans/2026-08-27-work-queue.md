@@ -39,7 +39,7 @@ opt-out.
 | # | Item | Issues | Status | Branch / PR |
 |---|---|---|---|---|
 | 0 | Triage record + this queue | — | IN REVIEW | `docs/2026-08-27-issue-triage`, PR #289 |
-| 1 | e2e off-season crash | #287 | NOT STARTED | — |
+| 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | NOT STARTED | — |
 | 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | NOT STARTED | — |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
@@ -70,9 +70,15 @@ Nothing else in the queue has a deadline.
 
 ---
 
-## 1. #287 — e2e suite aborts off-season
+## 1. #287 + #290 — the browser suite's two failure modes
 
-**Status:** NOT STARTED · **Deadline:** 2026-09-11 · **Size:** S · web/e2e only
+**Status:** NOT STARTED · **Deadline:** 2026-09-11 (#287) · **Size:** S–M · web/e2e only
+
+Two issues, one sitting. #287 is deterministic and dated; **#290 is already
+failing on `main` today** — `verify-rail`'s check 12 fails roughly 1 in 4, and
+because `test:browser` is `&&`-chained it takes the five suites after it down
+too, so an unrelated PR goes red with no signal. Both live in `verify-rail.mjs`,
+so fix them in one pass.
 
 **Do this first.** Not because it is the largest problem but because every
 branch pushed after Sep 11 gets a red `Build and Test` with a stack trace and
@@ -97,6 +103,23 @@ E2E_NOW=2026-09-15 node e2e/verify-full-list.mjs   # 0 failed
 node e2e/verify-rail.mjs                            # in-season, still 46/46
 ```
 
+### #290 — the 200%-zoom flake
+
+`railBottom` is always 273.0; `headerTop` is either 273.0 (pass) or **exactly
+700.0** (fail). Two discrete states, not jitter — the sticky day header appears
+not to engage at all on bad runs. The harness confirms the header is flush
+(`verify-rail.mjs:596-611`), waits 300ms, then measures — so the page moves
+~427px *after* the scroll settled.
+
+**Lead, untested:** `useDayAnchor.ts:204`, the `ResizeObserver` late reassert.
+Since phase 4 it is one of only two announcing scrolls left in the app, and a
+late reassert firing inside that 300ms window is exactly this shape. 200% zoom
+is also where a reflow most plausibly trips a `ResizeObserver`.
+
+Reproduce with plain `node e2e/verify-rail.mjs`, repeated. Check 12 is correct
+as written — `:629-634` explains why equality rather than `>=` is the point —
+so do not loosen it.
+
 **Traps**
 
 - **The app is correct; the harness is wrong.** `page.tsx:248`'s
@@ -110,9 +133,10 @@ node e2e/verify-rail.mjs                            # in-season, still 46/46
   `E2E_NOW` entirely — it derives every instant from the live feed.
   `e2e/README.md:120` reads as if the override is universal. Worth correcting
   while here.
-- **Never run two Playwright suites at once on one machine.** A `verify-rail`
-  check-12 failure reproduced once under contention and then passed 46/46
-  three times alone.
+- **Never run two Playwright suites at once on one machine** — it produces
+  contention noise of its own. But note that was my first and *wrong*
+  explanation for the check-12 failure: it then reproduced in CI on a
+  docs-only PR with identical numbers. See #290.
 
 ---
 
