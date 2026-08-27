@@ -56,6 +56,11 @@ function pin(now: Date) {
 
 beforeEach(() => {
   localStorage.clear();
+  // `useSelectedYear` writes the chosen year into the URL with
+  // `history.replaceState`, and jsdom carries the URL across tests in a file.
+  // Without this reset, a test that switches year silently seeds `?year=…`
+  // into every test after it.
+  window.history.replaceState({}, '', '/');
   // Installed for their side effect only — jsdom has neither observer, and
   // page.tsx's hooks construct both on mount. Nothing here drives them, so
   // unlike filterHeader.test.tsx the handles are not kept.
@@ -98,13 +103,22 @@ describe('page.tsx — the off-season landing', () => {
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
   });
 
-  // Pre-season is reachable ONLY while the year's feed is still empty, and
-  // that is not an artefact of the fixture. With events published, the `next`
-  // scope's adaptive window reaches forward until it has accumulated 50 of
-  // them — from March it lands in late June — so the list is not empty and
-  // `in-season` is the correct answer. The countdown belongs to the window
-  // between a year being announced in the manifest and its programme going
-  // up, which is exactly when a visitor has nothing else to be told.
+  // Pre-season is reachable when the year has no events upcoming relative
+  // to `now` — NOT the same thing as an empty feed (2026-08-26 review round
+  // 2: real production data carries events dated before the season's own
+  // calendar start — the 2026 feed has entries in January, February and
+  // May), and not an artefact of this fixture either. `determineLandingState`'s
+  // rule 1 asks the year's own events directly — does any of them start at
+  // or after the same graced instant the `next` scope's own window uses
+  // (not the bare `now`)? — so a published season resolves to `in-season`
+  // regardless of the calendar, whatever the feed's other, already-past
+  // entries say. This test's `all-events-\d{4}\.json` → `{ data: [] }` mock
+  // is simply the easiest way to guarantee no upcoming events, not the only
+  // way to reach pre-season; a March visit against the season's real,
+  // published events would see `in-season` and the list. The countdown
+  // belongs to the window between a year being announced in the manifest and
+  // its programme going up, which is exactly when a visitor has nothing else
+  // to be told.
   it('counts down before an announced season has been published', async () => {
     mock.reset();
     mock.on('GET', /years\.json/, { years: [2026, 2027], defaultYear: 2026, generated: '' });
@@ -141,8 +155,8 @@ describe('page.tsx — the off-season landing', () => {
   it('keeps the generic empty state when the READER emptied the list', async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     localStorage.setItem('chq-calendar-user-state', JSON.stringify({
-      dateFilter: 'all', searchTerm: 'zzzznothingmatchesthis',
-      selectedTags: [], selectedLocations: [], selectedWeeks: [],
+      searchTerm: 'zzzznothingmatchesthis',
+      selectedTags: [], selectedLocations: [],
       expandedDescriptions: [], recentLocations: [], recentCategories: [],
       showFavoritesOnly: false, lastSaved: Date.now(),
     }));
@@ -150,6 +164,11 @@ describe('page.tsx — the off-season landing', () => {
 
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+    // The advice is the point, not just the panel: this reader has a search
+    // to clear.
+    expect(screen.getByTestId('empty-state')).toHaveTextContent(
+      'Try adjusting your filters or search terms'
+    );
   });
 
   // Rule 3 from landingState.ts, reaching the screen. A July visitor whose
@@ -163,6 +182,14 @@ describe('page.tsx — the off-season landing', () => {
 
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+    // ...and must not be told to adjust filters they never set. Same panel as
+    // the check above, different reader, so the copy has to differ.
+    expect(screen.getByTestId('empty-state')).not.toHaveTextContent(
+      'Try adjusting your filters'
+    );
+    expect(screen.getByTestId('empty-state')).toHaveTextContent(
+      'don’t have any events for this year yet'
+    );
   });
 
   it('shows the list, and no landing, when the window has events', async () => {
@@ -176,12 +203,45 @@ describe('page.tsx — the off-season landing', () => {
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
   });
 
+  // #274 phase 4 task 3, review round 2: `yearHasUpcomingEvents` must give
+  // the `next` scope's own one-hour grace to "is anything upcoming" (the
+  // same grace `viewWindow`'s `next` case gives its own window start —
+  // dayWindow.ts's "One hour of grace so an event that has just begun is
+  // still 'next'"), not compare against the bare `now`. Without it, a
+  // reader who visits within an hour of the season's FINAL event starting
+  // gets the landing covering a list that still contains that event running
+  // live — the same #269 shoulder, one hour wide. This event is the year's
+  // only one and started 30 minutes before the pinned clock.
+  it("stays in-season for the hour after the year's last event has started", async () => {
+    mock.reset();
+    mock.on('GET', /years\.json/, { years: [2025, 2026, 2027], defaultYear: 2026, generated: '' });
+    mock.on('GET', /all-events-\d{4}\.json/, {
+      data: [{
+        id: 'closing', title: 'Closing Address',
+        startDate: '2026-08-20T15:00:00', endDate: '2026-08-20T16:00:00',
+        location: 'Amphitheater', description: '', categories: [{ name: 'Lecture' }],
+      }],
+    });
+    pin(chqDateAt(2026, 8, 20, 15, 30));
+    await renderPage();
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0)
+    );
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+  });
+
   // Same shape and the same growth driver as the test below it — mount, then
   // click through to a second full render — so it gets the same budget. It
   // measured 493ms before the band and 710ms after, which is comfortable
   // today; it is raised now rather than after it starts flaking, because the
   // rail's element count tracks the navigable range and production data spans
   // far more of the year than this fixture does.
+  // The landing's other way forward, and the one #274 phase 4 had to give
+  // new state. `browseArchiveSeason`'s only action used to be
+  // `setDateFilter('season')`; with the scopes deleted it sets a
+  // `browsingArchive` flag instead, or the button would be visible, enabled,
+  // and do nothing, leaving an archived-year landing with no way past it.
   it('browsing the archive puts the season on screen', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();
@@ -195,6 +255,194 @@ describe('page.tsx — the off-season landing', () => {
       expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0)
     );
     expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+  });
+
+  // The day rail (chips, ⟳ Now, the week band) stays rendered while the
+  // landing covers the list — it carries the week chooser and is the
+  // reader's only quick route into the season, so hiding it was rejected —
+  // which means every rail control is a tap on a day whose section does not
+  // exist yet. Without `goToDay`'s landing-dismiss branch, that tap is
+  // silently inert: `scrollToDay` looks up a section that isn't mounted and
+  // finds nothing.
+  //
+  // This pins BOTH halves at once: the tap must dismiss the landing (list
+  // appears) AND must land on the TAPPED day rather than on this fixture's
+  // own default landing day. The default here is 2026-07-07 — the year's
+  // LAST event day, since `now` (Sept 15) is past every event and
+  // `landingDayKey` falls back to the last one — so landing on 2026-07-06
+  // instead is only possible if the tap's own target overrode it.
+  //
+  // `getBoundingClientRect` is patched by day key rather than queried after
+  // the fact: the day sections do not exist in the DOM until the click's own
+  // state update mounts them (the landing unmounts `OffSeasonLanding` and
+  // mounts `EventListView` in the same commit), so there is no window in
+  // which to grab a specific element and stub it individually the way
+  // `dayRailIntegration.test.tsx`'s composition test does.
+  //
+  // Explicit timeout, matching the two siblings below it and the four in
+  // `dayRailIntegration.test.tsx`: a real `EventListView` + `useDayAnchor`
+  // render is the cost class those already carry a 15s budget for, and this
+  // test renders the identical fixture through the same mount.
+  it('a rail day tap dismisses the landing and lands on the TAPPED day, not the default', { timeout: 15000 }, async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const key = this.getAttribute('data-day-key');
+      if (key === '2026-07-06') return { top: 111 } as DOMRect;
+      if (key === '2026-07-07') return { top: 999 } as DOMRect;
+      return originalRect.call(this);
+    };
+
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /Go to Monday, July 6/ }));
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+      );
+      expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0);
+
+      // 111 - 50 (the tapped day), never 999 - 50 (2026-07-07, the default
+      // landing day this fixture would otherwise fall back to).
+      expect(scrollBy).toHaveBeenCalledWith(0, 61);
+      expect(scrollBy).not.toHaveBeenCalledWith(0, 949);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      document.documentElement.style.removeProperty('--day-rail-h');
+    }
+  });
+
+  // Task 6 fix round 1, Route B (Critical). The landing page itself scrolls —
+  // it is `min-h-screen` plus the footer's own content, which on any phone
+  // already exceeds the viewport, and the rail is `position: sticky`, so it
+  // stays tappable at any scroll offset. Before this fix, `useInitialLanding`
+  // applied its "don't teleport a reader who already scrolled"
+  // `window.scrollY > 0` guard to this EXPLICIT tap too, and the tap was
+  // swallowed: the landing still vanished (that part never depended on the
+  // hook) but the page never moved, leaving the reader wherever they
+  // happened to be rather than at the day they asked for.
+  //
+  // Same fixture and same assertion as the test above it — `scrollBy(0, 61)`
+  // is the tapped day, `scrollBy(0, 949)` would be the default landing day —
+  // with `window.scrollY` pinned nonzero before the tap instead of left at 0.
+  it('a rail day tap still lands when the reader had already scrolled the landing page', { timeout: 15000 }, async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const key = this.getAttribute('data-day-key');
+      if (key === '2026-07-06') return { top: 111 } as DOMRect;
+      if (key === '2026-07-07') return { top: 999 } as DOMRect;
+      return originalRect.call(this);
+    };
+    // jsdom implements a real, settable `window.scrollY` — the reader has
+    // scrolled the landing page itself before ever tapping a rail control.
+    window.scrollY = 40;
+
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /Go to Monday, July 6/ }));
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+      );
+      expect(scrollBy).toHaveBeenCalledWith(0, 61);
+      expect(scrollBy).not.toHaveBeenCalledWith(0, 949);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      document.documentElement.style.removeProperty('--day-rail-h');
+      window.scrollY = 0;
+    }
+  });
+
+  // Task 6 fix round 1, Route A. A filter toggled on then off, off-season,
+  // needs no scroll at all to swallow a rail tap: turning the filter on
+  // narrows the list to a day that still HAS events (a favourites-only
+  // toggle in this fixture — no favourites are saved — would empty the list
+  // to zero days instead, and `listMounted` requires `groupedEvents.length >
+  // 0`, so the automatic landing would never even attempt to fire; a search
+  // matching exactly one of the fixture's two events is what actually
+  // reaches this bug). `hasFilters` makes `showLanding` false, the list
+  // mounts with its one remaining day, and the AUTOMATIC landing consumes
+  // its once-per-year latch by scrolling to that same day (it is also
+  // `landingDayKey`'s own fallback — the sole remaining day, `now` past it).
+  // Clearing the search brings the landing back (`browsingArchive` is
+  // untouched by a filter change); the next rail tap on that SAME day used
+  // to hit `landedFor.current === year` and return having done nothing.
+  //
+  // `search` uses `useDebounce` (200ms), and `hasFilters` (which drives
+  // `showLanding`) does not — so `waitFor`ing only the landing's own
+  // re/disappearance can race the rail's day counts, which lag the raw
+  // search term by the debounce. Every wait below is instead on something
+  // that can only be true once the DEBOUNCED value has actually applied —
+  // the narrowed day-section count, then the specific chip's own label —
+  // under this file's `pin()`-installed fake timers (`shouldAdvanceTime:
+  // true`, so real 200ms elapses and the debounce genuinely fires).
+  it('a rail day tap still lands after a filter toggled the landing on and off first', { timeout: 15000 }, async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const search = screen.getByRole('textbox', { name: 'Search events' });
+    fireEvent.input(search, { target: { value: 'Lecture' } });
+
+    // The filtered list mounts with exactly one day (2026-07-06's lecture);
+    // the landing is gone while the filter is active.
+    await waitFor(() => expect(document.querySelectorAll('[data-day-key]').length).toBe(1));
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+    // The automatic landing has now run once for this year, against the
+    // narrowed set — consuming `landedFor` before the reader ever taps
+    // anything.
+
+    fireEvent.input(search, { target: { value: '' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+    // Both days are back once the debounce has actually applied — this is
+    // the wait that would otherwise race the search term above.
+    const chip = await waitFor(() => screen.getByRole('button', { name: /Go to Monday, July 6/ }));
+
+    document.documentElement.style.setProperty('--day-rail-h', '50px');
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const key = this.getAttribute('data-day-key');
+      if (key === '2026-07-06') return { top: 111 } as DOMRect;
+      return originalRect.call(this);
+    };
+
+    try {
+      // Fresh spy, installed only now — any scroll the automatic landing
+      // made earlier (against the real, unmocked `scrollBy`) is irrelevant;
+      // this call must be the TAP's, made despite `landedFor` already being
+      // spent on this exact day.
+      fireEvent.click(chip);
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+      );
+      expect(scrollBy).toHaveBeenCalledWith(0, 61);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      document.documentElement.style.removeProperty('--day-rail-h');
+    }
   });
 
   // Explicit timeout, following the four in `dayRailIntegration.test.tsx`.
@@ -214,7 +462,22 @@ describe('page.tsx — the off-season landing', () => {
   // 5s budget *before* the band and over it after. 15s is the same headroom
   // the day-rail integration tests already take. The budget was always wrong
   // for this test; the band is only what made that visible.
-  it('previewing next season switches the year and opens the date scope', { timeout: 15000 }, async () => {
+  // A post-season visit with a full feed. The list is NOT empty — every day
+  // of the year is listed now — and the landing must still be what the reader
+  // sees: a stated branch, not a side effect of an empty result set. Before
+  // #274 phase 4 this case needed the widest scope seeded into localStorage
+  // to reach; now it is simply what a post-season visit is.
+  it('the landing shows out of season even when the year has events to list', async () => {
+    pin(chqDateAt(2026, 9, 20, 10));
+    render(<Home />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+    expect(document.querySelectorAll('[data-day-key]')).toHaveLength(0);
+  });
+
+  it('previewing next season switches the year', { timeout: 15000 }, async () => {
     pin(chqDateAt(2026, 9, 15, 10));
     await renderPage();
     await waitFor(() =>
@@ -227,20 +490,34 @@ describe('page.tsx — the off-season landing', () => {
       const requested = mock.calls(/all-events-/).map(r => new URL(r.url).pathname);
       expect(requested.some(p => p.endsWith('all-events-2027.json'))).toBe(true);
     });
-    // The scope buttons live inside the filter panel, which is a fixed
-    // overlay and `display: none` while closed (#274 phase 3) — so they are
-    // out of the accessibility tree until the reader opens it, and
-    // `getByRole` correctly cannot see them. Opening the panel is what a
-    // reader would do to check the scope, and it is what this has to do to
-    // assert on it.
-    // By role, not `document.querySelector(...)!` — the funnel is a real
-    // accessible control, so a role query fails with "unable to find a button
-    // named Filters" instead of a null-deref if the markup moves.
-    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    // It used to also assert the `All Year` scope button had gone
+    // `aria-pressed="true"`, because previewing opened the date scope right
+    // up. #274 phase 4 deleted the scopes and their buttons; a year change is
+    // now the whole of what this control does.
+  });
+
+  // A different year is a different question. Without the reset, dismissing
+  // the landing for 2026 would silently suppress 2027's own.
+  it('a year change brings the landing back', { timeout: 15000 }, async () => {
+    pin(chqDateAt(2026, 9, 15, 10));
+    await renderPage();
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'All Year' }).getAttribute('aria-pressed')
-      ).toBe('true')
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse the 2026 season' }));
+    await waitFor(() =>
+      expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument()
+    );
+
+    // Through the header's year picker, so the reset is exercised from a year
+    // change the reader can actually make rather than from the landing's own
+    // preview button.
+    fireEvent.click(screen.getByRole('button', { name: /2026 Season/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /2027 Season/ }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
     );
   });
 });

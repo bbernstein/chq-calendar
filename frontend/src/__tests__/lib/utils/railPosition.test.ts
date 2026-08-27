@@ -63,6 +63,30 @@ describe('resolveAnchor', () => {
     const at = resolveAnchor(keys, 60, tops({ d2: -300, d3: 500 }));
     expect(at).toEqual({ key: 'd2', nextKey: 'd3', nextTop: 500 });
   });
+
+  // The walk reaches the end of the list in two situations that mean
+  // opposite things, and it used to answer `keys[0]` for both.
+  //
+  // CI on Linux WebKit, after a landing that other checks confirm reached
+  // today: the strip at `scrollLeft 0`, `aria-current` on 2026-01-03, the
+  // reader on 2026-08-27 — and one pixel of scroll snapped both to today.
+  // Both consumers had re-run this walk against a DOM that had not caught
+  // up, been handed a confident "the first day of the year", and had no
+  // reason to ask again until the reader's next gesture.
+  it('answers nothing when it could measure nothing', () => {
+    expect(resolveAnchor(keys, 60, tops({}))).toBeNull();
+  });
+
+  // The other direction is already covered above, by "reports no next day
+  // once the last mounted section has passed": that case reaches the end of
+  // the walk WITH measurements and must still answer. Proven by injection —
+  // making `measured` permanently false fails that test and not this one.
+  //
+  // A test asserting `resolveAnchor(keys, 60, tops({ d1: 300 }))?.key` is
+  // 'd1' was written here first and deleted: `d1`'s top is below the limit,
+  // so the walk returns from inside the loop and never reaches the guard.
+  // It would have passed against code that returned null unconditionally at
+  // the end, while its comment claimed the opposite.
 });
 
 describe('rampDistance', () => {

@@ -1,12 +1,16 @@
 /**
  * The app's own scrolls, announced.
  *
- * Five places move the document under the reader: the day-anchor's chip-tap
- * scroll and its late reassert, the filter panel's insertion correction, and
- * the two corrections in `EventList`. None of them is the reader scrolling,
- * and anything watching scroll direction has to be able to tell the
- * difference — a rail tap is a jump of tens of thousands of pixels, which
- * read as a gesture would be the largest scroll up a reader could make.
+ * Two places move the document under the reader, both in `useDayAnchor`: the
+ * chip-tap scroll and its late reassert. (There were five. The filter panel's
+ * insertion correction went with the in-flow card in #274 phase 3 — a fixed
+ * overlay displaces nothing, and `useFilterPanel`'s own test now asserts
+ * `scrollWindowBy` is never called from it — and the two corrections in the
+ * old `EventList` went with the render window and the prepend in phase 4.)
+ * Neither is the reader scrolling, and anything watching scroll direction has
+ * to be able to tell the difference — a rail tap is a jump of tens of
+ * thousands of pixels, which read as a gesture would be the largest scroll up
+ * a reader could make.
  *
  * `useDayAnchor` already relies on the converse of this — a programmatic
  * `scrollBy` synthesises no pointer event, so listening for `wheel` and
@@ -53,7 +57,7 @@ export function onProgrammaticScroll(listener: Listener): () => void {
  * `scrollBy` itself is worth skipping.
  *
  * The `delta !== 0` guard lives here rather than at each call site so that
- * five copies of it cannot drift.
+ * copies of it cannot drift.
  */
 export function scrollWindowBy(delta: number): void {
   if (delta !== 0) window.scrollBy(0, delta);

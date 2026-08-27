@@ -28,8 +28,11 @@ export interface HeaderFiltersToggleProps {
   /** `useFilterPanel`'s `toggleRef`, so Escape can return focus here. */
   toggleRef: (el: HTMLButtonElement | null) => void;
   /**
-   * Whether to paint the active-filter dot. The caller passes
-   * `hasNonDefaultFilters`, NOT `hasFilters` — see `page.tsx`.
+   * Whether to paint the active-filter dot: true once the reader has narrowed
+   * the list themselves. `useFilterState.hasFilters` is exactly that now —
+   * it used to also count the default `next` date scope, so the dot needed a
+   * separate flag to avoid being lit for every reader before they touched
+   * anything (#274 phase 4 deleted the scopes and collapsed the two).
    */
   hasActiveFilters: boolean;
 }

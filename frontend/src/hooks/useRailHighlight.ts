@@ -226,8 +226,28 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       if (tween.current !== self) return;
       const progress = Math.min(1, (performance.now() - t0) / TWEEN_MS);
       writeScrollLeft(strip, lerp(from, to, easeOutCubic(progress)));
-      if (progress < 1) self.raf = requestAnimationFrame(step);
-      else tween.current = null;
+      if (progress < 1) { self.raf = requestAnimationFrame(step); return; }
+      tween.current = null;
+      // Settle against a fresh measurement rather than trusting `to`.
+      //
+      // `to` was computed when this tween STARTED, and `sync` returns early
+      // for every frame while one is in flight (see the `tween.current`
+      // branch there). So if the pill moved during the animation — which it
+      // does on load, where the landing scroll and this tween overlap — the
+      // strip comes to rest on a stale target and nothing corrects it: the
+      // only thing that re-runs `sync` is a scroll, and the page has by
+      // then stopped scrolling.
+      //
+      // Browser-measured on an iPhone-sized WebKit viewport before this
+      // line existed: the rail settled 23.5px — half a chip — off centre on
+      // every load, permanently, and a single further pixel of page scroll
+      // snapped it to 0.5px. That is the whole defect.
+      //
+      // Reached through `latest` rather than a captured `sync` for the
+      // reason given at that ref: `sync` is recreated whenever the day list
+      // changes, and closing over it here would pin this callback (and with
+      // it every listener keyed on its identity) to the day list.
+      latest.current.sync();
     };
     tween.current = self;
     self.raf = requestAnimationFrame(step);
@@ -295,13 +315,27 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
     // either threading a subscription from `useDayAnchor` through `page.tsx`
     // into this component, or hoisting a third hook that both depend on;
     // both trade a measured 4% worst case for a new coupling across the
-    // boundary this design keeps clean. Revisit if the render window ever
-    // stops being bounded — that, not the day list, is what sets this cost.
+    // boundary this design keeps clean. Revisit if the mounted day count
+    // grows well past a season's worth — the walk is over mounted sections,
+    // and that is what sets this cost.
     const limit = topChromeHeightPx() + 1;
     const resolved = resolveAnchor(windowDayKeys, limit, daySectionTop);
     if (!resolved) {
-      hide();
-      lastAnchor.current = null;
+      // No days at all — there is nothing to highlight, so blank it.
+      if (windowDayKeys.length === 0) {
+        hide();
+        lastAnchor.current = null;
+        return;
+      }
+      // Otherwise the walk could not measure a single day this pass: the
+      // commit that produced the list has not landed as DOM yet. Leave the
+      // pill and the strip exactly where they are rather than blanking them
+      // or moving them on no evidence. The next pass has a DOM to read.
+      //
+      // Before `resolveAnchor` could say "I don't know", this arrived as a
+      // confident `keys[0]` instead, and the strip drove itself to the first
+      // day of the year — where it stayed, because nothing re-derives without
+      // a scroll.
       return;
     }
 
@@ -325,8 +359,9 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       resolved.nextKey ? extents.current.get(resolved.nextKey) ?? null : null,
       progress,
     );
-    // The anchor day has no chip — reachable if the view window and the
-    // navigable bounds ever disagree. Nothing to highlight.
+    // The anchor day has no chip — reachable if the rendered day list and
+    // the navigable bounds the chips span ever disagree. Nothing to
+    // highlight.
     if (!geometry) { hide(); return; }
 
     const { left, width } = geometry;
@@ -362,13 +397,20 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   }, [keysId, hide, startTween, writeScrollLeft]);
 
   // `nodeGeneration` is a dependency on both effects below for the same
-  // reason the listener effect has it, and missing it is subtler here: the
-  // chip row can appear without the chip *list* changing at all. `DayRail`
-  // renders nothing while `scopeHasWindow` is false — an off-season
-  // `'this-week'` restored from localStorage — with `chips` populated the
-  // whole time. When the scope then resolves, `chipsId` and `keysId` are
-  // unchanged, so without this the row would never be measured, `extents`
-  // would stay empty, and the pill would not paint at all.
+  // reason the listener effect has it: `chipsId` and `keysId` describe the
+  // DATA, and what these effects need to know is when the ELEMENTS exist.
+  // `DayRail` returns null whenever it has no chips (`chips.length === 0` —
+  // before the feed lands, and for a year with no navigable days), so the row
+  // detaches and re-attaches over a page's life, and the callback refs that
+  // bump `nodeGeneration` are the only thing that observes it. Without this
+  // the row could go unmeasured, `extents` would stay empty, and the pill
+  // would not paint at all.
+  //
+  // The reason recorded here used to be that "the whole rail is mounted
+  // inside the list's own conditional branches", so the row could be
+  // unmounted and remounted with `chips` populated the entire time. That was
+  // never true of this tree: `page.tsx` renders `DayRail` as a SIBLING of the
+  // card holding the landing/empty/list branches, not inside them.
   // Two effects, not one, and the split is not cosmetic: `measureChips` walks
   // every chip in the row calling `getBoundingClientRect` — 251 of them in a
   // full season — and the row's geometry depends on the *chips*, never on the
@@ -390,7 +432,9 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   }, [chipsId, keysId, nodeGeneration, sync]);
 
   // `sync` and `measureChips` are reached through a ref so the listener
-  // effect below does not depend on them. Both are recreated whenever the day
+  // effect below — and a settling tween, which is declared above this line
+  // but only ever runs from an animation frame, long after it — do not
+  // depend on them. Both are recreated whenever the day
   // list changes, and wiring the listeners to them directly tore down and
   // rebuilt every `window` listener and the `ResizeObserver` on every filter,
   // scope and window change — churn that buys nothing, since none of the

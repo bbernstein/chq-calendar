@@ -35,11 +35,12 @@ export interface WeekGridProps {
 /**
  * The chooser's contents: every week of the season as a 44px cell.
  *
- * Repurposed from `WeekSelector`'s job, not from its markup — a cell here means
- * "reachable / not", never "selected / not", and grey means "no matching
- * events", never "in the past". `isWeekInPast` is deliberately not consulted:
- * this is a navigation surface, and a past week that still holds events is
- * perfectly navigable.
+ * Repurposed from the deleted `WeekSelector`'s job, not from its markup — a
+ * cell here means "reachable / not", never "selected / not", and grey means
+ * "no matching events", never "in the past". Whether a week has already
+ * passed is deliberately not consulted (`isWeekInPast`, which `WeekSelector`
+ * greyed by, was deleted with it): this is a navigation surface, and a past
+ * week that still holds events is perfectly navigable.
  *
  * Every cell carries a border regardless of its tone. The ramp's first step is
  * ~1.03:1 against this surface in dark mode, so a cell drawn in tone alone would

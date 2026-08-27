@@ -11,13 +11,17 @@ import { SCROLL_KEYS } from '@/lib/scrollGestures';
  * whole point of the hook.** Two things fire `scroll` that are emphatically
  * not the reader scrolling:
  *
- * - The filter panel's own opening correction calls `scrollWindowBy` to hold
- *   the reader's position while the panel is inserted above them. A `scroll`
- *   listener would dismiss the panel in the same frame it opened.
+ * - The filter panel's own opening correction used to call `scrollWindowBy`
+ *   to hold the reader's position while the panel was inserted above them,
+ *   and a `scroll` listener would have dismissed the panel in the same frame
+ *   it opened. #274 phase 3 made the panel a fixed overlay, so it displaces
+ *   nothing and no longer corrects — but the rule stands, because the second
+ *   reason has not gone anywhere and a future correction would land right
+ *   back in this trap.
  * - Changing a filter reflows the list, which can move `scrollY` on its own. A
  *   `scroll` listener would close the panel on the reader's first tick of a
- *   venue — contradicting the deliberate rule that picking a venue, a category
- *   and a week is one intent.
+ *   venue — contradicting the deliberate rule that picking a venue and a
+ *   category is one intent.
  *
  * `isExempt` receives the whole event so the caller can spare gestures that
  * start inside the thing being dismissed (scrolling the panel's own overflow)

@@ -6,17 +6,46 @@ import { chqDateAt } from '@/lib/utils/chqTime';
 const opening = (year: number) => getChautauquaSeasonWeeks(year)[0].start;
 
 describe('determineLandingState', () => {
+  // Rule 2 in isolation: no upcoming events, so rule 1 does not preempt it.
+  // Not as artificial an input as it looks (2026-08-26 review round 2):
+  // real production data carries events dated well before a year's own
+  // season start — the 2026 feed has entries in January, February and May,
+  // all ahead of the late-June opening — so a `now` late enough to put
+  // every one of them in the past reaches exactly this state honestly. It
+  // isolates rule 2's own `now < start` boundary from rule 1's
+  // short-circuit either way.
   it('is pre-season before the selected year opens', () => {
     const state = determineLandingState({
       now: chqDateAt(2026, 3, 1, 10),
       selectedYear: 2026,
       availableYears: [2025, 2026, 2027],
       yearHasEvents: true,
+      yearHasUpcomingEvents: false,
     });
     expect(state.kind).toBe('pre-season');
     if (state.kind !== 'pre-season') return;
     expect(state.opening.getTime()).toBe(opening(2026).getTime());
     expect(state.daysUntil).toBeGreaterThan(100);
+  });
+
+  // Rule 1, the fix for Critical 1 (2026-08-26 review round 1): a year's
+  // programme can be published — real, upcoming events loaded — before its
+  // own season calendar has started. A calendar-only rule ("now < start ->
+  // pre-season") sends this reader to the pre-season landing, which offers
+  // no buttons at all (`OffSeasonLandingView`/`OffSeasonLanding.tsx` gate the
+  // whole button row on `kind === 'post-season'`) and hides a non-empty list
+  // with no escape except typing a search term. Rule 1 asks the events
+  // directly instead, ahead of the calendar check, so this resolves to
+  // `in-season` and the reader gets the list.
+  it("is in-season, not pre-season, once a future season's programme is already published", () => {
+    const state = determineLandingState({
+      now: chqDateAt(2027, 3, 1, 10),
+      selectedYear: 2027,
+      availableYears: [2026, 2027],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: true,
+    });
+    expect(state).toEqual({ kind: 'in-season' });
   });
 
   it('is post-season once the season has opened and the year has events', () => {
@@ -25,6 +54,7 @@ describe('determineLandingState', () => {
       selectedYear: 2026,
       availableYears: [2025, 2026, 2027],
       yearHasEvents: true,
+      yearHasUpcomingEvents: false,
     });
     expect(state).toEqual({
       kind: 'post-season',
@@ -35,28 +65,80 @@ describe('determineLandingState', () => {
     });
   });
 
-  // The opening instant itself is IN season: the comparison is `<`, so a
-  // reader refreshing at noon on opening Saturday must not be told the
-  // season has not started.
-  it('is not pre-season at the exact opening instant', () => {
+  // Rule 1, the fix for Critical 2 (2026-08-26 review round 1): the live
+  // production 2026 feed's last event lands 2026-09-10, ten days past
+  // `getChautauquaSeasonWeeks(2026)`'s fixed nine-week close (2026-08-29
+  // noon). A calendar-only rule ("now < seasonEnd -> in-season, else
+  // post-season") sends a Sep 1 visitor to the post-season landing —
+  // "See you next season" — while a real event nine days out sits in the
+  // app's own data, and `browseArchiveSeason`'s `.season` scope ends at the
+  // calendar close too, so no button on the landing reaches it either. This
+  // is the actual mechanism of #269's Sep 1-10 shoulder. Rule 1 fixes it the
+  // same way as the March case above: ask the events, not the calendar.
+  it("is in-season, not post-season, when the live season's last events run past the nine-week calendar close", () => {
+    const state = determineLandingState({
+      now: chqDateAt(2026, 9, 1, 10),
+      selectedYear: 2026,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: true,
+    });
+    expect(state).toEqual({ kind: 'in-season' });
+  });
+
+  // Rule 2's own strict `<` boundary, isolated from rule 1 by construction
+  // (no upcoming events — see the comment on the first test above): the
+  // opening instant itself already fails `now < start`, so with the year
+  // reporting events but none upcoming this falls through to rule 4, not
+  // rule 2 — `post-season`, not `pre-season`. A real published season would
+  // instead have its own events upcoming at this exact instant and resolve
+  // via rule 1 (see the "already published" test above), so this is a
+  // deliberately artificial boundary probe of rule 2 alone.
+  it('the exact opening instant is not pre-season, even with no upcoming events', () => {
     const state = determineLandingState({
       now: opening(2026),
       selectedYear: 2026,
       availableYears: [2026],
       yearHasEvents: true,
+      yearHasUpcomingEvents: false,
     });
-    expect(state.kind).toBe('post-season');
+    expect(state).toEqual({
+      kind: 'post-season',
+      endedSeasonYear: 2026,
+      nextSeasonYear: null,
+      opening: null,
+      daysUntil: null,
+    });
   });
 
-  // Rule 3. A failed or empty feed fetch during the season must NOT produce
-  // "See you next season" for a July visitor — it means "we have no data",
-  // which is what the generic EmptyState says.
+  // The bug this task exists to fix, pinned directly at the unit level: a
+  // reader mid-season, with no filters, must see the list. Before rule 1
+  // existed, "now past start, year has events" alone resolved to
+  // `post-season` unconditionally (there was no calendar upper bound at
+  // all), so this exact case was #269's original defect once `showLanding`
+  // stopped being gated on an empty list.
+  it('is in-season, not post-season, in the middle of a season with events', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2026, 7, 15, 10),
+      selectedYear: 2026,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: true,
+    });
+    expect(state).toEqual({ kind: 'in-season' });
+  });
+
+  // Rule 3, the one deliberate divergence from iOS. A failed or empty feed
+  // fetch during the season must NOT produce "See you next season" for a
+  // July visitor — it means "we have no data", which is what the generic
+  // EmptyState says.
   it('is in-season when the year has no events at all and the season has opened', () => {
     const state = determineLandingState({
       now: chqDateAt(2026, 7, 15, 10),
       selectedYear: 2026,
       availableYears: [2026],
       yearHasEvents: false,
+      yearHasUpcomingEvents: false,
     });
     expect(state).toEqual({ kind: 'in-season' });
   });
@@ -68,6 +150,7 @@ describe('determineLandingState', () => {
       selectedYear: 2027,
       availableYears: [2026, 2027],
       yearHasEvents: false,
+      yearHasUpcomingEvents: false,
     });
     expect(state.kind).toBe('pre-season');
   });
@@ -78,6 +161,7 @@ describe('determineLandingState', () => {
       selectedYear: 2026,
       availableYears: [2025, 2026],
       yearHasEvents: true,
+      yearHasUpcomingEvents: false,
     });
     expect(state).toEqual({
       kind: 'post-season',
@@ -88,12 +172,93 @@ describe('determineLandingState', () => {
     });
   });
 
+  // The defect this task exists to fix (#274 phase 4 task 10): a reader who
+  // deliberately picks an archived year gets `post-season` for it — but if
+  // the *next* announced season has itself already opened by "now" (this is
+  // mid-2026, and the archived year is 2025, so `nextSeasonYear` is 2026,
+  // whose own season started back in June), the old code still reported that
+  // season's `opening`/`daysUntil` unconditionally. `daysUntil` went
+  // negative — "-60 days away" — because a season already under way is not
+  // upcoming.
+  //
+  // Failing output pasted from the pre-fix code (`opening`/`daysUntil`
+  // computed unconditionally from `nextSeasonYear`):
+  //   - expected { nextSeasonYear: 2026, opening: null, daysUntil: null }
+  //   + received { nextSeasonYear: 2026,
+  //                 opening: 2026-06-27T16:00:00.000Z,
+  //                 daysUntil: -61 }
+  it('nulls the next-season countdown once that next season has already begun', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2026, 8, 27, 10),
+      selectedYear: 2025,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'post-season',
+      endedSeasonYear: 2025,
+      nextSeasonYear: 2026,
+      opening: null,
+      daysUntil: null,
+    });
+  });
+
+  // The boundary: the instant the next season opens is not "still ahead" —
+  // mirrors rule 2's own strict `<` (the exact opening instant is
+  // `post-season`, not `pre-season`, for the SELECTED year); here it means
+  // the exact opening instant of the NEXT year is no longer a countdown
+  // target either.
+  //
+  // Failing output pasted from the pre-fix code:
+  //   - expected { opening: null, daysUntil: null }
+  //   + received { opening: 2026-06-27T16:00:00.000Z, daysUntil: 0 }
+  it('the next season is no longer a countdown target at its own exact opening instant', () => {
+    const state = determineLandingState({
+      now: opening(2026),
+      selectedYear: 2025,
+      availableYears: [2025, 2026],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'post-season',
+      endedSeasonYear: 2025,
+      nextSeasonYear: 2026,
+      opening: null,
+      daysUntil: null,
+    });
+  });
+
+  // Regression: a next season genuinely still ahead keeps its countdown —
+  // this is #269's real "See you next season" path and must not be nulled.
+  it('keeps the countdown when the next season has not begun yet', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2026, 9, 15, 10),
+      selectedYear: 2026,
+      availableYears: [2025, 2026, 2027],
+      yearHasEvents: true,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'post-season',
+      endedSeasonYear: 2026,
+      nextSeasonYear: 2027,
+      opening: opening(2027),
+      daysUntil: expect.any(Number),
+    });
+    if (state.kind === 'post-season') {
+      expect(state.daysUntil).toBeGreaterThan(0);
+    }
+  });
+
   it('picks the lowest later year from an unsorted availableYears', () => {
     const state = determineLandingState({
       now: chqDateAt(2026, 9, 15, 10),
       selectedYear: 2026,
       availableYears: [2029, 2024, 2027, 2025, 2028],
       yearHasEvents: true,
+      yearHasUpcomingEvents: false,
     });
     expect(state.kind === 'post-season' && state.nextSeasonYear).toBe(2027);
   });
@@ -107,12 +272,14 @@ describe('determineLandingState', () => {
       selectedYear: 2027,
       availableYears: [2027],
       yearHasEvents: false,
+      yearHasUpcomingEvents: false,
     });
     const late = determineLandingState({
       now: chqDateAt(2026, 10, 20, 23),
       selectedYear: 2027,
       availableYears: [2027],
       yearHasEvents: false,
+      yearHasUpcomingEvents: false,
     });
     expect(early.kind).toBe('pre-season');
     expect(late.kind).toBe('pre-season');

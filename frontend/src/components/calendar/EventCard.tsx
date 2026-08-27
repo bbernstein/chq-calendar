@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { memo } from 'preact/compat';
 import type { Event } from '@/lib/types';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
 import type { ProgramLink } from '@/hooks/useProgramLinks';
@@ -47,7 +48,7 @@ interface EventCardProps {
   programLinks?: ProgramLink[];
 }
 
-export function EventCard({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS, articleLinks, programLinks }: EventCardProps) {
+function EventCardInner({ event, index, isExpanded, onToggleDescription, onToggleTag, isTagSelected, isFavorite, onToggleFavorite, onDownloadICS, articleLinks, programLinks }: EventCardProps) {
   const [showPopup, setShowPopup] = useState(false);
   const calendarButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -322,3 +323,42 @@ export function EventCard({ event, index, isExpanded, onToggleDescription, onTog
     </div>
   );
 }
+
+/**
+ * Memoized, and — like `EventListView` — that is a performance *contract*.
+ *
+ * The list is the whole year: 89 day sections and 1,687 cards, all mounted
+ * (#274 phase 4). `EventListView`'s own memo protects it from a parent state
+ * change that leaves its props alone, which is what a scroll does. It cannot
+ * protect it from a change to its props, and two of them change on the most
+ * ordinary interactions there are: `favoriteIds` (`useFavorites` returns a new
+ * `Set`) and `expandedDescriptions` (`useFilterState` likewise). Three more —
+ * `weeklyThemes`, `articleLinks`, `programLinks` — arrive from sidecars
+ * seconds after the list paints.
+ *
+ * Without this, every one of those re-rendered all 1,687 cards, each re-running
+ * `parseEventDate` + `formatChqTime`. Measured against this branch's own
+ * preview build at 4x CPU throttle, with the 2026 year mounted:
+ *
+ * | interaction        | render flush   | longest long task |
+ * |--------------------|----------------|-------------------|
+ * | star one event     | 549ms -> 390ms | 492ms -> 350ms    |
+ * | expand one descr.  | 213ms ->  33ms | 170ms -> none     |
+ *
+ * (medians of five, `e2e/measure-card-renders.mjs`.) Expanding a description
+ * stops producing a long task at all. Starring still costs, and the residue is
+ * NOT card rendering: `favoriteIds` is also an input to `filterOpts` in
+ * `page.tsx`, so starring re-runs `filterEvents` and `groupEventsByDay` over
+ * the whole year before any card is touched. Separate cost, separate fix, out
+ * of scope here. The load-phase long-task profile is unchanged by this memo
+ * (990/664/178/84/65/63ms before, 977/662/168/78/67/63ms after).
+ *
+ * NOTE: this only bites while every prop `EventListView` hands a card stays
+ * stable across an unrelated change — `onDownloadICS` is a module import, the
+ * four callbacks are `useCallback`s, and `articleLinks?.[event.id]` /
+ * `programLinks?.[event.id]` are lookups into records that only change when
+ * the sidecar lands. **An inline arrow added to the call site silently removes
+ * this memo without failing a single behavioural test.**
+ * `EventCard.memo.test.tsx` is the guard.
+ */
+export const EventCard = memo(EventCardInner);

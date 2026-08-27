@@ -3,9 +3,17 @@ import type { LandingState } from '@/lib/utils/landingState';
 
 export interface OffSeasonLandingProps {
   state: LandingState;
-  /** Show the given year instead, with the date scope opened right up. */
+  /**
+   * Show the given year instead. Nothing but a year change: it used to also
+   * open the date scope right up, because `next`'s adaptive window had
+   * nothing to adapt to that far ahead, and #274 phase 4 deleted the scopes.
+   */
   onPreviewNextSeason: (year: number) => void;
-  /** Show the whole of the year already selected. Takes no year on purpose. */
+  /**
+   * Stop covering the year already selected with this landing — it is over,
+   * and the reader wants to look at it anyway. Takes no year on purpose: the
+   * year on screen is already the one that ended.
+   */
   onBrowseArchiveSeason: () => void;
 }
 
@@ -30,10 +38,17 @@ export function OffSeasonLanding({
 }: OffSeasonLandingProps) {
   if (state.kind === 'in-season') return null;
 
-  const isPostSeason = state.kind === 'post-season';
   // `in-season` is narrowed out above, and both remaining arms carry these
   // two fields, so the union access is `Date | null` / `number | null`.
   const { opening, daysUntil } = state;
+  // Whether there is a season still genuinely ahead to count down to.
+  // `pre-season.opening` is always a `Date` (rule 2 only returns that kind
+  // once `now < start`), so this is unconditionally true there. For
+  // `post-season`, `determineLandingState` nulls `opening` both when no
+  // later year is announced at all and when the next announced year has
+  // already begun (#274 phase 4 task 10) — either way there is nothing left
+  // to count down to.
+  const seasonIsAhead = opening !== null;
   // The season the countdown names: next year's when this one has ended,
   // this year's when it has not started yet.
   const openingYear =
@@ -45,12 +60,20 @@ export function OffSeasonLanding({
   // cast, and a cast is exactly the thing that would hide the field's type
   // widening later. A `const` cannot be reassigned, so the narrowing holds.
   const nextSeasonYear = state.kind === 'post-season' ? state.nextSeasonYear : null;
+  // `state.kind === 'pre-season'` narrows the ternary's other branch to
+  // `post-season`, so `state.endedSeasonYear` is valid there without a cast.
+  const heading =
+    state.kind === 'pre-season'
+      ? 'Almost showtime'
+      : seasonIsAhead
+        ? 'See you next season'
+        : `The ${state.endedSeasonYear} season has ended`;
 
   return (
     <div data-testid="off-season-landing" className="text-center py-12 px-4">
       <div className="text-6xl mb-4" aria-hidden="true">🎭</div>
       <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-6">
-        {isPostSeason ? 'See you next season' : 'Almost showtime'}
+        {heading}
       </h3>
 
       {opening !== null && daysUntil !== null && openingYear !== null && (
@@ -78,7 +101,9 @@ export function OffSeasonLanding({
               onClick={() => onPreviewNextSeason(nextSeasonYear)}
               className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
             >
-              Preview the {nextSeasonYear} season
+              {seasonIsAhead
+                ? `Preview the ${nextSeasonYear} season`
+                : `Go to the ${nextSeasonYear} season`}
             </button>
           )}
           <button

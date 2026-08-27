@@ -42,6 +42,50 @@ confirmed to have reached readers. A check that passes on a build known to
 be broken is a check that cannot fail — production is the control that
 proves it can.
 
+## `verify-full-list.mjs` — the list is the whole year
+
+#274 phase 4 deleted date filtering. The list is now every day of the
+selected year, mounted in one commit — 89 day sections and 1,687 event
+cards for 2026 — with the day strip and the week chooser as the only date
+navigation. Nothing in the unit suite can see whether that works: the
+things holding it up are `content-visibility: auto` on each day section,
+`contain-intrinsic-size` standing in for the layout the browser skipped,
+and a landing that scrolls by a *relative* delta so the estimates above the
+target cannot throw it off. jsdom has none of layout, `content-visibility`,
+scroll anchoring or a compositor.
+
+So this suite is where the phase is actually proved. It asserts that every
+day and every event of the year is mounted, that no growth sentinel
+survives anywhere, that day sections really are skipping layout, that the
+intrinsic-size estimate is within ±60% of a real measured section, that the
+reader lands on today and stays parked at the sticky offset, that mid-list
+rail jumps land to the pixel, that slow scrolling advances in **both**
+Chromium and WebKit, and that axe is clean over the whole mounted year.
+
+Two things about it are worth knowing before trusting a green run:
+
+- **Check 3 is the only guard on `content-visibility`.** Check 10 was
+  written to be the performance half of that argument and measurably is
+  not: deleting `content-visibility` and re-running moved p95 from 23-24ms
+  to 29-30ms and left the check passing, twice. Check 3 fails on that same
+  build. A pass on 10 is not evidence the containment is doing its job.
+- **Check 7c, not 7a/7b, is what catches an absolute scroll.** 7a/7b assert
+  the reader ends up parked at the sticky offset, which is a real
+  invariant — but `useDayAnchor`'s settle hold re-parks the target on the
+  next `ResizeObserver` callback, so it repairs a broken `scrollToDay`
+  before either can see it. Replacing the relative `scrollWindowBy` with an
+  absolute `window.scrollTo` 400px off left 7a reading `top 139.5` against
+  an offset of 140. 7c watches the mechanism instead: the app's own scrolls
+  are relative, and nothing in `src/` calls `window.scrollTo` at all.
+
+Check 6 — an archived year lands at its season start — was red when it was
+written, and that was the point: it named a real product defect rather than
+being tuned around it. It is **green as of `bc6c36a`**, which stopped
+`landingDayKey` offering the previous year's days as candidates during the one
+commit in which `seasonStartDay` already describes the new year and
+`eventDays` still holds the old one's. If it goes red again, that is a
+regression, not a known state.
+
 ## Regimes
 
 The calendar has three: before the season opens, during it, and after the last
@@ -55,13 +99,20 @@ mid-season rail chip to widen the view window into the season, then returns
 the reader to the top so downstream checks cannot tell which regime they are
 in. It prints one `regime:` line per run.
 
-Two `verify-rail` checks have no subject off-season and skip with a printed
-reason: check 3 (a persisted `this-week` resolves to no window at all, by
-design) and check 11 (today is outside `navBounds`, so `⟳ Now` is correctly
-absent). `verify-filter-reveal`'s check 13 stands down when the render window
-mounts sections mid-wheel, which makes the reader's movement unattributable —
-that one is conditional on the confounder rather than on the regime, so it
-still runs in season.
+`verify-rail`'s check 11 has no subject off-season and skips with a printed
+reason (today is outside `navBounds`, so `⟳ Now` is correctly absent). It used
+to be joined by check 3, a persisted `this-week` migration; #274 phase 4
+deleted `dateFilter` from the app, so that check and its skip are gone
+together with checks 1, 2 and 4/5 — the date scopes and "show earlier" they
+asserted no longer exist. `verify-full-list` skips checks 5 and 7 off-season,
+for the same reason in both cases: `enterList` has to tap a rail chip to get a
+list at all, so there is no load-time landing left to measure.
+
+`verify-filter-reveal`'s check 13 stands down when day sections appear or
+vanish mid-wheel, which makes the reader's movement unattributable — that one
+is conditional on the confounder rather than on the regime. With the render
+window deleted a wheel can no longer mount anything, so it is very nearly dead
+code; what can still trip it is check 10's filter landing late.
 
 A suite where **no check passed** exits non-zero: an all-skip run has proved
 nothing and must not report success.
@@ -97,7 +148,7 @@ Everything not named in those two stubs stays live production data.
 
 ## In CI
 
-`.github/workflows/build-and-test.yml` runs all five (via
+`.github/workflows/build-and-test.yml` runs all six (via
 `npm run test:browser`) against a preview server built from the branch. That
 server proxies `/cache` to production, which is how the pinned regime matrix
 reaches the live feed. There is no path filtering — they run on every push
@@ -134,3 +185,31 @@ would otherwise run everything twice. The guard routes same-repo work
 through the `push` event and fork PRs — where no push fires in the base
 repo — through `pull_request`. On a PR you will therefore see the job
 listed twice, once skipped and once green.
+
+## `measure-card-renders.mjs` — a measurement, not a check
+
+Deliberately outside `npm run test:browser`. It has no pass/fail: it prints
+what one star and one description expansion cost on the main thread with the
+whole year mounted, so a claim about card rendering can be made from a number
+rather than from reading the code.
+
+```bash
+npx vite build && npm run preview          # port 3000, /cache proxied to prod
+LABEL=before node e2e/measure-card-renders.mjs
+```
+
+`CPU` (default 4) is the throttle rate and `REPS` (default 5) the repeat
+count; it reports the median. It is what produced the before/after table in
+`EventCard.tsx`'s memo comment.
+
+Two numbers per interaction, measuring different halves. `flush` is
+`performance.now()` either side of `el.click()` plus a `setTimeout(0)` —
+preact batches into a microtask, so draining the microtask queue *is* the
+render, and this is its JS cost. `longest long task` is what the page's own
+`PerformanceObserver` reports for the same window, which additionally carries
+the style and layout the render provoked.
+
+The in-page timing is not incidental. The first version of this harness set a
+mark in one `evaluate` and filtered `longtask` entries by `startTime` in
+another, and recorded zero long tasks on a page that was in fact producing
+489ms ones. Nothing now sits between the click and the number.

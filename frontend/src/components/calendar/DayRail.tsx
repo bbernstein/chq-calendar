@@ -69,22 +69,6 @@ function ChipFace({ chip }: { chip: DayChip }) {
 export interface DayRailProps {
   chips: DayChip[];
   anchorDay: string | null;
-  /**
-   * Whether the current scope resolves to a view window at all.
-   *
-   * False only for `'this-week'` outside the season — a value this branch
-   * deliberately keeps working when restored from localStorage. `railTarget`
-   * refuses every tap in that state, because expansion cannot rescue it:
-   * `viewWindow` returns null out of `baseWindow` before it ever reads the
-   * expansion inputs. The chips would otherwise render enabled and fully
-   * labelled ("Go to Saturday, July 4, 12 events") over a list that can never
-   * move — the announce-a-destination-and-do-nothing class this branch spent
-   * three findings removing. `⟳ Now` is already honest there (off-season
-   * `todayKey` is null, so the button is absent), so the chips are the only
-   * dishonest part — but a rail of nothing but dead chips is not worth
-   * showing, and the reader is looking at `EmptyState` regardless.
-   */
-  scopeHasWindow: boolean;
   /** Today's key when the current year is selected; null on an archived one. */
   todayKey: string | null;
   onSelectDay: (key: string) => void;
@@ -101,8 +85,8 @@ export interface DayRailProps {
    */
   rootRef?: (el: HTMLElement | null) => void;
   /**
-   * The view window's day list, in order — the same array `useDayAnchor` is
-   * given in `page.tsx`.
+   * The rendered day list, in order — the same array `useDayAnchor` is given
+   * in `page.tsx`.
    *
    * Passed rather than derived from `chips` so both the discrete anchor and
    * this component's continuous highlight walk *identical* input through the
@@ -121,7 +105,7 @@ export interface DayRailProps {
    */
   bandSegments: WeekBandSegment[];
   /**
-   * Which weeks the band can reach under the current non-date filters. A week
+   * Which weeks the band can reach under the reader's current filters. A week
    * absent from the map renders faded and refuses its tap — including every
    * week, when the map itself is empty.
    */
@@ -145,12 +129,17 @@ export interface DayRailProps {
 }
 
 /**
- * The day rail — the fine-grained half of D4's two strips, sticky beneath
- * the week strip.
+ * The day rail — the day chips, and above them the week band and its chooser.
  *
- * Chips in, callbacks out. The window lives in `useFilterState` and the
- * *discrete* anchor in `useDayAnchor`; the rail owns neither, and still
- * decides nothing about which day is current.
+ * `page.tsx` renders it as a sibling of the card that holds the
+ * landing/empty/list branches, sticky in its own right rather than nested
+ * inside anything.
+ *
+ * Chips in, callbacks out. The *discrete* anchor lives in `useDayAnchor` and
+ * the continuous highlight in `useRailHighlight`; the rail owns neither, and
+ * still decides nothing about which day is current. It used to sit beneath a
+ * separate week filter strip and read a view window out of `useFilterState`;
+ * #274 phase 4 deleted both, and there is no window anywhere in the app now.
  *
  * It is no longer layout-free, though, and the old claim that it could be
  * tested without a layout stub no longer holds: `useRailHighlight` measures
@@ -159,10 +148,10 @@ export interface DayRailProps {
  * test on plain markup; anything about *where the highlight is* needs stated
  * geometry, which is what `useRailHighlight.test.tsx` provides.
  *
- * It spans the navigable bounds, **not** the current scope. It is a
- * navigation surface, not a filter readout: in `Today` scope it still shows
- * the week around you, because "where am I in the season" is the question it
- * exists to answer.
+ * It spans the navigable bounds — the whole season, widened by any event
+ * outside it — and names a day with no matching events as a fact rather than
+ * a destination. It is a navigation surface, not a filter readout: "where am
+ * I in the season" is the question it exists to answer.
  *
  * Accessibility: `role="group"` with an `aria-label`. Not `role="menu"` — a
  * row of navigation targets is not a menu — and not a bare `<div>` carrying
@@ -181,7 +170,7 @@ export interface DayRailProps {
  * below cannot stall on it.
  */
 export function DayRail({
-  chips, anchorDay, scopeHasWindow, todayKey,
+  chips, anchorDay, todayKey,
   onSelectDay, onGoToToday, rootRef, windowDayKeys,
   bandSegments, weekDestinations, onSelectWeek, seasonWeeks, weekThemes,
 }: DayRailProps) {
@@ -254,10 +243,15 @@ export function DayRail({
     buttons[next].focus();
   };
 
-  // Nothing to show, or nothing any of it could do — see `scopeHasWindow`.
+  // Nothing to show. (There is no longer a second reason to hide: the rail
+  // used to take a `scopeHasWindow` prop, false for off-season `'this-week'`
+  // restored from localStorage, where every chip would have announced a
+  // destination over a list that could never move. #274 phase 4 deleted the
+  // scopes, so that state is unreachable — every day the rail spans is
+  // mounted.)
   // After the hooks above, never before: an early return that skipped a hook
   // would change the hook order between renders.
-  if (chips.length === 0 || !scopeHasWindow) return null;
+  if (chips.length === 0) return null;
 
   return (
     <div

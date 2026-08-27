@@ -19,8 +19,8 @@
  *
  * `sticky bottom-0` pins it to the bottom edge of the panel's scroll
  * container, so it stays on screen when the panel's contents overflow their
- * cap — search, four scopes, a nine-week strip, venues, categories and active
- * chips exceed the viewport on a phone, and a drawer handle the reader has to
+ * cap — search, the favourites toggle, venues, categories and active chips
+ * exceed the viewport on a phone, and a drawer handle the reader has to
  * scroll the drawer to find is not a drawer handle. It carries the panel's own
  * background for the reason anything sticky does: without it the content it is
  * pinned over shows through.

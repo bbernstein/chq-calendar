@@ -237,9 +237,10 @@ export function useSiteHeaderReveal({ holdRevealed = false }: {
      *
      * The mouse and touch answers genuinely differ: a DRAG beginning on a
      * button is that button's, while a SWIPE beginning on it still scrolls the
-     * page. What actually stops a pan is a control that cancels it —
-     * `WeekSelector` calls `preventDefault()` on `touchstart` — and that is
-     * what the platform acts on, so it is what this asks.
+     * page. What actually stops a pan is a control that cancels it — the
+     * filter panel's old `WeekSelector` called `preventDefault()` on
+     * `touchstart`, which is where this rule came from — and that is what the
+     * platform acts on, so it is what this asks.
      */
     let touchPanCancelled = false;
     let touchScrolledPage = false;
@@ -300,20 +301,6 @@ export function useSiteHeaderReveal({ holdRevealed = false }: {
       settling = true;
     });
 
-    /**
-     * The gestures that count as the reader scrolling.
-     *
-     * `mousedown` and `touchstart` are deliberately absent, and that is the
-     * difference from `useDayAnchor`'s otherwise identical cancel set. A press
-     * scrolls nothing — and a rail chip tap IS a mousedown, milliseconds
-     * before the jump it causes, so admitting it would hand the browser's
-     * reaction to that jump the authority of a gesture.
-     *
-     * A scrollbar drag is the one way to scroll that fires none of wheel,
-     * touch or key. It is a `mousemove` with the button still held, which is
-     * why the button state is checked rather than the event type: a pointer
-     * merely crossing the page is not a scroll either.
-     */
     /**
      * The element the current drag began on.
      *
@@ -407,6 +394,20 @@ export function useSiteHeaderReveal({ holdRevealed = false }: {
      */
     const onTouchStartBubble = (e: Event) => { touchPanCancelled = e.defaultPrevented; };
 
+    /**
+     * The gestures that count as the reader scrolling.
+     *
+     * `mousedown` and `touchstart` are deliberately absent, and that is the
+     * difference from `useDayAnchor`'s otherwise identical cancel set. A press
+     * scrolls nothing — and a rail chip tap IS a mousedown, milliseconds
+     * before the jump it causes, so admitting it would hand the browser's
+     * reaction to that jump the authority of a gesture.
+     *
+     * A scrollbar drag is the one way to scroll that fires none of wheel,
+     * touch or key. It is a `mousemove` with the button still held, which is
+     * why the button state is checked rather than the event type: a pointer
+     * merely crossing the page is not a scroll either.
+     */
     const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
     const presses = ['mousedown', 'mouseup', 'touchstart', 'touchend'] as const;
 

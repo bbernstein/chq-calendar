@@ -100,7 +100,8 @@ describe('WeekGrid', () => {
   });
 
   it('does not grey a week merely for being in the past', () => {
-    // `isWeekInPast` is a filter's opinion. A past week that still holds events
+    // Whether a week has passed is a filter's opinion — it is what the
+    // deleted `WeekSelector` greyed by. A past week that still holds events
     // is perfectly navigable, and this is a navigation surface.
     renderGrid();
     const fill = cell(1).querySelector<HTMLElement>('[data-week-cell-fill]')!;

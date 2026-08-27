@@ -1,9 +1,11 @@
+import { memo } from 'preact/compat';
 import type { DayGroup } from '@/lib/utils/eventHelpers';
 import type { WeekTheme } from '@/hooks/useWeeklyThemes';
 import type { ArticleLink } from '@/hooks/useArticleLinks';
 import type { ProgramLink } from '@/hooks/useProgramLinks';
 import { downloadICS } from '@/lib/utils/icsHelpers';
 import { DAY_SECTION_ATTR, DAY_HEADER_ATTR } from '@/lib/utils/daySections';
+import { estimatedDaySectionHeight } from '@/lib/utils/daySectionSize';
 import { EventCard } from './EventCard';
 import { WeekBadge } from './WeekBadge';
 import { dayHeaderTop } from '@/app/filterHeaderLayout';
@@ -24,10 +26,15 @@ export interface EventListViewProps {
 /**
  * The day sections themselves — no state, no observers, no scroll.
  *
- * Returned as a fragment rather than a wrapper so each container owns the
- * spacing element its own sentinels and controls live in.
+ * Returned as a fragment rather than a wrapper so the caller's own container
+ * owns the spacing, which is what lets `page.tsx` place the sections directly
+ * inside its list card. It used to be phrased as each container owning "the
+ * spacing element its own sentinels and controls live in" — the sentinels
+ * were the render window's `IntersectionObserver` targets and the control was
+ * "Show earlier", and #274 phase 4 deleted all of them. There is nothing in
+ * that container now but the day sections.
  */
-export function EventListView({
+function EventListViewInner({
   groups, expandedDescriptions, onToggleDescription, onToggleTag, isTagSelected,
   favoriteIds, onToggleFavorite, weeklyThemes, articleLinks, programLinks,
 }: EventListViewProps) {
@@ -35,10 +42,12 @@ export function EventListView({
     <>
       {groups.map((dayGroup) => (
         // The day-key attribute is the anchor every scroll consumer resolves
-        // against — the prepend correction, the rail's scrollspy, and its
-        // scroll-to. It is on the section wrapper rather than the sticky
-        // header, because a sticky header's rect stops reporting the
-        // section's real position the moment it sticks.
+        // against — `useDayAnchor`'s scrollspy and its scroll-to
+        // (`scrollToDay`/the settle hold it reasserts), and `useRailHighlight`'s
+        // continuous highlight, which resolves against the same sections via
+        // `daySectionTop`/`daySectionMetrics`. It is on the section wrapper
+        // rather than the sticky header, because a sticky header's rect stops
+        // reporting the section's real position the moment it sticks.
         <div
           key={dayGroup.key}
           {...{ [DAY_SECTION_ATTR]: dayGroup.key }}
@@ -52,7 +61,23 @@ export function EventListView({
           // sticky rail. Expressed as the measured custom property rather
           // than a pixel literal so it stays right at any browser text zoom,
           // targeting the same `--day-rail-h` that `stickyOffset()` reads.
-          style={{ scrollMarginTop: dayHeaderTop() }}
+          style={{
+            scrollMarginTop: dayHeaderTop(),
+            // The browser skips layout and paint for sections that are off
+            // screen, which is what makes mounting the whole year affordable
+            // — measured on the phase 4 spike as 0 frames over 50ms across a
+            // forty-gesture scroll, against 5 without it and 6 for the
+            // render-window build it replaces.
+            //
+            // Off-screen sections are consequently absent from the
+            // accessibility tree until they render. That is not a
+            // regression against the render window this replaces — those
+            // days were not in the DOM at all — but it is the one thing full
+            // mount could have bought and this gives back. Recorded as a
+            // decision in the spec's addendum, not an oversight.
+            contentVisibility: 'auto',
+            containIntrinsicSize: `auto ${estimatedDaySectionHeight(dayGroup.events.length)}px`,
+          }}
         >
           <div
             {...{ [DAY_HEADER_ATTR]: '' }}
@@ -96,3 +121,20 @@ export function EventListView({
     </>
   );
 }
+
+/**
+ * Memoized, and that is a performance *contract*, not an optimization.
+ *
+ * `useDayAnchor` holds the anchored day in `page.tsx`, so every rAF-throttled
+ * scroll measurement that moves the anchor re-renders the page — and without
+ * this, the whole mounted list with it, each card re-running its `Intl` date
+ * formatting. Measured on the phase 4 spike at 4x CPU throttle: a forty-gesture
+ * scroll over the full season cost 26,992 card renders unmemoized and 0
+ * memoized, taking the 95th-percentile frame from 192ms to 32ms.
+ *
+ * The props `page.tsx` hands down are already stable across an anchor-only
+ * change. **Anything that makes one of them unstable — an inline arrow, a Set
+ * rebuilt per render — silently removes the memo without failing a single
+ * behavioural test.** `EventListView.memo.test.tsx` is the guard.
+ */
+export const EventListView = memo(EventListViewInner);

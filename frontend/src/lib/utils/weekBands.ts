@@ -129,7 +129,7 @@ interface FoundDay {
  * The design's three branches, in order:
  *
  * 1. the full Saturday that opens the week, when it holds events under the
- *    current non-date filters — a reader asking for week 6 is asking to be put
+ *    reader's current filters — a reader asking for week 6 is asking to be put
  *    at the top of week 6;
  * 2. otherwise the week's first day that does, because the rail never
  *    announces a destination it cannot reach;
@@ -191,7 +191,7 @@ function destinationLabel(week: number, found: FoundDay, count: number): string 
  */
 export function weekBandDestinations(o: {
   seasonWeeks: SeasonWeek[];
-  /** Sorted ascending — the days navigation can reach under the non-date filters. */
+  /** Sorted ascending — the days navigation can reach under the current filters. */
   eventDays: DayKey[];
   bounds: NavigableBounds;
   countsByDay: Map<DayKey, number>;

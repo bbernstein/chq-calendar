@@ -1,6 +1,11 @@
 # The day strip owns all date navigation (web)
 
-**Status:** Design approved 2026-08-25. Implementation not started.
+**Status:** Design approved 2026-08-25. Phases 1-3 merged. Phase 4 complete
+and green on `feat/274-phase-4-date-filters` (unpushed). **The addendum
+below records phase 4's accepted cost as +0.4-0.6s to first list; a measured
+performance pass afterwards paid it back and then some — first list 2369 ->
+1816ms, via a `parseEventDate` memo (`9da674f`) and the removal of a second
+full render of the year on every cold load (`9994343`).**
 **Issue:** #274. Builds on #272 / PR #273 (site header returns on scroll up).
 **Supersedes in part:** `2026-08-16-web-filter-reveal-design.md` and
 `2026-08-17-web-filter-panel-dismissal-design.md` — see "What stands and what
@@ -475,6 +480,153 @@ the 0px-progress bug lived. Backward growth stays an explicit press.
 **The measurement result is written into this spec as an addendum** before
 phase 4's plan is written, so the choice is a recorded decision rather than an
 inference from the code that ships.
+
+### Addendum, 2026-08-26 — the gating measurement
+
+Run on the branch `spike/274-phase-4-render-window`, against a production
+`vite build` served by `vite preview` with `/cache` proxied to the live CDN,
+at 390×844, under Chromium CPU throttling of 4× and 6× (a fast and a mid-tier
+phone; the machine is an Apple-silicon Mac, so these are the honest proxies,
+not absolutes). Three runs per configuration, medians reported. The harnesses live on the
+spike branch at `f606a73` and are not merged, because each of them drives URL
+flags that exist only there: `measure-render-window.mjs` (the table below),
+`measure-scroll-trace.mjs` (timeline attribution), `measure-scroll-profile.mjs`
+(JS self time, needs a `--minify false` build), `spike-rerender.mjs` (render
+counts), `spike-cv-seams.mjs` and `spike-midjump.mjs` (the seams). Phase 4
+re-runs an adapted `measure-render-window.mjs` against the shipped build, where
+"full mount" is simply the app. The scroll figure is forty real 600px wheel
+gestures, 50ms apart. The clock is deliberately not pinned:
+`'all'` spans `navigableBounds` whatever the hour is.
+
+**First, the premise was understated.** This spec says "~1,470 events, ~64 day
+sections". The 2026 feed served today puts **1,687 events across 89 day
+sections**, January 3 to September 10 — 31 days in July, 31 in August, and 26
+scattered across the rest of the year from other publishers. `'all'` is a
+*calendar year*, not a season, and phase 4's list is the calendar year. Every
+number below is against 89 sections and 45,311 DOM nodes, not 64 and 45k.
+
+#### It does not hold as the code stands — and the DOM is not the reason
+
+Full mount, unchanged code, 6× (windowed today in brackets):
+
+| | full mount | windowed today |
+|---|---|---|
+| frame interval p95 | 299ms | 75ms |
+| worst frame | 659ms | 101ms |
+| long tasks during the scroll | 15, 4,725ms | 18, 1,295ms |
+| wall time for the same 24,000px | 7.7s | 3.3s |
+
+`Performance.getMetrics` accounts for only ~550ms of that 5–8s as script,
+style and layout put together. The timeline trace puts 2,628ms in
+`FireAnimationFrame` against 94 frames — 28ms of work per frame — and the CPU
+profile names the functions: `chqParts` (631ms), `chqDateAt` (328ms), Preact's
+diff, and `EventCard` itself.
+
+**The cost is a whole-page re-render on every anchor update.** `useDayAnchor`
+holds `anchorDay` in `page.tsx`, so each rAF-throttled scroll measurement that
+moves the anchor re-renders the page, `EventList`, `EventListView` and every
+mounted card, each card re-running its `Intl` date formatting. Counted
+directly, with a render counter in `EventCard`: a forty-tick scroll costs
+**26,992 card renders** at full mount (16 list renders × 1,687 cards) against
+3,378 windowed. The render window is not protecting the reader from the DOM's
+size; it is capping the blast radius of a re-render that should not be
+happening at all.
+
+#### Two changes make it hold
+
+1. **Memoize the list subtree.** Wrapping `EventListView` in `memo` takes the
+   scroll from 26,992 card renders to **0** — the props `page.tsx` hands down
+   are already stable across an anchor-only change, so nothing further is
+   needed to make it bite.
+2. **`content-visibility: auto` with `contain-intrinsic-size` on each day
+   section.** The whole list stays in the DOM; the browser skips layout and
+   paint for what is off screen.
+
+At 4×, forty wheel gestures:
+
+| | windowed today | full + memo | full + memo + CV |
+|---|---|---|---|
+| frame p50 / p95 | 8.4 / 41.8ms | 10.0 / 31.8ms | **8.3 / 17.4ms** |
+| worst frame | 100.5ms | 107.3ms | **48.3ms** |
+| frames over 50ms | 6 of 200 | 5 of 192 | **0 of 253** |
+| long tasks | 6, 360ms | 4, 356ms | **1, 51ms** |
+
+At 6× the same ordering holds: p95 73.8 → 59.9 → **34.6ms**, worst frame
+116.7 → 142.8 → **83ms**, long tasks 18/1,289ms → 15/1,121ms → **5/335ms**.
+
+**Scrolling the whole season is not merely survivable, it is better than what
+ships today** — because today's scroll pays for render-window growth and for
+the same unnecessary re-render, and the full-mount page pays for neither.
+
+#### What full mount still costs, and it is not nothing
+
+| | windowed today | full + memo + CV |
+|---|---|---|
+| DOM nodes | 7,808 | 45,311 |
+| JS heap | 12.8MB | 22MB |
+| longest blocking task at load, 4× | 755ms | 1,067ms |
+| longest blocking task at load, 6× | 1,182ms | 1,649ms |
+| first day section on screen, 4× | 2,211ms | 2,637ms |
+| first day section on screen, 6× | 3,370ms | 4,008ms |
+
+`content-visibility` does not help here: it skips layout and paint, and the
+load cost is DOM construction plus two Preact passes over 1,687 cards (3,374
+card renders at load with the memo, 6,748 without). **The price of the
+deletion is roughly +0.4s at 4× and +0.6s at 6× before the reader sees a list,
+and +9MB of heap.** Phase 4's collapse of `navMatchingEvents` and
+`filteredEvents` into one filter pass claws back part of the script share of
+that (~140–230ms total at load today), but not the DOM construction.
+
+#### Seams measured rather than assumed
+
+- **A rail jump lands exactly, anywhere in the list, with CV on.** Jumps from
+  the top to the day at 25%, 50% and 75% of the year each put the target at
+  **140px — the sticky offset, to the pixel — and it had drifted 0px** 2.5
+  seconds later, with or without CV. The first version of this check jumped to
+  the *last* day and proved less than it looked: the browser clamps at maximum
+  scroll, which would mask any error.
+
+  **The reason it holds is load-bearing for phase 4.** `scrollToDay` scrolls
+  by a *relative* delta — the target's own `getBoundingClientRect().top` minus
+  `stickyOffset()` — and reading that rect forces the browser to lay the target
+  out for real. Estimated heights above it never enter the arithmetic. An
+  absolute `scrollTo(y)` computed by summing offsets would drift, and the
+  document does shift under CV as estimates are replaced by real sizes
+  (174,324 → 172,429px across three jumps without CV; 160,643 → 160,066px with
+  it). **Phase 4 lands every reader mid-list on every load, so this is the
+  difference between landing on today and landing near it: never compute an
+  absolute offset from a list whose sizes are estimates.**
+- **Keyboard focus reaches a control inside a skipped section**; the browser
+  un-skips on focus.
+- **With CV, off-screen sections are absent from the accessibility tree.**
+  Measured through `Accessibility.getFullAXTree`: at the top of the list the
+  last day's heading is present without CV and absent with it. This is *not* a
+  regression against what ships — today those days are not in the DOM at
+  all — but it is the one thing full mount could have bought and CV gives
+  back. Full mount **without** CV is the only configuration in which the whole
+  year is in the accessibility tree at once, and it costs the scroll numbers
+  in the middle column above.
+
+#### The memo is worth having whatever phase 4 decides
+
+Applied to today's windowed code it takes the scroll from 3,378 card renders
+to 953, p95 from 73.8 to 56.4ms and long tasks from 18 to 11 (6×). It is a
+small, independent improvement that does not depend on this issue at all.
+
+#### Decision
+
+**The render window is deleted outright — the "if it holds" branch — with the
+two changes above as part of phase 4 rather than as follow-ups.** The
+documented alternative (a two-way day-keyed range) is **not** taken.
+
+`EventListView` is memoized and day sections carry `content-visibility: auto`
+with a `contain-intrinsic-size` derived from the section's event count. The
+accepted cost is +0.4–0.6s to first list on a throttled phone and +9MB of
+heap; what it buys is the deletion listed above plus a measurably smoother
+scroll than ships today. The `contain-intrinsic-size` estimate is a guess
+about card height and must be stated as one in the code — it is right at the
+time of writing and nothing enforces it, so a browser check asserts the
+document height against the measured sections rather than trusting it.
 
 ### The collapse is larger than it first appears
 

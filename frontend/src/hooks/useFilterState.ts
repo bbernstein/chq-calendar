@@ -1,49 +1,28 @@
 import { useReducer, useCallback, useEffect, useMemo } from 'react';
 import { USER_STATE_EXPIRY_MS } from '@/lib/constants';
 
-export type DateFilter = 'all' | 'today' | 'next' | 'this-week' | 'season';
-
 interface FilterState {
   searchTerm: string;
   selectedTags: string[];
   selectedLocations: string[];
-  dateFilter: DateFilter;
-  selectedWeeks: number[];
   expandedDescriptions: Set<string>;
   recentLocations: string[];
   recentCategories: string[];
   availableCategories: string[];
   availableLocations: string[];
   showFavoritesOnly: boolean;
-  /**
-   * How far the user has navigated beyond the current scope's own window,
-   * as day keys. `null` means "not expanded in that direction".
-   *
-   * Session-only: deliberately absent from the localStorage payload below,
-   * matching iOS's `selectedDayKey` and the `extraDays` this replaced. A
-   * date pinned days ago and silently restored on launch would be worse
-   * than no restore.
-   */
-  windowStartDay: string | null;
-  windowEndDay: string | null;
 }
 
 type FilterAction =
   | { type: 'SET_SEARCH'; payload: string }
-  | { type: 'SET_DATE_FILTER'; payload: DateFilter }
-  | { type: 'SET_SELECTED_WEEKS'; payload: number[] | ((prev: number[]) => number[]) }
   | { type: 'TOGGLE_TAG'; payload: string }
   | { type: 'TOGGLE_LOCATION'; payload: string }
   | { type: 'TOGGLE_DESCRIPTION'; payload: string }
   | { type: 'SET_AVAILABLE_CATEGORIES'; payload: string[] }
   | { type: 'SET_AVAILABLE_LOCATIONS'; payload: string[] }
   | { type: 'TOGGLE_FAVORITES_ONLY' }
-  | { type: 'EXPAND_WINDOW_START'; payload: string }
-  | { type: 'EXPAND_WINDOW_END'; payload: string }
-  | { type: 'RESET_WINDOW' }
-  | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[]; isCurrentYear: boolean } }
-  | { type: 'CLEAR_FILTERS' }
-  | { type: 'CLEAR_NON_DATE_FILTERS' };
+  | { type: 'RECONCILE_FILTERS'; payload: { availableCategories: string[]; availableLocations: string[] } }
+  | { type: 'CLEAR_FILTERS' };
 
 function addToRecent(item: string, items: string[], max: number = 10): string[] {
   return [item, ...items.filter(i => i !== item)].slice(0, max);
@@ -59,33 +38,6 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
   switch (action.type) {
     case 'SET_SEARCH':
       return { ...state, searchTerm: action.payload };
-    case 'SET_DATE_FILTER':
-      // Resetting here rather than in an effect keyed on dateFilter: the
-      // effect this replaces ran a second render pass to undo state the
-      // first pass had already applied, and left a frame in which the
-      // window belonged to the previous scope.
-      //
-      // Guard on an actual change: unlike the effect (which only fired when
-      // dateFilter changed), a reducer case fires on every dispatch,
-      // including same-value ones — and those happen. useScrollState calls
-      // setDateFilter('all') unconditionally from several handlers, so a
-      // week mouse-down/drag/tap while already on 'all' re-dispatches the
-      // same value and would otherwise silently discard the window.
-      if (state.dateFilter === action.payload) return state;
-      return { ...state, dateFilter: action.payload, windowStartDay: null, windowEndDay: null };
-    case 'SET_SELECTED_WEEKS': {
-      // Weeks feed `nonDateFilterOpts`, which drives `navEventDays` and the
-      // earlier/later day targets — a week change moves the navigable range
-      // exactly as `dateFilter` does, so the manual expansion has to clear
-      // the same way. Guard on an actual change: a reducer case fires on
-      // every dispatch, including same-value ones, and useScrollState
-      // dispatches week selections from several handlers.
-      const weeks = typeof action.payload === 'function' ? action.payload(state.selectedWeeks) : action.payload;
-      const unchanged = weeks.length === state.selectedWeeks.length
-        && weeks.every((w, i) => w === state.selectedWeeks[i]);
-      if (unchanged) return state;
-      return { ...state, selectedWeeks: weeks, windowStartDay: null, windowEndDay: null };
-    }
     case 'TOGGLE_TAG': {
       const tag = action.payload;
       const wasSelected = state.selectedTags.some(t => t.toLowerCase() === tag.toLowerCase());
@@ -113,29 +65,23 @@ function filterReducer(state: FilterState, action: FilterAction): FilterState {
       return { ...state, availableLocations: action.payload };
     case 'TOGGLE_FAVORITES_ONLY':
       return { ...state, showFavoritesOnly: !state.showFavoritesOnly };
-    case 'EXPAND_WINDOW_START':
-      return { ...state, windowStartDay: action.payload };
-    case 'EXPAND_WINDOW_END':
-      return { ...state, windowEndDay: action.payload };
-    case 'RESET_WINDOW':
-      return { ...state, windowStartDay: null, windowEndDay: null };
     case 'RECONCILE_FILTERS': {
-      const { availableCategories, availableLocations, isCurrentYear } = action.payload;
+      // Categories and locations only. This used to choose a scope as well —
+      // `next` for the current year, `all` for an archived one — and take an
+      // `isCurrentYear` flag purely to make that choice. With no scope left
+      // there is nothing year-relative to reconcile: a category or venue that
+      // the newly-selected year does not have is the whole subject (#274
+      // phase 4).
+      const { availableCategories, availableLocations } = action.payload;
       const availCatsLower = new Set(availableCategories.map(c => c.toLowerCase()));
       const availLocsLower = new Set(availableLocations.map(l => l.toLowerCase()));
       return {
         ...state,
         selectedTags: state.selectedTags.filter(t => availCatsLower.has(t.toLowerCase())),
         selectedLocations: state.selectedLocations.filter(l => availLocsLower.has(l.toLowerCase())),
-        selectedWeeks: [],
-        dateFilter: isCurrentYear ? 'next' : 'all',
-        windowStartDay: null,
-        windowEndDay: null,
       };
     }
     case 'CLEAR_FILTERS':
-      return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], dateFilter: 'all', selectedWeeks: [], showFavoritesOnly: false, windowStartDay: null, windowEndDay: null };
-    case 'CLEAR_NON_DATE_FILTERS':
       return { ...state, searchTerm: '', selectedTags: [], selectedLocations: [], showFavoritesOnly: false };
     default:
       return state;
@@ -146,16 +92,12 @@ const initialState: FilterState = {
   searchTerm: '',
   selectedTags: [],
   selectedLocations: [],
-  dateFilter: 'next',
-  selectedWeeks: [],
   expandedDescriptions: new Set(),
   recentLocations: [],
   recentCategories: [],
   availableCategories: [],
   availableLocations: [],
   showFavoritesOnly: false,
-  windowStartDay: null,
-  windowEndDay: null,
 };
 
 function loadInitialState(): FilterState {
@@ -164,13 +106,18 @@ function loadInitialState(): FilterState {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed.lastSaved && Date.now() - parsed.lastSaved < USER_STATE_EXPIRY_MS) {
+        // An old payload's `dateFilter`/`selectedWeeks` are ignored, not
+        // migrated — there is no field left for them to mean anything in.
+        // The reverse direction is safe too and is why nothing needs a
+        // version bump: an old build reading a new payload finds
+        // `parsed.dateFilter === undefined` and falls back to `'next'`
+        // through its own `|| 'next'`, so a reader who downgrades gets the
+        // old default rather than a crash.
         return {
           ...initialState,
           searchTerm: parsed.searchTerm || '',
           selectedTags: parsed.selectedTags || [],
           selectedLocations: parsed.selectedLocations || [],
-          dateFilter: parsed.dateFilter || 'next',
-          selectedWeeks: parsed.selectedWeeks || [],
           expandedDescriptions: new Set<string>(parsed.expandedDescriptions || []),
           recentLocations: parsed.recentLocations || [],
           recentCategories: parsed.recentCategories || [],
@@ -187,22 +134,16 @@ export function useFilterState() {
 
   // Actions
   const setSearchTerm = useCallback((term: string) => dispatch({ type: 'SET_SEARCH', payload: term }), []);
-  const setDateFilter = useCallback((filter: DateFilter) => dispatch({ type: 'SET_DATE_FILTER', payload: filter }), []);
-  const setSelectedWeeks = useCallback((weeks: number[] | ((prev: number[]) => number[])) => dispatch({ type: 'SET_SELECTED_WEEKS', payload: weeks }), []);
   const toggleTag = useCallback((tag: string) => dispatch({ type: 'TOGGLE_TAG', payload: tag }), []);
   const toggleLocation = useCallback((loc: string) => dispatch({ type: 'TOGGLE_LOCATION', payload: loc }), []);
   const toggleDescription = useCallback((id: string) => dispatch({ type: 'TOGGLE_DESCRIPTION', payload: id }), []);
   const setAvailableCategories = useCallback((cats: string[]) => dispatch({ type: 'SET_AVAILABLE_CATEGORIES', payload: cats }), []);
   const setAvailableLocations = useCallback((locs: string[]) => dispatch({ type: 'SET_AVAILABLE_LOCATIONS', payload: locs }), []);
   const toggleFavoritesOnly = useCallback(() => dispatch({ type: 'TOGGLE_FAVORITES_ONLY' }), []);
-  const expandWindowStart = useCallback((day: string) => dispatch({ type: 'EXPAND_WINDOW_START', payload: day }), []);
-  const expandWindowEnd = useCallback((day: string) => dispatch({ type: 'EXPAND_WINDOW_END', payload: day }), []);
-  const resetWindow = useCallback(() => dispatch({ type: 'RESET_WINDOW' }), []);
   const clearFilters = useCallback(() => dispatch({ type: 'CLEAR_FILTERS' }), []);
-  const clearNonDateFilters = useCallback(() => dispatch({ type: 'CLEAR_NON_DATE_FILTERS' }), []);
   const reconcileFilters = useCallback(
-    (availableCategories: string[], availableLocations: string[], isCurrentYear: boolean) =>
-      dispatch({ type: 'RECONCILE_FILTERS', payload: { availableCategories, availableLocations, isCurrentYear } }),
+    (availableCategories: string[], availableLocations: string[]) =>
+      dispatch({ type: 'RECONCILE_FILTERS', payload: { availableCategories, availableLocations } }),
     []
   );
 
@@ -222,43 +163,25 @@ export function useFilterState() {
     state.selectedTags.filter(t => state.availableCategories.includes(t) && !t.startsWith('Week ')).length,
     [state.selectedTags, state.availableCategories]
   );
-  const hasDateFilters: boolean = state.dateFilter !== 'all' || state.selectedWeeks.length > 0;
-  // Trim searchTerm to stay consistent with buildActiveChips (which only emits a
-  // search chip when the trimmed value is non-empty). Otherwise a whitespace-only
-  // search would set hasNonDateFilters=true with no chip to represent it.
-  const hasNonDateFilters: boolean = !!(state.searchTerm.trim() || state.selectedTags.length > 0 || state.selectedLocations.length > 0 || state.showFavoritesOnly);
-  const hasFilters: boolean = hasDateFilters || hasNonDateFilters;
-  // "The reader has narrowed the list themselves", as distinct from
-  // `hasFilters`' "a filter of any kind is in effect".
-  //
-  // The two differ on exactly one thing, and it matters: the app starts on
-  // the `next` scope (`initialState`, and `RECONCILE_FILTERS` for the
-  // current year), which makes `hasDateFilters` — and therefore
-  // `hasFilters` — true before the reader has touched a single control. Any
-  // indicator driven by `hasFilters` is therefore lit on a default visit and
-  // tells the reader nothing. This exists so the day rail's funnel dot can
-  // mean what the design says it means: whether you are looking at
-  // everything, or at a slice you chose.
-  //
-  // Both no-op scopes are excluded, not just `next`. `all` is the archived
-  // year's own starting scope (`RECONCILE_FILTERS` with `isCurrentYear:
-  // false`), so treating it as a change would reintroduce the same
-  // always-lit dot for every reader of a past season; and on the current
-  // year `all` widens rather than narrows, so "you are seeing a slice" would
-  // be false there too. Every other scope — `today`, `this-week` — is a
-  // narrowing the reader picked, and lights it.
-  const hasNonDefaultFilters: boolean =
-    (state.dateFilter !== 'next' && state.dateFilter !== 'all')
-    || state.selectedWeeks.length > 0
-    || hasNonDateFilters;
+  // One flag now, where there were three. With no scope, "the reader has
+  // narrowed the list" and "a filter is in effect" are the same statement —
+  // `hasDateFilters`, `hasNonDateFilters` and `hasNonDefaultFilters` existed
+  // only because the app started on the `next` scope, so a date filter was
+  // always in effect and an indicator driven by it was lit before the reader
+  // touched anything. Trimmed rather than raw: a whitespace-only search emits
+  // no chip, so it must not count as a filter either.
+  const hasFilters: boolean = !!(
+    state.searchTerm.trim() || state.selectedTags.length > 0 ||
+    state.selectedLocations.length > 0 || state.showFavoritesOnly
+  );
 
   // localStorage persistence
   useEffect(() => {
     try {
       localStorage.setItem('chq-calendar-user-state', JSON.stringify({
         searchTerm: state.searchTerm, selectedTags: state.selectedTags,
-        selectedLocations: state.selectedLocations, dateFilter: state.dateFilter,
-        selectedWeeks: state.selectedWeeks, expandedDescriptions: Array.from(state.expandedDescriptions),
+        selectedLocations: state.selectedLocations,
+        expandedDescriptions: Array.from(state.expandedDescriptions),
         recentLocations: state.recentLocations, recentCategories: state.recentCategories,
         showFavoritesOnly: state.showFavoritesOnly,
         lastSaved: Date.now(),
@@ -271,19 +194,15 @@ export function useFilterState() {
     searchTerm: state.searchTerm, setSearchTerm,
     selectedTags: state.selectedTags,
     selectedLocations: state.selectedLocations,
-    dateFilter: state.dateFilter, setDateFilter,
-    selectedWeeks: state.selectedWeeks, setSelectedWeeks,
     availableCategories: state.availableCategories, setAvailableCategories,
     availableLocations: state.availableLocations, setAvailableLocations,
     recentLocations: state.recentLocations,
     recentCategories: state.recentCategories,
     selectedTagsLowerSet, selectedLocationsLowerSet, selectedCategoriesCount,
-    hasFilters, hasDateFilters, hasNonDateFilters, hasNonDefaultFilters,
+    hasFilters,
     toggleDescription, toggleTag, isTagSelected, toggleLocation, isLocationSelected,
-    clearFilters, clearNonDateFilters,
+    clearFilters,
     showFavoritesOnly: state.showFavoritesOnly, toggleFavoritesOnly,
-    windowStartDay: state.windowStartDay, windowEndDay: state.windowEndDay,
-    expandWindowStart, expandWindowEnd, resetWindow,
     reconcileFilters,
   };
 }

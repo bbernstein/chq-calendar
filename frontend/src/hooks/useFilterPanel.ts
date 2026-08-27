@@ -19,7 +19,7 @@ const FOCUSABLE_SELECTOR = [
 // symmetric: too short and the fallback can outrace a transition that is
 // still genuinely playing but running late (a dropped-frame stretch or a GC
 // pause on a low-end phone under real content — the panel carries a
-// SearchBar, four scopes, a nine-week strip, venues, categories — is well
+// SearchBar, the favourites toggle, venues and categories — is well
 // within a 60ms budget), which unmounts the ghost mid-slide as a visible
 // pop instead of a fade; too long only delays cleanup in the one case this
 // exists for, where the tab isn't being looked at and the extra time is not

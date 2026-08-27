@@ -77,66 +77,45 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
   return page;
 }
 
-/**
- * Open the filter panel, so the scope buttons inside it are in the
- * accessibility tree.
- *
- * Required since #274 phase 3: the panel is a fixed overlay that is
- * `display: none` while closed, and the funnel that opens it moved from the
- * day rail into the site header. `getByRole` walks the accessibility tree, so
- * a control inside a hidden panel is correctly invisible to it — a check that
- * reaches for `All Season` without this times out rather than failing with a
- * useful message.
- *
- * A DOM click, not `locator.click()`: Playwright scrolls an element into view
- * before clicking it, and that scroll is a real one the app cannot know is
- * ours — it would hide the header out from under the funnel.
- */
-async function openFilters(page) {
-  await page.evaluate(() => {
-    document.querySelector('[data-site-header] button[aria-label="Filters"]')?.click();
-  });
-  await page.waitForTimeout(400);
-}
-
 const railChips = p => p.$$eval('[data-day-rail] [data-chip]', els => els.map(e => e.dataset.chip));
+const anchorChip = p => p.$$eval('[data-day-rail] [data-chip][aria-current="date"]', e => e[0]?.dataset.chip ?? null);
 
 /**
- * A rail chip past the current render window that a user can actually tap.
+ * A rail chip far from where the reader is standing that a user can actually
+ * tap.
  *
- * Checks 9 and 11 need "a day several past the render window" to prove that
- * navigation can outrun it. The old selection was `chips[lastMountedIdx + 6]`,
- * which is an *index*, blind to what the chip is: the rail spans every
- * calendar day in the navigable bounds, and a day with no events is
- * `aria-disabled` with a guarded onClick — tapping it does nothing, by
- * documented design (see DayRail.tsx and checks 14a2/14b, which assert
- * exactly that contract). Mid-season every day has events and the index
- * happened to land on a live chip; in the season's tail (2026-08-24: last
- * mounted day + 6 = 2026-09-01, zero events, next event day 2026-09-10) it
- * landed on a dead one and 9a/11a failed on a correct app. Winter's sparse
- * event days would have hit the same wall.
+ * Checks 9 and 11 need "a day a long way from here" to prove that a tap
+ * navigates and lands clear of the rail. Until #274 phase 4 that meant "past
+ * the render window", and the anchor was the last *mounted* day. Every day of
+ * the year is mounted now, so that anchor resolves to the last day of the
+ * feed, every fallback below it is unreachable, and the target is always the
+ * document's final day — which bottoms out against maximum scroll and makes
+ * 9b/9c measure the clamp rather than the app.
  *
- * So the target is picked from what the rail itself declares tappable, in
- * falling order of preference:
+ * The anchor is therefore the day the reader actually lands on (`aria-current`
+ * on the rail, i.e. today in season), and the target is picked from what the
+ * rail itself declares tappable, in falling order of preference:
  *
- *  1. The first enabled chip at least 6 chips past the last mounted day
- *     with >= 10 events on it and after it — the original intent, plus a
- *     floor of content below the landing point so "scrolled to it" (9b)
- *     measures a real scroll rather than a document-bottom clamp (the
- *     season's last day has 1 event; jumping there bottoms out ~470px
- *     short of the rail through no fault of the app's).
- *  2. The farthest enabled chip past the last mounted day meeting the same
- *     content floor — the season's tail, where nothing 6+ days out is
- *     viable but nearer unmounted days are.
- *  3. The farthest enabled chip past the last mounted day — almost nothing
- *     left ahead; navigation across the gap is still exercised, and 9b's
- *     bottomed-out disjunct absorbs the clamp.
- *  4. The last mounted day itself — everything reachable is already
- *     mounted (the season's final days, off-season), so "outrunning the
- *     render window" has no test to run and the checks degrade to the
- *     tap-lands-clear and ⟳-Now mechanics on a day that is already there.
- *     This mirrors the old `?? chips[chips.length - 1]` fallback, which in
- *     that regime resolved to the same already-mounted final day.
+ *  1. The first enabled chip at least 6 chips past the anchor with >= 10
+ *     events on it and after it — a floor of content below the landing point
+ *     so "scrolled to it" (9b) measures a real scroll rather than a
+ *     document-bottom clamp (the season's last day has 1 event; jumping there
+ *     bottoms out ~470px short of the rail through no fault of the app's).
+ *  2. The farthest enabled chip past the anchor meeting the same content
+ *     floor — the season's tail, where nothing 6+ days out is viable but
+ *     nearer days are.
+ *  3. The farthest enabled chip past the anchor — almost nothing left ahead;
+ *     the tap is still exercised, and 9b's bottomed-out disjunct absorbs the
+ *     clamp.
+ *  4. The anchor itself — nothing enabled ahead of the reader at all
+ *     (the season's final day). The checks degrade to the tap-lands-clear and
+ *     ⟳-Now mechanics on a day that is already under them.
+ *
+ * A chip is picked from what the rail declares tappable, never by index: the
+ * rail spans every calendar day in the navigable bounds, and a day with no
+ * events is `aria-disabled` with a guarded onClick — tapping it does nothing,
+ * by documented design (see DayRail.tsx and checks 14a2/14b, which assert
+ * exactly that contract).
  */
 async function pickFarTarget(page) {
   const chips = await page.$$eval('[data-day-rail] [data-chip]', els => els.map(e => ({
@@ -147,9 +126,11 @@ async function pickFarTarget(page) {
     // through the match.
     count: Number(/(\d+) events?$/.exec(e.getAttribute('aria-label') ?? '')?.[1] ?? 0),
   })));
-  const mounted = await page.$$eval('[data-day-key]', e => e.map(x => x.dataset.dayKey));
-  const lastMounted = mounted[mounted.length - 1];
-  const from = chips.findIndex(c => c.key === lastMounted);
+  // Where the reader is standing, not where the document ends. Falls back to
+  // the first chip when nothing is current (the archived-year and off-season
+  // routes `enterList` takes), which keeps the whole rail ahead of the anchor.
+  const anchor = await anchorChip(page);
+  const from = Math.max(chips.findIndex(c => c.key === anchor), 0);
   // suffix[i] = events on chip i and every chip after it — an upper bound on
   // what can end up mounted below the landing point.
   const suffix = new Array(chips.length).fill(0);
@@ -158,91 +139,24 @@ async function pickFarTarget(page) {
   for (let i = from + 6; i < chips.length; i++) if (qualifies(i)) return chips[i].key;
   for (let i = chips.length - 1; i > from; i--) if (qualifies(i)) return chips[i].key;
   for (let i = chips.length - 1; i > from; i--) if (chips[i].enabled) return chips[i].key;
-  return lastMounted;
+  return chips[from]?.key ?? null;
 }
-const anchorChip = p => p.$$eval('[data-day-rail] [data-chip][aria-current="date"]', e => e[0]?.dataset.chip ?? null);
 const railHeight = p => p.evaluate(() =>
   parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-rail-h')) || 0);
 
-// ---------------------------------------------------------------- 1. scopes
-{
-  const page = await newPage();
-  await openFilters(page);
-  const names = await page.$$eval('button', els => els.map(e => e.textContent.trim()));
-  const wanted = ['Now', 'Today', 'All Season', 'All Year'];
-  check('1a four scopes present', wanted.every(w => names.includes(w)), names.filter(n => wanted.includes(n)).join(', '));
-  check('1b This Week button gone', !names.includes('This Week'));
-  check('1c Selected: line gone', !(await page.locator('text=/^Selected:/').count()));
-  await page.close();
-}
-
-// ------------------------------------------------------- 2. mutual exclusion
-{
-  const page = await newPage();
-  await openFilters(page);
-  await page.getByRole('button', { name: 'All Season', exact: true }).click();
-  await page.waitForTimeout(300);
-  const pressed = await page.getByRole('button', { name: 'All Season', exact: true }).getAttribute('aria-pressed');
-  check('2a All Season activates', pressed === 'true', `aria-pressed=${pressed}`);
-  const allYear = await page.getByRole('button', { name: 'All Year', exact: true }).getAttribute('aria-pressed');
-  check('2b All Year not simultaneously active', allYear === 'false', `aria-pressed=${allYear}`);
-  await page.close();
-}
-
-// ------------------------------------------- 3. persisted 'this-week' migration
+// Checks 1-5 are deleted, not skipped: #274 phase 4 removed their subjects
+// from the app entirely, so there is nothing left for them to be right or
+// wrong about.
 //
-// The guard sits OUTSIDE `newPage()` on purpose. With `this-week` persisted
-// the reader has a non-default filter, so off-season they get the generic
-// empty state rather than the landing — `enterList` has no branch that could
-// rescue this page, and correctly refuses it.
-//
-// `currentRegime()` throws if nothing has bootstrapped yet, which makes the
-// dependency on checks 1-2 running first loud rather than silent.
-if (currentRegime() === 'off-season') {
-  skip('3 persisted this-week migration',
-    "off-season 'this-week' resolves to no window at all, by design — the rail " +
-    'hides and no day section mounts, so 3b would assert against the contract');
-} else {
-  const page = await newPage({
-    storage: ['chq-calendar-user-state', JSON.stringify({
-      dateFilter: 'this-week', selectedWeeks: [], searchTerm: '',
-      selectedTags: [], selectedLocations: [], expandedDescriptions: [],
-      recentLocations: [], recentCategories: [], showFavoritesOnly: false,
-      lastSaved: Date.now(),
-    })],
-  });
-  const names = await page.$$eval('button', els => els
-    .filter(e => !/^Remove filter/.test(e.getAttribute('aria-label') ?? ''))
-    .map(e => e.textContent.trim()));
-  const highlighted = await page.$$eval('button', els =>
-    els.filter(e => /^\d$/.test(e.textContent.trim()) && /bg-blue-600/.test(e.className)).map(e => e.textContent.trim()));
-  check('3a no This Week button after restore', !names.includes('This Week'));
-  check('3b page renders with a persisted this-week', (await page.$$('[data-day-key]')).length > 0,
-    `${(await page.$$('[data-day-key]')).length} day sections, week chips highlighted: ${highlighted.join(',') || 'none'}`);
-  await page.close();
-}
-
-// ------------------------------------------------------------ 4/5. show earlier
-for (const scrolled of [false, true]) {
-  const page = await newPage();
-  if (scrolled) { await page.mouse.wheel(0, 1400); await page.waitForTimeout(400); }
-  const before = await page.$$eval('[data-day-key]', e => e.map(x => x.dataset.dayKey));
-  const btn = page.getByRole('button', { name: /show earlier/i });
-  if (await btn.count() === 0) { check(`4/5 show-earlier present (scrolled=${scrolled})`, false, 'no button'); await page.close(); continue; }
-  const refKey = before[0];
-  const topOf = () => page.$eval(`[data-day-key="${refKey}"]`, e => e.getBoundingClientRect().top);
-  const t0 = await topOf();
-  await page.evaluate(() => [...document.querySelectorAll('button')]
-    .find(b => /show earlier/i.test(b.textContent)).click());
-  await page.waitForTimeout(1200);
-  const t1 = await topOf();
-  const after = await page.$$eval('[data-day-key]', e => e.map(x => x.dataset.dayKey));
-  const drift = Math.abs(t1 - t0);
-  check(`${scrolled ? '5' : '4'}a show-earlier drift ≈0 (scrolled=${scrolled})`, drift < 2, `${(t1 - t0).toFixed(1)}px`);
-  check(`${scrolled ? '5' : '4'}b nothing already-rendered unmounted`, before.every(k => after.includes(k)),
-    `before ${before.length} → after ${after.length}`);
-  await page.close();
-}
+//  - 1 "four scopes present" / 2 "mutual exclusion" — the `Now`/`Today`/
+//    `All Season`/`All Year` date scopes no longer exist. `openFilters()`
+//    went with them; it had no other caller.
+//  - 3 "a persisted `this-week` migration" — `dateFilter` is no longer read
+//    from storage at all, so the seed proved nothing. Its
+//    `currentRegime() === 'off-season'` skip went with it.
+//  - 4/5 "show earlier" — the render window is gone, so every day of the
+//    year is mounted on load and there is no earlier to show. The button is
+//    absent from `page.tsx`.
 
 // -------------------------------------------------------------- 8. rail exists
 {
@@ -256,42 +170,69 @@ for (const scrolled of [false, true]) {
   check('8d no role=menu anywhere', (await page.$$('[role=menu]')).length === 0);
 
   // Highlight tracks scroll.
+  //
+  // Two things about this are load-bearing since #274 phase 4, and both of
+  // them made it fail on a correct app first.
+  //
+  // **It moves from wherever the reader landed, not from the top.** The
+  // document is the whole year now and the load lands on today, so the
+  // second day section of the document (`secs[1]`, early January) is ~149,000px
+  // BEHIND the reader. Scrolling to it measured `2026-08-26 → 2026-08-26`:
+  // the highlight had not failed to track, the check had asked it to track a
+  // move it never made.
+  //
+  // **It scrolls with a wheel, not `window.scrollTo`.** The load landing arms
+  // `useDayAnchor`'s settle hold on today, and that hold re-asserts the day's
+  // position on any later layout change until a real gesture cancels it — a
+  // programmatic scroll is not one, so the app simply pulls the reader back.
+  // This is the same trap `regime.mjs`'s `settleAtTop` documents from the
+  // other direction.
   const a0 = await anchorChip(page);
-  // Scroll past the FIRST day section's full height — a fixed wheel delta is
-  // not guaranteed to cross a header, and a test that never crosses one
-  // proves nothing about whether the highlight tracks.
-  const targetY = await page.evaluate(() => {
+  // Just past the point where the NEXT day's header crosses the sticky offset
+  // — the exact moment the highlight must advance. Overshoot generously: a
+  // 5px margin is inside the noise of a settling document, and day sections
+  // run to thousands of px, so +200 still crosses only this one header.
+  const delta = await page.evaluate(anchor => {
     const secs = [...document.querySelectorAll('[data-day-key]')];
+    const i = Math.max(secs.findIndex(e => e.dataset.dayKey === anchor), 0);
+    const next = secs[i + 1] ?? secs[i];
     const railH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-rail-h')) || 0;
-    // Land just past the point where the SECOND day's header crosses the
-    // sticky offset — that is the exact moment the highlight must advance.
-    // Overshoot generously. A 5px margin is inside the noise once the list
-    // auto-expands during the scroll and shifts section positions; day
-    // sections are thousands of px tall, so +200 still crosses only this
-    // one header.
-    return Math.round(window.scrollY + secs[1].getBoundingClientRect().top - railH + 200);
-  });
-  await page.evaluate(y => window.scrollTo(0, y), targetY);
-  await page.waitForTimeout(700);
+    return Math.round(next.getBoundingClientRect().top - railH + 200);
+  }, a0);
+  await page.mouse.move(450, 500);
+  await page.mouse.wheel(0, delta);
+  await page.waitForTimeout(900);
   const a1 = await anchorChip(page);
-  check('8e highlight follows scroll', !!a0 && !!a1 && a0 !== a1, `${a0} → ${a1}`);
+  check('8e highlight follows scroll', !!a0 && !!a1 && a0 !== a1,
+    `${a0} → ${a1} (wheeled ${delta}px)`);
   await page.close();
 }
 
 // --------------------------------------------------- 9. rail tap lands clear
 {
   const page = await newPage();
-  // A tappable day several past the current render window — the case that
-  // fails if navigation cannot outrun the render window. See pickFarTarget
-  // for why "tappable" is load-bearing.
+  // A tappable day a long way from where the reader is standing. See
+  // pickFarTarget for why "tappable" is load-bearing.
   const target = await pickFarTarget(page);
   await page.evaluate(k => document.querySelector(`[data-day-rail] [data-chip="${k}"]`).click(), target);
   await page.waitForTimeout(1800);
-  const present = await page.$(`[data-day-key="${target}"]`);
-  check('9a tapped day mounts', !!present, target);
-  if (present) {
-    const { top, railH, bottomedOut } = await page.evaluate(k => ({
-      top: document.querySelector(`[data-day-key="${k}"]`).getBoundingClientRect().top,
+  // `9a tapped day mounts` was DELETED here rather than left green. It
+  // asserted that `[data-day-key="<target>"]` was in the DOM after the tap,
+  // which was a real claim while a render window decided which days existed:
+  // the tap had to outrun it, and the header above still said so. #274 phase
+  // 4 mounts every day of the year on load, so the section is in the DOM
+  // BEFORE the click — the check passes with the chip's entire `onClick` body
+  // removed. What the tap must still do is move the reader to that section,
+  // and that is 9b and 9c, which do fail on that defect.
+  //
+  // The measurement below returns null rather than throwing when the section
+  // is absent: an exception inside `evaluate` aborts the whole script, where
+  // a missing target should fail 9b and 9c by name, with the reason printed.
+  const m = await page.evaluate(k => {
+    const el = document.querySelector(`[data-day-key="${k}"]`);
+    if (!el) return null;
+    return {
+      top: el.getBoundingClientRect().top,
       railH: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-rail-h')) || 0,
       // This RELAXES 9b: the strict form is "section top within 400px of the
       // viewport top", and this alternative accepts "the page scrolled to the
@@ -307,11 +248,13 @@ for (const scrolled of [false, true]) {
       // unfalsifiable.
       bottomedOut: document.documentElement.scrollHeight > window.innerHeight + 2
         && window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2,
-    }), target);
-    check('9b scrolled to it', Math.abs(top) < 400 || bottomedOut,
-      `top=${top.toFixed(1)}px bottomedOut=${bottomedOut}`);
-    check('9c lands below the rail, not under it', top >= railH - 2, `top=${top.toFixed(1)} railH=${railH}`);
-  }
+    };
+  }, target);
+  const missing = `${target} is not mounted at all`;
+  check('9b scrolled to it', !!m && (Math.abs(m.top) < 400 || m.bottomedOut),
+    m ? `top=${m.top.toFixed(1)}px bottomedOut=${m.bottomedOut}` : missing);
+  check('9c lands below the rail, not under it', !!m && m.top >= m.railH - 2,
+    m ? `top=${m.top.toFixed(1)} railH=${m.railH}` : missing);
   await page.close();
 }
 
@@ -401,7 +344,17 @@ if (currentRegime() === 'off-season') {
     'the button is correctly absent (page.tsx) — there is no navigation back ' +
     'to today left to test');
 } else {
-  const page = await newPage();
+  // Seeded with a value the reader could plausibly have left behind, and
+  // that is 11b's whole subject — see the comment on `filterState` below.
+  // `expandedDescriptions` is chosen because it is persisted and restored
+  // like every other field but filters nothing, so the seed cannot disturb
+  // 11a or 11c by narrowing the list. The id matches no event in any feed.
+  const SENTINEL = 'e2e-11b-sentinel';
+  const page = await newPage({
+    storage: ['chq-calendar-user-state', JSON.stringify({
+      expandedDescriptions: [SENTINEL], lastSaved: Date.now(),
+    })],
+  });
   // Same tappable-target rule as check 9 — the old blind index landed on an
   // aria-disabled chip in the season's tail and the tap was a no-op, so ⟳
   // Now never had a navigation to appear after.
@@ -434,13 +387,46 @@ if (currentRegime() === 'off-season') {
     appeared || (anchorNow === todayNow && bottomedOutNow),
     `far=${far} anchor=${anchorNow} today=${todayNow} bottomedOut=${bottomedOutNow} button=${appeared}`);
   if (appeared) {
-    const scopeBefore = await page.$$eval('button[aria-pressed]', els =>
-      els.map(e => `${e.textContent.trim()}=${e.getAttribute('aria-pressed')}`).join(','));
+    // Read from persisted state, not from `button[aria-pressed]`.
+    //
+    // This check used to diff the pressed date-scope buttons. #274 phase 4
+    // deleted every one of them, and no other control in the app carries
+    // `aria-pressed`, so both sides of that comparison became the empty
+    // string and the check passed no matter what ⟳ Now did — it could not
+    // fail. The filters that survive the phase (search, categories, venues,
+    // favourites) are all in `chq-calendar-user-state`, so that is what
+    // "changes no filter" now means, plus the day set the list renders.
+    //
+    // That first repair was not enough on its own, which is the point of the
+    // SENTINEL above. Read on a page nobody has filtered, every field in the
+    // payload is already at its default — so a ⟳ Now that wiped the reader's
+    // state outright would write those same defaults back and the comparison
+    // would still hold. The check had a real subject and no VALUE to lose.
+    // Seeding one non-default field before the navigation gives it one.
+    //
+    // The whole payload is compared rather than a hand-picked four fields,
+    // minus `lastSaved` (which the persistence effect rewrites on every
+    // commit, so it differs across any two reads and would fail always).
+    // Keys are sorted so the comparison cannot turn on property order.
+    const filterState = () => page.evaluate(() => {
+      const raw = localStorage.getItem('chq-calendar-user-state');
+      const s = raw ? JSON.parse(raw) : {};
+      delete s.lastSaved;
+      const sorted = {};
+      for (const k of Object.keys(s).sort()) sorted[k] = s[k];
+      sorted.days = document.querySelectorAll('[data-day-key]').length;
+      return JSON.stringify(sorted);
+    });
+    const scopeBefore = await filterState();
     await nowBtn.click();
     await page.waitForTimeout(1500);
-    const scopeAfter = await page.$$eval('button[aria-pressed]', els =>
-      els.map(e => `${e.textContent.trim()}=${e.getAttribute('aria-pressed')}`).join(','));
-    check('11b ⟳ Now changes no filter', scopeBefore === scopeAfter, scopeAfter);
+    const scopeAfter = await filterState();
+    check('11b ⟳ Now changes no filter',
+      scopeBefore === scopeAfter && scopeBefore.includes(SENTINEL),
+      scopeBefore.includes(SENTINEL)
+        ? `${scopeBefore} → ${scopeAfter}`
+        : `the seeded sentinel never reached persisted state, so this check ` +
+          `had nothing to preserve: ${scopeBefore}`);
 
     // Reported with its state on purpose. `11c` has failed on `main` at night
     // and passed the same commit in the morning, and every previous
@@ -451,16 +437,27 @@ if (currentRegime() === 'off-season') {
     // is, where the anchor actually landed, and which days are mounted.
     const stillThere = await page.getByRole('button', { name: 'Go to today' }).count();
     const landedOn = await anchorChip(page);
-    const [appToday, mountedNow] = await page.evaluate(() => [
-      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date()),
-      // Not sliced. A capped list defeats the point: if the render window ever
-      // mounts more days, `today` lands past the cap and is truncated away in
-      // exactly the failure this exists to explain. It is a short array of day
-      // keys, so printing all of them costs nothing.
-      [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey),
-    ]);
+    // Summarised, not listed. The original failure this diagnostic was
+    // written for was "today is not mounted at all", and it printed every
+    // mounted day key uncapped so that today could not be truncated out of
+    // the evidence — a short array back when a render window decided what
+    // existed. #274 phase 4 mounts the whole year, so the honest form of the
+    // same evidence is the count, the ends, and the one membership question
+    // that was ever being asked.
+    const [appToday, mounted] = await page.evaluate(() => {
+      const keys = [...document.querySelectorAll('[data-day-key]')].map(e => e.dataset.dayKey);
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+      return [today, {
+        count: keys.length,
+        first: keys[0] ?? null,
+        last: keys[keys.length - 1] ?? null,
+        todayMounted: keys.includes(today),
+      }];
+    });
     check('11c ⟳ Now hides once back on today', stillThere === 0,
-      `today=${appToday} anchor=${landedOn} mounted=${mountedNow.join(',')} button=${stillThere}`);
+      `today=${appToday} anchor=${landedOn} mounted=${mounted.count} ` +
+      `(${mounted.first}..${mounted.last}, todayMounted=${mounted.todayMounted}) ` +
+      `button=${stillThere}`);
   }
   await page.close();
 }
@@ -472,6 +469,34 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     await page.evaluate(z => { document.documentElement.style.fontSize = `${16 * z}px`; }, zoom);
     await page.waitForTimeout(600);
   }
+
+  // Take ownership of the scroll position before parking anywhere.
+  //
+  // `enterList` returns as soon as the first day section exists, which is
+  // BEFORE the app has finished moving: in season it lands the reader on
+  // today, and `useDayAnchor`'s hold then re-asserts that position on every
+  // later layout change. Neither is cancelled by `window.scrollBy`, which is
+  // all the parking loop below uses — so the harness would park on a day in
+  // June, and the app would put the reader back on today underneath it.
+  //
+  // With the whole year mounted (#274 phase 4) that is a ~149,000px
+  // correction, and `roomy()` picks the first tall day of the YEAR rather
+  // than one near today, so the two are now always far apart. Measured on
+  // this list: parked at scrollY 3,561, measured 300ms later at 152,663 —
+  // `headerTop -148,557` against a `railBottom` of 140. CI failed on exactly
+  // that, at 320px, on two commits running.
+  //
+  // One real wheel tick settles it in either order: arriving before the
+  // landing it arms `useInitialLanding`'s takeover guard, and arriving after
+  // it cancels the hold. Reproduced and fixed at 1x, 4x and 8x CPU throttle —
+  // it is an ordering bug, not a slow-machine one, which is why it passed
+  // locally and failed in CI on identical code.
+  //
+  // A wheel, not `window.scrollTo`, for the reason `settleAtTop` records:
+  // only a real gesture cancels the hold.
+  await page.mouse.move(Math.round(width / 2), 400);
+  await page.mouse.wheel(0, 1);
+  await page.waitForTimeout(800);
 
   // Park deliberately inside a day whose header is genuinely stuck, rather
   // than scrolling a fixed distance and measuring whatever is there.
@@ -485,9 +510,13 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   // was stuck, so there was nothing for the assertion below to be about, and
   // it failed on `main` as well as on every branch.
   //
-  // Iterated rather than scrolled once: the render window mounts more days as
-  // the reader descends, which moves the target out from under a single
-  // computed delta. Loop until the section is actually in position, then stop.
+  // Iterated rather than scrolled once: sections carry `content-visibility:
+  // auto`, so a section's real height replaces its `contain-intrinsic-size`
+  // estimate as it comes into view — which moves the target out from under a
+  // single computed delta. (Until #274 phase 4 the render window mounting
+  // more days as the reader descended did the same thing, and was the reason
+  // recorded here.) Loop until the section is actually in position, then
+  // stop.
   const parked = await page.evaluate(async () => {
     const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     // Null-returning rather than throwing: an exception inside `evaluate`
@@ -517,30 +546,48 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
         > bottom + header.getBoundingClientRect().height + MARGIN * 2;
     });
 
-    // Search as the window grows, not once before it has.
+    // Search across everything mounted, retrying as the document settles.
     //
-    // The day list is lazily windowed: the first render mounts only enough
-    // days to reach RENDER_BATCH_EVENTS, and more arrive as an
-    // IntersectionObserver on a bottom sentinel is tripped. Choosing the
-    // target from the initially-mounted set alone would make this check
-    // depend on whether the first batch happens to contain a tall day —
-    // a property of whatever the season is showing today, which is the exact
-    // class of data-dependence this whole change exists to remove. So the
-    // search is retried as the window grows, and only a genuine exhaustion
-    // of the list is reported as a failure.
+    // This loop was written for a list that grew: the first render mounted
+    // only enough days to reach RENDER_BATCH_EVENTS, and more arrived as an
+    // IntersectionObserver on a bottom sentinel was tripped, so choosing a
+    // target from the initially-mounted set alone made the check depend on
+    // whether the first batch happened to contain a tall day. #274 phase 4
+    // deleted the render window, the sentinel and the observer: every day of
+    // the year is mounted in the first commit, so `roomy()` finds its target
+    // on the first call and the loop below exits without ever scrolling.
+    //
+    // It is kept rather than deleted because its exit condition is still the
+    // honest one — it stops the moment the mounted count stops changing,
+    // which is now immediately — and because `roomy()` reads
+    // `getBoundingClientRect().height` on sections the browser may have
+    // SKIPPED under `content-visibility: auto`, where that height is the
+    // `contain-intrinsic-size` estimate rather than a real measurement. The
+    // estimate is close enough for this purpose (measured 2,988px against a
+    // real 2,851px on the same section, ~5%), so a day picked by estimate is
+    // genuinely tall — but the retry is the thing that would absorb it if
+    // that ever stopped being true.
     let target = roomy();
     for (let grow = 0; grow < 20 && !target; grow++) {
-      const before = document.querySelectorAll('[data-day-key]').length;
+      const before = Math.round(window.scrollY);
       window.scrollBy(0, window.innerHeight);
       await frame();
       await frame();
       target = roomy();
-      // The window stopped growing and still has nothing tall enough — more
-      // scrolling cannot help, so stop rather than spin out the loop.
-      if (!target && document.querySelectorAll('[data-day-key]').length === before) break;
+      // The document will not scroll any further and nothing tall enough has
+      // come into view — more scrolling cannot help, so stop rather than spin
+      // out the loop.
+      //
+      // Keyed on the SCROLL POSITION. It used to break when the mounted day
+      // COUNT stopped growing, which said the same thing while a render
+      // window mounted days as the reader descended. #274 phase 4 mounts
+      // every day up front, so that count is a constant and this loop broke
+      // after its FIRST scroll — having scanned one viewport of a list it
+      // exists to scan the length of.
+      if (!target && Math.round(window.scrollY) === before) break;
     }
     if (!target) {
-      return { ok: false, why: 'no mounted day was tall enough to hold a stuck header, even after growing the render window' };
+      return { ok: false, why: 'no mounted day was tall enough to hold a stuck header, even after scrolling to the end of the list' };
     }
 
     const key = target.dataset.dayKey;
@@ -598,15 +645,56 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   const chips = await railChips(page);
   await page.evaluate(k => document.querySelector(`[data-day-rail] [data-chip="${k}"]`).focus(), chips[0]);
   const f0 = await page.evaluate(() => document.activeElement?.dataset?.chip ?? null);
+
+  // `13b arrowing does not refilter the list` used to sit at the bottom of
+  // this block, comparing the mounted day count either side of a keypress.
+  // That was a real claim while a date scope decided which days were mounted:
+  // arrowing must not act like a tap. #274 phase 4 mounts every day of the
+  // year and no rail control filters anything, so both sides of that
+  // comparison are now the same constant and it cannot fail.
+  //
+  // What survives is the invariant a reader would actually notice: arrowing
+  // moves FOCUS along the rail and must not move the READER. Wire ArrowRight
+  // to `onSelectDay` and the page jumps to that day; this catches that, and
+  // it spans both presses below rather than only the second.
+  //
+  // Settled first, and that is not belt-and-braces. In season the app scrolls
+  // itself to today on load and `useDayAnchor` then HOLDS that position
+  // against late layout changes (sections carry `content-visibility: auto`,
+  // so real heights replace their estimates as they come into view). A
+  // baseline taken before that finishes is a moving number, and the check
+  // would report the app's own landing scroll as the keypress's doing.
+  // `focus()` above can scroll too, so the settle goes after it.
+  const settled = await page.evaluate(async () => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    let last = null;
+    for (let i = 0; i < 12; i++) {
+      const y = Math.round(window.scrollY);
+      if (y === last) return y;
+      last = y;
+      await wait(300);
+    }
+    return null;
+  });
+
   await page.keyboard.press('ArrowRight');
   const f1 = await page.evaluate(() => document.activeElement?.dataset?.chip ?? null);
   check('13a ArrowRight moves focus along the rail', !!f1 && f0 !== f1, `${f0} → ${f1}`);
-  const mountedBefore = (await page.$$('[data-day-key]')).length;
+
   await page.keyboard.press('ArrowRight');
   await page.waitForTimeout(400);
-  const mountedAfter = (await page.$$('[data-day-key]')).length;
-  check('13b arrowing does not refilter the list', mountedBefore === mountedAfter,
-    `${mountedBefore} → ${mountedAfter} day sections`);
+  if (settled === null) {
+    // Skipped rather than measured against a number that was still moving —
+    // a pass read off a drifting baseline is the vacuum this whole sweep is
+    // about.
+    skip('13b arrowing moves focus, not the reader',
+      'the page was still scrolling on its own after 3.6s, so nothing the ' +
+      'keypresses did could be told apart from it');
+  } else {
+    const after = await page.evaluate(() => Math.round(window.scrollY));
+    check('13b arrowing moves focus, not the reader', Math.abs(after - settled) <= 2,
+      `scrollY ${settled} → ${after} across two ArrowRight presses`);
+  }
   await page.close();
 }
 
@@ -867,10 +955,11 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 //
 // The default, unfiltered feed fills every in-season week, so this check has
 // to construct the unreachable state itself rather than hope for one. It is
-// narrowed through PERSISTED FILTER STATE, the same route check 3 uses for
-// 'this-week' — a storage seed reaches `navMatchingEvents` with no dependency
-// on the filter panel's own markup, which the drive-the-UI alternative would
-// have.
+// narrowed through PERSISTED FILTER STATE — a storage seed reaches the rail's
+// own week destinations with no dependency on the filter panel's own markup,
+// which the drive-the-UI alternative would have. (The route was shared with a
+// check 3 that seeded a `'this-week'` date scope; #274 phase 4 deleted the
+// scopes and that check with them, so this is now the only user of it.)
 //
 // The term is 'williamsburg': Colonial Williamsburg's themed week-6
 // residency, a whole week of named partner programming rather than one
@@ -883,15 +972,16 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // 18a/18b need, and it never fully empties the reachable side either (see
 // 18-pre), which is what keeps 18a from going vacuous.
 //
-// dateFilter is seeded to 'all' ("All Year"), not left at the default
-// 'next': week 6 is in the past relative to 'now' this season, so a
-// 'next'-scoped list would show zero matching events, the app would render
-// the generic empty state, and `enterList`'s EMPTY branch throws before this
-// check gets to assert anything.
+// The seed used to carry `dateFilter: 'all'` as well, because week 6 is in
+// the past relative to `now` this season and the default `next` scope would
+// have emptied the list. #274 phase 4 deleted the date scopes: the list is
+// the whole year unconditionally, so the search term is the only thing
+// narrowing it and the date keys are ignored on read. Re-verified after
+// removing them — 1 reachable week, 8 unreachable, unchanged.
 {
   const page = await newPage({
     storage: ['chq-calendar-user-state', JSON.stringify({
-      dateFilter: 'all', selectedWeeks: [], searchTerm: 'williamsburg',
+      searchTerm: 'williamsburg',
       selectedTags: [], selectedLocations: [], expandedDescriptions: [],
       recentLocations: [], recentCategories: [], showFavoritesOnly: false,
       lastSaved: Date.now(),
@@ -1056,7 +1146,7 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   const page = await newPage({
     width: 390, height: 844,
     storage: ['chq-calendar-user-state', JSON.stringify({
-      dateFilter: 'all', selectedWeeks: [], searchTerm: 'williamsburg',
+      searchTerm: 'williamsburg',
       selectedTags: [], selectedLocations: [], expandedDescriptions: [],
       recentLocations: [], recentCategories: [], showFavoritesOnly: false,
       lastSaved: Date.now(),

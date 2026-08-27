@@ -1,72 +1,22 @@
-import type { DayKey, NavigableBounds, ViewWindow } from '@/lib/utils/dayWindow';
-
-export interface RailTargetInput {
-  target: DayKey;
-  window: Pick<ViewWindow, 'startDay' | 'endDay'> | null;
-  bounds: NavigableBounds;
-}
-
-export interface RailTarget {
-  expandStart: DayKey | null;
-  expandEnd: DayKey | null;
-  scrollTo: DayKey;
-}
+import type { DayKey, NavigableBounds } from '@/lib/utils/dayWindow';
 
 /**
  * What tapping a rail chip does: D1, expressed once.
  *
- * *Take me to that day.* If it is already in the loaded window this is a
- * scroll and nothing more; if it lies past an edge, that edge grows to
- * include it and then we scroll. The window only ever grows — the scope
- * button you started from is what shrinks it back — so "widen or move" never
- * arises.
+ * *Take me to that day.* Every day of the year is mounted (#274 phase 4
+ * deleted both the view window and the render window), so a chip tap is a
+ * scroll and nothing else — there is no edge to grow and no commit to wait
+ * for. What is left is a bounds check.
  *
- * Returns `null` for a target outside the navigable bounds. The reducer
- * would clamp such a value anyway, but clamping would move the window to an
- * edge and then scroll to a day that is not there; refusing is honest.
- *
- * Also returns `null` when the scope matches nothing at all (off-season
- * `'this-week'`, reachable from a persisted localStorage value). Expansion
- * cannot rescue that case: `viewWindow` returns `null` from `baseWindow`
- * before it ever reads the expansion inputs, so a plan that expanded both
- * edges to the target would widen nothing, mount nothing, and leave the
- * pending scroll waiting on a day that can never appear. Refusing the tap is
- * the same honesty the out-of-bounds branch above applies.
+ * Returns `null` for a target outside the navigable bounds: such a day has no
+ * section and never will, and a control that reports success while scrolling
+ * nowhere is the defect this refusal exists to avoid. The two other `null`
+ * cases this used to have — an unexpandable scope, and a plan that widened a
+ * window — went with the window itself.
  */
-export function railTarget(o: RailTargetInput): RailTarget | null {
-  if (o.target < o.bounds.startDay || o.target > o.bounds.endDay) return null;
-  if (!o.window) return null;
-  return {
-    expandStart: o.target < o.window.startDay ? o.target : null,
-    expandEnd: o.target > o.window.endDay ? o.target : null,
-    scrollTo: o.target,
-  };
-}
-
-/**
- * Whether a pending scroll target should be abandoned rather than waited for.
- *
- * A pending target that is never cleared survives every later commit and
- * hijacks one of them — scrolling the reader to a day they tapped under a
- * different scope, minutes ago. Two cases end the wait:
- *
- * - **No window at all.** The scope matches nothing, so no day can mount;
- *   there is nothing to wait for. (`railTarget` refuses such a tap in the
- *   first place, so this covers the target set under one scope and left
- *   pending when the scope changed to a null-window one.)
- * - **The window already covers the target.** The expansion has landed and
- *   the day still has no section, which means it has no matching events —
- *   an ordinary empty day, not a commit still in flight.
- *
- * Anything else is an expansion that has not landed yet: keep waiting, the
- * next commit will have it.
- */
-export function shouldAbandonScroll(
-  target: DayKey,
-  window: Pick<ViewWindow, 'startDay' | 'endDay'> | null
-): boolean {
-  if (!window) return true;
-  return target >= window.startDay && target <= window.endDay;
+export function railTarget(target: DayKey, bounds: NavigableBounds): DayKey | null {
+  if (target < bounds.startDay || target > bounds.endDay) return null;
+  return target;
 }
 
 /**

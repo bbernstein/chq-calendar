@@ -236,38 +236,76 @@ const strandedPanels = p => p.evaluate(() =>
   // A filter change must NOT dismiss — picking a venue, a category and a week
   // is one intent. This is the guard against keying dismissal off `scroll`.
   //
-  // `All Season`, not `Today`, and the difference is regime, not taste.
-  // Off-season `Today` matches nothing: the list empties and the document
-  // collapses from ~11,000px to ~985px, pulling the page out from under every
-  // check that follows. Measured off-season, pinned to 2026-09-15: days 4 → 0,
-  // docH 11042 → 985.
+  // A VENUE, since #274 phase 4. This used to click `All Season`, and the
+  // paragraph here explained at length why that scope rather than `Today`
+  // (off-season `Today` matched nothing, the list emptied, and the document
+  // collapsed out from under checks 11-15). Phase 4 deleted every date scope,
+  // so the button simply was not there any more: `?.click()` did nothing,
+  // `filterChanged` went false, and the check failed loudly rather than
+  // silently — which is the one thing the conjunction below was built to do.
   //
-  // The original reason was sharper and is now gone: the collapse also reset
-  // the "scrolled past" signal, which took the rail's Filters toggle with it,
-  // so the panel vanished for a reason that had nothing to do with dismissal
-  // and checks 10, 11 and 15 all failed on a correct app. #274 phase 3 deleted
-  // both the signal and that toggle — the header's funnel is unconditional —
-  // so that particular failure is unreachable. The document collapse is not,
-  // which is why the choice stands.
+  // A venue is the same kind of thing the scope was standing in for: a filter
+  // the reader picked, applied from inside the panel, that leaves a populated
+  // list in either regime. The Amphitheater is the Institution's main stage
+  // and carries programming in every season the feed publishes, so it is a
+  // fixture rather than a coincidence of today's snapshot — the same reasoning
+  // `verify-rail`'s 'williamsburg' seed records. The first location chip is
+  // the fallback if it is ever renamed, so a rename degrades the check's
+  // legibility rather than deleting its subject.
   //
-  // `All Season` is the same kind of thing — a date scope the reader picked —
-  // and leaves a populated list in either regime, so the check keeps its
-  // subject year-round instead of being skipped for three weeks of it.
-  // Reports whether the button was actually there, and check 10 is conjoined
-  // with it. `?.click()` alone is a silent no-op when the button is missing or
+  // Reports which button it actually clicked, and check 10 is conjoined with
+  // it. `?.click()` alone is a silent no-op when the button is missing or
   // renamed — the panel then stays open because nothing happened, and the
   // check PASSES having proved nothing about dismissal. That is the vacuous
-  // pass this whole PR is otherwise about, sitting in the middle of it.
-  const filterChanged = await p.evaluate(() => {
-    const btn = [...document.querySelectorAll('button')]
-      .find(b => b.textContent.trim() === 'All Season');
+  // pass this whole suite is otherwise about, sitting in the middle of it.
+  // Measured before the filter so 10b has a number to restore TO. Without it
+  // that check read `restoredDays > 0`, which the narrowed list satisfies —
+  // see below.
+  const daysUnfiltered = await p.evaluate(() => document.querySelectorAll('[data-day-key]').length);
+  const clicked = await p.evaluate(() => {
+    const chips = [...document.querySelectorAll('button[title]')]
+      .filter(b => b.offsetParent && b.getAttribute('title') !== 'Filters');
+    const btn = chips.find(b => b.getAttribute('title') === 'Amphitheater') ?? chips[0];
     btn?.click();
-    return !!btn;
+    return btn?.getAttribute('title') ?? null;
   });
   await p.waitForTimeout(700);
   check('10 a filter change does NOT dismiss',
-    filterChanged && await searchVisible(p),
-    filterChanged ? 'clicked All Season' : 'NO All Season button found — the click was a no-op');
+    !!clicked && await searchVisible(p),
+    clicked ? `clicked the ${clicked} venue chip` : 'NO venue chip found — the click was a no-op');
+
+  // Now put it back, with the panel still open — a second filter change,
+  // which check 11 immediately re-asserts has not dismissed anything either.
+  //
+  // This is not tidiness. A venue narrows the list hard: measured at 390px,
+  // selecting the Amphitheater took the document from 160,609px to 24,317px
+  // and 89 day sections to 68, which left the reader 974px from the bottom of
+  // a document they had been 11,000px inside. Check 13 then measured `moved
+  // 0px` against a 120px wheel and failed on a correct app — the collapse, not
+  // the dismissal, was what it was measuring. The date scope this check used
+  // to click had no such effect, which is why the restore is new rather than
+  // something the old version needed.
+  const restored = await p.evaluate(title => {
+    const btn = [...document.querySelectorAll('button[title]')]
+      .find(b => b.offsetParent && b.getAttribute('title') === title);
+    btn?.click();
+    return !!btn;
+  }, clicked);
+  await p.waitForTimeout(900);
+  const restoredDays = await p.evaluate(() => document.querySelectorAll('[data-day-key]').length);
+  // `restoredDays > 0` was the condition here, and "restores the list" was
+  // the half of this check's name that it did not test: the paragraph above
+  // records that selecting the Amphitheater takes the list from 89 day
+  // sections to 68, and 68 > 0. The check passed with the venue still
+  // applied — with the deselect click a no-op, which is exactly the "silent
+  // `?.click()` no-op" failure check 10 above was rewritten to close.
+  //
+  // Equality against the pre-filter count is the real form, and it is safe
+  // even when the chosen chip narrows nothing (the `chips[0]` fallback):
+  // both counts are then the same number and it still holds.
+  check('10b deselecting it does not dismiss either, and restores the list',
+    restored && restoredDays === daysUnfiltered && await searchVisible(p),
+    `${restoredDays} of ${daysUnfiltered} day sections back`);
 
   // Scrolling the panel's own overflow must not dismiss either.
   await p.evaluate(() => {
@@ -293,16 +331,20 @@ const strandedPanels = p => p.evaluate(() =>
     const moved = (await refTop(p, refKey)) - before;
     const mountedAfter = await p.evaluate(() => document.querySelectorAll('[data-day-key]').length);
     if (mountedAfter !== mountedBefore) {
-      // The render window mounted or unmounted day sections while the wheel
-      // was in flight, so the reader's movement is no longer attributable to
-      // the dismissal and this measurement cannot mean anything either way.
+      // Day sections appeared or vanished while the wheel was in flight, so
+      // the reader's movement is no longer attributable to the dismissal and
+      // this measurement cannot mean anything either way.
       //
-      // Conditional on the confounder rather than on the regime, deliberately.
-      // It fires off-season because switching scope leaves only a few days
-      // mounted with the reader near the document's end, where a 120px wheel
-      // triggers an expansion — measured pinned to 2026-09-15: sections 3 → 5,
-      // document 6,606 → 12,485px, reader moved 449px against a 120px gesture.
-      // It does not fire in season, where far more is mounted below.
+      // **This branch is very nearly dead since #274 phase 4** and is kept
+      // rather than deleted. It existed for the render window: off-season,
+      // switching scope left a few days mounted with the reader near the
+      // document's end, where a 120px wheel triggered an expansion (measured
+      // pinned to 2026-09-15: sections 3 → 5, document 6,606 → 12,485px,
+      // reader moved 449px against a 120px gesture). The window is gone and
+      // every day of the year is mounted on load, so a wheel cannot mount
+      // anything. What can still change the count is the filter applied by
+      // check 10 above landing late, which is exactly the same confounder —
+      // and it is why the skip reason below no longer names the window.
       //
       // Counted in day sections rather than document height, and that matters:
       // a height threshold guesses at a magnitude, and the first one tried
@@ -310,7 +352,7 @@ const strandedPanels = p => p.evaluate(() =>
       // produced a perfect -120px result. Mounting is the mechanism, so
       // mounting is what to watch.
       skip('13 dismissal moves the reader by the gesture only, not the panel height',
-        `the render window changed during the wheel (${mountedBefore} → ${mountedAfter} day sections), ` +
+        `the mounted day set changed during the wheel (${mountedBefore} → ${mountedAfter} day sections), ` +
         `so the ${moved}px the reader moved is not attributable to the dismissal`);
     } else {
       // Expected: -WHEEL (the reader's own scroll) and nothing more. An extra
@@ -671,9 +713,11 @@ const strandedPanels = p => p.evaluate(() =>
 
   const docHeight = () => p.evaluate(() => document.documentElement.scrollHeight);
   // Reveal the header FIRST, then take the closed baseline. The reveal is a
-  // real wheel gesture, and a wheel moves the reader — which can grow the
-  // render window and change document height for reasons that have nothing to
-  // do with the panel. Measuring across it made this check report a 27px
+  // real wheel gesture, and a wheel moves the reader — which changes document
+  // height for reasons that have nothing to do with the panel, as sections
+  // coming into view swap their `contain-intrinsic-size` estimates for real
+  // heights. (Before #274 phase 4 the render window mounting more days did
+  // the same thing, and was the reason recorded here.) Measuring across it made this check report a 27px
   // change against code whose panel changes nothing (probed directly: 7417px
   // in all three states). The only thing allowed to vary between the two
   // measurements is the panel.

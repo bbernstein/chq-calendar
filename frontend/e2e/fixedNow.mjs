@@ -52,9 +52,10 @@ export const FIXED_NOW = resolveFixedNow();
  *
  * `setFixedTime`, not `install`: it pins what `Date.now()`/`new Date()` report
  * while **leaving every timer running**. The app leans on real timers — the
- * search debounce, the render window's observers, the rail's scroll settling —
- * so faking those as well would break the very interactions these suites
- * drive.
+ * search debounce, the rail's scroll settling, `useDayAnchor`'s
+ * `ResizeObserver` hold — so faking those as well would break the very
+ * interactions these suites drive. (The render window's own observers were on
+ * that list until #274 phase 4 deleted them.)
  */
 export async function pinClock(page) {
   await page.clock.setFixedTime(FIXED_NOW);

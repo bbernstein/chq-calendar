@@ -35,10 +35,10 @@ export interface WeekThemePopoverApi {
 /**
  * Long-press, right-click and Shift+F10 open a week's theme.
  *
- * Extracted from `WeekSelector` so the filter strip and the day rail's week
- * chooser share one implementation. This is what keeps week themes reachable
- * once the week strip leaves the filter panel in phase 4 — the other route,
- * `WeekBadge` on the day header, is untouched throughout.
+ * Extracted from the filter panel's old `WeekSelector` so the day rail's week
+ * chooser could reuse it. That is what kept week themes reachable when #274
+ * phase 4 deleted the week strip and `WeekSelector` with it — the other
+ * route, `WeekBadge` on the day header, was untouched throughout.
  *
  * `onActivate` is the plain tap: the caller decides what a tap means (select a
  * week, or navigate to one). The touch path is here rather than in the caller

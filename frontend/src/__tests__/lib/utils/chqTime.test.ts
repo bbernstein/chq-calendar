@@ -3,7 +3,7 @@ import {
   CHQ_ZONE, chqParts, chqDayKey, chqDateAt, parseEventDate,
   formatChqTime, formatChqDayLabel,
 } from '@/lib/utils/chqTime';
-import { startOfDay, dayAfter, windowContains } from '@/lib/utils/dayWindow';
+import { startOfDay, dayAfter } from '@/lib/utils/dayWindow';
 
 describe('CHQ_ZONE', () => {
   it('is the Institution zone, never a fixed offset', () => {
@@ -114,13 +114,14 @@ describe('parseEventDate', () => {
     expect(parseEventDate('2026-07-27').toISOString()).toBe('2026-07-27T04:00:00.000Z');
   });
 
-  it('keeps a date-only event visible in a window covering that day', () => {
+  // The half-open day bounds asserted inline: `windowContains` was deleted
+  // with the view window (#274 phase 4), but what this test is about is
+  // `parseEventDate`'s date-only midnight landing inside its own day, which
+  // `startOfDay`/`dayAfter` still express.
+  it('reads a date-only event as an instant inside that calendar day', () => {
     const d = parseEventDate('2026-07-27');
-    const window = {
-      startDay: '2026-07-27', endDay: '2026-07-27',
-      start: startOfDay('2026-07-27'), endExclusive: dayAfter('2026-07-27'),
-    };
-    expect(windowContains(window, d)).toBe(true);
+    expect(d >= startOfDay('2026-07-27')).toBe(true);
+    expect(d < dayAfter('2026-07-27')).toBe(true);
   });
 
   it('falls through to the naive path on a malformed offset rather than throwing', () => {
