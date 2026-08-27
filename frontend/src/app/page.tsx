@@ -297,7 +297,8 @@ function HomeContent() {
     isCurrentYear,
     eventDays: navEventDays,
     seasonStartDay: dayKeyOf(seasonWeeks[0].start),
-  }), [isCurrentYear, navEventDays, seasonWeeks]);
+    selectedYear,
+  }), [isCurrentYear, navEventDays, seasonWeeks, selectedYear]);
 
   // Wraps `scrollToDay` so the override it was called for is consumed the
   // moment it resolves — task 6 fix round 1. Without this,

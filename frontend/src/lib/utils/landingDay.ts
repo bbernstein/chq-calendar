@@ -7,6 +7,19 @@ export interface LandingDayInput {
   eventDays: DayKey[];
   /** The selected year's season start, as a day key. */
   seasonStartDay: DayKey;
+  /**
+   * The year on screen.
+   *
+   * Passed rather than inferred from `seasonStartDay`'s prefix. The two agree
+   * today — `getChautauquaSeasonWeeks(y)` builds every week from June of `y` —
+   * but inferring made the *calendar* year the filter, and a feed is allowed
+   * to carry days outside it: `navigableBounds` is documented as "the season,
+   * widened to contain any event outside it", and `groupEventsByDay` clamps to
+   * no year at all. A 2027-01-02 event published under 2026 would be mounted
+   * in the list and drawn on the rail while being invisible here. One
+   * parameter removes the divergence instead of documenting it.
+   */
+  selectedYear: number;
 }
 
 /**
@@ -40,26 +53,27 @@ export interface LandingDayInput {
  * what iOS does with `selectedDayKey`. A date pinned days ago and silently
  * restored on launch would be worse than no restore.
  */
-export function landingDayKey({ now, isCurrentYear, eventDays, seasonStartDay }: LandingDayInput): DayKey | null {
+export function landingDayKey({ now, isCurrentYear, eventDays, seasonStartDay, selectedYear }: LandingDayInput): DayKey | null {
   // Only the selected year's own days are candidates — see the module note
-  // above on the torn commit. `seasonStartDay` IS the selected year's, by
-  // construction (`page.tsx` derives it from `getChautauquaSeasonWeeks(
-  // selectedYear)`, whose weeks all start in June), so its `YYYY-` prefix is
-  // the year to keep without adding a second parameter that could disagree
-  // with it.
+  // above on the torn commit.
   //
   // Filtered rather than rejected wholesale: a feed carrying one event either
   // side of the calendar boundary is a plausible year, and "any stray key
   // means land nobody" would strand a reader in it forever.
-  const yearPrefix = seasonStartDay.slice(0, 5);
+  const yearPrefix = `${selectedYear}-`;
   const days = eventDays.filter(d => d.startsWith(yearPrefix));
   if (days.length === 0) return null;
   const from = isCurrentYear ? dayKeyOf(now) : seasonStartDay;
   // The last day rather than null when everything is behind us: a
-  // post-season visitor to the current year — whether they narrowed the
+  // post-season visitor to the CURRENT year — whether they narrowed the
   // list with a filter, or reached it by dismissing the landing outright
   // (task 6 fix round 1: a rail tap, or "Browse this season") — should see
   // the end of the season they just had, not the January of a year that is
   // over.
+  //
+  // Unreachable for an ARCHIVED year, and that is the year filter's doing:
+  // `from` is that season's own start, and a year whose days all precede it
+  // has no days left after the filter, so the `days.length === 0` return
+  // above has already fired.
   return days.find(d => d >= from) ?? days[days.length - 1];
 }

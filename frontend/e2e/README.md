@@ -78,9 +78,13 @@ Two things about it are worth knowing before trusting a green run:
   an offset of 140. 7c watches the mechanism instead: the app's own scrolls
   are relative, and nothing in `src/` calls `window.scrollTo` at all.
 
-Check 6 — an archived year should land at its season start — **fails on
-this branch, and it is meant to.** It is a product defect, recorded in full
-at the check itself.
+Check 6 — an archived year lands at its season start — was red when it was
+written, and that was the point: it named a real product defect rather than
+being tuned around it. It is **green as of `bc6c36a`**, which stopped
+`landingDayKey` offering the previous year's days as candidates during the one
+commit in which `seasonStartDay` already describes the new year and
+`eventDays` still holds the old one's. If it goes red again, that is a
+regression, not a known state.
 
 ## Regimes
 

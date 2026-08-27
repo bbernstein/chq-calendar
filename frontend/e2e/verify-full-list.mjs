@@ -671,7 +671,7 @@ for (const engineName of ['chromium', 'webkit']) {
   // trustworthy.
   //
   // Every other check shares the module-level `browser`. By the time control
-  // reaches here that process has created and destroyed roughly twenty
+  // reaches here that process has created and destroyed eleven
   // contexts and seen a WebKit instance launched and closed alongside it, and
   // the cost lands squarely on the one check that measures frame intervals.
   // Measured on the same build, same gestures, same 4x throttle: p50 27ms /
