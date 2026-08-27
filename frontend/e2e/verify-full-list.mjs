@@ -538,17 +538,6 @@ if (currentRegime() === 'off-season') {
 }
 
 // ---------------------------------------------------------------------------
-// 9 — slow scrolling still advances the page, in both engines.
-//
-// The filter-header regression this whole browser suite exists for showed up
-// as a page that would not scroll slowly. Re-run here because the list is now
-// a different document: 89 sections whose heights change under the reader as
-// `content-visibility` resolves them, which is precisely the ingredient
-// scroll anchoring reacts to.
-//
-// A gesture is not one scroll event: WebKit on Linux delivers one wheel tick
-// as several frames, so this drives 30 real ticks and asserts the trace, not
-// one jump.
 // 5-webkit — the reader lands on today in WEBKIT too.
 //
 // Every other check in this suite runs in Chromium, and this file's own
@@ -581,6 +570,48 @@ if (currentRegime() === 'off-season') {
   // fights the landing above.
   check('5-webkit the app owns scroll restoration (webkit)',
     restore === 'manual', `history.scrollRestoration = ${restore}`);
+
+  // Landing on the right day is only half of arriving there. The rail
+  // centres the day being read, and after the landing it was coming to rest
+  // half a chip off — reported as the highlight "looking a little off, not
+  // centered", with the previous day clipped mid-label at the left edge.
+  //
+  // Asserted against the CHIP carrying `aria-current`, not against the pill:
+  // the pill is what `useRailHighlight` centres on, so centring the pill is
+  // the implementation restating itself. The chip is what the reader sees,
+  // and this also fails if the two ever come apart.
+  //
+  // The clamp is not slack — near the ends of the season the strip cannot
+  // scroll far enough to centre anything, and pinning to the edge is the
+  // correct answer there. Off-season the rail may not be on screen at all,
+  // in which case there is nothing to assert.
+  const rail = await page.evaluate(() => {
+    const strip = document.querySelector('[data-rail-strip]');
+    const content = document.querySelector('[data-rail-content]');
+    if (!strip || !content) return null;
+    const chip = [...content.querySelectorAll('button[data-chip]')]
+      .find(c => c.getAttribute('aria-current'));
+    if (!chip) return null;
+    const cr = content.getBoundingClientRect();
+    const kr = chip.getBoundingClientRect();
+    const centre = (kr.left - cr.left) + kr.width / 2;
+    const maxScroll = strip.scrollWidth - strip.clientWidth;
+    const want = Math.min(Math.max(0, maxScroll), Math.max(0, centre - strip.clientWidth / 2));
+    return {
+      key: chip.getAttribute('data-chip'),
+      off: Math.round((strip.scrollLeft - want) * 10) / 10,
+      at: Math.round(strip.scrollLeft), want: Math.round(want), maxScroll: Math.round(maxScroll),
+    };
+  });
+  if (!rail) {
+    skip('5-webkit the rail centres the day it landed on (webkit)',
+      'no rail on screen, so there is no chip to centre');
+  } else {
+    check('5-webkit the rail centres the day it landed on (webkit)',
+      Math.abs(rail.off) <= 2,
+      `${rail.key} rests ${rail.off}px off centre ` +
+      `(scrollLeft ${rail.at}, centred would be ${rail.want}, max ${rail.maxScroll})`);
+  }
   await page.close();
   await wk.close();
 }

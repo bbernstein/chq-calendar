@@ -1,6 +1,6 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import { render, act } from '@testing-library/preact';
-import { useRailHighlight, type RailHighlight } from '@/hooks/useRailHighlight';
+import { useRailHighlight, TWEEN_MS, type RailHighlight } from '@/hooks/useRailHighlight';
 import { DAY_SECTION_ATTR, DAY_HEADER_ATTR } from '@/lib/utils/daySections';
 import { installResizeObserverMock } from '@/__tests__/helpers/resizeObserver';
 
@@ -406,6 +406,57 @@ describe('useRailHighlight', () => {
       // Intermediate positions were written, not one assignment.
       expect(scrollWrites.length).toBeGreaterThan(2);
       expect(strip.scrollLeft).toBe(30 * PITCH + CHIP_W / 2 - 120);
+    });
+
+    it('settles on a fresh measurement, not the target it started with', () => {
+      // The load-time defect, in miniature. On a real load the landing scroll
+      // and this tween overlap: the tween is aimed at where the pill was when
+      // it started, `sync` returns early for every frame while it is in
+      // flight, and once the page stops scrolling nothing ever re-runs
+      // `sync`. The strip comes to rest on the stale target. Measured on an
+      // iPhone-sized WebKit viewport, that was 23.5px — half a chip — off
+      // centre on every single load.
+      //
+      // The 48px gap between the two targets is deliberately INSIDE the
+      // `JUMP_CHIPS` threshold (1.5 chips = 72px): a larger one would be
+      // re-tweened by the `tween.current` branch and the bug would not
+      // reproduce. Half a chip is exactly the size that slips through.
+      vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+      let now = 0;
+      vi.spyOn(performance, 'now').mockImplementation(() => now);
+      // A QUEUED rAF, unlike this file's default inline one: the whole point
+      // is to stop the animation part-way and change the world under it.
+      const frames: FrameRequestCallback[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+      const runFrames = (advanceMs: number) => act(() => {
+        now += advanceMs;
+        for (const cb of frames.splice(0, frames.length)) cb(now);
+      });
+
+      const chips = Array.from({ length: 40 }, (_, i) => `c${i}`);
+      const centred = (i: number) => i * PITCH + CHIP_W / 2 - 120;
+      // c31 is in the day list from the start but has no section yet, so the
+      // anchor resolves to c30 — the same shape as a day whose section has
+      // not mounted at the instant the first frame runs.
+      const { strip } = mount(
+        { chips, sections: { c0: { top: -900 }, c30: { top: -100 } } },
+        ['c0', 'c30', 'c31'],
+      );
+
+      scroll();
+      runFrames(0);
+      expect(strip.scrollLeft).toBe(0); // tween scheduled, no frame of it run
+
+      // The reader has moved on to c31 while the strip is still travelling.
+      installLayout({ chips, sections: { c0: { top: -900 }, c30: { top: -900 }, c31: { top: -100 } } });
+      scroll();
+      runFrames(40);
+      // Mid-tween, heading for c30's centre and not yet there.
+      expect(strip.scrollLeft).toBeGreaterThan(0);
+      expect(strip.scrollLeft).toBeLessThan(centred(30));
+
+      runFrames(TWEEN_MS);
+      expect(strip.scrollLeft).toBe(centred(31));
     });
 
     it('teleports instead of easing under prefers-reduced-motion', () => {

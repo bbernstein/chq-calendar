@@ -226,8 +226,28 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
       if (tween.current !== self) return;
       const progress = Math.min(1, (performance.now() - t0) / TWEEN_MS);
       writeScrollLeft(strip, lerp(from, to, easeOutCubic(progress)));
-      if (progress < 1) self.raf = requestAnimationFrame(step);
-      else tween.current = null;
+      if (progress < 1) { self.raf = requestAnimationFrame(step); return; }
+      tween.current = null;
+      // Settle against a fresh measurement rather than trusting `to`.
+      //
+      // `to` was computed when this tween STARTED, and `sync` returns early
+      // for every frame while one is in flight (see the `tween.current`
+      // branch there). So if the pill moved during the animation — which it
+      // does on load, where the landing scroll and this tween overlap — the
+      // strip comes to rest on a stale target and nothing corrects it: the
+      // only thing that re-runs `sync` is a scroll, and the page has by
+      // then stopped scrolling.
+      //
+      // Browser-measured on an iPhone-sized WebKit viewport before this
+      // line existed: the rail settled 23.5px — half a chip — off centre on
+      // every load, permanently, and a single further pixel of page scroll
+      // snapped it to 0.5px. That is the whole defect.
+      //
+      // Reached through `latest` rather than a captured `sync` for the
+      // reason given at that ref: `sync` is recreated whenever the day list
+      // changes, and closing over it here would pin this callback (and with
+      // it every listener keyed on its identity) to the day list.
+      latest.current.sync();
     };
     tween.current = self;
     self.raf = requestAnimationFrame(step);
@@ -399,7 +419,9 @@ export function useRailHighlight(chipKeys: string[], windowDayKeys: string[]): R
   }, [chipsId, keysId, nodeGeneration, sync]);
 
   // `sync` and `measureChips` are reached through a ref so the listener
-  // effect below does not depend on them. Both are recreated whenever the day
+  // effect below — and a settling tween, which is declared above this line
+  // but only ever runs from an animation frame, long after it — do not
+  // depend on them. Both are recreated whenever the day
   // list changes, and wiring the listeners to them directly tore down and
   // rebuilt every `window` listener and the `ResizeObserver` on every filter,
   // scope and window change — churn that buys nothing, since none of the
