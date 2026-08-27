@@ -68,12 +68,37 @@ const STICKY_OFFSET = `
   })()
 `;
 
-/** The day section parked under the sticky chrome, and how far off it is. */
+/**
+ * The day section parked under the sticky chrome, and how far off it is.
+ *
+ * The day is chosen by the app's OWN rule — the last section whose top has
+ * passed the chrome line, which is what `resolveAnchor` walks for. It used to
+ * be the first section with `top >= off - 2`, and that conflates two claims:
+ * WHICH day the reader is on, and HOW PRECISELY it is parked. A landing that
+ * misses by three pixels is a parking error of three pixels; under the old
+ * rule it was reported as landing on the wrong DAY.
+ *
+ * That is not hypothetical either. CI on Linux WebKit: "landed on 2026-08-28,
+ * today is 2026-08-27", from a page whose rail simultaneously reported
+ * `aria-current` on the 27th and 0px off centre. The rail was right and the
+ * harness was reading a boundary.
+ *
+ * Precision is still asserted, by checks 7a and 7b, against the `top` this
+ * returns — and it is the same section under both rules whenever the page IS
+ * well parked, so nothing there is weakened.
+ */
 const landedSection = page => page.evaluate(`
   (function () {
     const off = ${STICKY_OFFSET};
     const secs = [...document.querySelectorAll('[data-day-key]')];
-    const under = secs.find(s => s.getBoundingClientRect().top >= off - 2);
+    let under = null;
+    for (const s of secs) {
+      if (s.getBoundingClientRect().top <= off + 1) under = s;
+      else break;
+    }
+    // Nothing has passed the line at all: the reader is above the first day,
+    // and that first day is the one they are looking at.
+    if (!under) under = secs[0] ?? null;
     return {
       off,
       key: under ? under.dataset.dayKey : null,
