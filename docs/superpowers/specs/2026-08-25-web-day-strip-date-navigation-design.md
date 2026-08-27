@@ -1,6 +1,11 @@
 # The day strip owns all date navigation (web)
 
-**Status:** Design approved 2026-08-25. Implementation not started.
+**Status:** Design approved 2026-08-25. Phases 1-3 merged. Phase 4 complete
+and green on `feat/274-phase-4-date-filters` (unpushed). **The addendum
+below records phase 4's accepted cost as +0.4-0.6s to first list; a measured
+performance pass afterwards paid it back and then some — first list 2369 ->
+1816ms, via a `parseEventDate` memo (`9da674f`) and the removal of a second
+full render of the year on every cold load (`9994343`).**
 **Issue:** #274. Builds on #272 / PR #273 (site header returns on scroll up).
 **Supersedes in part:** `2026-08-16-web-filter-reveal-design.md` and
 `2026-08-17-web-filter-panel-dismissal-design.md` — see "What stands and what
