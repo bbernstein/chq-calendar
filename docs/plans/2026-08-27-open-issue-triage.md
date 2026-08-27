@@ -19,9 +19,13 @@ Both were assumed wrong in the 08-23 pass:
 - **The 2026 feed's last event is `2026-09-10`**, not "~Aug 30". The nine-week
   season ends in late August; the feed carries programming for two more weeks.
 - **2027 is already published** — 5 events, `2027-06-27` to `2027-08-09`.
-  `years.json` is `{"years":[2025,2026,2027],"defaultYear":2026}`.
-  `defaultYear` flips to 2027 on **2026-10-01**, which is what opens the
-  pre-season window #186 is about.
+  The **production** manifest,
+  `https://www.chqcal.org/cache/calendar-cache/years.json`, is
+  `{"years":[2025,2026,2027],"defaultYear":2026}`. `defaultYear` flips to 2027
+  on **2026-10-01**, which is what opens the pre-season window #186 is about.
+  Note this is *not* the repo's tracked dev fixture
+  `frontend/public/data/years.json`, which still reads `[2025, 2026]` and is
+  six months stale — that gap is part of #286.
 
 ## Closed this pass
 
