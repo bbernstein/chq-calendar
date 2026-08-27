@@ -336,36 +336,44 @@ if (currentRegime() === 'off-season') {
 // one `verify-offseason` check 3c reads back out of the countdown copy
 // ("The 2026 season begins June 27").
 //
-// ## THIS CHECK FAILS ON THIS BRANCH, AND IT IS RIGHT TO
+// ## The defect it caught, and why no unit test could have
 //
-// Measured 2026-08-26 against the branch's own preview build, with real
-// clicks, on a clean tree: picking 2025 and pressing "Browse the 2025 season"
-// leaves the reader at `2025-03-13` — the first day of the archived year's
-// feed — with `scrollY 0`. The expected landing is `2025-06-21`. Reproduced
-// on every attempt, and independent of timing: identical whether the 2026
-// landing was allowed to finish first or the year was switched immediately.
+// This check was written failing (task 7) and is green as of task 8. What it
+// found, measured against the branch's own preview build with real clicks:
+// picking 2025 and pressing "Browse the 2025 season" left the reader at
+// `2025-03-13` — the first day of the archived year's feed — with `scrollY
+// 0`, where the season starts `2025-06-21`. Reproduced on every attempt and
+// independent of timing.
 //
-// The mechanism, from a scroll trace taken during the switch:
+// Confirmed by instrumenting `landingDayKey` and `useInitialLanding` and
+// driving the same clicks. The three lines that say the whole thing:
 //
-//     scrollBy -149315  ->  y=32, section under the chrome = 2026-01-03
-//     ...then NOTHING at all after "Browse the 2025 season"
+//   landingDayKey     {"isCurrentYear":false,"seasonStartDay":"2025-06-21",
+//                      "n":89,"first":"2026-01-03","last":"2026-09-10",
+//                      "result":"2026-01-03"}
+//   useInitialLanding {"targetDay":"2026-01-03","year":2025,
+//                      "listMounted":true,"landedFor":2026,"hasSection":true}
+//   ...then, after "Browse the 2025 season":
+//   useInitialLanding {"targetDay":"2025-06-21","year":2025,
+//                      "listMounted":true,"landedFor":2025,"hasSection":true}
 //
-// `selectedYear` flips to 2025 a commit before `navEventDays`/`groupedEvents`
-// do. In that commit `landingDayKey` is called with 2025's `seasonStartDay`
-// and `isCurrentYear: false` but with **2026's** event days, so it resolves
-// to the first 2026 day at or after 2025-06-21 — `2026-01-03` — and
-// `listMounted` is still true because 2026's 89 sections are still in the
-// DOM. `useInitialLanding` therefore lands on that day and latches
-// `landedFor.current = 2025`. When the real 2025 list finally mounts, the
-// hook's own `landedFor.current === year` guard returns early and the
-// season-start landing never happens.
+// `selectedYear` flips to 2025 a commit before `navEventDays` does —
+// `useEventData` clears `events` in an EFFECT — so `landingDayKey` ran with
+// the new year's `seasonStartDay` and the old year's 89 event days and
+// answered `2026-01-03`. 2026's sections were still mounted, so
+// `useInitialLanding` scrolled there and latched `landedFor = 2025`; two
+// commits later the real `2025-06-21` was refused by its own
+// `landedFor.current === year` guard, and nothing re-triggered the effect.
 //
-// This is a product defect, not a harness artifact, and it is deliberately
-// left failing rather than fixed here: writing the check and letting it fail
-// is this task's remit. It is the same class of bug as the two the task 6
-// commits on this branch already fixed (`explicit`, the year-reset), reached
-// by a route neither of them covers — the guard consumed by data from the
-// year the reader just left.
+// Fixed in `landingDay.ts`: a day key carries its own year, so a landing
+// target is never chosen from events that are not the selected year's. See
+// that module's own doc, and the two unit tests named for the torn commit.
+//
+// **Why the browser is the only place this was visible.** Every part is
+// individually correct — the hook's guards, the year reset, the memo. The
+// defect is one commit's worth of disagreement between two of them, and the
+// unit tests that now pin it were written from what the instrumented browser
+// printed, not the other way round.
 {
   const page = await newPage();
   const current = await selectedYear(page);
@@ -560,6 +568,67 @@ for (const engineName of ['chromium', 'webkit']) {
 // the year. The numbers print whatever the verdict, so a drift is legible
 // rather than merely red.
 //
+// ## It asserts on p50 and p95, and DELIBERATELY not on the worst frame
+//
+// The worst frame is not a property of the build. Eight measurements of the
+// same shipped build, same forty gestures, same 4x throttle:
+//
+//     p50    8-9ms      (stable)
+//     p95    17-25ms    (stable)
+//     worst  43, 50, 84, 117, 138, 249, 699, 3881ms
+//
+// Two of those runs had nothing else executing on the machine. The old form
+// of this check asserted `over100 === 0`, which at least three of those eight
+// runs fail — on a build with no regression in it. A check that red-lights a
+// clean build half the time teaches its next reader to re-run rather than to
+// investigate, which is worse than not having it.
+//
+// p50 and p95 are the stable statistics, and they are also the ones that
+// match the pre-implementation spike (8.3 / 17.4) almost exactly, so they are
+// what the phase's premise was actually gated on. `worst`, `over100` and
+// `over50` still PRINT, every run — a genuine multi-second stall is visible
+// in the message even though it does not fail the check.
+//
+// Re-measured on a second machine on 2026-08-26, eight more runs of this
+// exact body against the shipped preview build:
+//
+//     p50    16ms on all eight
+//     p95    21, 24, 24, 24, 25, 25, 25, 28ms
+//     worst  43, 44, 47, 47, 48, 48, 48, 62ms
+//
+// Two further runs of the whole suite on that machine measured p95 24 and
+// 30ms, so the honest range there is 21-30 over ten observations — and 30 is
+// exactly the figure the OTHER machine recorded for a build with
+// `content-visibility` DELETED. Ten observations is not many, and that is the
+// point: a good build here and a broken build there are indistinguishable by
+// p95. It is the strongest available statement that this check cannot be the
+// layout-containment guard no matter how the threshold is set.
+//
+// p50 is rock stable per machine and differs by ~2x BETWEEN machines, which
+// is what sets the headroom below: the thresholds have to survive a CI runner
+// nobody has measured, so they are 2-2.5x the worst figure any machine has
+// produced. If this goes red on CI rather than on a regression, the number to
+// raise is p50 — do not raise p95 to hide a tail, and do not re-add an
+// assertion on `worst`.
+//
+// ## What DOES falsify it
+//
+// A `while (performance.now() - t0 < N)` busy-wait injected into the app's
+// own `scroll` listener (`useSiteHeaderReveal`), confirmed present in the
+// SERVED bundle each time, two runs each:
+//
+//     N = 40ms    p50 27, 28ms   p95 58, 66ms    -> PASS, FAIL  (marginal)
+//     N = 120ms   p50 26, 26ms   p95 155, 165ms  -> FAIL, FAIL  (clean)
+//
+// So the thresholds below catch a per-scroll-event stall somewhere around
+// 40ms and everything worse outright, which is the "gross regression" this
+// check is scoped to. Note which statistic did the work: p95, not p50. Only
+// ~40 of the ~95-135 sampled frames carry a scroll event at all, so even a
+// 120ms stall on every one of them leaves the MEDIAN frame at 26ms. p50 is
+// asserted because it is the stable statistic and a sustained collapse in
+// frame rate would show there first; p95 is what has teeth against a
+// periodic stall.
+//
 // ## Its named falsification does NOT falsify it — check 3 is what does
 //
 // This check was specified as the performance half of the argument for
@@ -571,9 +640,12 @@ for (const engineName of ['chromium', 'webkit']) {
 //     without content-visibility  p95 29-30ms   worst 56-57ms   0 frames >100ms
 //
 // The check PASSED on the broken build, both times. There is a consistent
-// ~25% separation in p95 and it is nowhere near the threshold, so this is not
-// the guard on `content-visibility` — **check 3 is, and it is the only one.**
-// (3a and 3c both FAIL on that same build: `content-visibility: visible`.)
+// ~25% separation in p95 and it is nowhere near the threshold — and it cannot
+// be brought near one, because 29-30ms on that machine is below the 21-28ms
+// this machine measures on a GOOD build. So p95 is a weak guard for layout
+// containment by construction, not merely by a threshold choice: **check 3 is
+// the guard on `content-visibility`, and it is the only one.** (3a and 3c
+// both FAIL on that same build: `content-visibility: visible`.)
 //
 // Three other measures were tried against the same pair of builds and were
 // flatter still: raising the throttle to 6x (p95 80-90 both ways — noise, not
@@ -583,19 +655,37 @@ for (const engineName of ['chromium', 'webkit']) {
 // 174,331px, which is checks 3 and 4's subject rather than this one's.
 //
 // So what this check is for is a GROSS regression — the multi-second stalls
-// the phase was worried about — and nothing subtler. Do not read a pass here
-// as evidence that the layout containment is doing its job.
+// the phase was worried about, which would move the median frame, not just
+// one frame — and nothing subtler. Do not read a pass here as evidence that
+// the layout containment is doing its job.
 //
 // ## On the spike's numbers
 //
 // The pre-implementation spike reported p50 8.3ms, p95 17.4ms and 0 frames
-// over 50ms in 253. The frame COUNT is the tell that it is not the same
+// over 50ms in 253. The frame COUNT is the tell that it is not quite the same
 // measurement: the same forty gestures sample ~135 frames here, so the
 // spike's run was roughly twice as long in wall-clock and its percentiles are
-// diluted by idle frames this loop does not have. Compare the verdicts, not
-// the percentiles.
+// diluted by idle frames this loop does not have.
 {
-  const page = await newPage({ cpu: 4 });
+  // A browser of its own, and that is the whole reason this check is
+  // trustworthy.
+  //
+  // Every other check shares the module-level `browser`. By the time control
+  // reaches here that process has created and destroyed roughly twenty
+  // contexts and seen a WebKit instance launched and closed alongside it, and
+  // the cost lands squarely on the one check that measures frame intervals.
+  // Measured on the same build, same gestures, same 4x throttle: p50 27ms /
+  // p95 169ms with 39 frames over 100ms on the shared process, against p50
+  // 8-9ms / p95 17-25ms in a fresh one — the latter matching the
+  // pre-implementation spike (8.3 / 17.4) that this whole phase was gated on.
+  //
+  // So the shared-process numbers were measuring the harness, not the app.
+  // This is the third time in this project a browser check has done that; the
+  // other two are recorded in `verify-rail.mjs` and in check 10's own history
+  // above. A dedicated process costs one browser launch and removes the
+  // confound by construction rather than by tuning a threshold around it.
+  const ownBrowser = await chromium.launch();
+  const page = await newPageOn(ownBrowser, { cpu: 4 });
   await settle(page);
   // Started from the FIRST day of the year, not from wherever the load
   // landing left the reader.
@@ -654,11 +744,16 @@ for (const engineName of ['chromium', 'webkit']) {
       scrollY: Math.round(window.scrollY),
     };
   });
+  // p50 and p95 only — see this check's header for the eight-sample evidence
+  // that the worst frame is not a property of the build. `worst`, `over100`
+  // and `over50` are printed as diagnostics on every run, pass or fail.
   check('10 forty gestures over the whole year stay smooth',
-    f.over100 === 0 && f.p95 < 60,
-    `p50 ${f.p50}ms, p95 ${f.p95}ms, worst ${f.worst}ms, ${f.over100} frames over 100ms and ` +
-    `${f.over50} over 50ms of ${f.count}, ${f.startY} → ${f.scrollY}`);
+    f.p50 < 40 && f.p95 < 60,
+    `p50 ${f.p50}ms, p95 ${f.p95}ms (asserted: p50 < 40, p95 < 60) — diagnostics: ` +
+    `worst ${f.worst}ms, ${f.over100} frames over 100ms and ${f.over50} over 50ms ` +
+    `of ${f.count}, ${f.startY} → ${f.scrollY}`);
   await page.close();
+  await ownBrowser.close();
 }
 
 // ---------------------------------------------------------------------------
