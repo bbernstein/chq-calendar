@@ -302,20 +302,6 @@ export function useSiteHeaderReveal({ holdRevealed = false }: {
     });
 
     /**
-     * The gestures that count as the reader scrolling.
-     *
-     * `mousedown` and `touchstart` are deliberately absent, and that is the
-     * difference from `useDayAnchor`'s otherwise identical cancel set. A press
-     * scrolls nothing — and a rail chip tap IS a mousedown, milliseconds
-     * before the jump it causes, so admitting it would hand the browser's
-     * reaction to that jump the authority of a gesture.
-     *
-     * A scrollbar drag is the one way to scroll that fires none of wheel,
-     * touch or key. It is a `mousemove` with the button still held, which is
-     * why the button state is checked rather than the event type: a pointer
-     * merely crossing the page is not a scroll either.
-     */
-    /**
      * The element the current drag began on.
      *
      * Tracked from `mousedown` because a drag's origin is what it means, and
@@ -408,6 +394,20 @@ export function useSiteHeaderReveal({ holdRevealed = false }: {
      */
     const onTouchStartBubble = (e: Event) => { touchPanCancelled = e.defaultPrevented; };
 
+    /**
+     * The gestures that count as the reader scrolling.
+     *
+     * `mousedown` and `touchstart` are deliberately absent, and that is the
+     * difference from `useDayAnchor`'s otherwise identical cancel set. A press
+     * scrolls nothing — and a rail chip tap IS a mousedown, milliseconds
+     * before the jump it causes, so admitting it would hand the browser's
+     * reaction to that jump the authority of a gesture.
+     *
+     * A scrollbar drag is the one way to scroll that fires none of wheel,
+     * touch or key. It is a `mousemove` with the button still held, which is
+     * why the button state is checked rather than the event type: a pointer
+     * merely crossing the page is not a scroll either.
+     */
     const gestures = ['wheel', 'touchmove', 'keydown', 'mousemove'] as const;
     const presses = ['mousedown', 'mouseup', 'touchstart', 'touchend'] as const;
 

@@ -244,24 +244,15 @@ export interface DayChip {
 }
 
 /**
- * How many of `events` fall on each day, by day key.
- *
- * Takes the events themselves rather than the day groups the list renders.
- * The rail spans the navigable bounds, which includes days that group to
- * nothing at all, and this gives every such day a 0 without needing a group
- * to exist for it — a chip is judged empty on the strength of that count, and
- * a missing entry and a zero must not read differently.
- *
- * Unparseable dates are dropped, matching `eventDayKeys` and every other
- * call site in the app.
- */
-/**
  * How many events fall on each day.
  *
  * Note what it does NOT do: write a `0` for a day with no events. It only
  * ever sets keys for days that have at least one, and every consumer reads it
  * as `countsByDay.get(key) ?? 0` — the missing key IS the zero, which is what
  * lets the rail span days no event touches.
+ *
+ * Unparseable dates are dropped, matching `eventDayKeys` and every other
+ * call site in the app.
  *
  * Off the hot path for the same reason as `eventDayKeys`, and kept as the
  * same kind of reference definition. See `dayWindowConsistency.test.ts`.
