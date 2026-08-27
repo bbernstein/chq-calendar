@@ -616,6 +616,46 @@ if (currentRegime() === 'off-season') {
     };
   }, landed.key);
 
+  // The tell, gathered here because this happens only on Linux WebKit in CI
+  // and reproduces on no local engine at any CPU throttle.
+  //
+  // One pixel of page scroll separates "the rail computed the wrong answer"
+  // from "the rail never computed one": its highlight and strip position are
+  // only ever updated from a `scroll` event, so if the landing's own scroll
+  // is missed and the page then goes still, the rail stays where it started
+  // — showing the first day of the YEAR — for the rest of the session. That
+  // is the same shape as the settling-tween defect fixed earlier on this
+  // branch, where a single further pixel snapped a 23.5px error to 0.5px.
+  //
+  // If the nudge repairs these values, the rail missed the movement. If it
+  // changes nothing, the rail computed the wrong answer and the cause is
+  // elsewhere.
+  const nudged = !rail ? null : await (async () => {
+    await page.evaluate(() => window.scrollBy(0, 1));
+    await page.waitForTimeout(500);
+    return page.evaluate((landedKey) => {
+      const strip = document.querySelector('[data-rail-strip]');
+      const content = document.querySelector('[data-rail-content]');
+      const chips = [...content.querySelectorAll('button[data-chip]')];
+      const anchor = chips.find(c => c.getAttribute('aria-current'));
+      const chip = chips.find(c => c.dataset.chip === landedKey);
+      const cr = content.getBoundingClientRect();
+      const kr = chip?.getBoundingClientRect();
+      const centre = kr ? (kr.left - cr.left) + kr.width / 2 : null;
+      const maxScroll = strip.scrollWidth - strip.clientWidth;
+      const want = centre === null ? null
+        : Math.min(Math.max(0, maxScroll), Math.max(0, centre - strip.clientWidth / 2));
+      return {
+        anchorKey: anchor?.dataset.chip ?? null,
+        off: want === null ? null : Math.round((strip.scrollLeft - want) * 10) / 10,
+        at: Math.round(strip.scrollLeft),
+      };
+    }, landed.key);
+  })();
+  const tell = nudged
+    ? ` — after a 1px nudge: aria-current ${nudged.anchorKey}, scrollLeft ${nudged.at}, ${nudged.off}px off`
+    : '';
+
   if (!rail) {
     skip('5-webkit the rail centres the day it landed on (webkit)',
       'no rail on screen, or no chip for the landed day');
@@ -629,7 +669,7 @@ if (currentRegime() === 'off-season') {
       Math.abs(rail.off) <= 2,
       `${rail.landedKey} rests ${rail.off}px off centre ` +
       `(scrollLeft ${rail.at}, centred would be ${rail.want}, max ${rail.maxScroll}, ` +
-      `strip ${rail.clientWidth}px)`);
+      `strip ${rail.clientWidth}px)${tell}`);
     // `useDayAnchor` and `useRailHighlight` resolve the anchor through the
     // same `resolveAnchor`, so they are not supposed to be able to name
     // different days. `resolveAnchor` falls back to `keys[0]` — the first day
@@ -638,7 +678,7 @@ if (currentRegime() === 'off-season') {
     check('5-webkit the rail highlights the day it landed on (webkit)',
       rail.anchorKey === rail.landedKey,
       `aria-current is on ${rail.anchorKey ?? '(no chip)'}, reader landed on ` +
-      `${rail.landedKey} (${rail.anchorCount} chip(s) carry it)`);
+      `${rail.landedKey} (${rail.anchorCount} chip(s) carry it)${tell}`);
   }
   await page.close();
   await wk.close();
