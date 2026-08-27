@@ -185,3 +185,31 @@ would otherwise run everything twice. The guard routes same-repo work
 through the `push` event and fork PRs — where no push fires in the base
 repo — through `pull_request`. On a PR you will therefore see the job
 listed twice, once skipped and once green.
+
+## `measure-card-renders.mjs` — a measurement, not a check
+
+Deliberately outside `npm run test:browser`. It has no pass/fail: it prints
+what one star and one description expansion cost on the main thread with the
+whole year mounted, so a claim about card rendering can be made from a number
+rather than from reading the code.
+
+```bash
+npx vite build && npm run preview          # port 3000, /cache proxied to prod
+LABEL=before node e2e/measure-card-renders.mjs
+```
+
+`CPU` (default 4) is the throttle rate and `REPS` (default 5) the repeat
+count; it reports the median. It is what produced the before/after table in
+`EventCard.tsx`'s memo comment.
+
+Two numbers per interaction, measuring different halves. `flush` is
+`performance.now()` either side of `el.click()` plus a `setTimeout(0)` —
+preact batches into a microtask, so draining the microtask queue *is* the
+render, and this is its JS cost. `longest long task` is what the page's own
+`PerformanceObserver` reports for the same window, which additionally carries
+the style and layout the render provoked.
+
+The in-page timing is not incidental. The first version of this harness set a
+mark in one `evaluate` and filtered `longtask` entries by `startTime` in
+another, and recorded zero long tasks on a page that was in fact producing
+489ms ones. Nothing now sits between the click and the number.
