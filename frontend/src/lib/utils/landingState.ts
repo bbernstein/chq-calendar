@@ -41,14 +41,29 @@ export interface LandingStateInput {
   yearHasEvents: boolean;
   /**
    * Does any event in the selected year's full, UNFILTERED event set start at
-   * or after `now`? The same question iOS's `yearHasUpcomingEvents` asks. See
-   * rule 1 in `determineLandingState` — this, not the season calendar, is
+   * or after `now` **minus one hour of grace** — NOT the bare `now` this same
+   * interface carries above? The two fields deliberately describe different
+   * instants, and callers must honour that: `page.tsx` derives this from
+   * `graceStart`, and `AppModel.landingState` on iOS from
+   * `now().addingTimeInterval(-3600)`.
+   *
+   * The grace is `.next`'s own opening grace (`dayWindow.ts`; iOS's
+   * `ViewWindow.swift`). Without it, the hour after the season's final event
+   * *begins* would already read as "nothing upcoming", and the landing would
+   * cover a list containing a currently-running event — "See you next season"
+   * while it is happening. `offSeasonLanding.test.tsx` pins both sides of
+   * that boundary.
+   *
+   * See rule 1 in `determineLandingState` — this, not the season calendar, is
    * what decides whether there is a list to show.
    *
    * **Full and unfiltered is load-bearing**, not incidental: iOS derived this
    * from its default filter's result count instead, which silently folded
    * that filter's 90-day scope cap into "is the season over" and produced a
-   * six-month divergence from this file (#288).
+   * six-month divergence from this file (#288). Note that #288 and this
+   * docstring are the same failure in two forms — a predicate whose stated
+   * contract and actual input drift apart while both look right in isolation.
+   * If you change what callers pass here, change this sentence with it.
    */
   yearHasUpcomingEvents: boolean;
 }
