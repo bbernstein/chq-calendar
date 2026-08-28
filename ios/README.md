@@ -70,7 +70,7 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO
 
 # Unit tests only — what you want while iterating.
-# 852 tests across 63 suites, a few seconds of test time once built.
+# ~1,000 tests across 70+ suites, a few seconds of test time once built.
 # It still boots a simulator and launches the test host — what it skips is
 # XCUITest's app boot per test, which is where the minutes actually go.
 xcodebuild test \
@@ -132,10 +132,12 @@ model/domain/data code that the app, its tests, and the widget extension
 all need without duplicating it or creating a circular dependency between
 the app and the extension.
 
-**CI does not build or test this app.** The repository's GitHub Actions
-workflows run on Linux runners (frontend/backend only); Xcode requires
-macOS, and a macOS runner for this project has been deliberately deferred.
-Run the commands above locally before pushing changes under `ios/`.
+**CI builds and tests this app** — `.github/workflows/ios.yml`, added in
+#205, runs on `macos-15` and splits into a unit leg and a UI leg that both
+gate a merge. (This paragraph used to say the opposite; it predated that
+workflow.) Still run the commands above locally before pushing changes under
+`ios/`: the UI leg alone takes ~20 minutes on a hosted runner, so a compile
+error found locally is worth a great deal.
 
 ### Screenshot scripts
 

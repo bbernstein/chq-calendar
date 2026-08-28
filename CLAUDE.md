@@ -39,18 +39,29 @@ chq-calendar/                    # Root (npm workspaces)
 │   │   ├── types/               # Shared type definitions
 │   │   └── __tests__/           # Cross-cutting test files (most tests live next to source)
 │   ├── public/                  # Static assets (icons, manifest)
+│   ├── e2e/                     # Playwright browser checks (verify-*.mjs)
 │   ├── package.json             # Frontend deps and scripts
 │   ├── tsconfig.json            # TypeScript config
 │   └── postcss.config.mjs       # Tailwind PostCSS plugin
 ├── backend/                     # AWS Lambda functions (TypeScript)
 │   ├── src/handlers/            # Lambda handlers
 │   └── package.json             # Backend deps
+├── ios/                         # Native SwiftUI app — see ios/README.md
+│   ├── ChqCalendar/             # App target (App/, Features/, Data/,
+│   │                            #   Intents/, Support/, Assets.xcassets/)
+│   ├── ChqCalendarShared/       # Models/Domain/Data shared by all 3 targets
+│   ├── ChqCalendarWidgets/      # WidgetKit extension (no test target of its own)
+│   ├── ChqCalendarTests/        # Swift Testing unit bundle (+ Fixtures/)
+│   ├── ChqCalendarUITests/      # XCUITest bundle
+│   └── Scripts/                 # Screenshot capture/compose, screenshot-plan.json
 ├── infrastructure/              # Terraform IaC (AWS)
 ├── docs/                        # Documentation
 │   ├── DESIGN.md                # System design (frontend + backend)
 │   ├── CACHING_ARCHITECTURE.md  # Cache strategy evolution
 │   ├── DEVELOPMENT_HISTORY.md   # Architecture decisions over time
 │   ├── plans/                   # Active plan docs (most are in archive/)
+│   ├── superpowers/             # Per-initiative specs/ and plans/, by date
+│   ├── app-store/               # Listing copy/fields, screenshots, release checklist
 │   ├── runbooks/                # Operational runbooks
 │   ├── publisher/               # Publisher-facing docs (live content)
 │   ├── archive/                 # Historical docs kept for searchability
@@ -73,6 +84,8 @@ chq-calendar/                    # Root (npm workspaces)
 | Database | DynamoDB | — |
 | IaC | Terraform | — |
 | Node.js | 24 (engines: `>=24.0.0`; CI matrix runs 24 + 25) | — |
+| iOS app | SwiftUI / Swift 6, deployment target iOS 18.0 | — |
+| iOS toolchain | Xcode 26+ (hard floor — synchronized folder groups) | — |
 
 ## Development Commands
 
@@ -213,6 +226,15 @@ npm run build
 cd ../frontend && npm run dev
 # Then visit: http://localhost:3000
 # Verify: events load, search works, filters work, descriptions expand
+
+# 5. iOS — only when the change touches ios/ (see "iOS development" above)
+cd ../ios
+xcodebuild test -project ChqCalendar.xcodeproj -scheme ChqCalendar \
+  -destination "id=$UDID" -only-testing:ChqCalendarTests \
+  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO   # while iterating
+xcodebuild test -project ChqCalendar.xcodeproj -scheme ChqCalendar \
+  -destination "id=$UDID" \
+  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO   # both legs, before committing
 ```
 
 The backend `lint` script runs with `--max-warnings=0`, so any ESLint
@@ -221,6 +243,72 @@ are reported but do not fail). New backend code must pass
 `npm run validate --workspace=backend` before committing.
 
 Coverage floor enforced via `.coverage-floor.json`; see `docs/coverage.md`.
+
+## iOS development
+
+`ios/README.md` is the reference — targets, architecture, data endpoints,
+caching semantics, screenshot scripts. What follows is only what that file
+does not say and what has cost real time.
+
+**Build and test from the CLI.** Resolve a simulator UDID rather than
+pinning `OS=`; runtimes differ between machines and CI images.
+
+```bash
+cd ios
+xcodebuild test -project ChqCalendar.xcodeproj -scheme ChqCalendar \
+  -destination "id=$UDID" -only-testing:ChqCalendarTests \
+  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+```
+
+- `-only-testing:ChqCalendarTests` while iterating; the UI leg
+  (`ChqCalendarUITests`) boots the app per test and dominates wall-clock.
+  Run it once before committing. `-only-testing:` narrows what *runs*, not
+  what gets *built*, so the unit-only command is still a full compile gate
+  over all three targets.
+- **A single Swift Testing test needs the `()` suffix**:
+  `-only-testing:"ChqCalendarTests/AppModelTests/someTest()"`. Without the
+  parentheses xcodebuild matches nothing, reports `Executed 0 tests`, and
+  exits **TEST SUCCEEDED** — a silent green that looks exactly like a pass.
+- `-parallel-testing-enabled NO` is load-bearing on CI's 3-core runners
+  (`.github/workflows/ios.yml` explains why). Keep it locally so a failure
+  means the same thing in both places.
+- Don't run two `xcodebuild` invocations at once, and don't run the UI suite
+  while anything else is building — they contend for the one booted
+  simulator and fail as "Application is not running".
+
+**CI does run the iOS suite** (`.github/workflows/ios.yml`, added in #205),
+split into a unit leg and a UI leg. Both gate a merge.
+
+**New files need no `project.pbxproj` edit.** All five source folders are
+Xcode 26 synchronized folder groups, so adding a `.swift` file or a
+`ChqCalendarTests/Fixtures/*.json` fixture is picked up on the next build.
+If Xcode has nonetheless rewritten `project.pbxproj` in your working tree
+(it renames exception sets and reorders group entries), that churn is
+cosmetic — revert it rather than committing it with unrelated work.
+
+**`ChqCalendarShared/` is ported code, and the port is a promise.** Several
+types exist on both platforms and their module headers say so explicitly —
+`LandingState.swift` ↔ `frontend/src/lib/utils/landingState.ts`,
+`ViewWindow.swift` ↔ `dayWindow.ts`, plus `UserStateStore`,
+`FilterChipState`, `ActiveFilterChips`. When you change one side, read the
+other's header before deciding it does not apply: the divergences that have
+shipped were not in the rules, they were in the **inputs** to a rule that
+both sides implemented identically (#288). Where a divergence is deliberate,
+say so in both headers.
+
+**Off-season and year-boundary states are the weak spot.** The server flips
+`defaultYear` to the next year on October 1, so "which year is current"
+changes without any app release. `EffectiveScope.resolve` degrades every
+`now`-relative scope to `.all` for a non-current year, which silently makes
+some states unreachable in tests — and reachable again the moment something
+upstream changes. The XCUITest fixture serves a single-year manifest
+(`UITestFixtureAPI.swift`), so no next-year path is reachable from a UI test
+at all.
+
+**Prove a guard by breaking the code.** Injecting the defect and watching
+the specific test go red is the only evidence that a test tests anything;
+this codebase has repeatedly produced tests that could not fail. When a
+falsification unexpectedly *passes*, suspect the harness before the theory.
 
 ## App Store listing upkeep (iOS)
 

@@ -401,31 +401,59 @@ final class AppModel {
     /// Whether the season is upcoming, live, or over for `selectedYear`, and
     /// (off-season) when the next one opens — see `LandingState` for why
     /// this exists (#177). Computed from the same `now()`/`selectedYear`/
-    /// `isCurrentYear` values `dayGroups` uses, but against a fresh
-    /// `FilterSelection()` rather than the user's current `filter`: this has
-    /// to answer "would the *default* view have anything to show", which is
-    /// a different question than "does the user's current filter have
-    /// anything to show" (an empty result from, say, an overly-narrow search
-    /// is not the app going empty off-season).
+    /// `isCurrentYear` values `dayGroups` uses, but against the snapshot's
+    /// events **unfiltered** — no `FilterSelection` at all, not even a
+    /// default one. The question is "does this year still have something
+    /// ahead", which is neither "does the user's current filter have
+    /// anything to show" (an empty result from an overly-narrow search is
+    /// not the app going empty off-season) nor "does the *default* filter"
+    /// (#288 — see below).
+    ///
+    /// **This used to be `filteredEvents(FilterSelection()).count`, and that
+    /// was the #288 defect.** The default filter is `.next`, whose adaptive
+    /// window is capped at 90 days (`EventFilter.adaptiveEndDate`), so the
+    /// probe silently inherited a *scope* limit as a *season* verdict. On
+    /// 2026-10-01 the server flips `defaultYear` to 2027, whose published
+    /// feed then held five events ~265 days out: the count read 0, and the
+    /// app showed "Almost showtime" with no buttons over a feed that had
+    /// events in it — for six months, while the web showed the list. Asking
+    /// the year's whole event set is what `landingState.ts` has always done
+    /// and what its module header promises the two apps agree on.
+    ///
+    /// The one hour of grace is `.next`'s own opening grace
+    /// (`ViewWindow.swift`'s `now.addingTimeInterval(-3600)`), carried here
+    /// deliberately rather than by coincidence: without it, the hour after
+    /// the season's last event *begins* would already report the season
+    /// over, covering a currently-running event with "See you next season".
+    /// The web derives the same predicate from the same hour (`page.tsx`).
     ///
     /// Without a `snapshot` yet, this deliberately reports `.inSeason` —
     /// meaning "no off-season claim to make" — rather than running
-    /// `LandingState.determine` with a count forced to `0`. An offline first
+    /// `LandingState.determine` against an empty event set. An offline first
     /// launch (or any snapshot-less state) has no event data to say
-    /// anything about the calendar from, and `0` upcoming events for that
-    /// reason looks identical to `determine` as `0` upcoming events because
-    /// the season is over: mid-July 2026, offline, would otherwise
-    /// misreport `.postSeason`. `phase` (`.launching`/`.offline`/`.failed`)
-    /// already owns what the screen shows while there's no snapshot; this
-    /// property only has something to say once real event data exists.
+    /// anything about the calendar from, and "no upcoming events" for that
+    /// reason looks identical to "no upcoming events because the season is
+    /// over": mid-July 2026, offline, would otherwise misreport
+    /// `.postSeason`. `phase` (`.launching`/`.offline`/`.failed`) already
+    /// owns what the screen shows while there's no snapshot; this property
+    /// only has something to say once real event data exists. `determine`'s
+    /// rule 3 covers the narrower case of a snapshot that decoded to no
+    /// events at all.
+    ///
+    /// Read on every render (`EventListView.content`, `seasonNotice`), and
+    /// now cheaper for it: one short-circuiting scan of `snapshot.events`
+    /// instead of a full six-stage `EventFilter.apply` plus its `ViewWindow`
+    /// construction.
     var landingState: LandingState {
-        guard snapshot != nil else { return .inSeason }
-        let upcomingDefaultCount = filteredEvents(FilterSelection()).count
+        guard let snapshot else { return .inSeason }
+        let current = now()
+        let graceStart = current.addingTimeInterval(-3600)
         return LandingState.determine(
-            now: now(),
+            now: current,
             selectedYear: selectedYear,
             availableYears: years,
-            upcomingDefaultCount: upcomingDefaultCount
+            yearHasUpcomingEvents: snapshot.events.contains { $0.start >= graceStart },
+            yearHasEvents: !snapshot.events.isEmpty
         )
     }
 

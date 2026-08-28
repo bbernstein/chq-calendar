@@ -40,7 +40,7 @@ opt-out.
 |---|---|---|---|---|
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
 | 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
-| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **NEXT** | — |
+| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **IN PROGRESS** — #288 done, #186/#253 remain | `fix/288-landing-probe-unbounded` |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
@@ -62,7 +62,7 @@ opt-out.
 | **2026-09-10** | Last event in the 2026 feed | — |
 | ~~**2026-09-11**~~ | ~~`browser-checks` starts aborting on every branch push~~ — closed by `8bee59b` | ~~**1**~~ |
 | **~mid-Sept** | 1.1.4 must be submitted to clear review in time | **2** |
-| **2026-10-01** | Server flips `defaultYear` to 2027; iOS pre-season landing loses both buttons | **2** |
+| **2026-10-01** | Server flips `defaultYear` to 2027. The landing no longer misreads this as pre-season (#288, done) — but the reader still lands on `noMatchesView`, and #186 owns giving pre-season an action | **2** |
 | **~2027-03-29** | 2027-06-27 enters `.next`'s 90-day window; the iOS pre-season state self-heals | **2** |
 | **June 2027** | Next season's Daily articles begin | **10** |
 
@@ -90,12 +90,26 @@ until ~2027-03-29. Six months.
 
 **Sub-items, in build order**
 
-- **#288 option 1 first — unbind the landing probe from `.next`.** Ask "does
-  the selected year hold any event at or after `now - 1h`" rather than "does
-  `.next`'s 90-day window hold one". This is the smaller half, it restores the
-  rule-for-rule match `landingState.ts:76-77` promises, and it means most
-  users never reach the pre-season state at all. **If time gets tight, ship
-  this alone and let the rest follow in 1.1.5.**
+- **#288 option 1 — DONE, branch `fix/288-landing-probe-unbounded`.**
+  `AppModel.landingState` now asks the snapshot's whole event set ("any
+  event at or after `now - 1h`") instead of counting
+  `filteredEvents(FilterSelection())`, and `LandingState.determine` takes
+  `yearHasUpcomingEvents`/`yearHasEvents` rather than a count. Web's rules 3
+  (no events at all is not "season over") and 4 (no countdown to a season
+  that has already opened) came with it — both became *reachable* the moment
+  the probe stopped being `.next`-bound, because a non-current year degrades
+  `.next` to `.all` and the old count was therefore never 0 for an archived
+  year. New fixtures `events-2027-sparse.json` (production's real 2027 feed)
+  and `years-2027-default.json` close the "every 2027 test payload is July
+  2026" gap the traps below name.
+
+  **What it does not fix:** on 2026-10-05 the reader now gets
+  `noMatchesView` — "No matching events" with a working "Show All Events"
+  button — rather than a dead-end countdown. That is strictly better (there
+  is a way forward, and the day rail is mounted independently of the
+  landing), but the *wording* is still wrong for a season 265 days out.
+  Whether `.next`'s 90-day cap should apply at all in that state is **#285**,
+  and giving pre-season a real action is **#186**.
 - **#186 — `browsePastSeason(year:)`.** Mirror
   `AppModel.previewNextSeason():1098-1104` (`await select(year:)` then set the
   filter). Then let `LandingState.archiveYear` return a year for `.preSeason`
