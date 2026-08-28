@@ -607,10 +607,14 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     // Wait until the document stops growing under us. Returns whether it
     // actually stopped, so a page that never settles is reported as that
     // rather than as a scroll that missed.
-    // Bounded at 4s per call, and only an attempt that has already parked
-    // pays it — so a normal run spends one or two of these (measured: ~300ms
-    // each, the minimum three samples) and a pathological one exhausts the
-    // 25 attempts in well under two minutes and fails with a reason.
+    // Bounded at 4s per call (40 samples), and only an attempt that has
+    // already parked pays it — so a normal run spends one or two of these at
+    // the ~400ms floor and a pathological one exhausts the 25 attempts in
+    // well under two minutes and fails with a reason.
+    //
+    // The floor is 400ms and four samples, not 300 and three: the first
+    // sample only sets `last` (it compares against the -1 sentinel), so
+    // three *consecutive equal* readings need a baseline before them.
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const heightHolds = async () => {
       let last = -1, same = 0;
