@@ -115,8 +115,45 @@ from the current year's `navigableBounds`, so only the deep-link consumer can
 produce a cross-year key. Confining the change there keeps `goToDay`
 synchronous and leaves the rail's hot path — every chip tap — untouched.
 
-Call site: `consumePendingDayLinkIfPossible()`,
-`ChqCalendar/Features/Calendar/EventListView.swift:596`.
+```swift
+@discardableResult
+func goToDay(crossingYears dayKey: String) async -> Bool
+```
+
+Same `@discardableResult ... -> Bool` contract as `goToDay(_:)`, so the
+existing `guard model.goToDay(dayKey) else { return }` shape at the call site
+carries over unchanged apart from the `await`.
+
+#### The call site needs restructuring, and there is a trap in it
+
+`consumePendingDayLinkIfPossible()`
+(`ChqCalendar/Features/Calendar/EventListView.swift:596`) is synchronous and is
+called from three places — two `.onChange` and one `.onAppear`
+(`EventListView.swift:311-319`). It calls `selectDay(dayKey)`
+(`EventListView.swift:519`), which calls `goToDay` and then stamps
+`PendingDayScroll.Target`.
+
+Two things make the async step non-trivial:
+
+1. **`PendingDayScroll.key` reads `model.selectedYear` and `model.filter`**
+   (`EventListView.swift:523-525`). The year switch changes both, so the stamp
+   must happen *after* the await. Stamping first would record the old year and
+   the pending scroll would read as stale the moment it was armed. Make
+   `selectDay` async (or give it an async sibling) and await the model call
+   before building the `Target` — do not simply wrap the existing body in a
+   `Task`.
+
+2. **Keep taking the key synchronously.**
+   `resolvePendingDayDeepLinkIfPossible()` (`AppModel.swift:752`) is a
+   take-once: it sets `pendingDeepLink = nil` as it returns the key. That
+   matters here because `select(year:)` replaces `snapshot`, which re-fires
+   `.onChange(of: model.snapshot?.fetchedAt)` *during the await* and calls
+   `consumePendingDayLinkIfPossible()` again. With the take still synchronous
+   the re-entrant call finds nothing pending and no-ops, which is correct.
+   **Move the take inside the `Task` and that stops being true** — the
+   re-entrant call would take the same key a second time and navigate twice.
+
+So: take the key synchronously, then `Task { await selectDay(crossingYears:) }`.
 
 ### 4. Un-hide the button
 
@@ -183,7 +220,7 @@ has now flagged twice; close it here.
 ## Known divergence — decide, do not drift
 
 **The web hides its archive button in pre-season too.**
-`frontend/src/components/layout/OffSeasonLanding.tsx:95` gates the whole button
+`frontend/src/components/layout/OffSeasonLanding.tsx:96` gates the whole button
 block on `state.kind === 'post-season'`, so a pre-season web reader gets a
 countdown and no way back to the last season — the same dead end #186
 describes.

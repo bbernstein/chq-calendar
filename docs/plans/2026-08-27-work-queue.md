@@ -135,7 +135,7 @@ the wording. Neither is fixed by the October flip self-healing in
 
   The doc also records a divergence to decide rather than drift into: **the
   web hides its pre-season archive button too**
-  (`OffSeasonLanding.tsx:95`), so fixing iOS alone re-opens the gap class
+  (`OffSeasonLanding.tsx:96`), so fixing iOS alone re-opens the gap class
   #288 just closed.
 - **#253's mechanism**, for reference: `OpenDayIntent` resolves the year from
   `IntentDataSource.defaultYear()` (`EventIntents.swift:96`) while
