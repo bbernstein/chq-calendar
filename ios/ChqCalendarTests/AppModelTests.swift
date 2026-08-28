@@ -803,20 +803,38 @@ struct AppModelTests {
         #expect(model.landingState == .inSeason)
     }
 
-    /// The fix this pins: without a `snapshot` yet, `landingState` must not
-    /// run `LandingState.determine` against an empty event set — that would
-    /// misreport `.postSeason` for an offline first launch that happens
-    /// mid-season, just because there's no event data to say otherwise from.
-    /// `now` here (mid-July 2026) is deep in-season — if this regressed to
-    /// running `determine` against a nil snapshot's empty event set, rule 3
-    /// would catch it, but only by accident: what this pins is the guard
-    /// itself, which is what makes the claim "no data is not an off-season
-    /// verdict" hold before rule 3 is ever consulted.
-    @Test func landingStateIsInSeasonWithoutASnapshotEvenMidSeason() async throws {
+    /// Without a `snapshot` yet, `landingState` must make no off-season
+    /// claim at all — an offline first launch has no event data to say
+    /// anything about the calendar from, and `phase` already owns what the
+    /// screen shows. Originally #177; both instants below are run because
+    /// only one of them can still fail.
+    ///
+    /// **2026-05-01 is the case that pins the guard.** Mid-July, `determine`
+    /// would reach rule 3 (`!yearHasEvents` → `.inSeason`) against a nil
+    /// snapshot's empty event set and return the right answer for the wrong
+    /// reason — measured: deleting `guard let snapshot` leaves the mid-July
+    /// assertion green. Before the season start the two genuinely disagree:
+    /// the guard says `.inSeason`, while falling through says `.preSeason`
+    /// (rule 2 outranks rule 3). So the May instant is what makes this test
+    /// able to fail, and the July one is kept only because it is the
+    /// scenario #177 was actually about.
+    ///
+    /// Note this is a deliberate iOS-only behaviour with no web counterpart,
+    /// and it is a real divergence — verified, not assumed. `useEventData`
+    /// sets `loading = false` with `events: []` on a failed fetch
+    /// (`useEventData.ts`'s `catch` + `finally`), so `page.tsx:683-690`
+    /// evaluates `showLanding` anyway and a failed May fetch resolves
+    /// through rule 2 to `pre-season` — a countdown. iOS has `phase`
+    /// (`.offline`/`.failed`) to own that screen instead, and web has no
+    /// equivalent. The divergence is therefore in the *caller*, not in
+    /// `determine`, which is why it does not break the rule-for-rule parity
+    /// this change restores.
+    @Test(arguments: ["2026-07-15 00:00:00", "2026-05-01 00:00:00"])
+    func landingStateIsInSeasonWithoutASnapshot(_ nowString: String) async throws {
         let api = MockAPI()
         await api.setFailure(MockAPIError.unscripted("events-down"), for: .events(year: 2026))
         let repo = EventRepository(api: api, cache: MockCache())
-        let now = try #require(ChqTime.parse("2026-07-15 00:00:00"))
+        let now = try #require(ChqTime.parse(nowString))
         let model = AppModel(
             repository: repo,
             store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
