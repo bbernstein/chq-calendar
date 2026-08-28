@@ -351,8 +351,8 @@ const selectedYear = page => page.evaluate(() => {
 // parked perfectly on the WRONG day. The two checks are not redundant.
 if (currentRegime() === 'off-season') {
   skip('5 the reader lands on today',
-    'today is outside the season off-season, so there is no "today" section to ' +
-    'land on — `enterList` had to tap a rail chip to get a list at all');
+    'off-season, today falls outside the season, so there is no "today" ' +
+    'section to land on — `enterList` had to tap a rail chip to get a list at all');
 } else {
   const page = await newPage();
   await settle(page);
@@ -585,7 +585,7 @@ if (currentRegime() === 'off-season') {
     new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date()));
   if (currentRegime() === 'off-season') {
     skip('5-webkit the reader lands on today (webkit)',
-      'today is outside the season off-season, so there is no "today" section to land on');
+      'off-season, today falls outside the season, so there is no "today" section to land on');
   } else {
     check('5-webkit the reader lands on today (webkit)', landed.key === today,
       `landed on ${landed.key}, today is ${today} (of ${landed.days} sections, first ${landed.first})`);
@@ -701,10 +701,25 @@ if (currentRegime() === 'off-season') {
     // `resolveAnchor`, so the highlight and the announced day cannot differ.
     // What this catches is the walk answering from its `keys[0]` fallback —
     // the first day of the YEAR — which is what CI reported twice.
-    check('5-webkit the rail highlights today (webkit)',
-      rail.anchorKey === today,
-      `aria-current is on ${rail.anchorKey ?? '(no chip)'}, today is ${today} ` +
-      `(${rail.anchorCount} chip(s) carry it)${tell}`);
+    //
+    // Off-season it cannot catch that, and it was the one check on this page
+    // that had not noticed (#287): `enterList` reaches the list through a
+    // rail tap and `settleAtTop` then returns the reader to the top of the
+    // document, so the day being read IS the first day of the year. The
+    // correct answer and the fallback coincide, which makes the assertion
+    // unable to tell them apart — and pinned off-season it does not merely go
+    // vacuous, it fails, because today is nowhere near the top of the list.
+    if (currentRegime() === 'off-season') {
+      skip('5-webkit the rail highlights today (webkit)',
+        'off-season, today falls outside the season, so no chip can carry it — and ' +
+        'the day the reader is on at the top of the document is the same ' +
+        "first-day-of-the-year this check exists to reject as the walk's fallback");
+    } else {
+      check('5-webkit the rail highlights today (webkit)',
+        rail.anchorKey === today,
+        `aria-current is on ${rail.anchorKey ?? '(no chip)'}, today is ${today} ` +
+        `(${rail.anchorCount} chip(s) carry it)${tell}`);
+    }
   }
   await page.close();
   await wk.close();

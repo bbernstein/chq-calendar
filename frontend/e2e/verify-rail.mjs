@@ -9,7 +9,7 @@
  * server on :3000.
  */
 import { chromium } from 'playwright';
-import { pinClock } from './fixedNow.mjs';
+import { pinClock, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
 import { enterList, currentRegime } from './regime.mjs';
 
@@ -18,7 +18,7 @@ const URL = process.env.URL ?? 'http://localhost:3000/';
 const browser = await chromium.launch();
 
 
-async function newPage({ width = 900, height = 900, storage } = {}) {
+async function newPage({ width = 900, height = 900, storage, seedsOwnFilter = false } = {}) {
   // Chautauqua's own timezone, kept for belt-and-braces — it is no longer
   // load-bearing. The paragraph that used to be here claimed the app "treats
   // the browser's clock as event-time" because `startDate`s are
@@ -72,8 +72,9 @@ async function newPage({ width = 900, height = 900, storage } = {}) {
   }
   await page.goto(URL, { waitUntil: 'networkidle' });
   // Off-season the default screen is the landing, not a day list; see
-  // `regime.mjs` for what this does about it.
-  await enterList(page);
+  // `regime.mjs` for what this does about it, and for why a page that seeded
+  // a filter into storage has to opt out of reporting the regime (#287).
+  await enterList(page, { seedsOwnFilter });
   return page;
 }
 
@@ -591,22 +592,104 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     }
 
     const key = target.dataset.dayKey;
-    for (let i = 0; i < 25; i++) {
+
+    // How far the target is from where we want it. Aim to sit MARGIN pixels
+    // past the section's start, so the header has stuck and the section has
+    // not yet begun pushing it back out.
+    const offBy = () => {
       const sec = document.querySelector(`[data-day-key="${key}"]`);
-      if (!sec) return { ok: false, why: `target day ${key} left the DOM while homing in on it` };
+      if (!sec) return { why: `target day ${key} left the DOM while homing in on it` };
       const bottom = railBottom();
-      if (bottom === null) return { ok: false, why: 'the day rail left the page while homing in' };
-      // Aim to sit MARGIN pixels past the section's start, so the header has
-      // stuck and the section has not yet begun pushing it back out.
-      const delta = sec.getBoundingClientRect().top - bottom + MARGIN;
-      if (Math.abs(delta) <= 2) return { ok: true, key };
-      window.scrollBy(0, delta);
-      await frame();
+      if (bottom === null) return { why: 'the day rail left the page while homing in' };
+      return { delta: sec.getBoundingClientRect().top - bottom + MARGIN };
+    };
+
+    // Wait until the document stops growing under us. Returns whether it
+    // actually stopped, so a page that never settles is reported as that
+    // rather than as a scroll that missed.
+    // Bounded at 4s per call (40 samples), and only an attempt that has
+    // already parked pays it — so a normal run spends one or two of these at
+    // the ~400ms floor and a pathological one exhausts the 25 attempts in
+    // well under two minutes and fails with a reason.
+    //
+    // The floor is 400ms and four samples, not 300 and three: the first
+    // sample only sets `last` (it compares against the -1 sentinel), so
+    // three *consecutive equal* readings need a baseline before them.
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const heightHolds = async () => {
+      let last = -1, same = 0;
+      for (let i = 0; i < 40 && same < 3; i++) {
+        await sleep(100);
+        const h = document.documentElement.scrollHeight;
+        if (h === last) same++; else { same = 0; last = h; }
+      }
+      return same >= 3;
+    };
+
+    let stalled = false;
+    for (let i = 0; i < 25; i++) {
+      const at = offBy();
+      if (at.why) return { ok: false, why: at.why };
+      if (Math.abs(at.delta) > 2) {
+        window.scrollBy(0, at.delta);
+        await frame();
+        continue;
+      }
+
+      // Parked — but only for this frame, and that was #290.
+      //
+      // `enterList` lands the reader on today, which with the whole year
+      // mounted (#274 phase 4) is ~158,000px down a ~172,000px document,
+      // while `roomy()` picks the first tall day of the YEAR. So the scroll
+      // above is a ~152,000px jump back up, and it lands among ninety day
+      // sections the browser has never laid out: they carry
+      // `content-visibility: auto`, so each is still reporting its
+      // `contain-intrinsic-size` estimate rather than a measured height.
+      // Coming into view they swap one for the other and the document grows
+      // — measured here, 169,546 to 172,664, ~3,100px of it ABOVE the target.
+      // Chromium's scroll anchoring absorbs some of that (+478px of the
+      // +2,292 in the run below) and the remainder moves the target down.
+      //
+      // Which frame the growth lands in is the whole of the flake. It used to
+      // arrive after this loop returned, inside the caller's 300ms wait, and
+      // check 12 then measured a header 277 to 547px below the rail on a page
+      // that had already confirmed it flush — roughly one run in four:
+      //
+      //     i=0 y=158,026 delta=-152,828 h=169,546
+      //     i=1 y=  5,198 delta=       0 h=169,546   <- old loop returned here
+      //         y=  5,676 delta=     547 h=172,716   <- 17ms later
+      //
+      // The app is not exposed to this: `useDayAnchor`'s hold exists for
+      // exactly this ("a scroll decision invalidated by content changing
+      // height after it was made") and re-asserts the tapped day on every
+      // resize. The harness disarms it on purpose with the `mouse.wheel(0, 1)`
+      // above, because it would otherwise pull the reader back to today
+      // underneath this loop — so having disarmed it, the loop has to do the
+      // hold's job itself. It is the same correction, driven by a settled
+      // document height rather than by a ResizeObserver.
+      //
+      // BOTH conditions, and `held` is not decoration. A document that never
+      // stopped growing can still read `<= 2` for the one frame it is
+      // sampled in — which is the same coincidence this whole block exists to
+      // stop trusting, merely made four seconds less likely. Requiring the
+      // height to have actually held is what makes the code enforce what the
+      // paragraph above claims. An unsettled page loops instead, and if it
+      // never settles it exhausts the attempts and is reported as that,
+      // rather than passing on a lucky sample.
+      const held = await heightHolds();
+      stalled = !held;
+      const after = offBy();
+      if (after.why) return { ok: false, why: after.why };
+      if (held && Math.abs(after.delta) <= 2) return { ok: true, key };
     }
     // Distinct from the search failure above: a day WAS found, the scroll just
     // never settled on it. Worth telling apart — one is about the fixture, the
     // other about the page moving under the scroll.
-    return { ok: false, why: `scroll did not settle on ${key} within 25 attempts` };
+    return {
+      ok: false,
+      why: `scroll did not settle on ${key} within 25 attempts` +
+        (stalled ? ' — the document never stopped changing height' : ''),
+    };
   });
   await page.waitForTimeout(300);
 
@@ -980,11 +1063,23 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // removing them — 1 reachable week, 8 unreachable, unchanged.
 {
   const page = await newPage({
+    // The seed suppresses the off-season landing, so this page's screen says
+    // nothing about the run's regime — see `enterList` (#287).
+    seedsOwnFilter: true,
     storage: ['chq-calendar-user-state', JSON.stringify({
       searchTerm: 'williamsburg',
       selectedTags: [], selectedLocations: [], expandedDescriptions: [],
       recentLocations: [], recentCategories: [], showFavoritesOnly: false,
-      lastSaved: Date.now(),
+      // The PAGE's now, not Node's. `useFilterState` discards a payload
+      // older than `USER_STATE_EXPIRY_MS` (30 days), and `Date.now()` inside
+      // the page is whatever `pinClock` pinned — so a `Date.now()` evaluated
+      // out here reads as 30+ days stale the moment `E2E_NOW` is set that far
+      // ahead, and the seed is dropped in silence. Measured at
+      // `E2E_NOW=2026-09-30` (34 days on): six red checks reporting "9
+      // reachable, 0 unreachable", which is not a finding about the app but
+      // about a seed that never arrived. The state is "saved" at the same
+      // instant the page believes it is.
+      lastSaved: FIXED_NOW.getTime(),
     })],
   });
   const state = await page.evaluate(() => {
@@ -1145,11 +1240,15 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 {
   const page = await newPage({
     width: 390, height: 844,
+    // As in check 18: a seeded filter beats the landing, so this page cannot
+    // report the regime (#287).
+    seedsOwnFilter: true,
     storage: ['chq-calendar-user-state', JSON.stringify({
       searchTerm: 'williamsburg',
       selectedTags: [], selectedLocations: [], expandedDescriptions: [],
       recentLocations: [], recentCategories: [], showFavoritesOnly: false,
-      lastSaved: Date.now(),
+      // The PAGE's now, not Node's — see check 18's seed.
+      lastSaved: FIXED_NOW.getTime(),
     })],
   });
   await page.click('[data-week-chooser-trigger]');

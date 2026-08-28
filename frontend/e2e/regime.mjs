@@ -36,8 +36,37 @@ const DAY = '[data-day-key]';
  * Wait for a populated day list, entering the season first if the default
  * screen is the off-season landing. Call instead of
  * `waitForSelector('[data-day-key]')`, after `goto`.
+ *
+ * `seedsOwnFilter` marks a page that wrote a filter into `localStorage`
+ * before load. Such a page cannot report the run's regime, and the fix for
+ * #287 is that it stops trying to. Off-season the landing is shown only when
+ * the reader has narrowed nothing (`page.tsx`: an answer of "see you next
+ * season" is not a response to someone who asked a question), so a seeded
+ * filter suppresses it and a day list renders on exactly the date where an
+ * unseeded page gets the landing. What that page sees is therefore a fact
+ * about its own seed, not about the calendar, and feeding it to `announce`
+ * made `verify-rail` abort mid-run from 2026-09-11 — taking the five suites
+ * chained after it down with no summary.
+ *
+ * It suppresses only the *reporting*. The consistency rule below is what
+ * stops a run from silently taking both branches, and it stays in force for
+ * every page that can honestly speak to which regime it found.
  */
-export async function enterList(page) {
+export async function enterList(page, { seedsOwnFilter = false } = {}) {
+  // A page that cannot report the regime must not be the page that
+  // establishes it: if the opt-out were used first, the run would lose its
+  // one chance to detect the regime from a page that could see it. Both
+  // callers today (`verify-rail` checks 18 and 20h) run late, after a dozen
+  // unseeded pages.
+  if (seedsOwnFilter && regime === null) {
+    throw new Error(
+      'enterList: a seedsOwnFilter page ran before any page established the ' +
+      'regime — it cannot detect one, so the run would have none'
+    );
+  }
+  const report = value => {
+    if (!seedsOwnFilter) announce(value);
+  };
   const first = await Promise.race([
     page.waitForSelector(DAY, { timeout: 30000 }).then(() => 'day'),
     page.waitForSelector(LANDING, { timeout: 30000 }).then(() => 'landing'),
@@ -59,7 +88,7 @@ export async function enterList(page) {
   }
 
   if (first === 'day') {
-    announce('in-season');
+    report('in-season');
     return regime;
   }
 
@@ -98,17 +127,17 @@ export async function enterList(page) {
       );
     }
     if (later === 'day') {
-      announce('in-season');
+      report('in-season');
       return regime;
     }
-    announce('off-season');
+    report('off-season');
     await enterSeasonFromLanding(page);
     await page.waitForSelector(DAY, { timeout: 30000 });
     await settleAtTop(page);
     return regime;
   }
 
-  announce('off-season');
+  report('off-season');
   await enterSeasonFromLanding(page);
   await page.waitForSelector(DAY, { timeout: 30000 });
   await settleAtTop(page);

@@ -104,9 +104,26 @@ reason (today is outside `navBounds`, so `⟳ Now` is correctly absent). It used
 to be joined by check 3, a persisted `this-week` migration; #274 phase 4
 deleted `dateFilter` from the app, so that check and its skip are gone
 together with checks 1, 2 and 4/5 — the date scopes and "show earlier" they
-asserted no longer exist. `verify-full-list` skips checks 5 and 7 off-season,
-for the same reason in both cases: `enterList` has to tap a rail chip to get a
-list at all, so there is no load-time landing left to measure.
+asserted no longer exist. `verify-full-list` skips checks 5, 7 and the WebKit
+`5-webkit the rail highlights today` off-season, for the same reason in all
+three cases: `enterList` has to tap a rail chip to get a list at all, so there
+is no load-time landing left to measure — and once `settleAtTop` has returned
+the reader to the top of the document, the day being read is the first day of
+the year, which is precisely the walk fallback that last check exists to
+reject. It cannot tell the right answer from the wrong one there.
+
+**A page that seeds a filter into `localStorage` before load cannot report the
+regime, and must say so** — `enterList(page, { seedsOwnFilter: true })`.
+Off-season the landing shows only for a reader who has narrowed nothing, so a
+seeded filter suppresses it and a day list renders on a date where an unseeded
+page gets the landing. `verify-rail`'s checks 18 and 20h both seed
+`searchTerm: 'williamsburg'`; before #287 they announced `in-season` in the
+middle of an off-season run and `announce`'s consistency throw took the whole
+suite — and the five suites `&&`-chained after it — down with a stack trace
+and no summary. The consistency rule itself is untouched: it still fires for
+every page that can honestly speak to which regime it found, and a
+`seedsOwnFilter` page that runs before any regime has been established is an
+ordering bug and throws as one.
 
 `verify-filter-reveal`'s check 13 stands down when day sections appear or
 vanish mid-wheel, which makes the reader's movement unattributable — that one
@@ -124,6 +141,13 @@ instant:
 # five days past the season's last event day
 E2E_NOW=2026-09-15 URL=http://localhost:3000/ node e2e/verify-rail.mjs
 ```
+
+It reaches the five suites that go through `fixedNow.mjs` —
+`verify-rail`, `verify-filter-reveal`, `verify-timezone`,
+`verify-header-reveal` and `verify-full-list`. **`verify-offseason.mjs` does
+not import `fixedNow.mjs` and ignores `E2E_NOW` entirely**, so prefixing it is
+a silent no-op; it derives every instant from the live feed instead, which is
+the next paragraph's subject.
 
 `verify-offseason.mjs` runs a five-entry matrix over pinned instants derived
 from the feed — post-season, the September 30 edge, pre-season, mid-season,
