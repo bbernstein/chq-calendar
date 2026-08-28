@@ -59,7 +59,7 @@ Both were put to the user on 2026-08-28 and answered.
 
 ### 1. `LandingState.preSeason` carries its archive year
 
-`ChqCalendarShared/Domain/LandingState.swift:38`
+`ios/ChqCalendarShared/Domain/LandingState.swift:38`
 
 ```swift
 case preSeason(opening: Date, daysUntil: Int, archiveYear: Int?)
@@ -80,7 +80,7 @@ exists"). **That comment becomes false.** Rewrite it; do not leave it.
 
 ### 2. `browsePastSeason(year:)` replaces `browseArchiveSeason()`
 
-`ChqCalendar/App/AppModel.swift:1104`
+`ios/ChqCalendar/App/AppModel.swift:1104`
 
 ```swift
 func browsePastSeason(year: Int) async {
@@ -102,7 +102,7 @@ next reader will ask.
 
 ### 3. `goToDay(crossingYears:)` for the deep-link path
 
-`ChqCalendar/App/AppModel.swift:1495` keeps its synchronous `goToDay(_:)`
+`ios/ChqCalendar/App/AppModel.swift:1495` keeps its synchronous `goToDay(_:)`
 untouched. A new async sibling handles a key that names another year:
 
 1. Extract the year from `dayKey` (leading `yyyy`).
@@ -127,7 +127,7 @@ carries over unchanged apart from the `await`.
 #### The call site needs restructuring, and there is a trap in it
 
 `consumePendingDayLinkIfPossible()`
-(`ChqCalendar/Features/Calendar/EventListView.swift:596`) is synchronous and is
+(`ios/ChqCalendar/Features/Calendar/EventListView.swift:596`) is synchronous and is
 called from three places — two `.onChange` and one `.onAppear`
 (`EventListView.swift:311-319`). It calls `selectDay(dayKey)`
 (`EventListView.swift:519`), which calls `goToDay` and then stamps
@@ -157,14 +157,14 @@ So: take the key synchronously, then `Task { await selectDay(crossingYears:) }`.
 
 ### 4. Un-hide the button
 
-`ChqCalendar/Features/Calendar/OffSeasonLandingView.swift:126` already reads
+`ios/ChqCalendar/Features/Calendar/OffSeasonLandingView.swift:126` already reads
 `if let archiveYear = model.landingState.archiveYear`. Once `.preSeason`
 supplies one, the button appears with no change to that condition — only the
 action becomes `Task { await model.browsePastSeason(year: archiveYear) }`.
 
 ### 5. `OpenDayTarget`'s doc comment stops describing a live gap
 
-`ChqCalendarShared/Domain/OpenDayTarget.swift` currently documents the #253
+`ios/ChqCalendarShared/Domain/OpenDayTarget.swift` currently documents the #253
 failure as "a known gap, not a guarantee this type closes. Fixing that is a
 design change (year-switching) outside this intent's scope."
 
@@ -217,7 +217,7 @@ them, re-run the falsification for the ones you did not write.
 
 ### Extend the UI-test fixture
 
-`ChqCalendar/Data/UITestFixtureAPI.swift:83` serves
+`ios/ChqCalendar/Data/UITestFixtureAPI.swift:83` serves
 `{ "years": [2026], "defaultYear": 2026 }`, so **no cross-year path is
 reachable from a UI test at all** — which is why neither of these features has
 ever been exercised end to end, and why
