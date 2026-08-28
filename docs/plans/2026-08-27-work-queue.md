@@ -40,7 +40,7 @@ opt-out.
 |---|---|---|---|---|
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
 | 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
-| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **NEXT** — #288 MERGED (`01fa4e3`); #186 + #253 remain | PR #295 |
+| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **NEXT** — #288 MERGED (`01fa4e3`); #186 + #253 **designed, not built** | [design doc][ynav] |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
@@ -72,8 +72,11 @@ Nothing else in the queue has a deadline.
 
 ## 2. iOS 1.1.4 — year-aware navigation (#186 + #288 + #253)
 
-**Status:** NEXT — #288 MERGED (`01fa4e3`); #186 + #253 remain ·
+**Status:** NEXT — #288 MERGED (`01fa4e3`); #186 + #253 **designed, not
+built** — read [the design doc][ynav] first, it is the plan of record ·
 **Submit by ~mid-Sept, live before 2026-10-01** · **Size:** M
+
+[ynav]: ../superpowers/specs/2026-08-28-year-aware-navigation-186-253-design.md
 
 1.1.3 (build 6) is **live**, so this needs a new build. These three issues are
 one job: each needs *a navigation that changes the year it navigates in*. Built
@@ -119,20 +122,27 @@ the wording. Neither is fixed by the October flip self-healing in
   landing), but the *wording* is still wrong for a season 265 days out.
   Whether `.next`'s 90-day cap should apply at all in that state is **#285**,
   and giving pre-season a real action is **#186**.
-- **#186 — `browsePastSeason(year:)`.** Mirror
-  `AppModel.previewNextSeason():1098-1104` (`await select(year:)` then set the
-  filter). Then let `LandingState.archiveYear` return a year for `.preSeason`
-  and un-hide the button in `OffSeasonLandingView.swift:126-131`. The doc
-  comment at `LandingState.swift:50-56` explains precisely why it is hidden
-  today — a label/outcome mismatch a reviewer flagged as Important.
-- **#253 — Siri on an archived year.** `OpenDayIntent` resolves the year from
+- **#186 + #253 — designed 2026-08-28, see [the design doc][ynav].** Both
+  reduce to one primitive: a navigation that changes the year it navigates
+  in. Two decisions are already taken there (Siri switches the year
+  silently; the archive button offers the newest *earlier year present in
+  the manifest*, not `selectedYear - 1`).
+
+  The finding that changes the estimate: **the day key is already
+  year-qualified**, so #253 needs nothing to cross the process boundary —
+  the App Group plumbing this file previously assumed is not required, and
+  the issue's "refuse and say so" option is the *more* expensive one.
+
+  The doc also records a divergence to decide rather than drift into: **the
+  web hides its pre-season archive button too**
+  (`OffSeasonLanding.tsx:95`), so fixing iOS alone re-opens the gap class
+  #288 just closed.
+- **#253's mechanism**, for reference: `OpenDayIntent` resolves the year from
   `IntentDataSource.defaultYear()` (`EventIntents.swift:96`) while
-  `AppModel.goToDay` bounds against `selectedYear` (`AppModel.swift:1467-1477`).
-  Note `IntentDataSource.events(now:)` also loads the *default* year's events,
-  so both inputs to `OpenDayTarget.resolve` describe the wrong season. Option 2
-  ("refuse and say so") is **not** cheaper — the intent cannot read the app's
-  live `selectedYear` without the app publishing it to the shared container,
-  which is most of option 1's plumbing.
+  `AppModel.goToDay` bounds against `selectedYear`. Option 2 ("refuse and say
+  so") is **not** cheaper — it is the one that would need the intent to read
+  the app's live `selectedYear` across the process boundary. Option 1 needs
+  no such thing, because the day key already names its own year.
 
 **Release gates**
 
