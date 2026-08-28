@@ -607,6 +607,10 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     // Wait until the document stops growing under us. Returns whether it
     // actually stopped, so a page that never settles is reported as that
     // rather than as a scroll that missed.
+    // Bounded at 4s per call, and only an attempt that has already parked
+    // pays it — so a normal run spends one or two of these (measured: ~300ms
+    // each, the minimum three samples) and a pathological one exhausts the
+    // 25 attempts in well under two minutes and fails with a reason.
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const heightHolds = async () => {
       let last = -1, same = 0;
@@ -659,11 +663,20 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
       // underneath this loop — so having disarmed it, the loop has to do the
       // hold's job itself. It is the same correction, driven by a settled
       // document height rather than by a ResizeObserver.
+      //
+      // BOTH conditions, and `held` is not decoration. A document that never
+      // stopped growing can still read `<= 2` for the one frame it is
+      // sampled in — which is the same coincidence this whole block exists to
+      // stop trusting, merely made four seconds less likely. Requiring the
+      // height to have actually held is what makes the code enforce what the
+      // paragraph above claims. An unsettled page loops instead, and if it
+      // never settles it exhausts the attempts and is reported as that,
+      // rather than passing on a lucky sample.
       const held = await heightHolds();
       stalled = !held;
       const after = offBy();
       if (after.why) return { ok: false, why: after.why };
-      if (Math.abs(after.delta) <= 2) return { ok: true, key };
+      if (held && Math.abs(after.delta) <= 2) return { ok: true, key };
     }
     // Distinct from the search failure above: a day WAS found, the scroll just
     // never settled on it. Worth telling apart — one is about the fixture, the
