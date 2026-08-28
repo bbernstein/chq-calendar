@@ -10,9 +10,11 @@ import { dayKeyOf } from '@/lib/utils/dayWindow';
  * season's own nine-week calendar window with events still pending, must all
  * resolve to `in-season` and see the list, not the landing.
  *
- * Ports `ios/ChqCalendarShared/Domain/LandingState.swift`, with one deliberate
- * divergence documented on `determineLandingState` below. The two apps should
- * not hold different opinions about whether the season is over.
+ * Ports `ios/ChqCalendarShared/Domain/LandingState.swift`, and as of #288 the
+ * two implementations agree rule for rule with no remaining divergence — iOS
+ * adopted this file's rules 3 and 4 in the same change that unbound its rule-1
+ * input from the `.next` scope's 90-day window. The two apps should not hold
+ * different opinions about whether the season is over.
  *
  * `determineLandingState` reads no clock — callers own supplying `now`
  * consistently with whatever else they derive from the same instant.
@@ -39,9 +41,29 @@ export interface LandingStateInput {
   yearHasEvents: boolean;
   /**
    * Does any event in the selected year's full, UNFILTERED event set start at
-   * or after `now`? Ports iOS's `upcomingDefaultCount > 0`. See rule 1 in
-   * `determineLandingState` — this, not the season calendar, is what decides
-   * whether there is a list to show.
+   * or after `now` **minus one hour of grace** — NOT the bare `now` this same
+   * interface carries above? The two fields deliberately describe different
+   * instants, and callers must honour that: `page.tsx` derives this from
+   * `graceStart`, and `AppModel.landingState` on iOS from
+   * `now().addingTimeInterval(-3600)`.
+   *
+   * The grace is `.next`'s own opening grace (`dayWindow.ts`; iOS's
+   * `ViewWindow.swift`). Without it, the hour after the season's final event
+   * *begins* would already read as "nothing upcoming", and the landing would
+   * cover a list containing a currently-running event — "See you next season"
+   * while it is happening. `offSeasonLanding.test.tsx` pins both sides of
+   * that boundary.
+   *
+   * See rule 1 in `determineLandingState` — this, not the season calendar, is
+   * what decides whether there is a list to show.
+   *
+   * **Full and unfiltered is load-bearing**, not incidental: iOS derived this
+   * from its default filter's result count instead, which silently folded
+   * that filter's 90-day scope cap into "is the season over" and produced a
+   * six-month divergence from this file (#288). Note that #288 and this
+   * docstring are the same failure in two forms — a predicate whose stated
+   * contract and actual input drift apart while both look right in isolation.
+   * If you change what callers pass here, change this sentence with it.
    */
   yearHasUpcomingEvents: boolean;
 }
@@ -110,15 +132,17 @@ function daysBetween(from: Date, to: Date): number {
  * `getChautauquaSeasonWeeks` allots (#269's real Sep 1-10 shoulder: the
  * 2026 feed's last event lands Sep 10, ten days past the calendar's Aug 29
  * close). Rule 1 fixes both by asking the events directly instead of the
- * calendar, exactly as iOS already does — the calendar is now consulted only
- * once rule 1 has already said there is nothing left to show.
+ * calendar — the calendar is consulted only once rule 1 has already said
+ * there is nothing left to show. This paragraph used to add "exactly as iOS
+ * already does", which was the assumption #288 turned out to falsify: iOS
+ * implemented the same rule over a *different input*, its default filter's
+ * 90-day-capped result count. Same rule, different question.
  *
- * **Rule 3 diverges from iOS deliberately** — the one documented divergence
- * this module's header promises. iOS has no equivalent: once
- * `upcomingDefaultCount <= 0` and `now >= start`, iOS always returns
- * `.postSeason`. This port adds rule 3 to catch a case iOS handles
- * separately via `AppModel`'s `guard snapshot != nil`: a failed or empty feed
- * fetch during the season gives `events: []` (so `yearHasEvents` is false)
+ * **Rule 3 originated here and iOS has since adopted it** (#288); it was the
+ * one divergence this module's header used to document. It catches a case
+ * iOS also handles, more narrowly, via `AppModel`'s `guard snapshot != nil`:
+ * a failed or empty feed fetch during the season gives `events: []` (so
+ * `yearHasEvents` is false)
  * with `now` past the season start, and a naive port would tell a July
  * visitor "See you next season". Rule 3 sends that visitor to the generic
  * empty state instead, which is the honest screen for "we have no data", and

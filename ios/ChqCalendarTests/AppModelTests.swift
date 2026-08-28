@@ -777,7 +777,7 @@ struct AppModelTests {
         #expect(model.isCurrentYear)
 
         let expected = LandingState.determine(
-            now: now, selectedYear: 2026, availableYears: [2025, 2026, 2027], upcomingDefaultCount: 0)
+            now: now, selectedYear: 2026, availableYears: [2025, 2026, 2027], yearHasUpcomingEvents: false, yearHasEvents: true)
         #expect(model.landingState == expected)
         #expect(model.landingState == .postSeason(
             endedSeasonYear: 2026, nextSeasonYear: 2027,
@@ -803,18 +803,38 @@ struct AppModelTests {
         #expect(model.landingState == .inSeason)
     }
 
-    /// The fix this pins: without a `snapshot` yet, `landingState` must not
-    /// run `LandingState.determine` with a count forced to `0` — that would
-    /// misreport `.postSeason` for an offline first launch that happens
-    /// mid-season, just because there's no event data to say otherwise from.
-    /// `now` here (mid-July 2026) is deep in-season — if this regressed back
-    /// to forcing `upcomingDefaultCount = 0` on a nil snapshot, it would
-    /// read `.postSeason`, not `.inSeason`.
-    @Test func landingStateIsInSeasonWithoutASnapshotEvenMidSeason() async throws {
+    /// Without a `snapshot` yet, `landingState` must make no off-season
+    /// claim at all — an offline first launch has no event data to say
+    /// anything about the calendar from, and `phase` already owns what the
+    /// screen shows. Originally #177; both instants below are run because
+    /// only one of them can still fail.
+    ///
+    /// **2026-05-01 is the case that pins the guard.** Mid-July, `determine`
+    /// would reach rule 3 (`!yearHasEvents` → `.inSeason`) against a nil
+    /// snapshot's empty event set and return the right answer for the wrong
+    /// reason — measured: deleting `guard let snapshot` leaves the mid-July
+    /// assertion green. Before the season start the two genuinely disagree:
+    /// the guard says `.inSeason`, while falling through says `.preSeason`
+    /// (rule 2 outranks rule 3). So the May instant is what makes this test
+    /// able to fail, and the July one is kept only because it is the
+    /// scenario #177 was actually about.
+    ///
+    /// Note this is a deliberate iOS-only behaviour with no web counterpart,
+    /// and it is a real divergence — verified, not assumed. `useEventData`
+    /// sets `loading = false` with `events: []` on a failed fetch
+    /// (`useEventData.ts`'s `catch` + `finally`), so `page.tsx:683-690`
+    /// evaluates `showLanding` anyway and a failed May fetch resolves
+    /// through rule 2 to `pre-season` — a countdown. iOS has `phase`
+    /// (`.offline`/`.failed`) to own that screen instead, and web has no
+    /// equivalent. The divergence is therefore in the *caller*, not in
+    /// `determine`, which is why it does not break the rule-for-rule parity
+    /// this change restores.
+    @Test(arguments: ["2026-07-15 00:00:00", "2026-05-01 00:00:00"])
+    func landingStateIsInSeasonWithoutASnapshot(_ nowString: String) async throws {
         let api = MockAPI()
         await api.setFailure(MockAPIError.unscripted("events-down"), for: .events(year: 2026))
         let repo = EventRepository(api: api, cache: MockCache())
-        let now = try #require(ChqTime.parse("2026-07-15 00:00:00"))
+        let now = try #require(ChqTime.parse(nowString))
         let model = AppModel(
             repository: repo,
             store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
@@ -831,6 +851,104 @@ struct AppModelTests {
         #expect(model.phase == .offline)
         #expect(model.snapshot == nil)
         #expect(model.landingState == .inSeason)
+    }
+
+    /// #288 — the divergence the fix closes. From 2026-10-01 the server
+    /// flips `defaultYear` to 2027 (`eventsCalendarDataSyncService.ts`'s
+    /// `getMonth() >= 9`), so 2027 becomes the *current* year while its
+    /// published feed holds five events roughly 265 days out — far beyond
+    /// `.next`'s 90-day adaptive cap (`EventFilter.adaptiveEndDate`).
+    ///
+    /// The old probe counted the `.next` window and got 0, so `determine`
+    /// fell through to `.preSeason` and `OffSeasonLandingView` covered a
+    /// feed that has events in it with "Almost showtime" — and, in
+    /// `.preSeason`, no buttons at all (`LandingState.archiveYear` is `nil`
+    /// there and the preview button is `.postSeason`-only). Web, asking its
+    /// year's whole event set, said `in-season` for the identical manifest,
+    /// feed and clock. Six months of that, until 2027-06-27 finally entered
+    /// the 90-day window around 2027-03-28.
+    ///
+    /// The fixtures are the real ones: `events-2027-sparse.json` is
+    /// production's `all-events-2027.json` verbatim, and
+    /// `years-2027-default.json` is the manifest the server generates from
+    /// October 1.
+    @Test func landingStateIsInSeasonWhenTheCurrentYearsOnlyEventsAreBeyondTheAdaptiveWindowCap() async throws {
+        let cache = MockCache()
+        cache.write("events-2027", data: fixtureData("events-2027-sparse"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years-2027-default"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-10-05 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        #expect(model.selectedYear == 2027)
+        #expect(model.isCurrentYear, "the whole point: 2027 is now the DEFAULT year, so .next is not degraded to .all")
+        // The premise, asserted rather than assumed: `.next` genuinely has
+        // nothing in it here. The fix is in what the landing probe asks, not
+        // in the scope's window — the 90-day cap stays a scope window (#285
+        // owns whether it should).
+        #expect(model.dayGroups.isEmpty)
+
+        #expect(model.landingState == .inSeason)
+
+        // And the screen that produces has a way forward, which `.preSeason`
+        // did not: `.inSeason` with an empty window sends `EventListView` to
+        // `noMatchesView`, whose "Show All Events" button is `clearAll()`,
+        // and that reaches all five announced days. (Whether "No matching
+        // events" is the right *wording* for a season 265 days out is #285's
+        // question — the scope semantics — not this one.)
+        model.clearAll()
+
+        #expect(model.dayGroups.count == 5)
+    }
+
+    /// The one-hour grace `landingState` applies is `.next`'s own opening
+    /// grace (`ViewWindow.swift`'s `now.addingTimeInterval(-3600)`), and it
+    /// is what keeps the app from saying "See you next season" over an event
+    /// that is still happening. `events-sample.json`'s latest start is
+    /// 2026-07-27 12:45, so half an hour past it is still in-season.
+    @Test func landingStateStaysInSeasonWithinTheGraceHourAfterTheLastEventBegins() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-07-27 13:15:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        #expect(model.landingState == .inSeason)
+    }
+
+    /// The other side of the same boundary: 75 minutes past that last start,
+    /// the grace has run out and the year genuinely has nothing ahead.
+    /// Without this, `landingStateStaysInSeasonWithinTheGraceHourAfterTheLastEventBegins`
+    /// would also pass with no grace at all in the code, since 2026-07-27
+    /// is still inside the season calendar either way.
+    @Test func landingStateIsPostSeasonOnceTheGraceHourAfterTheLastEventHasRunOut() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-07-27 14:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+
+        #expect(model.landingState.isPostSeason)
     }
 
     /// Task 5 (#177): pins the exact state `OffSeasonLandingView` renders

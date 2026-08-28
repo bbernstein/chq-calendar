@@ -149,7 +149,7 @@ struct WidgetTimelineBuilderTests {
     /// `favoritesOnly` with no favorites at all leaves zero candidates even
     /// though events exist; with a later season announced, the single slice
     /// is a countdown to it. Pins the same opening/daysUntil pair as
-    /// `LandingStateTests.postSeasonTheDayAfterTheLastEventsAdaptiveWindowExpires`
+    /// `LandingStateTests.postSeasonTheDayAfterTheSeasonsLastEvent`
     /// so the widget and the app never disagree about the countdown.
     @Test func favoritesOnlyWithEmptyFavoritesYieldsCountdownOnPostSeasonFixture() throws {
         let envelope = try JSONDecoder().decode(EventEnvelope.self, from: fixtureData("events-sample"))
