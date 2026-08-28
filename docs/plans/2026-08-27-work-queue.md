@@ -40,7 +40,7 @@ opt-out.
 |---|---|---|---|---|
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
 | 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
-| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **IN PROGRESS** — #288 done, #186/#253 remain | `fix/288-landing-probe-unbounded` |
+| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **NEXT** — #288 MERGED (`01fa4e3`); #186 + #253 remain | PR #295 |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
@@ -72,8 +72,8 @@ Nothing else in the queue has a deadline.
 
 ## 2. iOS 1.1.4 — year-aware navigation (#186 + #288 + #253)
 
-**Status:** NOT STARTED · **Submit by ~mid-Sept, live before 2026-10-01** ·
-**Size:** M
+**Status:** NEXT — #288 MERGED (`01fa4e3`); #186 + #253 remain ·
+**Submit by ~mid-Sept, live before 2026-10-01** · **Size:** M
 
 1.1.3 (build 6) is **live**, so this needs a new build. These three issues are
 one job: each needs *a navigation that changes the year it navigates in*. Built
@@ -81,16 +81,25 @@ once, all three close; built separately, it gets built twice.
 
 **Why the date matters.** From 2026-10-01 `defaultYear` is 2027, whose five
 published events are ~265 days out — beyond `.next`'s 90-day cap
-(`EventFilter.adaptiveEndDate:203-206`, `maxOffset = 90`). So
-`upcomingDefaultCount == 0`, `now < seasonStart(2027)`, and
-`LandingState.determine` returns `.preSeason`, whose `archiveYear` is `nil`
-(`LandingState.swift:56-61`) and whose preview button is `.postSeason`-only
-(`OffSeasonLandingView.swift:120`). Result: a countdown with **no buttons**,
-until ~2027-03-29. Six months.
+(`EventFilter.adaptiveEndDate`, `maxOffset = 90`).
+
+**The worst of this is already fixed.** The landing used to read that cap as
+"the season is over", so `LandingState.determine` returned `.preSeason` —
+a countdown with **no buttons**, for six months. #288 unbound the probe from
+`.next` (`01fa4e3`), so that state is no longer reached.
+
+What is left is the reason the date still matters. The reader lands on
+`noMatchesView` instead: honest enough, with a working "Show All Events",
+but "No matching events" is the wrong sentence for a season 265 days out.
+And anyone who *does* reach `.preSeason` still finds nothing to press —
+`archiveYear` is `nil` there and the preview button is `.postSeason`-only
+(`OffSeasonLandingView.swift`). **#186 is what closes that**, and #285 owns
+the wording. Neither is fixed by the October flip self-healing in
+~2027-03-29.
 
 **Sub-items, in build order**
 
-- **#288 option 1 — DONE, branch `fix/288-landing-probe-unbounded`.**
+- **#288 option 1 — DONE, MERGED `01fa4e3` (PR #295).**
   `AppModel.landingState` now asks the snapshot's whole event set ("any
   event at or after `now - 1h`") instead of counting
   `filteredEvents(FilterSelection())`, and `LandingState.determine` takes
@@ -127,11 +136,26 @@ until ~2027-03-29. Six months.
 
 **Release gates**
 
-- **Screenshots: expected to be a free opt-out.** All ten shots in
+- **Screenshots: the opt-out is free, but "regenerate and confirm no
+  change" is NOT reachable until #294 is fixed.** All ten shots in
   `ios/Scripts/screenshot-plan.json` are in-season screens (`01-season`
-  through `10-widget`); none covers the off-season or pre-season landing.
-  Regenerate to confirm the manifest does not change, then record
-  `[skip-screenshots: regenerated, no covered shot changed]`.
+  through `10-widget`); none covers the off-season or pre-season landing,
+  so an off-season logic change cannot alter what any of them depicts.
+  Regenerating nonetheless rewrites **15 of the 20 files** — measured in
+  #295, on a commit whose own change could not move a pixel in any shot.
+  Two causes, both unrelated to whatever you changed:
+  - **Nine iPad shots.** `capture-screenshots.sh:308-309` passes
+    `--time "9:41"`, which is not an ISO string, so `simctl` pins the
+    time but never the *date*. The iPad status bar renders the date
+    (the iPhone's does not), so every iPad shot carries the day it was
+    captured and changes on every run. That is #294.
+  - **Five iPhone shots.** Live-feed drift: only the clock and the
+    dataset year are pinned, not the feed or the article-links sidecar.
+    A real staleness signal, and one that wants a human looking at the
+    results rather than a script blessing them.
+
+  Until #294 lands, record `[skip-screenshots: <reason>]` and do not
+  commit the churn.
 - **`whatsNew` must be rewritten.** `docs/app-store/listing-fields.json:8`
   still describes 1.1.3's chrome consolidation. Promotional Text is the only
   field changeable without a review cycle.
@@ -146,11 +170,12 @@ until ~2027-03-29. Six months.
   test. `docs/superpowers/specs/2026-08-24-off-season-landing-269-design.md`
   §A3 also says the rail-over-landing path "has never been exercised". If the
   rail is going to be the answer to "pre-season has no buttons", prove it.
-- `LandingStateTests.swift:60` asserts an unreachable combination
-  (`upcomingDefaultCount: 0` for `selectedYear 2027 / defaultYear 2026`; the
-  real app resolves that to `.inSeason` via `EffectiveScope.resolve`). Every
-  2027 test payload is `events-sample.json`, whose six events are all in July
-  **2026** — so the sparse-2027 path is untested in both directions.
+- ~~`LandingStateTests.swift:60` asserts an unreachable combination; every
+  2027 test payload is July 2026~~ — **closed by #288.** `determine` no
+  longer takes `upcomingDefaultCount` at all, and
+  `events-2027-sparse.json` (production's real 2027 feed) plus
+  `years-2027-default.json` now exercise the sparse-2027 path directly.
+  The *unit* side of that gap is gone; the UI side above is not.
 - `AppModel.previewNextSeason():1098` sets `dateScope: .all`, which makes
   `filter.isDefault` false permanently (`UserStateStore.swift:108-115`). A
   previewed year that is empty or 404s shows `noMatchesView` — *"your filters
