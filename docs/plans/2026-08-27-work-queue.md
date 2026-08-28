@@ -38,8 +38,8 @@ opt-out.
 
 | # | Item | Issues | Status | Branch / PR |
 |---|---|---|---|---|
-| 0 | Triage record + this queue | — | IN REVIEW | `docs/2026-08-27-issue-triage`, PR #289 |
-| 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | NOT STARTED | — |
+| 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
+| 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | IN REVIEW | `fix/e2e-offseason-and-zoom-flake-287-290` |
 | 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | NOT STARTED | — |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
@@ -72,7 +72,38 @@ Nothing else in the queue has a deadline.
 
 ## 1. #287 + #290 — the browser suite's two failure modes
 
-**Status:** NOT STARTED · **Deadline:** 2026-09-11 (#287) · **Size:** S–M · web/e2e only
+**Status:** IN REVIEW on `fix/e2e-offseason-and-zoom-flake-287-290` ·
+**Deadline:** 2026-09-11 (#287) · **Size:** S–M · web/e2e only
+
+**What it turned out to be.** Both fixes are in the harness; `page.tsx` and
+every other source file are untouched.
+
+- **#287** — `enterList` takes `seedsOwnFilter`, which suppresses regime
+  *reporting* for a page that seeded a filter into storage. The consistency
+  rule still binds every page that can honestly report, and a
+  `seedsOwnFilter` page running before any regime is established throws.
+  `verify-full-list`'s `5-webkit the rail highlights today` got the
+  off-season skip its three siblings already had.
+- **#290** — **not** the `useDayAnchor` ResizeObserver lead the issue named.
+  The parking loop returns on an instantaneous `|delta| <= 2`, and the
+  ~152,000px jump back up from today's landing lands among ninety
+  `content-visibility: auto` sections that then swap their
+  `contain-intrinsic-size` estimates for real heights: the document grew
+  169,546 → 172,664, ~3,100px above the target, 17ms *after* the loop
+  returned. Chromium's scroll anchoring absorbed +478 and the rest pushed
+  the target down. The loop now confirms against a settled document height.
+  Falsified by making the day header non-sticky — check 12 fails at both
+  widths, so the fix did not make it vacuous.
+- **Also found, previously unreachable** (the run crashed before check 18):
+  the seeds' `lastSaved: Date.now()` was Node's clock while the page's was
+  pinned, so any `E2E_NOW` more than 30 days out silently dropped the seed —
+  six red checks at `E2E_NOW=2026-09-30`. Seeded from `FIXED_NOW` now.
+
+Verified: full `test:browser` chain green in both regimes; `verify-rail`
+green pinned to 2026-09-11, 09-15 and 09-30, and 4 consecutive in-season
+runs at 46/46 against a ~1-in-4 prior failure rate.
+
+<details><summary>The original plan, kept for the reasoning</summary>
 
 Two issues, one sitting. #287 is deterministic and dated; **#290 is already
 failing on `main` today** — `verify-rail`'s check 12 fails roughly 1 in 4, and
@@ -137,6 +168,8 @@ so do not loosen it.
   contention noise of its own. But note that was my first and *wrong*
   explanation for the check-12 failure: it then reproduced in CI on a
   docs-only PR with identical numbers. See #290.
+
+</details>
 
 ---
 
