@@ -72,8 +72,8 @@ Nothing else in the queue has a deadline.
 
 ## 2. iOS 1.1.4 — year-aware navigation (#186 + #288 + #253)
 
-**Status:** NOT STARTED · **Submit by ~mid-Sept, live before 2026-10-01** ·
-**Size:** M
+**Status:** NEXT — #288 MERGED (`01fa4e3`); #186 + #253 remain ·
+**Submit by ~mid-Sept, live before 2026-10-01** · **Size:** M
 
 1.1.3 (build 6) is **live**, so this needs a new build. These three issues are
 one job: each needs *a navigation that changes the year it navigates in*. Built
@@ -81,12 +81,21 @@ once, all three close; built separately, it gets built twice.
 
 **Why the date matters.** From 2026-10-01 `defaultYear` is 2027, whose five
 published events are ~265 days out — beyond `.next`'s 90-day cap
-(`EventFilter.adaptiveEndDate:203-206`, `maxOffset = 90`). So
-`upcomingDefaultCount == 0`, `now < seasonStart(2027)`, and
-`LandingState.determine` returns `.preSeason`, whose `archiveYear` is `nil`
-(`LandingState.swift:56-61`) and whose preview button is `.postSeason`-only
-(`OffSeasonLandingView.swift:120`). Result: a countdown with **no buttons**,
-until ~2027-03-29. Six months.
+(`EventFilter.adaptiveEndDate`, `maxOffset = 90`).
+
+**The worst of this is already fixed.** The landing used to read that cap as
+"the season is over", so `LandingState.determine` returned `.preSeason` —
+a countdown with **no buttons**, for six months. #288 unbound the probe from
+`.next` (`01fa4e3`), so that state is no longer reached.
+
+What is left is the reason the date still matters. The reader lands on
+`noMatchesView` instead: honest enough, with a working "Show All Events",
+but "No matching events" is the wrong sentence for a season 265 days out.
+And anyone who *does* reach `.preSeason` still finds nothing to press —
+`archiveYear` is `nil` there and the preview button is `.postSeason`-only
+(`OffSeasonLandingView.swift`). **#186 is what closes that**, and #285 owns
+the wording. Neither is fixed by the October flip self-healing in
+~2027-03-29.
 
 **Sub-items, in build order**
 
@@ -161,11 +170,12 @@ until ~2027-03-29. Six months.
   test. `docs/superpowers/specs/2026-08-24-off-season-landing-269-design.md`
   §A3 also says the rail-over-landing path "has never been exercised". If the
   rail is going to be the answer to "pre-season has no buttons", prove it.
-- `LandingStateTests.swift:60` asserts an unreachable combination
-  (`upcomingDefaultCount: 0` for `selectedYear 2027 / defaultYear 2026`; the
-  real app resolves that to `.inSeason` via `EffectiveScope.resolve`). Every
-  2027 test payload is `events-sample.json`, whose six events are all in July
-  **2026** — so the sparse-2027 path is untested in both directions.
+- ~~`LandingStateTests.swift:60` asserts an unreachable combination; every
+  2027 test payload is July 2026~~ — **closed by #288.** `determine` no
+  longer takes `upcomingDefaultCount` at all, and
+  `events-2027-sparse.json` (production's real 2027 feed) plus
+  `years-2027-default.json` now exercise the sparse-2027 path directly.
+  The *unit* side of that gap is gone; the UI side above is not.
 - `AppModel.previewNextSeason():1098` sets `dateScope: .all`, which makes
   `filter.isDefault` false permanently (`UserStateStore.swift:108-115`). A
   previewed year that is empty or 404s shows `noMatchesView` — *"your filters
