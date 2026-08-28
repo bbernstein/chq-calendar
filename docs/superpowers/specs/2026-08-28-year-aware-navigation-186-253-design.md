@@ -136,7 +136,7 @@ called from three places — two `.onChange` and one `.onAppear`
 Two things make the async step non-trivial:
 
 1. **`PendingDayScroll.key` reads `model.selectedYear` and `model.filter`**
-   (`EventListView.swift:523-525`). The year switch changes both, so the stamp
+   (`EventListView.swift:524-525`). The year switch changes both, so the stamp
    must happen *after* the await. Stamping first would record the old year and
    the pending scroll would read as stale the moment it was armed. Make
    `selectDay` async (or give it an async sibling) and await the model call
@@ -193,6 +193,19 @@ that could not fail; assume yours is one until you have seen it fail.
   `ViewWindow.make` clamps expansion *inputs* against per-year bounds, so this
   may already hold — **test it rather than assume it**, and if it holds, the
   test says why.
+- **The pending day key is consumed exactly once across the year switch.** A
+  snapshot replacement mid-`select(year:)` re-fires
+  `.onChange(of: model.snapshot?.fetchedAt)` and calls the consumer again; the
+  key must not be taken, or navigated, twice.
+
+  This bullet exists because the section above spends more words on that race
+  than on anything else in the design and would otherwise pin none of it. The
+  ordering it depends on is *invisible* in the finished code — a later reader
+  tidying `consumePendingDayLinkIfPossible()` by inlining the take into the
+  `Task`, which reads as a simplification, breaks it silently. Nothing would
+  fail. That is precisely the shape this doc's falsification bar exists to
+  catch, so falsify this one too: inline the take, and watch the test go
+  red.
 
 ### Watch for a test that stops being able to fail
 
