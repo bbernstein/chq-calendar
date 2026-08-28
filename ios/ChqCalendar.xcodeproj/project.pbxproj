@@ -56,14 +56,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C0FFEE000000000000000040 /* Exceptions for "ChqCalendar" folder in "ChqCalendar" target */ = {
+		C0FFEE000000000000000040 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
 			target = C0FFEE000000000000000010 /* ChqCalendar */;
 		};
-		C0FFEE000000000000000042 /* Exceptions for "ChqCalendarWidgets" folder in "ChqCalendarWidgets" target */ = {
+		C0FFEE000000000000000042 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -73,63 +73,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A7F898B273D99F5160405DD0 /* ChqCalendarUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ChqCalendarUITests;
-			sourceTree = "<group>";
-		};
-		C0FFEE000000000000000018 /* ChqCalendar */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C0FFEE000000000000000040 /* Exceptions for "ChqCalendar" folder in "ChqCalendar" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ChqCalendar;
-			sourceTree = "<group>";
-		};
-		C0FFEE000000000000000028 /* ChqCalendarTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ChqCalendarTests;
-			sourceTree = "<group>";
-		};
-		C0FFEE000000000000000033 /* ChqCalendarShared */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ChqCalendarShared;
-			sourceTree = "<group>";
-		};
-		C0FFEE000000000000000041 /* ChqCalendarWidgets */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				C0FFEE000000000000000042 /* Exceptions for "ChqCalendarWidgets" folder in "ChqCalendarWidgets" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ChqCalendarWidgets;
-			sourceTree = "<group>";
-		};
+		A7F898B273D99F5160405DD0 /* ChqCalendarUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarUITests; sourceTree = "<group>"; };
+		C0FFEE000000000000000018 /* ChqCalendar */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (C0FFEE000000000000000040 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ChqCalendar; sourceTree = "<group>"; };
+		C0FFEE000000000000000028 /* ChqCalendarTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarTests; sourceTree = "<group>"; };
+		C0FFEE000000000000000033 /* ChqCalendarShared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarShared; sourceTree = "<group>"; };
+		C0FFEE000000000000000041 /* ChqCalendarWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (C0FFEE000000000000000042 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ChqCalendarWidgets; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */

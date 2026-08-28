@@ -40,7 +40,7 @@ opt-out.
 |---|---|---|---|---|
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
 | 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
-| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **IN PROGRESS** — #288 done, #186/#253 remain | `fix/288-landing-probe-unbounded` |
+| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **NEXT** — #288 MERGED (`01fa4e3`); #186 + #253 remain | PR #295 |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
@@ -90,7 +90,7 @@ until ~2027-03-29. Six months.
 
 **Sub-items, in build order**
 
-- **#288 option 1 — DONE, branch `fix/288-landing-probe-unbounded`.**
+- **#288 option 1 — DONE, MERGED `01fa4e3` (PR #295).**
   `AppModel.landingState` now asks the snapshot's whole event set ("any
   event at or after `now - 1h`") instead of counting
   `filteredEvents(FilterSelection())`, and `LandingState.determine` takes
@@ -127,11 +127,18 @@ until ~2027-03-29. Six months.
 
 **Release gates**
 
-- **Screenshots: expected to be a free opt-out.** All ten shots in
+- **Screenshots: the opt-out is free, but "regenerate and confirm no
+  change" is NOT reachable until #294 is fixed.** All ten shots in
   `ios/Scripts/screenshot-plan.json` are in-season screens (`01-season`
-  through `10-widget`); none covers the off-season or pre-season landing.
-  Regenerate to confirm the manifest does not change, then record
-  `[skip-screenshots: regenerated, no covered shot changed]`.
+  through `10-widget`); none covers the off-season or pre-season landing,
+  so no covered shot can move. But #295 measured what regenerating
+  actually does: **15 of 20 files change on a commit that moves no
+  pixel.** Nine iPad shots change because `capture-screenshots.sh:308`
+  passes `--time "9:41"`, which is not an ISO string, so `simctl` never
+  pins the *date* — the iPad status bar (unlike the iPhone's) shows it,
+  and every shot carries the real capture day. Five iPhone shots change
+  from unpinned live-feed drift. Until #294 lands, record
+  `[skip-screenshots: <reason>]` and do not commit the churn.
 - **`whatsNew` must be rewritten.** `docs/app-store/listing-fields.json:8`
   still describes 1.1.3's chrome consolidation. Promotional Text is the only
   field changeable without a review cycle.
