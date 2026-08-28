@@ -39,8 +39,8 @@ opt-out.
 | # | Item | Issues | Status | Branch / PR |
 |---|---|---|---|---|
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
-| 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | IN REVIEW | `fix/e2e-offseason-and-zoom-flake-287-290` |
-| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | NOT STARTED | — |
+| 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
+| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | **NEXT** | — |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
@@ -60,116 +60,13 @@ opt-out.
 | Date | What happens | Item |
 |---|---|---|
 | **2026-09-10** | Last event in the 2026 feed | — |
-| **2026-09-11** | `browser-checks` starts aborting on **every branch push** | **1** |
+| ~~**2026-09-11**~~ | ~~`browser-checks` starts aborting on every branch push~~ — closed by `8bee59b` | ~~**1**~~ |
 | **~mid-Sept** | 1.1.4 must be submitted to clear review in time | **2** |
 | **2026-10-01** | Server flips `defaultYear` to 2027; iOS pre-season landing loses both buttons | **2** |
 | **~2027-03-29** | 2027-06-27 enters `.next`'s 90-day window; the iOS pre-season state self-heals | **2** |
 | **June 2027** | Next season's Daily articles begin | **10** |
 
 Nothing else in the queue has a deadline.
-
----
-
-## 1. #287 + #290 — the browser suite's two failure modes
-
-**Status:** IN REVIEW on `fix/e2e-offseason-and-zoom-flake-287-290` ·
-**Deadline:** 2026-09-11 (#287) · **Size:** S–M · web/e2e only
-
-**What it turned out to be.** Both fixes are in the harness; `page.tsx` and
-every other source file are untouched.
-
-- **#287** — `enterList` takes `seedsOwnFilter`, which suppresses regime
-  *reporting* for a page that seeded a filter into storage. The consistency
-  rule still binds every page that can honestly report, and a
-  `seedsOwnFilter` page running before any regime is established throws.
-  `verify-full-list`'s `5-webkit the rail highlights today` got the
-  off-season skip its three siblings already had.
-- **#290** — **not** the `useDayAnchor` ResizeObserver lead the issue named.
-  The parking loop returns on an instantaneous `|delta| <= 2`, and the
-  ~152,000px jump back up from today's landing lands among ninety
-  `content-visibility: auto` sections that then swap their
-  `contain-intrinsic-size` estimates for real heights: the document grew
-  169,546 → 172,664, ~3,100px above the target, 17ms *after* the loop
-  returned. Chromium's scroll anchoring absorbed +478 and the rest pushed
-  the target down. The loop now confirms against a settled document height.
-  Falsified by making the day header non-sticky — check 12 fails at both
-  widths, so the fix did not make it vacuous.
-- **Also found, previously unreachable** (the run crashed before check 18):
-  the seeds' `lastSaved: Date.now()` was Node's clock while the page's was
-  pinned, so any `E2E_NOW` more than 30 days out silently dropped the seed —
-  six red checks at `E2E_NOW=2026-09-30`. Seeded from `FIXED_NOW` now.
-
-Verified: full `test:browser` chain green in both regimes; `verify-rail`
-green pinned to 2026-09-11, 09-15 and 09-30, and 4 consecutive in-season
-runs at 46/46 against a ~1-in-4 prior failure rate.
-
-<details><summary>The original plan, kept for the reasoning</summary>
-
-Two issues, one sitting. #287 is deterministic and dated; **#290 is already
-failing on `main` today** — `verify-rail`'s check 12 fails roughly 1 in 4, and
-because `test:browser` is `&&`-chained it takes the five suites after it down
-too, so an unrelated PR goes red with no signal. Both live in `verify-rail.mjs`,
-so fix them in one pass.
-
-**Do this first.** Not because it is the largest problem but because every
-branch pushed after Sep 11 gets a red `Build and Test` with a stack trace and
-no summary — including the branches for item 2. Fixing it first is what keeps
-the rest of the queue's CI readable.
-
-**Scope**
-
-- `frontend/e2e/verify-rail.mjs:983` and `:1148` — the two pages that seed
-  `searchTerm: 'williamsburg'` into `chq-calendar-user-state`.
-- `frontend/e2e/regime.mjs:227` — the "one regime per run" throw.
-- `frontend/e2e/verify-full-list.mjs:704` — check `5-webkit the rail
-  highlights today`, which lacks the off-season guard its three siblings have
-  at `:353`, `:587` and check 7.
-
-**Done when**
-
-```bash
-cd frontend && npx vite build && npm run preview &
-E2E_NOW=2026-09-15 node e2e/verify-rail.mjs        # completes, summary, 0 failed
-E2E_NOW=2026-09-15 node e2e/verify-full-list.mjs   # 0 failed
-node e2e/verify-rail.mjs                            # in-season, still 46/46
-```
-
-### #290 — the 200%-zoom flake
-
-`railBottom` is always 273.0; `headerTop` is either 273.0 (pass) or **exactly
-700.0** (fail). Two discrete states, not jitter — the sticky day header appears
-not to engage at all on bad runs. The harness confirms the header is flush
-(`verify-rail.mjs:596-611`), waits 300ms, then measures — so the page moves
-~427px *after* the scroll settled.
-
-**Lead, untested:** `useDayAnchor.ts:204`, the `ResizeObserver` late reassert.
-Since phase 4 it is one of only two announcing scrolls left in the app, and a
-late reassert firing inside that 300ms window is exactly this shape. 200% zoom
-is also where a reflow most plausibly trips a `ResizeObserver`.
-
-Reproduce with plain `node e2e/verify-rail.mjs`, repeated. Check 12 is correct
-as written — `:629-634` explains why equality rather than `>=` is the point —
-so do not loosen it.
-
-**Traps**
-
-- **The app is correct; the harness is wrong.** `page.tsx:248`'s
-  `!filters.hasFilters` is deliberate — the comment above it says an answer of
-  "see you next season" is not a response to a reader who asked a question.
-  Do not change `page.tsx`.
-- **Keep the one-regime invariant.** `regime.mjs:227` exists because a run
-  that took both branches would still report success. Make the two seeded
-  pages opt out of the assert, or seed the filter *after* `enterList`.
-- `verify-offseason.mjs` does **not** import `fixedNow.mjs` and ignores
-  `E2E_NOW` entirely — it derives every instant from the live feed.
-  `e2e/README.md:120` reads as if the override is universal. Worth correcting
-  while here.
-- **Never run two Playwright suites at once on one machine** — it produces
-  contention noise of its own. But note that was my first and *wrong*
-  explanation for the check-12 failure: it then reproduced in CI on a
-  docs-only PR with identical numbers. See #290.
-
-</details>
 
 ---
 
@@ -366,6 +263,119 @@ the 2026-07-03 spec) → **#200** (shared lists; hard-blocked on #132).
 ## Completed
 
 *(Move items here as they land, with the squash sha.)*
+
+## 1. #287 + #290 — the browser suite's two failure modes
+
+**Status:** DONE — squash `8bee59b`, PR #292, merged 2026-08-28. Both issues
+closed. Four commits: `8b16638` (the fixes), `478ec88` (marking this item IN
+REVIEW), then `2bd819c` and `9e9b783`, both review-driven.
+
+**What it turned out to be.** Both fixes are in the harness; `page.tsx` and
+every other source file are untouched.
+
+- **#287** — `enterList` takes `seedsOwnFilter`, which suppresses regime
+  *reporting* for a page that seeded a filter into storage. The consistency
+  rule still binds every page that can honestly report, and a
+  `seedsOwnFilter` page running before any regime is established throws.
+  `verify-full-list`'s `5-webkit the rail highlights today` got the
+  off-season skip its three siblings already had.
+- **#290** — **not** the `useDayAnchor` ResizeObserver lead the issue named.
+  The parking loop returns on an instantaneous `|delta| <= 2`, and the
+  ~152,000px jump back up from today's landing lands among ninety
+  `content-visibility: auto` sections that then swap their
+  `contain-intrinsic-size` estimates for real heights: the document grew
+  169,546 → 172,664, ~3,100px above the target, 17ms *after* the loop
+  returned. Chromium's scroll anchoring absorbed +478 and the rest pushed
+  the target down. The loop now confirms against a settled document height.
+  Falsified by making the day header non-sticky — check 12 fails at both
+  widths, so the fix did not make it vacuous.
+- **Also found, previously unreachable** (the run crashed before check 18):
+  the seeds' `lastSaved: Date.now()` was Node's clock while the page's was
+  pinned, so any `E2E_NOW` more than 30 days out silently dropped the seed —
+  six red checks at `E2E_NOW=2026-09-30`. Seeded from `FIXED_NOW` now.
+
+Verified: full `test:browser` chain green in both regimes; `verify-rail`
+green pinned to 2026-09-11, 09-15 and 09-30, and 7 consecutive in-season
+runs at 46/46 across the three commits, against a ~1-in-4 prior failure
+rate.
+
+**Two things worth carrying into the next harness change.** Copilot
+returned "0 comments / Approval recommended" twice and then filed two
+real inline findings on its third pass — an approval from a Lite review
+is not evidence there is nothing to find, so read the inline surface
+every round. And one of those findings had earlier been waved through as
+"pre-existing house style": true, and beside the point. It had been
+copied twice by then.
+
+<details><summary>The original plan, kept for the reasoning</summary>
+
+Two issues, one sitting. #287 is deterministic and dated; **#290 is already
+failing on `main` today** — `verify-rail`'s check 12 fails roughly 1 in 4, and
+because `test:browser` is `&&`-chained it takes the five suites after it down
+too, so an unrelated PR goes red with no signal. Both live in `verify-rail.mjs`,
+so fix them in one pass.
+
+**Do this first.** Not because it is the largest problem but because every
+branch pushed after Sep 11 gets a red `Build and Test` with a stack trace and
+no summary — including the branches for item 2. Fixing it first is what keeps
+the rest of the queue's CI readable.
+
+**Scope**
+
+- `frontend/e2e/verify-rail.mjs:983` and `:1148` — the two pages that seed
+  `searchTerm: 'williamsburg'` into `chq-calendar-user-state`.
+- `frontend/e2e/regime.mjs:227` — the "one regime per run" throw.
+- `frontend/e2e/verify-full-list.mjs:704` — check `5-webkit the rail
+  highlights today`, which lacks the off-season guard its three siblings have
+  at `:353`, `:587` and check 7.
+
+**Done when**
+
+```bash
+cd frontend && npx vite build && npm run preview &
+E2E_NOW=2026-09-15 node e2e/verify-rail.mjs        # completes, summary, 0 failed
+E2E_NOW=2026-09-15 node e2e/verify-full-list.mjs   # 0 failed
+node e2e/verify-rail.mjs                            # in-season, still 46/46
+```
+
+### #290 — the 200%-zoom flake
+
+`railBottom` is always 273.0; `headerTop` is either 273.0 (pass) or **exactly
+700.0** (fail). Two discrete states, not jitter — the sticky day header appears
+not to engage at all on bad runs. The harness confirms the header is flush
+(`verify-rail.mjs:596-611`), waits 300ms, then measures — so the page moves
+~427px *after* the scroll settled.
+
+**Lead, untested:** `useDayAnchor.ts:204`, the `ResizeObserver` late reassert.
+Since phase 4 it is one of only two announcing scrolls left in the app, and a
+late reassert firing inside that 300ms window is exactly this shape. 200% zoom
+is also where a reflow most plausibly trips a `ResizeObserver`.
+
+Reproduce with plain `node e2e/verify-rail.mjs`, repeated. Check 12 is correct
+as written — `:629-634` explains why equality rather than `>=` is the point —
+so do not loosen it.
+
+**Traps**
+
+- **The app is correct; the harness is wrong.** `page.tsx:248`'s
+  `!filters.hasFilters` is deliberate — the comment above it says an answer of
+  "see you next season" is not a response to a reader who asked a question.
+  Do not change `page.tsx`.
+- **Keep the one-regime invariant.** `regime.mjs:227` exists because a run
+  that took both branches would still report success. Make the two seeded
+  pages opt out of the assert, or seed the filter *after* `enterList`.
+- `verify-offseason.mjs` does **not** import `fixedNow.mjs` and ignores
+  `E2E_NOW` entirely — it derives every instant from the live feed.
+  `e2e/README.md:120` reads as if the override is universal. Worth correcting
+  while here.
+- **Never run two Playwright suites at once on one machine** — it produces
+  contention noise of its own. But note that was my first and *wrong*
+  explanation for the check-12 failure: it then reproduced in CI on a
+  docs-only PR with identical numbers. See #290.
+
+</details>
+
+---
 
 - **#274** — day strip owns date navigation. Four phases: `d75e1a1` (#276),
   `0e854fe` (#280), `d3a82fc` (#281), `3ac557b` (#282), plus `1db86b2` (#279).
