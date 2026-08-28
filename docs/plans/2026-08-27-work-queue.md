@@ -131,14 +131,22 @@ until ~2027-03-29. Six months.
   change" is NOT reachable until #294 is fixed.** All ten shots in
   `ios/Scripts/screenshot-plan.json` are in-season screens (`01-season`
   through `10-widget`); none covers the off-season or pre-season landing,
-  so no covered shot can move. But #295 measured what regenerating
-  actually does: **15 of 20 files change on a commit that moves no
-  pixel.** Nine iPad shots change because `capture-screenshots.sh:308`
-  passes `--time "9:41"`, which is not an ISO string, so `simctl` never
-  pins the *date* — the iPad status bar (unlike the iPhone's) shows it,
-  and every shot carries the real capture day. Five iPhone shots change
-  from unpinned live-feed drift. Until #294 lands, record
-  `[skip-screenshots: <reason>]` and do not commit the churn.
+  so an off-season logic change cannot alter what any of them depicts.
+  Regenerating nonetheless rewrites **15 of the 20 files** — measured in
+  #295, on a commit whose own change could not move a pixel in any shot.
+  Two causes, both unrelated to whatever you changed:
+  - **Nine iPad shots.** `capture-screenshots.sh:308-309` passes
+    `--time "9:41"`, which is not an ISO string, so `simctl` pins the
+    time but never the *date*. The iPad status bar renders the date
+    (the iPhone's does not), so every iPad shot carries the day it was
+    captured and changes on every run. That is #294.
+  - **Five iPhone shots.** Live-feed drift: only the clock and the
+    dataset year are pinned, not the feed or the article-links sidecar.
+    A real staleness signal, and one that wants a human looking at the
+    results rather than a script blessing them.
+
+  Until #294 lands, record `[skip-screenshots: <reason>]` and do not
+  commit the churn.
 - **`whatsNew` must be rewritten.** `docs/app-store/listing-fields.json:8`
   still describes 1.1.3's chrome consolidation. Promotional Text is the only
   field changeable without a review cycle.
