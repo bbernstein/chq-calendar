@@ -267,7 +267,8 @@ the 2026-07-03 spec) → **#200** (shared lists; hard-blocked on #132).
 ## 1. #287 + #290 — the browser suite's two failure modes
 
 **Status:** DONE — squash `8bee59b`, PR #292, merged 2026-08-28. Both issues
-closed. Three commits: the fixes plus two review-driven follow-ups.
+closed. Four commits: `8b16638` (the fixes), `478ec88` (marking this item IN
+REVIEW), then `2bd819c` and `9e9b783`, both review-driven.
 
 **What it turned out to be.** Both fixes are in the harness; `page.tsx` and
 every other source file are untouched.
@@ -373,8 +374,6 @@ so do not loosen it.
   docs-only PR with identical numbers. See #290.
 
 </details>
-
----
 
 ---
 
