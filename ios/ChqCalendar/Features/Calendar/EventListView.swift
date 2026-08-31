@@ -130,6 +130,17 @@ struct EventListView: View {
     /// `PendingDayScroll.isStale` answers both.
     @State private var pinnedSelection: PendingDayScroll.Target?
 
+    /// The deep-link navigation currently running, if any — held so the next
+    /// one can queue *behind* it rather than beside it.
+    ///
+    /// Consuming a `chqcal://day/<key>` link became asynchronous when it
+    /// started routing through `AppModel.goToDay(crossingYears:)` (#253),
+    /// which can select and fetch another season. Two links in flight at once
+    /// would interleave their year switches and stamp each other's
+    /// `PendingDayScroll.Target`; `PendingDayLink.consume(from:after:navigate:)`
+    /// owns that rule and this is the handle it needs.
+    @State private var dayLinkNavigation: Task<Void, Never>?
+
     #if DEBUG
     /// The wall-clock moment the current `pendingScroll` is allowed to
     /// resolve, stamped from `model.uiTestPendingScrollDelay` — see that
@@ -288,6 +299,10 @@ struct EventListView: View {
             // once `snapshot` lands. Hence three triggers, all funnelling into
             // one idempotent resolver: `resolvePendingDayDeepLinkIfPossible`
             // returns the key exactly once, so extra calls cost a nil check.
+            // Note that `snapshot?.fetchedAt` fires *during* a cross-year
+            // consumption too, since selecting a year replaces the snapshot —
+            // the re-entrant call that `PendingDayLink`'s synchronous take
+            // exists to make a no-op.
             // `snapshot?.fetchedAt` rather than `phase` for the same reason
             // `resolvePendingEventDeepLinkIfPossible`'s callers use it: a warm
             // launch sets `phase = .ready` immediately and never changes it
@@ -307,7 +322,10 @@ struct EventListView: View {
             // `selectDay` takes no `ScrollViewProxy` (it arms `pendingScroll`,
             // which `list(rendered:)` resolves whenever it does mount), and
             // `resolvePendingDayDeepLinkIfPossible` already gates on
-            // `snapshot != nil`.
+            // `snapshot != nil`. It matters more now than it did: consuming a
+            // link can switch seasons, and `dayGroups` is empty for as long as
+            // the new season's fetch takes — a trigger hosted on the list
+            // would unmount itself mid-navigation.
             .onChange(of: model.pendingDeepLink) { _, _ in
                 consumePendingDayLinkIfPossible()
             }
@@ -513,11 +531,43 @@ struct EventListView: View {
     /// that will never arrive.
     ///
     /// `model.goToDay` has already applied the window expansion by the time
-    /// `PendingDayScroll.key` reads `model.filter` below, but that's fine:
-    /// the key deliberately excludes the window fields, so the expansion it
-    /// just performed can never itself be read as a mismatch.
+    /// `PendingDayScroll.key` reads `model.filter` in `armScroll`, but that's
+    /// fine: the key deliberately excludes the window fields, so the
+    /// expansion it just performed can never itself be read as a mismatch.
     private func selectDay(_ dayKey: String) {
         guard model.goToDay(dayKey) else { return }
+        armScroll(to: dayKey)
+    }
+
+    /// `selectDay`'s cross-year sibling, and the only caller of
+    /// `AppModel.goToDay(crossingYears:)` — a day link can name a day in a
+    /// season other than the one on screen (#253), which every rail control
+    /// is structurally incapable of doing (their day keys all come from the
+    /// current year's `navigableBounds`).
+    ///
+    /// **`armScroll` must stay on the far side of the `await`.** The year
+    /// switch changes `model.selectedYear`, and clearing the outgoing
+    /// season's scope-local date state bumps `model.scopeResetCount` — both
+    /// of which `PendingDayScroll.key` reads. A target stamped before the
+    /// await would therefore carry the *old* season's key and read as stale
+    /// the instant it was armed, so `resolvePendingScroll` would drop it and
+    /// the scroll the whole deep link exists to perform would silently never
+    /// land. The `guard await … else { return }` shape is what keeps that
+    /// impossible to get wrong here; `aCrossYearJumpStalesATargetStampedBeforeIt`
+    /// pins the underlying fact that the key really does move.
+    private func selectDay(crossingYears dayKey: String) async {
+        guard await model.goToDay(crossingYears: dayKey) else { return }
+        armScroll(to: dayKey)
+    }
+
+    /// The half of `selectDay` that runs once the model has accepted the
+    /// target: pin the rail's highlight and queue the scroll.
+    ///
+    /// Split out so the synchronous and cross-year entry points cannot drift
+    /// — a rail tap and a Siri "show me tomorrow" have to leave the app in
+    /// the same state, which is the property `consumePendingDayLinkIfPossible`
+    /// documents.
+    private func armScroll(to dayKey: String) {
         anchorDay = dayKey
         let target = PendingDayScroll.Target(
             day: dayKey,
@@ -577,12 +627,27 @@ struct EventListView: View {
     /// left pending (`DeepLinkTabRoute.resolve(.day)` sets
     /// `consumesLink: false`).
     ///
-    /// Routes through `selectDay` — the exact function a rail chip tap calls —
-    /// so for any day the rail also offers, a Siri "show me tomorrow" and a
-    /// finger on tomorrow's chip leave the app in identical state: same window
-    /// expansion, same pinned selection, same queued scroll. `selectDay`
-    /// already refuses an unreachable day, so nothing extra is needed for a
-    /// link naming a day outside the season.
+    /// Routes through `selectDay(crossingYears:)` — the cross-year sibling of
+    /// the exact function a rail chip tap calls — so for any day the rail also
+    /// offers, a Siri "show me tomorrow" and a finger on tomorrow's chip leave
+    /// the app in identical state: same window expansion, same pinned
+    /// selection, same queued scroll. `selectDay` already refuses an
+    /// unreachable day, so nothing extra is needed for a link naming a day
+    /// outside the season.
+    ///
+    /// The cross-year sibling rather than the plain one because voice resolves
+    /// its day against `IntentDataSource.defaultYear()` and the app may be
+    /// parked on a different season — an archived year the reader was
+    /// browsing, or next year's preview (#253). Before this, such a link was
+    /// simply refused: `goToDay` bounds against `selectedYear`, so "show me
+    /// tomorrow" from an archived season opened the app and did nothing.
+    ///
+    /// **The ordering here is load-bearing and lives in `PendingDayLink`.**
+    /// The take is synchronous and the navigation is not; folding the take
+    /// into the task would let the very snapshot replacement this navigation
+    /// causes re-trigger it and take the same key again. That type's doc
+    /// comment is the full account, and it is where the rule is tested — this
+    /// method deliberately holds none of it.
     ///
     /// Voice reaches strictly *more* days than touch, and that is intended.
     /// `OpenDayTarget` bounds against the whole unfiltered year, so a day
@@ -594,8 +659,11 @@ struct EventListView: View {
     /// also not closable — an App Intent runs out of process against the
     /// shared cache and cannot see the live filter at all.
     private func consumePendingDayLinkIfPossible() {
-        guard let dayKey = model.resolvePendingDayDeepLinkIfPossible() else { return }
-        selectDay(dayKey)
+        dayLinkNavigation = PendingDayLink.consume(
+            from: model, after: dayLinkNavigation
+        ) { dayKey in
+            await selectDay(crossingYears: dayKey)
+        }
     }
 
     /// Land a pending target if its day has mounted; give up if it never

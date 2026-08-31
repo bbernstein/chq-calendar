@@ -10,13 +10,25 @@ import Foundation
 /// out-of-bounds day, but it refuses silently — the user would watch the app
 /// open and do nothing. Both sides ask
 /// `ViewWindow.navigableBounds(year:events:starredDays: [])`, so the two
-/// agree *within a year* — but only within one: this intent resolves `year`
-/// from `IntentDataSource.defaultYear()`, while `AppModel.goToDay` bounds
-/// against `AppModel.selectedYear`. A reader parked on an archived year who
-/// asks Siri for "tomorrow" gets a dialog resolved against the current
-/// season, not the year on screen — a known gap, not a guarantee this type
-/// closes. Fixing that is a design change (year-switching) outside this
-/// intent's scope.
+/// agree *within a year*.
+///
+/// **Across years, the app follows this type rather than the other way
+/// round** (#253). This intent still resolves `year` from
+/// `IntentDataSource.defaultYear()` — it runs out of process against the
+/// shared cache and cannot see which season the app happens to be parked on,
+/// so it answers for the current one, which is also what a reader asking for
+/// "tomorrow" means. The key it emits is year-qualified (`yyyy-MM-dd`), so
+/// nothing about the reader's on-screen year has to cross the process
+/// boundary: `EventListView` consumes the link through
+/// `AppModel.goToDay(crossingYears:)`, which selects the key's own year
+/// before navigating within it. A reader parked on an archived season who
+/// asks for "tomorrow" is therefore taken to tomorrow, in the current
+/// season, matching the dialog they were just spoken.
+///
+/// This used to be documented here as a known gap left open on purpose. It
+/// is closed; if you are reading this because you are changing how the app
+/// consumes a day link, `PendingDayLink` and `AppModel.goToDay(crossingYears:)`
+/// are the two places that make the sentence above true.
 nonisolated enum OpenDayTarget: Equatable, Sendable {
     case navigate(dayKey: String)
     case refuse(dialog: String)

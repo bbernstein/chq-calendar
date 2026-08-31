@@ -1991,35 +1991,6 @@ struct AppModelTests {
 
     // MARK: - goToDay(crossingYears:)
 
-    /// Two cached seasons (2025 and 2026) plus the `[2025, 2026, 2027]`
-    /// years manifest, with `now` mid-season 2026 — so 2026 is
-    /// `isCurrentYear` and 2025 is an archived season. `start()` has already
-    /// run, so `selectedYear` is the manifest's `defaultYear` (2026) and
-    /// `years` is populated: the state a deep link actually arrives in.
-    ///
-    /// 2025 gets its own fixture rather than a second helping of
-    /// `events-sample`. `ViewWindow.navigableBounds` widens a year's bounds
-    /// to cover every event in its snapshot, so filing 2026-dated events
-    /// under 2025 would make 2026 days reachable from *within* 2025 — and
-    /// every cross-year test below would then pass without a year switch
-    /// ever happening.
-    private func makeTwoSeasonModel(defaults: UserDefaults) async throws -> AppModel {
-        let cache = MockCache()
-        cache.write(
-            "events-2025", data: fixtureData("events-2025-sparse"), etag: "e25", fetchedAt: Date())
-        cache.write(
-            "events-2026", data: fixtureData("events-sample"), etag: "e26", fetchedAt: Date())
-        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
-        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
-        let model = AppModel(
-            repository: EventRepository(api: MockAPI(), cache: cache),
-            store: UserStateStore(defaults: defaults, now: { Date() }),
-            now: { now }
-        )
-        await model.start()
-        return model
-    }
-
     /// #253: a Siri deep link names an *absolute* day, and the day it names
     /// need not belong to the season on screen. `goToDay(_:)` alone cannot
     /// reach it — 2026 sits outside 2025's `navigableBounds`, which is
@@ -2207,6 +2178,47 @@ struct AppModelTests {
         #expect(
             model.currentWindow?.startDay == "2026-07-27",
             "not 2026-06-27, which is where a clamped 2025 key would drag it")
+    }
+
+    /// Why `EventListView.selectDay(crossingYears:)` stamps its
+    /// `PendingDayScroll.Target` on the far side of the `await`, and why that
+    /// ordering is not a style choice.
+    ///
+    /// The stamp records the filter identity the navigation was made under,
+    /// and `resolvePendingScroll` drops any target whose identity no longer
+    /// matches. A cross-year jump moves **two** of the fields that identity is
+    /// built from — `year`, obviously, and `scopeResets`, because clearing the
+    /// outgoing season's scope-local date state bumps `scopeResetCount`. A
+    /// target stamped before the jump therefore reads as stale the instant it
+    /// is armed: `resolvePendingScroll` discards it, and the scroll the whole
+    /// deep link exists to perform never happens — silently, with no error and
+    /// nothing else out of place.
+    ///
+    /// `PendingDayScrollTests.yearChangeIsStale` pins the rule in the
+    /// abstract; this pins that a real `goToDay(crossingYears:)` actually
+    /// trips it, which is the part a change to either side could break.
+    @Test func aCrossYearJumpStalesATargetStampedBeforeIt() async throws {
+        let model = try await makeTwoSeasonModel(defaults: makeDefaults())
+        await model.select(year: 2025)
+        let before = PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)
+
+        #expect(await model.goToDay(crossingYears: "2026-07-27"))
+
+        let after = PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)
+        #expect(before.year != after.year)
+        #expect(
+            before.scopeResets != after.scopeResets,
+            "the outgoing season's scope-local date state is cleared on the way")
+        #expect(
+            PendingDayScroll.isStale(
+                PendingDayScroll.Target(day: "2026-07-27", key: before), currentKey: after),
+            "a target stamped before the await would be dropped, not landed")
+        #expect(
+            !PendingDayScroll.isStale(
+                PendingDayScroll.Target(day: "2026-07-27", key: after), currentKey: after),
+            "and one stamped after it survives — which is what the call site does")
     }
 
     // MARK: - Pending day deep link
