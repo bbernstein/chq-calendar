@@ -71,7 +71,7 @@ struct OffSeasonLandingView: View {
         switch model.landingState {
         case .inSeason:
             return nil
-        case .preSeason(let seasonOpening, let seasonDaysUntil):
+        case .preSeason(let seasonOpening, let seasonDaysUntil, _):
             opening = seasonOpening
             daysUntil = seasonDaysUntil
         case .postSeason(_, _, let seasonOpening, let seasonDaysUntil):

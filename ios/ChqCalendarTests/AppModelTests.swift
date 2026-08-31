@@ -862,8 +862,9 @@ struct AppModelTests {
     /// The old probe counted the `.next` window and got 0, so `determine`
     /// fell through to `.preSeason` and `OffSeasonLandingView` covered a
     /// feed that has events in it with "Almost showtime" — and, in
-    /// `.preSeason`, no buttons at all (`LandingState.archiveYear` is `nil`
-    /// there and the preview button is `.postSeason`-only). Web, asking its
+    /// `.preSeason`, no buttons at all (`LandingState.archiveYear` returned
+    /// `nil` there at the time, and the preview button is
+    /// `.postSeason`-only). Web, asking its
     /// year's whole event set, said `in-season` for the identical manifest,
     /// feed and clock. Six months of that, until 2027-06-27 finally entered
     /// the 90-day window around 2027-03-28.
