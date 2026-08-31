@@ -94,12 +94,19 @@ nonisolated enum LandingState: Equatable, Sendable {
     }
 
     /// Rules, in priority order — matching `landingState.ts`'s
-    /// `determineLandingState` exactly, rule for rule:
+    /// `determineLandingState` exactly, rule for rule. The *classification*
+    /// is what that parity claim covers: rule 2's `archiveYear` payload is
+    /// iOS-only until #186's web half lands, and web has no equivalent to
+    /// diverge from. Stated rather than assumed because this pair's recorded
+    /// failure mode (#288, six months) was precisely a parity comment nobody
+    /// re-checked.
     /// 1. `yearHasUpcomingEvents` → `.inSeason` — the year still has
     ///    something ahead, regardless of the calendar.
     /// 2. Else, if `now` is before `selectedYear`'s season start →
     ///    `.preSeason`, carrying the newest earlier year in
     ///    `availableYears` as its `archiveYear` (`nil` if there is none).
+    ///    The state matches web; the payload has no web counterpart yet
+    ///    (see above).
     /// 3. Else, if the year has no events at all → `.inSeason`. "We have no
     ///    data" is not "the season is over": a feed that failed to decode or
     ///    came back empty mid-July must reach the generic empty state, not

@@ -225,12 +225,19 @@ struct LandingStateTests {
     /// Nothing earlier in the manifest — the very first published season,
     /// pre-season. `nil` hides the button rather than offering a year with
     /// no feed behind it.
+    ///
+    /// Asserts the whole case, not `state.archiveYear`: the projection is
+    /// `nil` for `.inSeason` too, so a projection-only assertion here would
+    /// stay green if rule 2 stopped firing altogether and this fixture fell
+    /// through to `.inSeason`. The `nil` that matters is a `nil` on a
+    /// `.preSeason`.
     @Test func preSeasonCarriesNoArchiveYearWhenTheManifestHasNothingEarlier() throws {
         let now = try #require(ChqTime.parse("2026-05-01 00:00:00"))
+        let opening = try #require(ChqTime.parse("2026-06-27 12:00:00"))
         let state = LandingState.determine(
             now: now, selectedYear: 2026, availableYears: [2026, 2027],
             yearHasUpcomingEvents: false, yearHasEvents: false)
-        #expect(state.archiveYear == nil)
+        #expect(state == .preSeason(opening: opening, daysUntil: 57, archiveYear: nil))
     }
 
     /// The reason this is manifest-derived rather than `selectedYear - 1`.
@@ -248,7 +255,10 @@ struct LandingStateTests {
 
     /// `availableYears` arrives from the years manifest and is not promised
     /// to be sorted, so the rule must be a `max`, not "the element before
-    /// `selectedYear`".
+    /// `selectedYear`". The fixture is deliberately out of order: a
+    /// positional rule reads 2024 here (the element preceding 2027) while
+    /// returning the correct 2026 on every sorted fixture in this file, so
+    /// this is the only test that can tell the two rules apart.
     @Test func preSeasonTakesTheMaximumEarlierYearRegardlessOfManifestOrder() throws {
         let now = try #require(ChqTime.parse("2027-06-20 00:00:00"))
         let state = LandingState.determine(

@@ -898,7 +898,8 @@ struct AppModelTests {
         #expect(model.landingState == .inSeason)
 
         // And the screen that produces has a way forward, which `.preSeason`
-        // did not: `.inSeason` with an empty window sends `EventListView` to
+        // did not at the time (it does now — #186 gave it an archive-year
+        // button): `.inSeason` with an empty window sends `EventListView` to
         // `noMatchesView`, whose "Show All Events" button is `clearAll()`,
         // and that reaches all five announced days. (Whether "No matching
         // events" is the right *wording* for a season 265 days out is #285's
