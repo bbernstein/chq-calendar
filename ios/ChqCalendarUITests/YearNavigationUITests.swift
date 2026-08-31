@@ -36,10 +36,29 @@ final class YearNavigationUITests: XCTestCase {
     /// (its rule 3 needs `now` past the season start, which this clock is
     /// not); and 2027-03-15 is before `SeasonCalendar.seasonStart(year: 2027)`
     /// — 2027-06-26 noon — so rule 2 fires. Every one of those four is
-    /// load-bearing, and the countdown assertion below is what pins the state
-    /// to `.preSeason` rather than to "some off-season screen": the
-    /// "Almost showtime" title and the June 26 opening line are `.preSeason`
-    /// text and no other state's.
+    /// load-bearing.
+    ///
+    /// **What actually discriminates `.preSeason` from the other off-season
+    /// state is the title, and only the title.** `OffSeasonLandingView.title`
+    /// is `"See you next season"` when `landingState.isPostSeason` and
+    /// `"Almost showtime"` otherwise, and `EventListView.content` builds this
+    /// view only when `landingState != .inSeason` — so the string asserted
+    /// first below is reachable from `.preSeason` and nothing else. Injection
+    /// 6 of the task-5 report is the evidence: serving 2027 a 404 instead of
+    /// an empty payload reds precisely that assertion.
+    ///
+    /// The countdown line asserted after it does **not** discriminate, and an
+    /// earlier version of this comment wrongly said it did.
+    /// `OffSeasonLandingView.countdown` derives the year on that line from
+    /// the `opening` Date it is handed, and `.postSeason` for 2026 carries
+    /// `opening = SeasonCalendar.seasonStart(2027)` — so
+    /// `testARailTapFromThePostSeasonLandingLandsOnThatDay`'s own launch
+    /// renders the byte-identical string — and asserts it, deliberately, so
+    /// that this paragraph is enforced by the suite rather than merely
+    /// described in it. It is asserted here because a
+    /// countdown card that is missing, or naming some third season, would
+    /// mean the state carries an `opening` this test has not understood; it
+    /// is not what tells `.preSeason` from `.postSeason`.
     ///
     /// The offered year is `LandingState.archiveYear`, computed in
     /// `determine` as the newest manifest year below `selectedYear` — 2026,
@@ -55,7 +74,9 @@ final class YearNavigationUITests: XCTestCase {
                 + "events payload (a 404 leaves snapshot nil and reports .inSeason instead)")
         XCTAssertTrue(
             app.staticTexts["The 2027 season begins June 26"].exists,
-            "The countdown names a different season than the one pinned — this is not .preSeason for 2027")
+            "The countdown card is missing, or names a season neither state should be counting "
+                + "down to. Note this string is shared with .postSeason for 2026 and does not by "
+                + "itself prove which state this is — the title above is what does that")
 
         // The rail is a `safeAreaInset` on `body`, so it is drawn over the
         // landing too. 2027 has no events, so its chips are plain views
@@ -176,6 +197,14 @@ final class YearNavigationUITests: XCTestCase {
     /// `.postSeason(_, nil, nil, nil)`, so the "Preview the _ season" button
     /// and the countdown card had never rendered in a UI test either.
     ///
+    /// **That button is asserted to exist and never tapped**, so
+    /// `AppModel.previewNextSeason()` still has no end-to-end coverage — the
+    /// button rendering and the button working are different claims and this
+    /// test only makes the first. Tapping it would land on 2027, whose feed
+    /// is empty by construction, so the observable would be an empty screen:
+    /// covering `previewNextSeason` properly needs a fourth season with a
+    /// sparse feed, which is a fixture change with its own blast radius.
+    ///
     /// The tap target is the season's opening day, which sits at the rail's
     /// leading edge with nothing selected to scroll it away — so this needs
     /// none of `DayRailUITests`' reveal-by-swiping. `isHittable` is asserted
@@ -190,6 +219,19 @@ final class YearNavigationUITests: XCTestCase {
         XCTAssertTrue(
             app.buttons["Preview the 2027 season"].exists,
             "The post-season landing offers no next season — the manifest's later year did not reach it")
+
+        // Asserted here to hold a claim made in
+        // `testThePreSeasonLandingBrowsesTheArchivedSeasonItNames`'s doc: this
+        // countdown line is **shared** with `.preSeason` for 2027, because
+        // `OffSeasonLandingView.countdown` reads the year off whichever
+        // `opening` Date the state carries and `.postSeason` for 2026 carries
+        // `seasonStart(2027)`. If that ever stops being true, the sibling's
+        // reasoning about what does and does not discriminate the two states
+        // needs rewriting — and this is what fails to say so.
+        XCTAssertTrue(
+            app.staticTexts["The 2027 season begins June 26"].exists,
+            "The post-season countdown no longer renders the same line .preSeason for 2027 does "
+                + "— see testThePreSeasonLandingBrowsesTheArchivedSeasonItNames' doc comment")
 
         let rail = app.scrollViews["day-rail"]
         XCTAssertTrue(

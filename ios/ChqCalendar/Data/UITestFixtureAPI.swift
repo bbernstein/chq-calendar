@@ -190,6 +190,15 @@ nonisolated struct UITestFixtureAPI: CalendarAPIClient {
         _ resource: RemoteResource, ifNoneMatch: String?, timeout: TimeInterval?
     ) async throws -> FetchResult {
         switch resource {
+        // The events ETag is per-year rather than the bare `"fixture"` it
+        // was while only one year existed. Nothing reads it today — this
+        // client answers every request with a `.success` and never a `304`,
+        // so `ifNoneMatch` is ignored — but a single shared validator across
+        // three years is the kind of thing that is correct only by accident:
+        // it would be wrong the moment this fixture grew a `.notModified`
+        // path, and the failure would look like one season serving another's
+        // events. The years manifest keeps the bare `"fixture"` because there
+        // is exactly one of it.
         case .events(let year) where UITestFixture.manifestYears.contains(year):
             return .success(data: UITestFixture.eventsJSON(for: year), etag: "fixture-\(year)")
         case .years:
