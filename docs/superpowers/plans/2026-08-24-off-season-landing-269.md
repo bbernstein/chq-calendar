@@ -546,6 +546,18 @@ describe('OffSeasonLanding', () => {
 });
 ```
 
+> **Superseded 2026-08-31 by #186.** The `pre-season` case above ("names the
+> pre-season case and offers no buttons", and its comment "there is no
+> year-aware 'browse a past season' action … Mirrors
+> `LandingState.archiveYear === nil` for `.preSeason` on iOS") is no longer
+> what the shipped test asserts. `archiveYear` is now manifest-derived for
+> `pre-season` too on both platforms, so the pre-season landing renders the
+> "Browse the {N} season" button and `onBrowseArchiveSeason` takes the year
+> it is labelled with. The block is left as written — it is the record of
+> what this plan executed — but read
+> `frontend/src/components/layout/__tests__/OffSeasonLanding.test.tsx` for
+> the current assertions.
+
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run src/components/layout/__tests__/OffSeasonLanding.test.tsx`
