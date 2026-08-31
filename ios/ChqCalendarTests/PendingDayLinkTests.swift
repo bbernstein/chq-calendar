@@ -19,6 +19,7 @@ struct PendingDayLinkTests {
     @MainActor
     final class NavigationLog {
         private(set) var entries: [String] = []
+        var armedKey: PendingDayScroll.Key?
 
         func record(_ entry: String) { entries.append(entry) }
     }
@@ -59,12 +60,22 @@ struct PendingDayLinkTests {
     /// re-entrant call has to find nothing pending, and it only does because
     /// the take already happened synchronously.
     ///
-    /// Folding the take into the task is a one-line simplification that leaves
-    /// every other test green and every behaviour in the view unchanged, while
-    /// opening a window in which `pendingDeepLink` is still set and each of the
-    /// three triggers can take the same key again. This assertion is what fails
-    /// instead — deliberately stated as "the model no longer holds the link",
-    /// the exact property the window's existence contradicts.
+    /// Folding the take into the task is a one-line simplification that opens a
+    /// window in which `pendingDeepLink` is still set and each of the three
+    /// triggers can take the same key again.
+    ///
+    /// **What that would actually cost today is less than it sounds, and this
+    /// test is shaped around saying so honestly.** The chaining in `consume`
+    /// serializes those extra takes, so the second finds the key already gone
+    /// and the reader is not navigated twice —
+    /// `theKeyIsConsumedOnceAcrossAYearSwitch` stays green under the edit. The
+    /// take-once ordering is the *first of two independent defences*, not the
+    /// only one. It is worth guarding regardless, and worth guarding
+    /// **directly**: this asserts "the model no longer holds the link once
+    /// `consume` returns", the property the window's existence contradicts,
+    /// rather than a downstream double-navigation that only the chaining
+    /// currently prevents. So if the chaining is ever removed, this rule does
+    /// not quietly become unguarded along with it.
     @Test func theKeyIsTakenBeforeTheTaskIsQueued() async throws {
         let model = try makeModelWithASnapshot()
         model.pendingDeepLink = .day(key: "2026-08-06")
@@ -152,6 +163,62 @@ struct PendingDayLinkTests {
             "the later link is honoured, and honoured last — never woven through the first")
     }
 
+    // MARK: - the arm runs after the switch, or not at all
+
+    /// The other half of the race, and the half `consume` cannot see: the
+    /// scroll target must be stamped from the state the year switch *left*,
+    /// not the state it started from.
+    ///
+    /// `EventListView.armScroll` builds a `PendingDayScroll.Key` out of
+    /// `selectedYear`, `filter` and `scopeResetCount`, and
+    /// `resolvePendingScroll` throws away any target whose key no longer
+    /// matches. A cross-year jump moves two of those three. So arming before
+    /// the await produces a target that is stale on arrival — discarded, with
+    /// no error and nothing else out of place, leaving a reader who was told
+    /// "Opening tomorrow." exactly where they were.
+    ///
+    /// The assertion is the one that would catch that: the key `arm` sees is
+    /// the key the model ends on. Hoisting `arm(dayKey)` above the
+    /// `guard await` in `navigate` — the whole reason that function exists
+    /// rather than three lines in the view — reds it.
+    @Test func theTargetIsArmedOnlyAfterTheYearSwitchHasLanded() async throws {
+        let model = try await makeTwoSeasonModel(defaults: makeDefaults())
+        await model.select(year: 2025)
+        let log = NavigationLog()
+
+        await PendingDayLink.navigate(to: "2026-07-27", in: model) { day in
+            log.record(day)
+            log.armedKey = PendingDayScroll.key(
+                for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)
+        }
+
+        let settled = PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)
+        let armed = try #require(log.armedKey, "the jump was accepted, so it must have armed")
+        #expect(log.entries == ["2026-07-27"])
+        #expect(armed.year == 2026, "stamped from the season arrived in, not the one left")
+        #expect(
+            !PendingDayScroll.isStale(
+                PendingDayScroll.Target(day: "2026-07-27", key: armed), currentKey: settled),
+            "a target armed here must survive to be landed, not be discarded on arrival")
+    }
+
+    /// A refused jump arms nothing. `AppModel.goToDay`'s contract is that a
+    /// caller "can decide not to queue a scroll for a day that will never
+    /// arrive", and this is the deep-link path deciding exactly that — an
+    /// armed target for an unreachable day would sit waiting and hijack a
+    /// later commit.
+    @Test func aRefusedJumpArmsNothing() async throws {
+        let model = try await makeTwoSeasonModel(defaults: makeDefaults())
+        #expect(!model.years.contains(2024))
+        let log = NavigationLog()
+
+        await PendingDayLink.navigate(to: "2024-07-01", in: model) { log.record($0) }
+
+        #expect(log.entries.isEmpty)
+        #expect(model.selectedYear == 2026, "and an unpublished season is not selected")
+    }
+
     // MARK: - across a real year switch
 
     /// The brief's own test: the key is consumed exactly once across a year
@@ -162,6 +229,15 @@ struct PendingDayLinkTests {
     /// the navigation has begun (`selectedYear` has moved, so `select(year:)`
     /// is under way) and before it has finished. It must take nothing and
     /// navigate nothing; the reader must end up on 2026-07-27 in 2026, once.
+    ///
+    /// **Disclosure: this stays green if the take is folded into `consume`'s
+    /// task.** `consume`'s chaining serializes the re-entrant take behind the
+    /// first one, which has by then already emptied `pendingDeepLink`. What
+    /// this pins is the outcome — consumed once across a real year switch —
+    /// and it does fail if `AppModel`'s take-once is removed (the log then
+    /// reads `["2026-07-27", "2026-07-27"]`). The *ordering* is pinned by
+    /// `theKeyIsTakenBeforeTheTaskIsQueued`, which is the only test the
+    /// folding edit reds. Do not read this test's name as covering it.
     @Test func theKeyIsConsumedOnceAcrossAYearSwitch() async throws {
         let model = try await makeTwoSeasonModel(defaults: makeDefaults())
         await model.select(year: 2025)

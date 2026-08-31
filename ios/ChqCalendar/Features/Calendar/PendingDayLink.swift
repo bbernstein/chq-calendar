@@ -3,14 +3,15 @@ import Foundation
 /// Consumes a pending `chqcal://day/<key>` deep link for `EventListView`, in
 /// the one order that is safe once navigating a day can cross a season.
 ///
-/// Pulled out of `EventListView.consumePendingDayLinkIfPossible` for the same
-/// reason as `DayRailAutoExpand` and `WeekBands.navigationTarget`: the rule is
-/// what can be wrong. This rule is worse than those two, because it is an
-/// *ordering* rather than a value — invisible in the finished code, breakable
-/// by an edit that reads as a tidy-up, and silent when broken. Here it has a
-/// name, a reason, and `PendingDayLinkTests` to go red on that edit.
+/// Pulled out of `EventListView` for the same reason as `DayRailAutoExpand`
+/// and `WeekBands.navigationTarget`: the rule is what can be wrong, and the
+/// view stays the thin wrapper that performs the side effects. These rules are
+/// worse than either of those two, because they are *orderings* rather than
+/// values — invisible in the finished code, breakable by edits that read as
+/// tidy-ups, and silent when broken. Here they have names, reasons, and
+/// `PendingDayLinkTests` to go red on those edits.
 ///
-/// **The take is synchronous, before the `Task` exists.**
+/// **1. The take is synchronous, before the `Task` exists** (`consume`).
 /// `AppModel.resolvePendingDayDeepLinkIfPossible()` is a take-once: it nils
 /// `pendingDeepLink` as it hands the key back. Navigation became `async` when
 /// it started routing through `AppModel.goToDay(crossingYears:)` (#253), which
@@ -23,29 +24,42 @@ import Foundation
 ///
 /// Folding the take into the `Task` — the obvious simplification, one line
 /// shorter — opens a window between "a trigger asked" and "the key was taken"
-/// in which `pendingDeepLink` is still set. Every trigger that fires inside
-/// that window (there are three, and two of them can fire in the same commit)
-/// takes the same key again, and the reader is navigated once per trigger.
-/// Nothing in `EventListView` would fail; the take-once in `AppModel` still
-/// holds, it just stops being reached in time. `theKeyIsTakenBeforeTheTaskIsQueued`
-/// is the test that fails instead.
+/// in which `pendingDeepLink` is still set, and every trigger that fires
+/// inside it (there are three, and two of them can fire in the same commit)
+/// takes the same key again.
 ///
-/// **One navigation at a time, by chaining rather than dropping.** Two links
-/// can be genuinely distinct — "Hey Siri, show me tomorrow", then a second
-/// day named before the first has finished switching years. The synchronous
-/// take does not help there: both keys are real, both were asked for. Running
-/// them concurrently is the bug, because `EventListView.selectDay` reads
-/// `model.selectedYear`/`model.filter` *after* its own await to stamp
-/// `PendingDayScroll.Target` — two interleaved navigations stamp each other's
+/// Be exact about what that costs *today*, because the honest answer is less
+/// than it sounds: rule 2 below would serialize those extra takes, and the
+/// second one would find the key already gone — so the reader would not
+/// actually be navigated twice. This ordering is the **first of two
+/// independent defences**, not the only one. It is guarded anyway, and guarded
+/// *directly*: `theKeyIsTakenBeforeTheTaskIsQueued` asserts that
+/// `pendingDeepLink` is nil by the time `consume` returns, rather than
+/// asserting a downstream double-navigation that only the chaining currently
+/// prevents. That is deliberate — it means removing the chaining later cannot
+/// silently leave this rule unguarded. Nothing else fails if this ordering
+/// goes: no behaviour in `EventListView` changes, and `AppModel`'s take-once
+/// still holds, it just stops being reached in time.
+///
+/// **2. One navigation at a time, by chaining rather than dropping**
+/// (`consume`'s `after:`). Two links can be genuinely distinct — "Hey Siri,
+/// show me tomorrow", then a second day named before the first has finished
+/// switching years. The synchronous take does not help there: both keys are
+/// real, both were asked for. Running them concurrently is the bug, because
+/// rule 3 stamps `PendingDayScroll.Target` from model state read *after* its
+/// own await — two interleaved navigations read each other's half-applied
 /// state and arm a target that is stale the moment it exists.
 ///
-/// So the new work waits on the old (`after:`) instead of running beside it,
-/// and both links are honoured in the order they were asked for, the later one
-/// winning the screen because it lands last. The rejected alternatives:
-/// dropping the second link loses a key the take has already consumed and
-/// cannot put back; cancelling the first does nothing, because
-/// `AppModel.select(year:)` has no cancellation checks and would run to
-/// completion anyway.
+/// So the new work waits on the old instead of running beside it, and both
+/// links are honoured in the order they were asked for, the later one winning
+/// the screen because it lands last. The rejected alternatives: dropping the
+/// second link loses a key the take has already consumed and cannot put back;
+/// cancelling the first does nothing, because `AppModel.select(year:)` has no
+/// cancellation checks and would run to completion anyway.
+///
+/// **3. The scroll is armed only after the year switch has landed**
+/// (`navigate`). See that function's own doc — it is the half of the race that
+/// `consume` cannot see.
 @MainActor
 enum PendingDayLink {
     /// Takes any pending day link and queues `navigate` for it behind
@@ -53,11 +67,15 @@ enum PendingDayLink {
     ///
     /// - Parameters:
     ///   - model: the model holding `pendingDeepLink`. Taken from *here*,
-    ///     synchronously, before this function returns — see the type doc.
+    ///     synchronously, before this function returns — see rule 1 in the
+    ///     type doc.
     ///   - previous: the navigation already in flight (`nil` if none). The
     ///     returned task does not begin until it has finished.
     ///   - navigate: what to do with the key. `async` because a day in
-    ///     another season has to be fetched before it can be scrolled to.
+    ///     another season has to be fetched before it can be scrolled to. In
+    ///     production this is always `navigate(to:in:arm:)` below, one layer
+    ///     out, so that this function's two rules can be tested against a spy
+    ///     rather than against a real season change.
     /// - Returns: the task to hold as the new `previous` — `previous` itself
     ///   when there was nothing pending, so a caller that assigns the result
     ///   unconditionally never drops a navigation still in flight. Not
@@ -74,5 +92,40 @@ enum PendingDayLink {
             await previous?.value
             await navigate(dayKey)
         }
+    }
+
+    /// Moves the app to `dayKey` — switching season if the key names another
+    /// one — and only then calls `arm`.
+    ///
+    /// **`arm` must stay on the far side of the `await`, and that is the whole
+    /// reason this function exists rather than three lines in the view.**
+    /// `EventListView.armScroll` stamps a `PendingDayScroll.Target` with the
+    /// filter identity the navigation was made under, and
+    /// `EventListView.resolvePendingScroll` drops any target whose identity no
+    /// longer matches. A cross-year jump moves two of the fields that identity
+    /// is built from: `selectedYear`, and `scopeResetCount` — because
+    /// `goToDay(crossingYears:)` clears the outgoing season's scope-local date
+    /// state on the way through, which bumps it.
+    ///
+    /// So a target armed *before* the await carries the old season's key and
+    /// reads as stale the instant it exists. `resolvePendingScroll` discards
+    /// it, and the scroll the whole deep link exists to perform never happens
+    /// — no error, no crash, nothing else out of place, just a Siri "Opening
+    /// tomorrow." that leaves the reader where they were.
+    /// `theTargetIsArmedOnlyAfterTheYearSwitchHasLanded` performs exactly that
+    /// hoist and goes red; `AppModelTests.aCrossYearJumpStalesATargetStampedBeforeIt`
+    /// pins the premise underneath it, that the key really does move.
+    ///
+    /// A refused jump arms nothing, on `goToDay`'s existing contract: there is
+    /// no point queueing a scroll to a day that will never arrive.
+    ///
+    /// - Parameter arm: run with `dayKey` once the model has accepted it, and
+    ///   never otherwise. Non-escaping, so it can write the view's `@State`
+    ///   directly.
+    static func navigate(
+        to dayKey: String, in model: AppModel, arm: (String) -> Void
+    ) async {
+        guard await model.goToDay(crossingYears: dayKey) else { return }
+        arm(dayKey)
     }
 }

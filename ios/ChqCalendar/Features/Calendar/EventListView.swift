@@ -139,6 +139,15 @@ struct EventListView: View {
     /// would interleave their year switches and stamp each other's
     /// `PendingDayScroll.Target`; `PendingDayLink.consume(from:after:navigate:)`
     /// owns that rule and this is the handle it needs.
+    ///
+    /// Deliberately never reset to `nil`: the last completed task stays
+    /// retained for the view's lifetime, which costs one finished `Task` and
+    /// buys a rule with no ordering hazard in it. Clearing it on completion
+    /// would mean a task nilling the very handle it is stored in, which then
+    /// has to be guarded against clobbering a *newer* handle armed while it
+    /// finished — a second race, added to save nothing. Awaiting an
+    /// already-finished task returns immediately, so an idle chain costs
+    /// nothing either.
     @State private var dayLinkNavigation: Task<Void, Never>?
 
     #if DEBUG
@@ -545,19 +554,14 @@ struct EventListView: View {
     /// is structurally incapable of doing (their day keys all come from the
     /// current year's `navigableBounds`).
     ///
-    /// **`armScroll` must stay on the far side of the `await`.** The year
-    /// switch changes `model.selectedYear`, and clearing the outgoing
-    /// season's scope-local date state bumps `model.scopeResetCount` — both
-    /// of which `PendingDayScroll.key` reads. A target stamped before the
-    /// await would therefore carry the *old* season's key and read as stale
-    /// the instant it was armed, so `resolvePendingScroll` would drop it and
-    /// the scroll the whole deep link exists to perform would silently never
-    /// land. The `guard await … else { return }` shape is what keeps that
-    /// impossible to get wrong here; `aCrossYearJumpStalesATargetStampedBeforeIt`
-    /// pins the underlying fact that the key really does move.
+    /// **The ordering — arm only after the year switch has landed — lives in
+    /// `PendingDayLink.navigate(to:in:arm:)`, not here.** It was three lines
+    /// in this method, and putting them in the wrong order made no test fail;
+    /// there it has a reason written down and a test that performs the wrong
+    /// order and goes red. This method is the wiring and `armScroll` is the
+    /// side effect — the same split `DayRailAutoExpand` uses.
     private func selectDay(crossingYears dayKey: String) async {
-        guard await model.goToDay(crossingYears: dayKey) else { return }
-        armScroll(to: dayKey)
+        await PendingDayLink.navigate(to: dayKey, in: model) { armScroll(to: $0) }
     }
 
     /// The half of `selectDay` that runs once the model has accepted the
