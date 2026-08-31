@@ -76,6 +76,15 @@ struct PendingDayLinkTests {
     /// rather than a downstream double-navigation that only the chaining
     /// currently prevents. So if the chaining is ever removed, this rule does
     /// not quietly become unguarded along with it.
+    ///
+    /// The edit reds two further tests —
+    /// `nothingPendingHandsBackTheNavigationAlreadyInFlight` (the return
+    /// contract: with the take inside the task, `consume` cannot know whether
+    /// anything was pending and so can never hand `previous` back) and
+    /// `aSecondLinkWaitsForTheFirstRatherThanRunningBesideIt` (that test's own
+    /// arrangement: its second key overwrites the first, still un-taken, one).
+    /// Neither is reacting to the ordering; see rule 1 in `PendingDayLink`'s
+    /// type doc. Three reds, one ordering guard.
     @Test func theKeyIsTakenBeforeTheTaskIsQueued() async throws {
         let model = try makeModelWithASnapshot()
         model.pendingDeepLink = .day(key: "2026-08-06")
@@ -181,10 +190,18 @@ struct PendingDayLinkTests {
     /// the key the model ends on. Hoisting `arm(dayKey)` above the
     /// `guard await` in `navigate` — the whole reason that function exists
     /// rather than three lines in the view — reds it.
+    ///
+    /// Both moving fields are asserted against a key sampled *before* the
+    /// jump, so this does not lean on
+    /// `AppModelTests.aCrossYearJumpStalesATargetStampedBeforeIt` for its own
+    /// premise. That test states the same fact for its own reasons; if it were
+    /// deleted tomorrow this one would still fail on a hoist.
     @Test func theTargetIsArmedOnlyAfterTheYearSwitchHasLanded() async throws {
         let model = try await makeTwoSeasonModel(defaults: makeDefaults())
         await model.select(year: 2025)
         let log = NavigationLog()
+        let before = PendingDayScroll.key(
+            for: model.filter, year: model.selectedYear, scopeResets: model.scopeResetCount)
 
         await PendingDayLink.navigate(to: "2026-07-27", in: model) { day in
             log.record(day)
@@ -197,6 +214,10 @@ struct PendingDayLinkTests {
         let armed = try #require(log.armedKey, "the jump was accepted, so it must have armed")
         #expect(log.entries == ["2026-07-27"])
         #expect(armed.year == 2026, "stamped from the season arrived in, not the one left")
+        #expect(before.year == 2025, "and the season left really was a different one")
+        #expect(
+            armed.scopeResets != before.scopeResets,
+            "the other moving field: the jump cleared the outgoing season's date state")
         #expect(
             !PendingDayScroll.isStale(
                 PendingDayScroll.Target(day: "2026-07-27", key: armed), currentKey: settled),

@@ -37,9 +37,27 @@ import Foundation
 /// `pendingDeepLink` is nil by the time `consume` returns, rather than
 /// asserting a downstream double-navigation that only the chaining currently
 /// prevents. That is deliberate — it means removing the chaining later cannot
-/// silently leave this rule unguarded. Nothing else fails if this ordering
-/// goes: no behaviour in `EventListView` changes, and `AppModel`'s take-once
-/// still holds, it just stops being reached in time.
+/// silently leave this rule unguarded.
+///
+/// What performing that edit actually does, as observed rather than as
+/// concluded — the conclusion is what keeps drifting here. It reds **three**
+/// tests, and only one of them is reacting to the ordering:
+///
+/// - `theKeyIsTakenBeforeTheTaskIsQueued` — the ordering itself. The only one
+///   that reports it.
+/// - `nothingPendingHandsBackTheNavigationAlreadyInFlight` — the **return
+///   contract**, not the ordering. With the take inside the task, `consume`
+///   cannot know at call time whether anything was pending, so it can never
+///   hand `previous` back and always returns a new task.
+/// - `aSecondLinkWaitsForTheFirstRatherThanRunningBesideIt` — that test's own
+///   arrangement, not the ordering either. It writes a second key while the
+///   first one, still un-taken, is sitting in `pendingDeepLink`; the second
+///   assignment overwrites the first, and the log records the wrong key rather
+///   than an interleave.
+///
+/// None of the three shows a reader navigated twice, which is the whole point.
+/// Read three reds as one ordering guard plus two side effects — not as
+/// evidence that the ordering is redundantly covered and this rule can go.
 ///
 /// **2. One navigation at a time, by chaining rather than dropping**
 /// (`consume`'s `after:`). Two links can be genuinely distinct — "Hey Siri,
