@@ -1248,6 +1248,13 @@ final class AppModel {
     /// the key could see (#254 scope addition). Window *growth*
     /// (`goToDay`/`expandWindowEnd`) never bumps it: a pending deep-link
     /// scroll is literally waiting for that growth, so it must never stale.
+    ///
+    /// `goToDay(crossingYears:)` is not an exception to that, despite the
+    /// name and despite bumping: what bumps is the *reset* it performs on
+    /// the season it is leaving, which lands before any growth and before
+    /// its caller arms a scroll. Nothing that could still be waiting is
+    /// staled by it that the year change had not staled already —
+    /// `PendingDayScroll.Key` carries `year`.
     private(set) var scopeResetCount = 0
 
     /// Replaces the week selection wholesale — the strip owns tap/drag
@@ -1517,6 +1524,86 @@ final class AppModel {
         if let end = plan.expandEnd { next.windowEndDayKey = end }
         filter = next
         return true
+    }
+
+    /// *Take me to that day, in whatever season it belongs to* — `goToDay`'s
+    /// cross-year sibling. Moves `selectedYear` first when `dayKey` names
+    /// another year, then hands off to `goToDay(_:)` unchanged.
+    ///
+    /// Returns whether the target was accepted, on the same contract as
+    /// `goToDay(_:)`, so an existing `guard model.goToDay(key) else { return }`
+    /// call site carries over with nothing added but the `await`. It refuses,
+    /// without moving anything the user can see, when:
+    ///
+    /// - `dayKey` carries no leading `yyyy` we can read. `ChqTime`'s
+    ///   `isCanonicalDayKey` guarantees the shape upstream, but this is a
+    ///   deep-link path and the argument is a plain `String` — the year is
+    ///   parsed, never force-unwrapped.
+    /// - the year is not in the `years` manifest. There is no feed to fetch
+    ///   for a season the server does not publish, so switching to it would
+    ///   only strand the reader on an empty screen in a year they cannot
+    ///   navigate out of by any control.
+    /// - the fetch for that year failed. `select(year:)` never throws — a
+    ///   network failure just leaves `snapshot == nil` / `phase == .offline`
+    ///   (see its doc comment) — so a failed cross-year jump is only visible
+    ///   as a missing snapshot, and that is what is checked. Unlike
+    ///   `browsePastSeason(year:)`/`previewNextSeason()`, which set a filter
+    ///   unconditionally because the user's *intent* to view that season
+    ///   survives a failed fetch, this returns `false`: its caller's next
+    ///   move is to queue a scroll to a specific day, and there is no day to
+    ///   scroll to.
+    ///
+    /// A jump that does cross a year also clears the outgoing season's
+    /// scope-local date state — the window expansion and any browsed day.
+    /// Those describe navigation inside one season and are actively harmful
+    /// in another; see the comment at that line.
+    ///
+    /// The year switch leaves `selectedYear` moved even on the two later
+    /// refusals — `select(year:)` is what fetches, so it has to run before we
+    /// can know the fetch failed. That is the same end state as any other
+    /// failed year switch (`previewNextSeason` reaches it too) and the
+    /// offline phase explains it on screen.
+    ///
+    /// **Deliberately not folded into `goToDay(_:)` itself.** The rail's day
+    /// keys all come from the current year's `navigableBounds`, so only a
+    /// deep link can produce a cross-year key at all. Confining the year
+    /// switch here keeps `goToDay(_:)` synchronous and leaves the rail's hot
+    /// path — every chip tap — free of an `await` it can never need. A later
+    /// reader will want to simplify this inward; that is what it would cost.
+    @discardableResult
+    func goToDay(crossingYears dayKey: String) async -> Bool {
+        guard let year = Int(dayKey.prefix(4)) else { return false }
+        guard year != selectedYear else { return goToDay(dayKey) }
+        guard years.contains(year) else { return false }
+
+        await select(year: year)
+        guard snapshot != nil else { return false }
+
+        // Drop the outgoing season's scope-local date state before planning
+        // in the new one (#234/#156). It is not inert there: `ViewWindow.make`
+        // *clamps* an out-of-range expansion input to the new year's bounds
+        // rather than dropping it, so a 2025 `windowStartDayKey` arrives as
+        // 2026's `bounds.lowerBound` and drags the `.next` window back to the
+        // season opening — #156's "silently re-widened window" with the scope
+        // change swapped for a year change. `selectedDayKey` is the same
+        // problem one layer earlier: a `.day` base window pinned to a day in
+        // the old season, then expanded to reach this target, spans both.
+        //
+        // Two `filter` assignments, so two `didSet` rebuilds — `goToDay` below
+        // has to plan against the cleared window, so they cannot be batched.
+        // This path already awaited a year switch and possibly a network
+        // fetch; one extra derived-counts pass is not what costs it anything.
+        //
+        // The `scopeResetCount` bump `clearScopeLocalDateState` carries is
+        // safe here even though window *growth* must never stale a pending
+        // scroll: it lands before the growth and before the caller arms its
+        // scroll, and the year change alone has already staled every target
+        // armed earlier (`PendingDayScroll.Key` carries `year`).
+        var cleared = filter
+        clearScopeLocalDateState(in: &cleared)
+        filter = cleared
+
+        return goToDay(dayKey)
     }
 
     private func persistFilter() {

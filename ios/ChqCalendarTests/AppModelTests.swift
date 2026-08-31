@@ -1989,6 +1989,226 @@ struct AppModelTests {
         #expect(model.filter.windowStartDayKey == nil)
     }
 
+    // MARK: - goToDay(crossingYears:)
+
+    /// Two cached seasons (2025 and 2026) plus the `[2025, 2026, 2027]`
+    /// years manifest, with `now` mid-season 2026 — so 2026 is
+    /// `isCurrentYear` and 2025 is an archived season. `start()` has already
+    /// run, so `selectedYear` is the manifest's `defaultYear` (2026) and
+    /// `years` is populated: the state a deep link actually arrives in.
+    ///
+    /// 2025 gets its own fixture rather than a second helping of
+    /// `events-sample`. `ViewWindow.navigableBounds` widens a year's bounds
+    /// to cover every event in its snapshot, so filing 2026-dated events
+    /// under 2025 would make 2026 days reachable from *within* 2025 — and
+    /// every cross-year test below would then pass without a year switch
+    /// ever happening.
+    private func makeTwoSeasonModel(defaults: UserDefaults) async throws -> AppModel {
+        let cache = MockCache()
+        cache.write(
+            "events-2025", data: fixtureData("events-2025-sparse"), etag: "e25", fetchedAt: Date())
+        cache.write(
+            "events-2026", data: fixtureData("events-sample"), etag: "e26", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let model = AppModel(
+            repository: EventRepository(api: MockAPI(), cache: cache),
+            store: UserStateStore(defaults: defaults, now: { Date() }),
+            now: { now }
+        )
+        await model.start()
+        return model
+    }
+
+    /// #253: a Siri deep link names an *absolute* day, and the day it names
+    /// need not belong to the season on screen. `goToDay(_:)` alone cannot
+    /// reach it — 2026 sits outside 2025's `navigableBounds`, which is
+    /// exactly what `goToDayOutsideTheNavigableBoundsIsRefused` pins — so
+    /// the year has to move first.
+    ///
+    /// 2026-07-27 is before the `.next` window's start (`now` is 2026-08-03),
+    /// so landing on it is a real expansion of the start edge rather than a
+    /// day that happened to already be on screen.
+    @Test func goToDayCrossingYearsSelectsThatYearAndLandsTheWindowOnTheDay() async throws {
+        let model = try await makeTwoSeasonModel(defaults: makeDefaults())
+        await model.select(year: 2025)
+        #expect(model.selectedYear == 2025)
+        #expect(model.years.contains(2026))
+        #expect(!model.navigableBounds.contains("2026-07-27"), "unreachable from 2025")
+
+        let moved = await model.goToDay(crossingYears: "2026-07-27")
+
+        #expect(moved)
+        #expect(model.selectedYear == 2026)
+        #expect(model.snapshot?.year == 2026)
+        #expect(model.filter.windowStartDayKey == "2026-07-27")
+        #expect(model.currentWindow?.startDay == "2026-07-27")
+    }
+
+    /// A year the years manifest does not list has no feed to fetch, so
+    /// switching to it would strand the reader on an empty season that no
+    /// control — not even the year picker, which renders `years` — can get
+    /// them back out of.
+    ///
+    /// The refusal has to be asserted as *nothing moved*, not just as a
+    /// `false` return: without the `years.contains` guard the switch still
+    /// ends in `false`, because the fetch for an unpublished year fails and
+    /// the fetch guard catches it one line later. `selectedYear` and
+    /// `snapshot` are what tell the two apart.
+    @Test func goToDayCrossingYearsRefusesAYearTheManifestDoesNotList() async throws {
+        let model = try await makeTwoSeasonModel(defaults: makeDefaults())
+        #expect(!model.years.contains(2024))
+        let filterBefore = model.filter
+
+        let moved = await model.goToDay(crossingYears: "2024-07-01")
+
+        #expect(!moved)
+        #expect(model.selectedYear == 2026, "an unpublished season must not be selected")
+        #expect(model.snapshot?.year == 2026)
+        #expect(model.filter == filterBefore)
+    }
+
+    /// `select(year:)` never throws — a failed fetch just leaves
+    /// `snapshot == nil` / `phase == .offline` — so a cross-year jump whose
+    /// season never arrived has to be recognised by that, and refused.
+    ///
+    /// It refuses rather than proceeding *because of what the caller does
+    /// next*: queue a scroll to a named day. `browsePastSeason(year:)` and
+    /// `previewNextSeason()` deliberately go the other way and set their
+    /// filter anyway, since "show me that season" survives a failed fetch —
+    /// "scroll me to that day" does not, there being no day.
+    ///
+    /// `selectedYear` is asserted as *moved*: the fetch is what tells us it
+    /// failed, so it cannot be undone without a second fetch. That is the
+    /// same end state every other failed year switch reaches
+    /// (`previewNextSeasonSetsFilterEvenWhenTheNetworkFetchForNextYearFails`
+    /// pins it there), and `.offline` is what explains it on screen.
+    @Test func goToDayCrossingYearsRefusesWhenThatYearsFetchFails() async throws {
+        let cache = MockCache()
+        cache.write(
+            "events-2026", data: fixtureData("events-sample"), etag: "e26", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        // 2027 is in the manifest, so the `years.contains` guard passes — but
+        // it has no cache entry and its fetch fails.
+        let api = MockAPI()
+        await api.setFailure(MockAPIError.unscripted("events-2027-down"), for: .events(year: 2027))
+        let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+        let model = AppModel(
+            repository: EventRepository(api: api, cache: cache),
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+        await model.start()
+        #expect(model.years.contains(2027))
+        // A window the reader has already widened in the season on screen.
+        // A refused jump must leave it exactly as it is: the refusal is what
+        // keeps the year switch's `clearScopeLocalDateState` from running, so
+        // without it a deep link into an unreachable season would silently
+        // throw away navigation state in the season they are still in.
+        model.filter.windowEndDayKey = "2026-08-20"
+        let filterBefore = model.filter
+
+        let moved = await model.goToDay(crossingYears: "2027-07-19")
+
+        #expect(!moved)
+        #expect(model.snapshot == nil)
+        #expect(model.phase == .offline)
+        #expect(model.selectedYear == 2027)
+        #expect(model.filter == filterBefore, "nothing half-done")
+    }
+
+    /// The same-year arm must not depend on the years manifest, because it
+    /// is reachable before the manifest has arrived: `years` is empty for
+    /// the whole of a cold launch, and a deep link is precisely what arrives
+    /// during one. Ordering the `years.contains` check ahead of the
+    /// same-year short-circuit would make every launch-time deep link fail.
+    ///
+    /// The outcome asserted is `goToDayBeyondTheEndGrowsTheEndEdgeToIt`'s,
+    /// verbatim: same-year keys go through `goToDay(_:)` unchanged.
+    @Test func goToDayCrossingYearsDelegatesSameYearKeysBeforeConsultingTheManifest() async throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+        #expect(model.years.isEmpty, "cold launch: the years manifest has not arrived yet")
+
+        let moved = await model.goToDay(crossingYears: "2026-08-09")
+
+        #expect(moved)
+        #expect(model.filter.windowEndDayKey == "2026-08-09")
+        #expect(model.filter.windowStartDayKey == nil)
+    }
+
+    /// Delegation means delegation: `goToDay(_:)`'s refusal of a day outside
+    /// `navigableBounds` is not softened by the new entry point. 2026-12-25
+    /// is in the selected year and still unreachable — the season's bounds
+    /// run 2026-06-27...2026-08-29.
+    @Test func goToDayCrossingYearsStillRefusesASameYearDayOutsideTheBounds() async throws {
+        let model = try makeInSeasonModelWithSeedEvents(defaults: makeDefaults())
+
+        let moved = await model.goToDay(crossingYears: "2026-12-25")
+
+        #expect(!moved)
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(model.filter.windowStartDayKey == nil)
+    }
+
+    /// `ChqTime.isCanonicalDayKey` guarantees the `yyyy-MM-dd` shape at every
+    /// call site that exists today, but this is a deep-link path and the
+    /// argument is a plain `String` — so the leading year is parsed, never
+    /// force-unwrapped, and an unparseable key is refused rather than
+    /// trapped.
+    @Test func goToDayCrossingYearsRefusesAMalformedKey() async throws {
+        let model = try await makeTwoSeasonModel(defaults: makeDefaults())
+        let filterBefore = model.filter
+
+        let moved = await model.goToDay(crossingYears: "not-a-day")
+
+        #expect(!moved)
+        #expect(model.selectedYear == 2026)
+        #expect(model.filter == filterBefore)
+    }
+
+    /// **Window hygiene across a year switch (#234/#156).**
+    /// `windowStartDayKey`/`windowEndDayKey` record how far the reader has
+    /// navigated *within one season*. Carried into another season they are
+    /// not merely inert: `ViewWindow.make` clamps an out-of-range expansion
+    /// input to the new year's `bounds` rather than dropping it, so a 2025
+    /// start key becomes 2026's `bounds.lowerBound` — which then genuinely
+    /// widens the 2026 `.next` window back to the season opening, with
+    /// nothing on screen explaining why. That is #156's complaint with the
+    /// scope change swapped for a year change.
+    ///
+    /// So the clamp does *not* buy this for free; the year switch clears the
+    /// pair itself. What is asserted is the whole post-switch window state:
+    /// the only expansion left is the one this call made, in the new year,
+    /// and the rendered window starts exactly at the day asked for rather
+    /// than two months earlier.
+    ///
+    /// The stale pair is seeded directly, as `selectScopeResetsWindowExpansion`
+    /// does — 2025 is an archived season, so `EffectiveScope` resolves its
+    /// scope to `.all`, whose window already spans the whole of
+    /// `navigableBounds`; no gesture available on an archived year can widen
+    /// it, and the values would be unreachable through the UI.
+    @Test func goToDayCrossingYearsDropsTheOldSeasonsWindowExpansion() async throws {
+        let model = try await makeTwoSeasonModel(defaults: makeDefaults())
+        await model.select(year: 2025)
+        #expect(model.navigableBounds == "2025-06-21"..."2025-08-23")
+        var seeded = model.filter
+        seeded.windowStartDayKey = "2025-06-21"
+        seeded.windowEndDayKey = "2025-08-23"
+        model.filter = seeded
+
+        let moved = await model.goToDay(crossingYears: "2026-07-27")
+
+        #expect(moved)
+        #expect(model.navigableBounds == "2026-06-27"..."2026-08-29")
+        #expect(
+            model.filter.windowStartDayKey == "2026-07-27",
+            "the only expansion left is this call's, in the new year")
+        #expect(model.filter.windowEndDayKey == nil)
+        #expect(
+            model.currentWindow?.startDay == "2026-07-27",
+            "not 2026-06-27, which is where a clamped 2025 key would drag it")
+    }
+
     // MARK: - Pending day deep link
 
     @Test func pendingDayLinkResolvesOnceASnapshotExists() throws {
