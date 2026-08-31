@@ -305,7 +305,7 @@ Track user-visible changes here as they land, then fold the accepted
 bullets into `whatsNew` in `listing-fields.json` (Step 8) when preparing
 the next submission.
 
-*(Empty — everything tracked here was folded into `whatsNew` for 1.1.3.)*
+*(Empty — everything tracked here was folded into `whatsNew` for 1.1.4.)*
 
 Folded into 1.1.2: the Captions link, the expanded Siri vocabulary, the My
 Day date-navigation work, the date-filter corrections, and the star-tap
@@ -382,6 +382,17 @@ survives the jump. **All of this is Events-tab only**: My Day keeps its own
 chevrons (`MyDayExpandControl`, meaning "reveal the rest of the season," a
 different question from stepping to the next day with events) and has no
 week band — do not generalize any of the above to "the app."
+
+Folded into 1.1.4 (2026-08-31): the Siri "Show a Day" fix (#253) — a day
+request made while parked on an archived season now switches season and
+moves the screen, where it previously spoke success and did nothing — and
+the pre-season half of the archive button (#186), which now also appears
+before a season opens, not only after one ends. Note for whoever drafts
+1.1.5: `.preSeason` is unreachable in production today, because the manifest
+announces a year only once its events are published, so `LandingState`'s
+first rule resolves that year as in-season. That is why 1.1.4's #186 bullet
+is worded as what the app does while a schedule is unpublished rather than
+as something the reader will see this week, and why #253 leads the note.
 
 Dropped rather than folded: "filtering moved to the bottom of the screen."
 That change shipped **in 1.1** — it simply never made it into 1.1's

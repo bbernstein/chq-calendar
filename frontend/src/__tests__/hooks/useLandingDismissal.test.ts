@@ -74,4 +74,10 @@ test('a dismissal made FOR another year survives the switch to that year', () =>
   // And it is still scoped: a third year is a different question again.
   rerender({ year: 2024 });
   expect(result.current.browsingArchive).toBe(false);
+
+  // Coming back is the accepted behaviour change this branch ships: the
+  // dismissal is held AS the year it was made for, so leaving 2025 does not
+  // consume it. Returning lands on 2025's list, not on 2025's landing again.
+  rerender({ year: 2025 });
+  expect(result.current.browsingArchive).toBe(true);
 });
