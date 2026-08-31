@@ -1,7 +1,8 @@
 # Year-aware navigation — #186 + #253
 
 **Status:** IMPLEMENTED 2026-08-31 on `feat/year-aware-navigation-186-253`
-(squash sha: _TBD — fill in at merge_). Design agreed 2026-08-28;
+(**PR #298** — referenced by PR rather than squash sha, which does not exist
+until merge). Design agreed 2026-08-28;
 implementation ran as the seven-task plan in
 `docs/superpowers/plans/2026-08-31-year-aware-navigation-186-253-plan.md`.
 Delivered beyond this design: the web half of #186 (`bacc6ac` — `LandingState`

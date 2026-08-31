@@ -40,7 +40,7 @@ opt-out.
 |---|---|---|---|---|
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
 | 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
-| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | DONE (`<SQUASH SHA — fill in at merge>`) | `feat/year-aware-navigation-186-253` |
+| 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | DONE | PR #298 |
 | 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
@@ -306,9 +306,10 @@ so do not loosen it.
 
 ## 2. iOS 1.1.4 — year-aware navigation (#186 + #288 + #253)
 
-**Status:** DONE — squash `<SQUASH SHA — fill in at merge>`, PR
-`<PR # — fill in at merge>`, branch `feat/year-aware-navigation-186-253`,
-2026-08-31. #288 had already merged separately (`01fa4e3`, PR #295); **#186
+**Status:** DONE — **PR #298**, branch `feat/year-aware-navigation-186-253`,
+2026-08-31. (Deliberately referenced by PR rather than squash sha: the sha
+does not exist until merge, and a placeholder that needs hand-editing at
+merge is one nobody edits. `git log --grep '#298'` finds the commits.) #288 had already merged separately (`01fa4e3`, PR #295); **#186
 and #253 shipped here** and are what made this 1.1.4.
 
 **What shipped**, in commit order: `47fbfbd` `.preSeason` carries an
