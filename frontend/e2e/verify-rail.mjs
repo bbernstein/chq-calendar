@@ -266,9 +266,18 @@ const railHeight = p => p.evaluate(() =>
     // highlight left `a0`. 400px of slack so there is real content left above
     // to anchor on: `useDayAnchor` leaves the anchor untouched when its walk
     // resolves nothing, and an anchor that did not move is how this fails.
-    const b = geo >= 1 ? Math.round(top(geo) - railH - 200) : null;
+    //
+    // Symmetric with the forward walk above, and for the same reason: if the
+    // rail is reporting the day BELOW where the geometry says the reader is —
+    // one frame of lag is enough — then pushing `secs[geo]` down would land the
+    // highlight on the very day `a0` already names, and the check would report
+    // a false FAIL against a rail that is merely a frame behind. So it keeps
+    // walking back past any header whose predecessor already carries `a0`.
+    let bj = geo;
+    while (bj >= 1 && secs[bj - 1].dataset.dayKey === anchor) bj--;
+    const b = bj >= 1 ? Math.round(top(bj) - railH - 200) : null;
     if (b !== null && b < 0 && -b + 400 <= behind) {
-      return { delta: b, direction: 'backward', ahead, behind, geo: at(geo), to: at(geo - 1) };
+      return { delta: b, direction: 'backward', ahead, behind, geo: at(geo), to: at(bj - 1) };
     }
     return { delta: null, direction: null, ahead, behind, geo: at(geo), to: null };
   }, a0);
@@ -294,9 +303,72 @@ const railHeight = p => p.evaluate(() =>
   await page.close();
 }
 
+// ------------------------------------ a `today` the reader can be PARKED on
+//
+// Surveyed once, here, because two blocks below need it: check 9 (does a rail
+// tap navigate) and check 11 (⟳ Now). Both are about a reader moving away from
+// today and both stop having a subject at the end of a season — see
+// `surveyPinnableToday` in `regime.mjs` for the measurements and the reasoning.
+//
+// Placed after check 8 so an ordinary unpinned page has already established
+// the regime; this survey page is itself ordinary and would establish it
+// equally well, but a reader following the file top to bottom should meet the
+// regime before the first thing that branches on it.
+const survey = await newPage();
+const PIN = await surveyPinnableToday(survey);
+await survey.close();
+
+// `after >= 7`, and the number is not arbitrary: `pickFarTarget`'s first rule
+// looks for a tappable chip at least **6** chips past the anchor, so a day with
+// fewer than 7 days behind it can only ever reach that rule's fallbacks. Chips
+// span every calendar day and event days are a subset of them, so this is the
+// weaker of the two questions — it cannot guarantee rule 1 lands, only that it
+// is not arithmetically excluded. (`verify-full-list` asks the same survey for
+// `>= 3`: its landing checks need the pinned day to sit comfortably inside the
+// document, not to support a navigation away from it.)
+const pinnable = !!PIN && PIN.parkable && PIN.after >= 7;
+const pinTell = PIN ? `clock pinned to ${PIN.key}` : 'no day sections mounted at all';
+const unpinnable = PIN
+  ? `the middle mounted day ${PIN.key} is not a viable today: docTop=${PIN.docTop} ` +
+    `maxScroll=${PIN.maxScroll} parkable=${PIN.parkable} days after it=${PIN.after}`
+  : 'no day sections mounted at all';
+/**
+ * ...and never off-season.
+ *
+ * Pinning a page to a mid-season day during an off-season run would make it the
+ * one page in that run to find a day list on the default screen, `enterList`
+ * would announce `in-season`, and `announce`'s consistency rule would take the
+ * suite — and the five chained after it — down mid-run with a stack trace and
+ * no summary. That is #287, reached from a new direction; it was measured
+ * happening in `verify-full-list` before this guard existed there.
+ *
+ * Nothing is lost by it. Check 11 skips off-season on its own account, and
+ * check 9's off-season page navigates perfectly well unpinned: `enterList`
+ * leaves the reader at the top of a ~161,000px document, so a far tap has
+ * somewhere to go and cannot bottom out.
+ */
+const pinNav = pinnable && currentRegime() !== 'off-season';
+const navClock = () => (pinNav ? { clock: atMidMorning(PIN.key) } : {});
+
 // --------------------------------------------------- 9. rail tap lands clear
-{
-  const page = await newPage();
+//
+// **Pinned like check 11, and it took a review to notice that it had to be.**
+// This block runs `pickFarTarget` on the same live feed, and at the season's
+// tail the tap is a no-op for the same reason: the reader lands bottomed out,
+// every enabled chip left is at or below where they already are, and the page
+// does not move. 9b then passed through its own `bottomedOut` disjunct and 9c
+// passed because the target's top (468) happened to clear the rail (80).
+//
+// Measured, by deleting `onSelectDay(chip.key)` from the chip's `onClick` and
+// rebuilding: `PASS 9b top=468.0px bottomedOut=true` / `PASS 9c top=468.0
+// railH=80` — **two checks green against a rail tap that navigated nowhere.**
+// Exactly the vacuity diagnosed one block below for 11a, in the same file,
+// against the same helper.
+if (!pinNav && currentRegime() !== 'off-season') {
+  skip('9b scrolled to it', unpinnable);
+  skip('9c lands below the rail, not under it', unpinnable);
+} else {
+  const page = await newPage(navClock());
   // A tappable day a long way from where the reader is standing. See
   // pickFarTarget for why "tappable" is load-bearing.
   const target = await pickFarTarget(page);
@@ -322,25 +394,33 @@ const railHeight = p => p.evaluate(() =>
       railH: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-rail-h')) || 0,
       // This RELAXES 9b: the strict form is "section top within 400px of the
       // viewport top", and this alternative accepts "the page scrolled to the
-      // very end of a document it actually had to scroll" instead. It can
-      // fire only in the season's last days, when the target is so near the
-      // rail's end that less than a viewport of content exists below it and
-      // the scroll clamps before the section reaches the rail (2026-08-28
-      // with the live feed: target 09-10 stops 468px short). Both conditions
-      // below are required: without the scrollHeight guard, a document that
-      // simply fits the viewport satisfies `scrollY(0) + innerHeight >=
-      // scrollHeight` untouched, and in exactly the last-days regime — where
-      // rule 4 already hands 9a an always-mounted target — 9b would become
-      // unfalsifiable.
+      // very end of a document it actually had to scroll" instead.
+      //
+      // **It is a floor now, not a working branch, and the clock pin above is
+      // why.** It was written for the season's last days, where the target is
+      // so near the rail's end that less than a viewport of content lies below
+      // it and the scroll clamps before the section reaches the rail
+      // (2026-08-28 with the live feed: target 09-10 stopped 468px short). That
+      // is precisely the regime in which it was ABSORBING a dead rail tap
+      // rather than tolerating a clamp — so in season the page is now pinned to
+      // a mid-season day, where `pickFarTarget`'s first rule finds a target with
+      // a floor of content below it and this disjunct cannot fire at all.
+      //
+      // Kept rather than deleted because one reachable path is still unpinned:
+      // off-season, where `enterList` has to tap a rail chip to produce a list
+      // and pinning would break the run's regime consistency (see `pinNav`).
+      // Both conditions below stay required: without the scrollHeight guard a
+      // document that simply fits the viewport satisfies `scrollY(0) +
+      // innerHeight >= scrollHeight` untouched.
       bottomedOut: document.documentElement.scrollHeight > window.innerHeight + 2
         && window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2,
     };
   }, target);
   const missing = `${target} is not mounted at all`;
   check('9b scrolled to it', !!m && (Math.abs(m.top) < 400 || m.bottomedOut),
-    m ? `top=${m.top.toFixed(1)}px bottomedOut=${m.bottomedOut}` : missing);
+    m ? `top=${m.top.toFixed(1)}px bottomedOut=${m.bottomedOut} (${pinTell})` : missing);
   check('9c lands below the rail, not under it', !!m && m.top >= m.railH - 2,
-    m ? `top=${m.top.toFixed(1)} railH=${m.railH}` : missing);
+    m ? `top=${m.top.toFixed(1)} railH=${m.railH} (${pinTell})` : missing);
   await page.close();
 }
 
@@ -429,6 +509,13 @@ if (currentRegime() === 'off-season') {
     'today is outside navBounds off-season, so reachableTodayKey is null and ' +
     'the button is correctly absent (page.tsx) — there is no navigation back ' +
     'to today left to test');
+} else if (!pinnable) {
+  // Narrow, measured, and self-describing — and, unlike the off-season skip
+  // above, not a state any real season reaches: it needs the year's MIDDLE
+  // mounted day to be unparkable or to have fewer than 7 days behind it. The
+  // sparse tail this block exists to survive is at the END of a year, with
+  // half a document of margin between it and the middle.
+  skip('11 ⟳ Now', unpinnable);
 } else {
   // ---------------------------------------------------------------------
   // This check pins its own clock, and that is the second thing #249 had to
@@ -472,22 +559,7 @@ if (currentRegime() === 'off-season') {
   // the reasoning, including why a page pinned to the run's own clock can
   // measure the document the pinned page will get. `verify-full-list`'s
   // landing checks pin the same way for the same reason.
-  const survey = await newPage();
-  const pin = await surveyPinnableToday(survey);
-  await survey.close();
-
-  if (!pin || !pin.parkable || pin.after < 7) {
-    // Narrow, measured, and self-describing. It fires only for a year whose
-    // MIDDLE day cannot be parked on or has almost nothing after it, which no
-    // real season produces — the sparse tail this check exists to survive is
-    // at the end of the year, not the middle of it.
-    skip('11 ⟳ Now',
-      pin
-        ? `the middle mounted day ${pin.key} is not a viable today: ` +
-          `docTop=${pin.docTop} maxScroll=${pin.maxScroll} parkable=${pin.parkable} ` +
-          `days after it=${pin.after}`
-        : 'no day sections mounted at all');
-  } else {
+  //
   // Seeded with a value the reader could plausibly have left behind, and
   // that is 11b's whole subject — see the comment on `filterState` below.
   // `expandedDescriptions` is chosen because it is persisted and restored
@@ -498,7 +570,7 @@ if (currentRegime() === 'off-season') {
   // #290 found the other two seeds in this file discarded outright whenever
   // the two clocks were more than `USER_STATE_EXPIRY_MS` apart, and this one
   // is pinned further from the wall clock than either of those.
-  const PINNED_TODAY = atMidMorning(pin.key);
+  const PINNED_TODAY = atMidMorning(PIN.key);
   const page = await newPage({
     clock: PINNED_TODAY,
     storage: ['chq-calendar-user-state', JSON.stringify({
@@ -513,29 +585,31 @@ if (currentRegime() === 'off-season') {
   await page.waitForTimeout(1500);
   const nowBtn = page.getByRole('button', { name: 'Go to today' });
   const appeared = await nowBtn.count() > 0;
-  // This RELAXES 11a: the strict form is "the button appeared", and this
-  // alternative accepts its absence when the anchor is still on today AND
-  // the page scrolled to the very end of a document it actually had to
-  // scroll. It can fire only on the season's last mounted days (2026-08-31
-  // with the live feed: today has 2 events, one 1-event day follows), where
-  // even max scroll cannot move the anchor off today and the button is
-  // *correctly* absent — its render rule is anchor !== today, which 11c
-  // asserts from the other side. The scrollHeight guard is required: a
-  // document that simply fits the viewport satisfies `scrollY(0) +
-  // innerHeight >= scrollHeight` untouched, and combined with rule 4's
-  // always-mounted target that would make 11a unfalsifiable in exactly the
-  // regime this alternative exists for. A mid-season click that navigated
-  // nowhere leaves the page at the top of a tall document and still fails
-  // both legs.
-  const [anchorNow, todayNow, bottomedOutNow] = await Promise.all([
+  // 11a is STRICT: the button appeared, full stop.
+  //
+  // It used to carry a `bottomedOut` alternative that accepted the button's
+  // absence when the anchor was still on today and the page had scrolled to
+  // the end of a document it actually had to scroll. That was written for "the
+  // season's last mounted days", and the clock pin above deletes that regime
+  // from this block entirely — the day is chosen with half a year behind it, so
+  // the disjunct could no longer fire under any input.
+  //
+  // Deleted rather than documented as unreachable, and the distinction matters:
+  // an unreachable disjunct is a path that silently starts absorbing defects
+  // the day something upstream changes, and the `pinnable` guard above already
+  // covers every degenerate feed the relaxation was standing in for. It also
+  // described the wrong failure. It predicted this exact date — "2026-08-31
+  // with the live feed: today has 2 events, one 1-event day follows" — and
+  // predicted that the anchor would STAY on today with the button correctly
+  // absent. What actually happened is that the anchor never REACHES today, so
+  // the button was permanently present and 11a passed on a button that had been
+  // on screen since load, across a tap that moved the page 0px.
+  const [anchorNow, todayNow] = await Promise.all([
     anchorChip(page),
     page.evaluate(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())),
-    page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 2
-      && window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2),
   ]);
-  check('11a ⟳ Now appears once away from today',
-    appeared || (anchorNow === todayNow && bottomedOutNow),
-    `far=${far} anchor=${anchorNow} today=${todayNow} bottomedOut=${bottomedOutNow} button=${appeared}`);
+  check('11a ⟳ Now appears once away from today', appeared,
+    `far=${far} anchor=${anchorNow} today=${todayNow} button=${appeared} (${pinTell})`);
   if (appeared) {
     // Read from persisted state, not from `button[aria-pressed]`.
     //
@@ -620,7 +694,6 @@ if (currentRegime() === 'off-season') {
     skip('11c ⟳ Now hides once back on today', reason);
   }
   await page.close();
-  }
 }
 
 // ------------------------------------------- 12. sticky stack, narrow + zoomed

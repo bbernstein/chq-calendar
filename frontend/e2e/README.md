@@ -138,6 +138,14 @@ went green because `test:browser` is `&&`-chained:
   the landing left headroom below; at the tail the landing IS the bottom.
   `makeRoomBelow` (`regime.mjs`) now makes the room with a wheel, which is the
   one gesture that both releases the hold and moves the page.
+- **`verify-rail`'s check 9** — found by review, not by the red build, because
+  it was not red: it runs the same `pickFarTarget` on an unpinned page, and at
+  the tail the tap is a no-op. Measured by deleting `onSelectDay(chip.key)`
+  from the chip's `onClick`: `PASS 9b top=468.0px bottomedOut=true` and
+  `PASS 9c top=468.0 railH=80` — **two green checks over a rail tap that
+  navigated nowhere**, 9b absorbing it through the very `bottomedOut`
+  relaxation written for the tail. It is pinned now, and 9b takes its strict
+  branch (`top=156.0px bottomedOut=false`).
 - **`verify-full-list` checks 5, 7 and the WebKit trio** assert the reader is
   left parked *exactly* on today, to a 2px tolerance. They pin their clock the
   way `verify-rail` 11 does rather than relax six exact assertions — check 5's
@@ -192,10 +200,28 @@ nothing and must not report success.
 Both new stand-downs are guarded so they cannot absorb a real defect. `8e`
 skips only when no day header can be moved across the sticky line in *either*
 direction — the whole document inside one viewport — and prints what the
-geometry said next to what the rail said. `11` skips only when the year's
-MIDDLE mounted day is unparkable or has almost nothing after it, which no real
-season produces; and `11b`/`11c`, which live inside `if (appeared)`, now print
-a skip instead of silently vanishing from the run.
+geometry said next to what the rail said. `9` and `11` skip only when the
+year's MIDDLE mounted day is unparkable or has too little behind it; and
+`11b`/`11c`, which live inside `if (appeared)`, now print a skip instead of
+silently vanishing from the run.
+
+**That middle-day guard is not quite as unreachable as it looks, and the reason
+is worth writing down.** It is true that no *season* puts its sparse tail in
+the middle of the year. But at the October 1 manifest rollover `defaultYear`
+becomes the next year, and a year that has been announced with a handful of
+events published — 2027 already carries five — has a middle day with almost
+nothing behind it. The guard would fire there. What actually happens first is
+the **regime** check: today is outside `navBounds`, so `11` skips off-season and
+`9` runs unpinned. So the ordering is load-bearing rather than incidental, and
+"no real season produces this" is true only because something else catches that
+year one step earlier.
+
+The two suites ask the same survey for different margins, deliberately.
+`verify-rail` wants `after >= 7` because `pickFarTarget`'s first rule looks for
+a tappable chip at least **6** chips past the anchor — a day with fewer days
+behind it can only reach that rule's fallbacks. `verify-full-list` wants
+`after >= 3`: its landing checks need the pinned day to sit comfortably inside
+the document, not to support a navigation away from it.
 
 **What check 11 no longer covers, plainly:** the real today. It cannot — that
 is the finding rather than a shortcut around it. The pin is applied every run

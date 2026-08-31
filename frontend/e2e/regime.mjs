@@ -275,13 +275,25 @@ async function settleAtTop(page) {
  * smallest move that clears `want` — the callers all want the reader left deep
  * in the list, and this must not walk them back to the top of it.
  *
+ * **Returns headroom actually gained, re-measured, never the amount asked
+ * for.** The callers print it into their own failure details ("made 2800px of
+ * room below"), and the first version returned the REQUEST — so a wheel that
+ * had been swallowed by a hold this function exists to defeat would have
+ * printed 2800px as a fact while achieving nothing, and sent the next reader
+ * looking for the defect in the app. A setup step that silently failed must not
+ * report a number that implies it succeeded. `0` therefore means both "the room
+ * was already there" and "the wheel achieved nothing", which the caller's own
+ * assertion distinguishes: it fails in the second case.
+ *
  * Shared rather than copied into each suite for the reason `fixedNow.mjs`
  * gives: three copies of a rule about the anchor hold would eventually
  * disagree about it.
  */
 export async function makeRoomBelow(page, want = 2000) {
-  const short = await page.evaluate(w => Math.max(0, Math.ceil(
-    w - (document.documentElement.scrollHeight - window.innerHeight - window.scrollY))), want);
+  const room = () => page.evaluate(() => Math.round(
+    document.documentElement.scrollHeight - window.innerHeight - window.scrollY));
+  const before = await room();
+  const short = Math.max(0, Math.ceil(want - before));
   if (short === 0) return 0;
   // The viewport's own middle: this is called from a 390px phone and a 900px
   // desktop, and a hardcoded x that lands on the rail would pan it instead of
@@ -292,7 +304,7 @@ export async function makeRoomBelow(page, want = 2000) {
   await page.mouse.move(at.x, at.y);
   await page.mouse.wheel(0, -short);
   await page.waitForTimeout(450);
-  return short;
+  return (await room()) - before;
 }
 
 /**
