@@ -65,9 +65,10 @@ async function newPage(
   // Shared with `verify-timezone.mjs`; see `fixedNow.mjs` for what is pinned
   // and, more importantly, what deliberately is not.
   //
-  // `clock` overrides the run's shared instant, and check 11 is its only
-  // caller: that check needs a `today` the reader can be parked on, which the
-  // real today stops being once the season's tail goes sparse.
+  // `clock` overrides the run's shared instant. Checks 9 and 11 are its
+  // callers (both via `navClock()`): each needs a `today` the reader can be
+  // parked on, or a day the reader can navigate away from, which the real
+  // today stops being once the season's tail goes sparse.
   await pinClock(page, clock);
   // Tie the context's lifetime to the page's. Callers only ever `page.close()`,
   // so without this every check leaks a whole `BrowserContext` — roughly twenty

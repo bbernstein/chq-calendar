@@ -223,7 +223,7 @@ behind it can only reach that rule's fallbacks. `verify-full-list` wants
 `after >= 3`: its landing checks need the pinned day to sit comfortably inside
 the document, not to support a navigation away from it.
 
-**What check 11 no longer covers, plainly:** the real today. It cannot — that
+**What checks 9 and 11 no longer cover, plainly:** the real today. It cannot — that
 is the finding rather than a shortcut around it. The pin is applied every run
 rather than only in the tail, because a branch that runs two weeks a year rots
 between Septembers, which is the same reason `verify-offseason.mjs` runs its
