@@ -751,7 +751,7 @@ struct AppModelTests {
         #expect(model.snapshot?.year == 2025)
     }
 
-    // MARK: - landingState / browseArchiveSeason / previewNextSeason (#177)
+    // MARK: - landingState / browsePastSeason / previewNextSeason (#177)
     //
     // `events-sample.json` is entirely July 2026, so a fixed `now` in
     // September 2026 puts it past the `.next` scope's 90-day adaptive-window
@@ -953,11 +953,16 @@ struct AppModelTests {
         #expect(model.landingState.isPostSeason)
     }
 
-    /// Task 5 (#177): pins the exact state `OffSeasonLandingView` renders
-    /// against — default filter, off-season, `dayGroups` empty — and that
-    /// its "Browse the ended season" action (`browseArchiveSeason()`) is
-    /// what recovers a non-empty list from there.
-    @Test func browseArchiveSeasonShowsTheEndedSeasonWhenTheDefaultFilterHasGoneEmpty() async throws {
+    /// Task 5 (#177), retargeted for #186: pins the exact state
+    /// `OffSeasonLandingView` renders against — default filter, off-season,
+    /// `dayGroups` empty — and that its "Browse the _ season" action,
+    /// `browsePastSeason(year:)`, is what recovers a non-empty list from
+    /// there.
+    ///
+    /// `.postSeason` offers `endedSeasonYear`, which is already
+    /// `selectedYear`, so this is the same-year arm of the method: its
+    /// behaviour must be exactly what the year-blind predecessor did.
+    @Test func browsePastSeasonShowsTheEndedSeasonWhenTheDefaultFilterHasGoneEmpty() async throws {
         let cache = MockCache()
         cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
         cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
@@ -973,9 +978,100 @@ struct AppModelTests {
         #expect(model.filter.isDefault)
         #expect(model.dayGroups.isEmpty, "the default .next filter has nothing left post-season")
         #expect(model.landingState.isPostSeason)
+        let offeredYear = try #require(model.landingState.archiveYear)
+        #expect(offeredYear == 2026)
 
-        model.browseArchiveSeason()
+        await model.browsePastSeason(year: offeredYear)
 
+        #expect(model.selectedYear == 2026)
+        #expect(model.filter.dateScope == .season)
+        #expect(!model.dayGroups.isEmpty)
+    }
+
+    /// The same-year arm must cost nothing: `.postSeason` offers the year
+    /// already selected, so `browsePastSeason(year:)` must widen the scope
+    /// without re-running `select(year:)` and issuing a second events fetch
+    /// for a year already on screen.
+    ///
+    /// The observables are `MockCache`'s read count and `MockAPI`'s recorded
+    /// calls, not the model's own state: a redundant
+    /// `select(year: selectedYear)` leaves `selectedYear`, `snapshot` and
+    /// `filter` looking exactly the same, so a dropped
+    /// `if year != selectedYear` guard is invisible except in the work it
+    /// causes. `ttl: 0` is what makes the network half of that real —
+    /// otherwise `EventRepository.refresh`'s own freshness short-circuit
+    /// swallows the redundant fetch and the API assertion could not fail.
+    @Test func browsePastSeasonDoesNotRefetchTheYearAlreadySelected() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let api = MockAPI()
+        await api.setSuccess(data: fixtureData("events-sample"), etag: "e1", for: .events(year: 2026))
+        let repo = EventRepository(api: api, cache: cache, ttl: 0)
+        let now = try #require(ChqTime.parse("2026-10-01 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        #expect(model.selectedYear == 2026)
+        let callsBefore = await api.calls.filter {
+            if case .events(let year) = $0.resource, year == 2026 { return true }
+            return false
+        }.count
+        let readsBefore = cache.readCount(for: "events-2026")
+
+        await model.browsePastSeason(year: 2026)
+
+        let callsAfter = await api.calls.filter {
+            if case .events(let year) = $0.resource, year == 2026 { return true }
+            return false
+        }.count
+        #expect(callsAfter == callsBefore, "already on 2026 — no second events fetch")
+        #expect(
+            cache.readCount(for: "events-2026") == readsBefore,
+            "already on 2026 — select(year:) must not run at all, not even its cache reads")
+        #expect(model.filter.dateScope == .season)
+    }
+
+    /// The `.preSeason` arm (#186): the offered year is a *different* one —
+    /// the newest season the years manifest lists below `selectedYear` — so
+    /// the method has to move `selectedYear` as well as widen the scope.
+    /// Without the `select(year:)`, the button would say one year and show
+    /// another.
+    @Test func browsePastSeasonSwitchesYearAndScopeFromPreSeason() async throws {
+        let cache = MockCache()
+        cache.write("events-2026", data: fixtureData("events-sample"), etag: "e1", fetchedAt: Date())
+        // 2027's own feed holds only 2026-dated events, so the year has
+        // nothing upcoming and `now` is still before its season start:
+        // rule 2, `.preSeason`, carrying 2026 as its archive year.
+        cache.write("events-2027", data: fixtureData("events-sample"), etag: "e2", fetchedAt: Date())
+        cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+        let repo = EventRepository(api: MockAPI(), cache: cache)
+        let now = try #require(ChqTime.parse("2026-10-01 00:00:00"))
+        let model = AppModel(
+            repository: repo,
+            store: UserStateStore(defaults: makeDefaults(), now: { Date() }),
+            now: { now }
+        )
+
+        await model.start()
+        await model.select(year: 2027)
+        #expect(model.selectedYear == 2027)
+        #expect(model.landingState == .preSeason(
+            opening: SeasonCalendar.seasonStart(year: 2027),
+            daysUntil: 268,
+            archiveYear: 2026))
+
+        let offeredYear = try #require(model.landingState.archiveYear)
+        #expect(offeredYear == 2026, "the label's year")
+
+        await model.browsePastSeason(year: offeredYear)
+
+        #expect(model.selectedYear == 2026, "the button acted on the year it named")
+        #expect(model.snapshot?.year == 2026)
         #expect(model.filter.dateScope == .season)
         #expect(!model.dayGroups.isEmpty)
     }

@@ -125,7 +125,7 @@ struct OffSeasonLandingView: View {
             }
             if let archiveYear = model.landingState.archiveYear {
                 Button("Browse the \(String(archiveYear)) season") {
-                    model.browseArchiveSeason()
+                    Task { await model.browsePastSeason(year: archiveYear) }
                 }
                 .buttonStyle(.bordered)
             }

@@ -1086,26 +1086,41 @@ final class AppModel {
         return combined
     }
 
-    /// The off-season "browse the season that just ended" action: switches
-    /// the filter to `.season`, which shows the whole 9-week season
-    /// regardless of "now" — unlike `.next`, it isn't subject to the
-    /// adaptive window's 90-day cap, so it always has the ended season's
-    /// events to show. Does not touch `selectedYear`; `landingState`'s
-    /// `endedSeasonYear` is already the year being viewed.
+    /// The off-season "Browse the _ season" action, for both landing
+    /// states: moves to `year` if it isn't the one already selected, then
+    /// switches the filter to `.season`, which shows that year's whole
+    /// 9-week season regardless of "now" — unlike `.next`, it isn't subject
+    /// to the adaptive window's 90-day cap, so there is always a season's
+    /// worth of events to show.
     ///
-    /// Only ever reachable from `.postSeason`: `OffSeasonLandingView` hides
-    /// the "Browse the _ season" button entirely in `.preSeason` (see
-    /// `LandingState.archiveYear`), because this method has no way to honor
-    /// a `.preSeason` label of `selectedYear - 1` — applying `.season` scope
-    /// unconditionally would show `selectedYear` (the *upcoming* year), not
-    /// the labeled past year. A year-aware `browsePastSeason(year:)` that
-    /// also calls `select(year:)` is the future path if pre-season archive
-    /// browsing is wanted; not implemented here (follow-up).
-    func browseArchiveSeason() {
-        // No `scopeResetCount` bump needed: only reachable from
-        // `OffSeasonLandingView`, which renders solely under
-        // `filter.isDefault` — so this always changes `dateScope`
-        // (`.next` → `.season`), a `PendingDayScroll.Key` field (#254).
+    /// `year` is always `landingState.archiveYear`, the year on the
+    /// button's own label (`OffSeasonLandingView`), so the label and the
+    /// outcome cannot come apart.
+    ///
+    /// Taking the year as a parameter *replaces* the year-blind method this
+    /// grew out of rather than sitting beside it (#186). In `.postSeason`
+    /// the offered year is `endedSeasonYear`, which is already
+    /// `selectedYear`, so the guard falls through and this is exactly that
+    /// older behaviour, with no extra fetch; in `.preSeason` the offered
+    /// year is an earlier one from the years manifest and has to be
+    /// selected first. One button, one method, both landing states — the
+    /// view needs no case analysis, which is the whole reason for
+    /// replacement over addition.
+    ///
+    /// `select(year:)` never throws — a network failure just leaves
+    /// `snapshot`/`phase` reflecting that (see its doc comment) — so there
+    /// is nothing to catch, and the filter is set unconditionally
+    /// afterward so a failed fetch doesn't strand the transition half-done.
+    func browsePastSeason(year: Int) async {
+        if year != selectedYear {
+            await select(year: year)
+        }
+        // No `scopeResetCount` bump needed: this always changes at least one
+        // `PendingDayScroll.Key` field (#254). Either `year != selectedYear`
+        // and `select(year:)` above changed `Key.year`, or it didn't and this
+        // is reachable only from `OffSeasonLandingView`, which renders solely
+        // under `filter.isDefault` — so `dateScope` changes (`.next` →
+        // `.season`).
         filter = FilterSelection(dateScope: .season)
     }
 
@@ -1127,7 +1142,7 @@ final class AppModel {
         guard case .postSeason(_, let nextSeasonYear?, _, _) = landingState else { return }
         await select(year: nextSeasonYear)
         // No `scopeResetCount` bump needed: same `OffSeasonLandingView`-only
-        // reachability as `browseArchiveSeason()`, and `select(year:)` above
+        // reachability as `browsePastSeason(year:)`, and `select(year:)` above
         // changes `Key.year` on every path this runs (#254).
         filter = FilterSelection(dateScope: .all)
     }
