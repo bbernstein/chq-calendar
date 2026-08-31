@@ -26,17 +26,79 @@ describe('determineLandingState', () => {
     if (state.kind !== 'pre-season') return;
     expect(state.opening.getTime()).toBe(opening(2026).getTime());
     expect(state.daysUntil).toBeGreaterThan(100);
+    // Rule 2's #186 payload on an ordinary, gapless manifest: the season a
+    // reader waiting for 2026 can browse instead.
+    expect(state.archiveYear).toBe(2025);
+  });
+
+  // #186's web half. The rule is `availableYears.filter(y => y < selectedYear)`
+  // then `max` — NOT `selectedYear - 1`, and NOT the element sitting before
+  // `selectedYear` in the array. This fixture is deliberately BOTH gapped and
+  // out of order so it can tell all three apart at once, which is the thing
+  // the iOS side's first attempt at this test could not do:
+  //
+  //   availableYears [2022, 2027, 2024], selectedYear 2027
+  //     max of the earlier years  → 2024  (correct)
+  //     selectedYear - 1          → 2026  (absent from the manifest; its feed
+  //                                        404s into an empty screen)
+  //     the positionally-previous → 2022  (correct only on a sorted manifest)
+  //
+  // Both wrong rules were injected and reddened this test; see the task
+  // report for the output. On a sorted, gapless fixture the positional rule
+  // is indistinguishable from `max`, so the disorder here is load-bearing,
+  // not decoration.
+  it('pre-season offers the newest EARLIER year the manifest actually lists', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2027, 3, 1, 10),
+      selectedYear: 2027,
+      availableYears: [2022, 2027, 2024],
+      yearHasEvents: false,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'pre-season',
+      opening: opening(2027),
+      daysUntil: expect.any(Number),
+      archiveYear: 2024,
+    });
+  });
+
+  // The other half of #186's rule: no earlier year means no button, so the
+  // payload has to be `null` rather than a guess.
+  //
+  // Asserted as the WHOLE state, not as `archiveYear === null` alone. A bare
+  // null check is satisfied just as well by rule 2 not firing at all — the
+  // iOS twin of this test was green under two separate injections that had
+  // stopped it returning `pre-season` — so the `kind` and the countdown
+  // fields are pinned in the same assertion.
+  it('pre-season offers no archive year when the manifest holds nothing earlier', () => {
+    const state = determineLandingState({
+      now: chqDateAt(2027, 3, 1, 10),
+      selectedYear: 2027,
+      availableYears: [2027, 2028],
+      yearHasEvents: false,
+      yearHasUpcomingEvents: false,
+    });
+    expect(state).toEqual({
+      kind: 'pre-season',
+      opening: opening(2027),
+      daysUntil: expect.any(Number),
+      archiveYear: null,
+    });
   });
 
   // Rule 1, the fix for Critical 1 (2026-08-26 review round 1): a year's
   // programme can be published — real, upcoming events loaded — before its
   // own season calendar has started. A calendar-only rule ("now < start ->
-  // pre-season") sends this reader to the pre-season landing, which offers
-  // no buttons at all (`OffSeasonLandingView`/`OffSeasonLanding.tsx` gate the
-  // whole button row on `kind === 'post-season'`) and hides a non-empty list
-  // with no escape except typing a search term. Rule 1 asks the events
-  // directly instead, ahead of the calendar check, so this resolves to
-  // `in-season` and the reader gets the list.
+  // pre-season") sends this reader to the pre-season landing, which hides a
+  // non-empty list behind a countdown. #186 has since given that screen an
+  // archive button, so the reader is no longer stranded there — but the
+  // button goes to the PREVIOUS season, and the list being hidden is THIS
+  // year's, already published; the wrong screen is still the wrong screen.
+  // (When this was written the landing offered no buttons at all, and the
+  // only escape was typing a search term.) Rule 1 asks the events directly
+  // instead, ahead of the calendar check, so this resolves to `in-season`
+  // and the reader gets the list.
   it("is in-season, not pre-season, once a future season's programme is already published", () => {
     const state = determineLandingState({
       now: chqDateAt(2027, 3, 1, 10),
@@ -153,6 +215,7 @@ describe('determineLandingState', () => {
       yearHasUpcomingEvents: false,
     });
     expect(state.kind).toBe('pre-season');
+    expect(state.kind === 'pre-season' && state.archiveYear).toBe(2026);
   });
 
   it('reports null next-season fields when no later year is available', () => {

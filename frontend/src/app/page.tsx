@@ -216,12 +216,18 @@ function HomeContent() {
   // nothing to adapt to that far ahead, and with no scopes the whole year is
   // listed already.
   //
-  // Browsing the archive deliberately does NOT touch the year: the year on
-  // screen is already the one that ended. What it changes is this
-  // component's own mind about whether to keep showing the landing over it —
+  // Browsing the archive changes this component's own mind about whether to
+  // keep showing the landing over the year in question —
   // `browseArchiveSeason`'s only previous action was `setDateFilter('season')`,
   // and without a replacement the button would be visible, enabled, and do
   // nothing, leaving an archived-year landing with no way past it.
+  //
+  // It also takes a year now (#186). It used to be documented as deliberately
+  // NOT touching the year, which was true only while the button was
+  // post-season-only: there the offered year is `endedSeasonYear`, already
+  // the one on screen. `pre-season` offers an EARLIER year from the manifest,
+  // so the button has to switch to it as well — the same shape iOS's
+  // `browsePastSeason(year:)` took, and for the same reason.
   //
   // Both halves of that dismissal — plain (`browseArchiveSeason`) and a rail
   // tap's own target (`dismissForDay`, consumed by `useInitialLanding` below)
@@ -235,6 +241,18 @@ function HomeContent() {
   const previewNextSeason = useCallback((year: number) => {
     setSelectedYear(year);
   }, [setSelectedYear]);
+
+  // `setSelectedYear` unconditionally, with no `year !== selectedYear` guard:
+  // it is idempotent (a same-value `useState` set bails out, and the URL it
+  // rewrites is byte-identical), so unlike iOS's `select(year:)` there is no
+  // redundant fetch to avoid and a guard here would be a line no test could
+  // falsify. `browseArchiveSeason(year)` records the dismissal against the
+  // SAME year, which is what carries it across the switch — see
+  // `useLandingDismissal`.
+  const browsePastSeason = useCallback((year: number) => {
+    setSelectedYear(year);
+    browseArchiveSeason(year);
+  }, [setSelectedYear, browseArchiveSeason]);
 
   // Out of season, the landing replaces the list — unless the reader has
   // narrowed the list themselves (they asked a question, and an answer of
@@ -686,7 +704,7 @@ function HomeContent() {
               <OffSeasonLanding
                 state={landingState}
                 onPreviewNextSeason={previewNextSeason}
-                onBrowseArchiveSeason={browseArchiveSeason}
+                onBrowseArchiveSeason={browsePastSeason}
               />
             ) : groupedEvents.length === 0 ? (
               // `groupedEvents`, not `filteredEvents`: the two disagree when

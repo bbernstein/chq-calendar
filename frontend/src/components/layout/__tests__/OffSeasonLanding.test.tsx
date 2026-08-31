@@ -77,7 +77,7 @@ describe('OffSeasonLanding', () => {
   });
 
   it('names the pre-season case and counts down to this year opening', () => {
-    renderLanding({ kind: 'pre-season', opening: opening(2026), daysUntil: 42 });
+    renderLanding({ kind: 'pre-season', opening: opening(2026), daysUntil: 42, archiveYear: 2025 });
     expect(screen.getByRole('heading', { name: 'Almost showtime' })).toBeInTheDocument();
     expect(screen.getByText('42 days away')).toBeInTheDocument();
     // The countdown names the year that is about to open, not a next one.
@@ -85,12 +85,46 @@ describe('OffSeasonLanding', () => {
       .toMatch(/^The 2026 season begins [A-Z][a-z]+ \d{1,2}$/);
   });
 
-  it('offers no buttons pre-season', () => {
-    renderLanding({ kind: 'pre-season', opening: opening(2026), daysUntil: 42 });
-    // Deliberate: there is no year-aware "browse a past season" action, so a
-    // button labelled with last year would apply the scope to THIS year.
-    // Mirrors LandingState.archiveYear === nil for .preSeason on iOS.
+  // #186. This replaces an 'offers no buttons pre-season' test, which pinned
+  // the dead end rather than a rule: a reader waiting for the next season was
+  // shown a countdown and nothing else, with no way back to the season that
+  // just ran. The archive button is now offered here too, and it names the
+  // year `determineLandingState` found in the manifest — 2025 — never the
+  // 2026 that is on screen.
+  it('offers the archive season pre-season, naming the EARLIER year', () => {
+    renderLanding({ kind: 'pre-season', opening: opening(2026), daysUntil: 42, archiveYear: 2025 });
+    expect(screen.getByRole('button', { name: 'Browse the 2025 season' })).toBeInTheDocument();
+    // The year on screen is 2026 and it must not be the year on the button.
+    expect(screen.queryByRole('button', { name: 'Browse the 2026 season' })).not.toBeInTheDocument();
+    // The preview button stays post-season-only: pre-season has no announced
+    // year past the one already being counted down to.
+    expect(screen.queryByRole('button', { name: /^Preview the/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Go to the/ })).not.toBeInTheDocument();
+  });
+
+  // `archiveYear: null` is what `determineLandingState` returns when the
+  // manifest lists nothing below the selected year, and the button must then
+  // be absent rather than labelled with a year whose feed does not exist.
+  // Asserted as the total button count, because the surviving failure mode
+  // here is a button rendered with a blank or NaN label, which no
+  // name-matching query would find.
+  it('offers no buttons pre-season when there is no earlier season to browse', () => {
+    renderLanding({ kind: 'pre-season', opening: opening(2026), daysUntil: 42, archiveYear: null });
     expect(screen.queryAllByRole('button')).toHaveLength(0);
+    // The countdown itself is still there — this is a landing with no way
+    // forward because there genuinely is none, not a blank screen.
+    expect(screen.getByTestId('off-season-countdown')).toBeInTheDocument();
+  });
+
+  it('reports the archive year pre-season, not the year on screen', () => {
+    const { onBrowseArchiveSeason } = renderLanding({
+      kind: 'pre-season', opening: opening(2026), daysUntil: 42, archiveYear: 2025,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Browse the 2025 season' }));
+    // The argument, not just the call: a handler invoked with 2026 would send
+    // the reader to the season that has not started — the label/outcome
+    // mismatch this whole payload exists to prevent.
+    expect(onBrowseArchiveSeason).toHaveBeenCalledWith(2025);
   });
 
   // The bug this task exists to fix (#274 phase 4 task 10): an archived
@@ -148,13 +182,16 @@ describe('OffSeasonLanding', () => {
     expect(onPreviewNextSeason).toHaveBeenCalledWith(2026);
   });
 
-  it('reports the next year to preview, and asks for the archive without a year', () => {
+  it('reports the next year to preview, and the ended year to browse', () => {
     const { onPreviewNextSeason, onBrowseArchiveSeason } = renderLanding(postSeason);
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview the 2027 season' }));
     expect(onPreviewNextSeason).toHaveBeenCalledWith(2027);
 
     fireEvent.click(screen.getByRole('button', { name: 'Browse the 2026 season' }));
-    expect(onBrowseArchiveSeason).toHaveBeenCalledTimes(1);
+    // Post-season passes a year now too (#186) — `endedSeasonYear`, which is
+    // already the selected one, so `page.tsx`'s year switch is a no-op here
+    // and this arm behaves exactly as it did before.
+    expect(onBrowseArchiveSeason).toHaveBeenCalledWith(2026);
   });
 });

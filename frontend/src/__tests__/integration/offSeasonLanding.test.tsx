@@ -496,6 +496,53 @@ describe('page.tsx — the off-season landing', () => {
     // now the whole of what this control does.
   });
 
+  // #186's web half, end to end: the dead end this task exists to close. A
+  // reader parked on an announced-but-unpublished 2027 in March used to get a
+  // countdown and nothing else — `OffSeasonLanding` gated its whole button row
+  // on `post-season` — with no route to the 2026 season that had just run.
+  //
+  // One tap has to do BOTH halves: switch the year (the 2026 feed is
+  // requested) and carry the dismissal across that switch (2026's own
+  // post-season landing must not re-cover the list it just uncovered). The
+  // second assertion is the one that fails against a boolean
+  // `browsingArchive`: the year-change effect would reset it and leave the
+  // reader on 2026's landing, one tap short.
+  it('a pre-season reader can browse the season that just ended', { timeout: 15000 }, async () => {
+    mock.reset();
+    mock.on('GET', /years\.json/, { years: [2026, 2027], defaultYear: 2027, generated: '' });
+    // 2027 is announced but unpublished; 2026 ran and is over. Routed by year
+    // rather than by one shared payload, because the whole point of the tap
+    // is that a DIFFERENT year's feed gets fetched.
+    mock.on('GET', /all-events-\d{4}\.json/, (req: Request) =>
+      req.url.includes('all-events-2026.json') ? eventsPayload() : { data: [] }
+    );
+    mock.on('GET', /weekly-themes/, { data: [] });
+    mock.on('GET', /article-links-\d{4}\.json/, { data: [] });
+    mock.on('GET', /program-links-\d{4}\.json/, { data: [] });
+    mock.on('GET', /publisher-events-\d{4}\.json/, { data: [] });
+    pin(chqDateAt(2027, 3, 1, 10));
+    render(<Home />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('off-season-landing')).toBeInTheDocument()
+    );
+    expect(screen.getByRole('heading', { name: 'Almost showtime' })).toBeInTheDocument();
+
+    // Labelled with the manifest's newest earlier year, not the 2027 on
+    // screen, and not a `selectedYear - 1` that happens to agree here.
+    fireEvent.click(screen.getByRole('button', { name: 'Browse the 2026 season' }));
+
+    await waitFor(() => {
+      const requested = mock.calls(/all-events-/).map(r => new URL(r.url).pathname);
+      expect(requested.some(p => p.endsWith('all-events-2026.json'))).toBe(true);
+    });
+    // The list, in one tap — not 2026's own post-season landing.
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-day-key]').length).toBeGreaterThan(0)
+    );
+    expect(screen.queryByTestId('off-season-landing')).not.toBeInTheDocument();
+  });
+
   // A different year is a different question. Without the reset, dismissing
   // the landing for 2026 would silently suppress 2027's own.
   it('a year change brings the landing back', { timeout: 15000 }, async () => {

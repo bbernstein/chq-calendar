@@ -6,19 +6,21 @@ import { useLandingDismissal } from '@/hooks/useLandingDismissal';
 
 /**
  * Task 6 fix round 1, "Important 1". `useLandingDismissal`'s year-change
- * effect resets BOTH `browsingArchive` and `dismissedLandingTarget` to their
- * defaults:
+ * effect resets `dismissedLandingTarget` to its default:
  *
  * ```
  * useEffect(() => {
- *   setBrowsingArchive(false);
  *   setDismissedLandingTarget(null);
  * }, [year]);
  * ```
  *
- * `browsingArchive`'s half is already covered end-to-end by
- * `offSeasonLanding.test.tsx`'s "a year change brings the landing back".
- * `dismissedLandingTarget`'s half was not: `page.tsx`'s own
+ * It used to reset `browsingArchive` in the same effect; #186 replaced that
+ * boolean with the YEAR the dismissal was made for, so "a different year is a
+ * different question" is now a derivation rather than an effect, and the
+ * effect below covers the target alone. `browsingArchive`'s half of the rule
+ * is still covered end-to-end by `offSeasonLanding.test.tsx`'s "a year change
+ * brings the landing back". `dismissedLandingTarget`'s half was not:
+ * `page.tsx`'s own
  * `scrollToDayForLanding` wrapper (`clearDismissedTarget`) clears it the
  * moment a rail-tap override resolves, so on the app's only
  * currently-reachable route (tap a real day chip, which `DayRail` only
@@ -82,7 +84,7 @@ function Harness({ scrollToDay }: { scrollToDay: (key: string) => void }) {
     <div>
       {/* A day with no section, ever — modelling `⟳ Now` on a dark day. */}
       <button type="button" onClick={() => goToDay('2026-07-11')}>Tap dark day</button>
-      <button type="button" onClick={browseArchiveSeason}>Browse this season</button>
+      <button type="button" onClick={() => browseArchiveSeason(year)}>Browse this season</button>
       <button type="button" onClick={() => setYear(2025)}>Switch to 2025</button>
       {listMounted && <div data-day-key={landingDay} />}
     </div>

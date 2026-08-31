@@ -16,12 +16,29 @@ import { dayKeyOf } from '@/lib/utils/dayWindow';
  * input from the `.next` scope's 90-day window. The two apps should not hold
  * different opinions about whether the season is over.
  *
+ * **The parity covers the payloads too, not only the classification.** #186
+ * added `pre-season`'s `archiveYear` on iOS first, and `LandingState.swift`
+ * carried an explicit "iOS-only until #186's web half lands" note against it
+ * for exactly as long as that was true; this file's rule 2 now computes the
+ * same year by the same manifest-derived rule, and that note is gone from
+ * both sides. Say so here as well as there: this pair's recorded failure mode
+ * (#288, six months) was a parity comment nobody re-checked, and a claim
+ * stated on only one side is a claim only one side's reader can falsify.
+ *
  * `determineLandingState` reads no clock — callers own supplying `now`
  * consistently with whatever else they derive from the same instant.
  */
 export type LandingState =
   | { kind: 'in-season' }
-  | { kind: 'pre-season'; opening: Date; daysUntil: number }
+  /**
+   * `selectedYear`'s season has not started yet. `archiveYear` names the
+   * newest season in the years manifest *older* than `selectedYear` — the
+   * past season a reader waiting for this one can browse instead — or is
+   * `null` when the manifest holds no earlier year, which correctly hides
+   * `OffSeasonLanding`'s button rather than offering a dead one. See rule 2
+   * for why it is manifest-derived and not `selectedYear - 1`.
+   */
+  | { kind: 'pre-season'; opening: Date; daysUntil: number; archiveYear: number | null }
   | {
       kind: 'post-season';
       endedSeasonYear: number;
@@ -102,9 +119,12 @@ function daysBetween(from: Date, to: Date): number {
  *    default filter has something to show; that is the only question this
  *    function exists to answer, and the season calendar is just a fallback
  *    for when the events themselves don't say.
- * 2. Else, `now` is before `selectedYear`'s season start → `pre-season`. Both
- *    a fully-loaded future year and an announced-but-empty one belong here;
- *    the countdown is the right screen either way.
+ * 2. Else, `now` is before `selectedYear`'s season start → `pre-season`,
+ *    carrying the newest year in `availableYears` strictly below
+ *    `selectedYear` as its `archiveYear` (`null` if there is none). Both a
+ *    fully-loaded future year and an announced-but-empty one belong here;
+ *    the countdown is the right screen either way, and either way the reader
+ *    is offered the last season that actually ran (#186).
  * 3. Else, the year has no events at all → `in-season`.
  * 4. Else (past the season start, no upcoming events, but the year has SOME
  *    events) → `post-season`. The season ran and is over. Its `opening`
@@ -126,8 +146,9 @@ function daysBetween(from: Date, to: Date): number {
  * tried and rejected: it fixed a live mid-season visit but broke two more
  * cases the same way — (a) a next season's programme published before its
  * calendar start (`now < start` still true, so `pre-season`, hiding a
- * non-empty list behind a countdown with no button that reaches it — the
- * pre-season landing renders none), and (b) the live season's own last
+ * non-empty list behind a countdown; #186 has since put an archive button on
+ * that screen, but it reaches the PREVIOUS season, never the published list
+ * being hidden), and (b) the live season's own last
  * events, whenever they run later than the fixed nine-week calendar window
  * `getChautauquaSeasonWeeks` allots (#269's real Sep 1-10 shoulder: the
  * 2026 feed's last event lands Sep 10, ten days past the calendar's Aug 29
@@ -162,7 +183,18 @@ export function determineLandingState({
 
   const start = seasonStart(selectedYear);
   if (now < start) {
-    return { kind: 'pre-season', opening: start, daysUntil: daysBetween(now, start) };
+    // Deliberately the newest year the MANIFEST lists below this one, never
+    // `selectedYear - 1`: the manifest is the only evidence a year's feed
+    // exists, so on a manifest that skips a year (`[2024, 2027]`) the
+    // arithmetic names 2026, whose feed 404s and lands the reader on an
+    // empty screen. Same rule, same reasoning, as iOS's rule 2 (#186).
+    const earlier = availableYears.filter(y => y < selectedYear);
+    return {
+      kind: 'pre-season',
+      opening: start,
+      daysUntil: daysBetween(now, start),
+      archiveYear: earlier.length > 0 ? Math.max(...earlier) : null,
+    };
   }
 
   if (!yearHasEvents) {
