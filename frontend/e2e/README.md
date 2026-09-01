@@ -99,6 +99,69 @@ mid-season rail chip to widen the view window into the season, then returns
 the reader to the top so downstream checks cannot tell which regime they are
 in. It prints one `regime:` line per run.
 
+There is a fourth state the three above do not name, because it is not a
+regime but the *tail* of the middle one: the season is still open, today is
+still mounted, and yet there is no longer enough programme left after today to
+fill a viewport. Measured on 2026-08-31 against the live feed — today carried 2
+events, the only day after it 1 — the load landed the reader at `scrollY`
+161,024, which **is** `maxScroll`, with today's section top 213px down against
+a sticky offset of 81. The document simply runs out 133px short.
+
+Two checks assumed their way past that and went red on `main` for everyone.
+Neither was a regression and neither was about the app, which behaves
+correctly at the clamp:
+
+- **`8e highlight follows scroll`** wheeled *forward* to move the highlight,
+  and forward headroom was 0px. It now asks the document which way it can
+  still move and goes that way, printing the direction and both headrooms.
+  Backwards there were 161,024px. The plan is computed from the DOM's own
+  geometry, never from the rail's reported anchor — that is the thing under
+  test, and the first draft of the fix, which did read the anchor, stood the
+  check *down* on precisely the build that breaks it.
+- **`11 ⟳ Now`** needs a today the reader can be parked on, which the tail
+  stops providing: `⟳ Now` renders on `anchorDay !== todayKey`, and no scroll
+  position puts today's header under the rail. Worse than the red 11c was what
+  was still green beside it — nothing in the check moved the page at all, so
+  11a passed on a button that had been on screen since load and 11b compared a
+  state to itself. The block now pins its own clock to a day derived from the
+  feed each run (the middle mounted day of the year), which restores a real
+  navigation away and back. `pinClock` takes that instant; `fixedNow.mjs`
+  exports `atMidMorning` so the 14:00Z rule has one home.
+
+Two more suites fell to the same tail, and were invisible until `verify-rail`
+went green because `test:browser` is `&&`-chained:
+
+- **`verify-filter-reveal` 4a and 37** and **six checks in
+  `verify-header-reveal`** all prove something about a DOWNWARD gesture, and
+  all opened with `window.scrollTo(0, 6000)` — which has never worked, because
+  `useDayAnchor`'s hold undoes a programmatic scroll. That was harmless while
+  the landing left headroom below; at the tail the landing IS the bottom.
+  `makeRoomBelow` (`regime.mjs`) now makes the room with a wheel, which is the
+  one gesture that both releases the hold and moves the page.
+- **`verify-rail`'s check 9** — found by review, not by the red build, because
+  it was not red: it runs the same `pickFarTarget` on an unpinned page, and at
+  the tail the tap is a no-op. Measured by deleting `onSelectDay(chip.key)`
+  from the chip's `onClick`: `PASS 9b top=468.0px bottomedOut=true` and
+  `PASS 9c top=468.0 railH=80` — **two green checks over a rail tap that
+  navigated nowhere**, 9b absorbing it through the very `bottomedOut`
+  relaxation written for the tail. It is pinned now, and 9b takes its strict
+  branch (`top=156.0px bottomedOut=false`).
+- **`verify-full-list` checks 5, 7 and the WebKit trio** assert the reader is
+  left parked *exactly* on today, to a 2px tolerance. They pin their clock the
+  way `verify-rail` 11 does rather than relax six exact assertions — check 5's
+  own header records that a broken `landingDayKey` left check 7 completely
+  green, because the reader was parked perfectly on the WRONG day, so exactness
+  is what these are worth. **9a** ("slow scrolling advances the page") read
+  `0px of 2400` in both engines and takes `makeRoomBelow` instead.
+
+This is the same shape as #249, one level up. That fix removed the *hour* from
+"today is reachable" after 11c went red at night and green in the morning on
+the same commit. This one removes the *date*: the boundary is not a time of
+day and not a fixed date either, it is how much programme is left.
+
+Every one of these was red on `main` before any of this work, on an app that is
+correct at a clamp it does not control. None is a regression.
+
 `verify-rail`'s check 11 has no subject off-season and skips with a printed
 reason (today is outside `navBounds`, so `⟳ Now` is correctly absent). It used
 to be joined by check 3, a persisted `this-week` migration; #274 phase 4
@@ -133,6 +196,38 @@ code; what can still trip it is check 10's filter landing late.
 
 A suite where **no check passed** exits non-zero: an all-skip run has proved
 nothing and must not report success.
+
+Both new stand-downs are guarded so they cannot absorb a real defect. `8e`
+skips only when no day header can be moved across the sticky line in *either*
+direction — the whole document inside one viewport — and prints what the
+geometry said next to what the rail said. `9` and `11` skip only when the
+year's MIDDLE mounted day is unparkable or has too little behind it; and
+`11b`/`11c`, which live inside `if (appeared)`, now print a skip instead of
+silently vanishing from the run.
+
+**That middle-day guard is not quite as unreachable as it looks, and the reason
+is worth writing down.** It is true that no *season* puts its sparse tail in
+the middle of the year. But at the October 1 manifest rollover `defaultYear`
+becomes the next year, and a year that has been announced with a handful of
+events published — 2027 already carries five — has a middle day with almost
+nothing behind it. The guard would fire there. What actually happens first is
+the **regime** check: today is outside `navBounds`, so `11` skips off-season and
+`9` runs unpinned. So the ordering is load-bearing rather than incidental, and
+"no real season produces this" is true only because something else catches that
+year one step earlier.
+
+The two suites ask the same survey for different margins, deliberately.
+`verify-rail` wants `after >= 7` because `pickFarTarget`'s first rule looks for
+a tappable chip at least **6** chips past the anchor — a day with fewer days
+behind it can only reach that rule's fallbacks. `verify-full-list` wants
+`after >= 3`: its landing checks need the pinned day to sit comfortably inside
+the document, not to support a navigation away from it.
+
+**What checks 9 and 11 no longer cover, plainly:** the real today. It cannot — that
+is the finding rather than a shortcut around it. The pin is applied every run
+rather than only in the tail, because a branch that runs two weeks a year rots
+between Septembers, which is the same reason `verify-offseason.mjs` runs its
+matrix year-round.
 
 Pin the clock to any date with `E2E_NOW`, which takes a `yyyy-mm-dd` or a full
 instant:

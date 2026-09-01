@@ -242,6 +242,128 @@ async function settleAtTop(page) {
   throw new Error('enterList: the page would not settle at the top of the document');
 }
 
+/**
+ * Guarantee the reader has room left to scroll DOWN, without moving them out
+ * of the list. Returns how far it had to move; 0 means the room was already
+ * there.
+ *
+ * Three checks in two suites prove something about a DOWNWARD gesture, and all
+ * three opened with `window.scrollTo(0, 6000)`. That call has never actually
+ * placed the reader at 6000 — `useDayAnchor`'s settle hold re-asserts the
+ * anchored day across layout changes and is released only by a real gesture,
+ * which a programmatic scroll is not. `settleAtTop` above documents the same
+ * trap from the other direction, and both affected suites already carried
+ * comments about it.
+ *
+ * What none of them survived is the season's tail. The load lands on today,
+ * and once less than a viewport of programme remains after today the landing
+ * IS the bottom of the document. Measured 2026-08-31 on a 390x844 phone
+ * against the live feed:
+ *
+ *     after enterList          y 159,775   max 159,775   ahead 0px
+ *     after scrollTo(0, 6000)  y 159,747   max 159,747   ahead 0px
+ *     five 120px wheels down   y 159,747 every time, header shown every time
+ *
+ * `verify-filter-reveal`'s 4a and 37 and six checks in `verify-header-reveal`
+ * then reported a header that would not hide, against an app that was right:
+ * the reveal rule is correct to decide nothing when `scrollY` does not change.
+ * (`verify-rail`'s 8e and 11c fell to the same tail; see `README.md`.)
+ *
+ * The room is therefore made rather than assumed, and made with a WHEEL: an
+ * upward wheel releases the hold AND creates the headroom, where `scrollTo`
+ * would be undone by the very hold it has to cancel. It is deliberately the
+ * smallest move that clears `want` — the callers all want the reader left deep
+ * in the list, and this must not walk them back to the top of it.
+ *
+ * **Returns headroom actually gained, re-measured, never the amount asked
+ * for.** The callers print it into their own failure details ("made 2800px of
+ * room below"), and the first version returned the REQUEST — so a wheel that
+ * had been swallowed by a hold this function exists to defeat would have
+ * printed 2800px as a fact while achieving nothing, and sent the next reader
+ * looking for the defect in the app. A setup step that silently failed must not
+ * report a number that implies it succeeded. `0` therefore means both "the room
+ * was already there" and "the wheel achieved nothing", which the caller's own
+ * assertion distinguishes: it fails in the second case.
+ *
+ * Shared rather than copied into each suite for the reason `fixedNow.mjs`
+ * gives: three copies of a rule about the anchor hold would eventually
+ * disagree about it.
+ */
+export async function makeRoomBelow(page, want = 2000) {
+  const room = () => page.evaluate(() => Math.round(
+    document.documentElement.scrollHeight - window.innerHeight - window.scrollY));
+  const before = await room();
+  const short = Math.max(0, Math.ceil(want - before));
+  if (short === 0) return 0;
+  // The viewport's own middle: this is called from a 390px phone and a 900px
+  // desktop, and a hardcoded x that lands on the rail would pan it instead of
+  // scrolling the page.
+  const at = await page.evaluate(() => ({
+    x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2),
+  }));
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.wheel(0, -short);
+  await page.waitForTimeout(450);
+  return (await room()) - before;
+}
+
+/**
+ * A day the reader can actually be PARKED on, measured from a loaded page.
+ *
+ * Several checks in two suites are about a control or a landing whose whole
+ * subject is "today, under the sticky chrome": `verify-rail`'s `11 ⟳ Now`
+ * (which renders on `anchorDay !== todayKey`), and `verify-full-list`'s
+ * landing checks 5, 7 and the WebKit trio. All of them need a `today` whose
+ * section can reach the sticky offset — and the real today stops being one at
+ * the end of a season. Measured 2026-08-31 on a 900px viewport against the
+ * live feed:
+ *
+ *     today 2026-08-31, mounted, 2 events; 2026-09-10 after it, 1 event
+ *     scrollY 161,024 === maxScroll   scrollHeight 161,924   innerHeight 900
+ *     today's section top 213px, sticky offset 81px — 133px short, permanently
+ *
+ * No scroll position parks today, so `⟳ Now` can never hide, the landing can
+ * never reach the offset, and the rail's fractional pill legitimately rests
+ * off the discrete chip's centre because the reader is stranded mid-section.
+ * Every one of those is the app being right at a clamp it does not control.
+ *
+ * So those checks pin their clock to the day this returns instead, and keep
+ * their assertions strict. The middle mounted day of the year is chosen
+ * because it has about half the season on either side of it by construction —
+ * ample scroll headroom below to park on, and ample programme above and below
+ * for a navigation to have somewhere to go. It is derived from the feed on
+ * every run rather than hardcoded, so it moves with the data.
+ *
+ * `parkable` and `after` are returned rather than assumed so the callers can
+ * stand down with a measurement instead of failing obscurely on a degenerate
+ * feed. Geometry is safe to read from a page pinned to any instant: `navBounds`
+ * and the mounted day set are built from the season and the feed, not from
+ * `now` (`page.tsx`). Only the landing position and `todayKey` move with the
+ * clock, and those are exactly what the pin is for.
+ */
+export function surveyPinnableToday(page) {
+  return page.evaluate(() => {
+    const secs = [...document.querySelectorAll('[data-day-key]')];
+    if (secs.length === 0) return null;
+    const railH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-rail-h')) || 0;
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    const at = Math.floor(secs.length / 2);
+    const docTop = secs[at].getBoundingClientRect().top + window.scrollY;
+    return {
+      key: secs[at].dataset.dayKey,
+      docTop: Math.round(docTop),
+      maxScroll: Math.round(maxScroll),
+      // The property that failed on 2026-08-31, asked of the day about to be
+      // pinned: can the reader be scrolled far enough for this day's header to
+      // sit under the rail?
+      parkable: docTop - railH <= maxScroll,
+      // ...and is there enough season after it for a navigation away to have
+      // somewhere to go?
+      after: secs.length - 1 - at,
+    };
+  });
+}
+
 let announced = false;
 function announce(value) {
   // A later page disagreeing with the first is a failure, not a reassignment.
