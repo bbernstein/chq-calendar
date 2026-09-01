@@ -178,16 +178,34 @@ if (!edges.first || !edges.last) {
   check('3b it says the season has not started', s.heading === 'Almost showtime', s.heading);
   check('3c it counts down to the opening',
     /^The \d{4} season begins [A-Z][a-z]+ \d{1,2}$/.test(s.countdown ?? ''), s.countdown);
-  // No year-aware "browse a past season" action exists, so pre-season offers
-  // no buttons — a button labelled with last year would apply the scope to
-  // this one. Mirrors LandingState.archiveYear == nil for .preSeason on iOS.
+  // #186: pre-season offers exactly one action — browse the most recent
+  // season that actually has a schedule. Until #186 this asserted the
+  // opposite (`buttons.length === 0`), because the only browse action was
+  // year-blind and a button labelled with last year would have applied the
+  // scope to this one. That dead end is what #186 removed, on both
+  // platforms; `LandingState.determine` and `determineLandingState` now
+  // carry the same archive year, so this check pins the port's web half.
   //
-  // Conjoined with `s.landing` so it cannot pass vacuously: "no buttons" is
-  // trivially true when there is no landing at all, and falsifying 3a-3c by
-  // disabling the branch in page.tsx left this one green on a page that had
-  // nothing on it. A check that survives its own subject being deleted is
-  // not a check.
-  check('3d no buttons pre-season', s.landing && s.buttons.length === 0,
+  // The label is derived from the live manifest rather than hard-coded: the
+  // rule is "newest year strictly earlier than the selected one", NOT
+  // `selectedYear - 1`, which can name a year the manifest lacks and whose
+  // feed 404s into an empty screen.
+  //
+  // Both checks stay conjoined with `s.landing` so they cannot pass
+  // vacuously — the button assertions are trivially unsatisfiable, but the
+  // *absence* one is trivially true on a page with no landing at all.
+  // Falsifying 3a-3c by disabling the branch in page.tsx once left the old
+  // version of this check green on a page that had nothing on it. A check
+  // that survives its own subject being deleted is not a check.
+  const archiveYear = Math.max(...edges.years.filter(y => y < edges.year));
+  check('3d pre-season offers the last season that ran',
+    s.landing && s.buttons.length === 1
+      && s.buttons[0] === `Browse the ${archiveYear} season`,
+    `landing=${s.landing} archiveYear=${archiveYear} buttons=${s.buttons.join(' | ') || 'none'}`);
+  // "Preview the _ season" stays post-season-only: pre-season IS the
+  // upcoming season, so there is nothing ahead to preview.
+  check('3e pre-season offers no preview action',
+    s.landing && !s.buttons.some(b => b.startsWith('Preview the')),
     `landing=${s.landing} buttons=${s.buttons.join(' | ') || 'none'}`);
   await page.close();
 }
