@@ -26,10 +26,25 @@
  * above, or a full instant, used exactly as given. Unset — which is every CI
  * run of these three suites — behaviour is what it always was.
  */
+/**
+ * The mid-morning instant on a `yyyy-mm-dd` day key.
+ *
+ * The 14:00Z rule above, in one callable place. Exported because
+ * `verify-rail`'s check 11 pins its own page to a day it derives from the
+ * feed at run time, and a second copy of "mid-morning Institution time" is
+ * exactly the drift this module exists to prevent.
+ */
+export function atMidMorning(dayKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+    throw new Error(`atMidMorning: not a yyyy-mm-dd day key: ${dayKey}`);
+  }
+  return new Date(`${dayKey}T14:00:00Z`);
+}
+
 function resolveFixedNow() {
   const override = process.env.E2E_NOW;
   if (override && /^\d{4}-\d{2}-\d{2}$/.test(override)) {
-    return new Date(`${override}T14:00:00Z`);
+    return atMidMorning(override);
   }
   if (override) {
     const parsed = new Date(override);
@@ -42,13 +57,18 @@ function resolveFixedNow() {
   }
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' })
     .format(new Date());
-  return new Date(`${today}T14:00:00Z`);
+  return atMidMorning(today);
 }
 
 export const FIXED_NOW = resolveFixedNow();
 
 /**
  * Pins `page`'s clock. Call before `goto`.
+ *
+ * `instant` defaults to the run's shared `FIXED_NOW` and every caller but one
+ * takes that default. The exception is `verify-rail`'s check 11, which needs a
+ * `today` the reader can actually be parked on and derives one from the feed —
+ * see the comment on that check.
  *
  * `setFixedTime`, not `install`: it pins what `Date.now()`/`new Date()` report
  * while **leaving every timer running**. The app leans on real timers — the
@@ -57,6 +77,6 @@ export const FIXED_NOW = resolveFixedNow();
  * interactions these suites drive. (The render window's own observers were on
  * that list until #274 phase 4 deleted them.)
  */
-export async function pinClock(page) {
-  await page.clock.setFixedTime(FIXED_NOW);
+export async function pinClock(page, instant = FIXED_NOW) {
+  await page.clock.setFixedTime(instant);
 }

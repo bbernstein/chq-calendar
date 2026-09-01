@@ -11,17 +11,23 @@
  * believe.
  */
 import { chromium, webkit } from 'playwright';
-import { pinClock } from './fixedNow.mjs';
+import { pinClock, atMidMorning, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList, currentRegime } from './regime.mjs';
+import { enterList, currentRegime, makeRoomBelow, surveyPinnableToday } from './regime.mjs';
 
 const URL = process.env.URL || 'http://localhost:3000/';
 const browser = await chromium.launch();
 
-async function newPageOn(engine, { width = 390, height = 844, storage, cpu, query = '', traceScrolls = false } = {}) {
+async function newPageOn(
+  engine,
+  { width = 390, height = 844, storage, cpu, query = '', traceScrolls = false, clock = FIXED_NOW } = {}
+) {
   const ctx = await engine.newContext({ viewport: { width, height }, timezoneId: 'America/New_York' });
   const page = await ctx.newPage();
-  await pinClock(page);
+  // `clock` overrides the run's shared instant. Its callers are the landing
+  // checks — 5, 7 and the WebKit trio — which need a `today` the reader can be
+  // parked on; see `surveyPinnableToday` in `regime.mjs`.
+  await pinClock(page, clock);
   page.once('close', () => { ctx.close().catch(() => {}); });
   if (storage) await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
   // Records how the app moves the reader, for check 7c. Installed before any
@@ -52,6 +58,58 @@ async function newPageOn(engine, { width = 390, height = 844, storage, cpu, quer
   return page;
 }
 const newPage = opts => newPageOn(browser, opts);
+
+/**
+ * The instant the landing checks pin themselves to, surveyed once.
+ *
+ * Checks 5, 7 and the WebKit trio all assert that the reader is left parked
+ * exactly on today, and on 2026-08-31 every one of them went red on `main`
+ * against an app doing the only thing it could: today's section was 133px
+ * further down than the document could scroll, so the landing clamped short,
+ * check 5 reported `landed on 2026-08-30`, 7a read `top -1151` against a
+ * sticky offset of 140, and the rail's fractional pill rested 28px off the
+ * discrete chip's centre because the reader was stranded mid-section rather
+ * than at a day boundary.
+ *
+ * Pinning is chosen over relaxing all six. A relaxation would have to accept
+ * "as close to today as the clamp allows" in six places, and the whole value
+ * of these checks is that they are exact — 7a reads a 2px tolerance against a
+ * measured sticky offset, and check 5's own header records that a
+ * `landingDayKey` returning `eventDays[0]` left check 7 completely green,
+ * because the reader was parked perfectly on the WRONG day. Six exact
+ * assertions kept are worth more than six softened ones.
+ *
+ * Surveyed once and shared: it costs one page load rather than three, and
+ * three separate surveys could disagree.
+ */
+const survey = await newPage();
+const PIN = await surveyPinnableToday(survey);
+await survey.close();
+const pinnable = !!PIN && PIN.parkable && PIN.after >= 3;
+const onPinnedToday = opts => ({ ...opts, clock: atMidMorning(PIN.key) });
+const pinTell = PIN
+  ? `clock pinned to ${PIN.key}, the middle of ${PIN.after * 2 + 1}+ mounted days`
+  : 'no day sections mounted at all';
+const unpinnable = PIN
+  ? `the middle mounted day ${PIN.key} is not a viable today: docTop=${PIN.docTop} ` +
+    `maxScroll=${PIN.maxScroll} parkable=${PIN.parkable} days after it=${PIN.after}`
+  : 'no day sections mounted at all';
+/**
+ * ...and never off-season.
+ *
+ * Checks 5 and 7 test the regime before they test `pinnable`, so they are
+ * already out of the way; the WebKit block is not, because two of its four
+ * checks still run off-season. Pinning that page to a mid-season day would
+ * make it the one page in an off-season run that finds a day list on the
+ * default screen, `enterList` would announce `in-season`, and `announce`'s
+ * consistency rule would take the whole suite down mid-run with a stack trace
+ * and no summary — which is #287 exactly, arrived at from a new direction.
+ * Measured: `E2E_NOW=2026-09-15` aborted after check 8.
+ *
+ * There is nothing to pin FOR off-season anyway: today is outside `navBounds`,
+ * so both landing checks in that block skip on the regime regardless.
+ */
+const pinLandings = pinnable && currentRegime() !== 'off-season';
 
 /**
  * How far below the viewport top the sticky chrome reaches — the same sum
@@ -353,14 +411,17 @@ if (currentRegime() === 'off-season') {
   skip('5 the reader lands on today',
     'off-season, today falls outside the season, so there is no "today" ' +
     'section to land on — `enterList` had to tap a rail chip to get a list at all');
+} else if (!pinnable) {
+  skip('5 the reader lands on today', unpinnable);
 } else {
-  const page = await newPage();
+  const page = await newPage(onPinnedToday());
   await settle(page);
   const landed = await landedSection(page);
   const today = await page.evaluate(() =>
     new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date()));
   check('5 the reader lands on today', landed.key === today,
-    `landed on ${landed.key}, today is ${today} (of ${landed.days} sections, first ${landed.first})`);
+    `landed on ${landed.key}, today is ${today} (of ${landed.days} sections, ` +
+    `first ${landed.first}; ${pinTell})`);
   await page.close();
 }
 
@@ -504,15 +565,17 @@ if (currentRegime() === 'off-season') {
     'the automatic landing has no target off-season — `enterList` reaches the ' +
     'list through a rail tap and then returns to the top, so there is no ' +
     'load-time landing left to measure');
+} else if (!pinnable) {
+  skip('7 the landing is relative, not absolute', unpinnable);
 } else {
-  const page = await newPage({ traceScrolls: true });
+  const page = await newPage(onPinnedToday({ traceScrolls: true }));
   await settle(page);
   const at0 = await landedSection(page);
   await page.waitForTimeout(2500);
   const at2500 = await landedSection(page);
   check('7a the landed section is parked at the sticky offset',
     at0.top !== null && Math.abs(at0.top - at0.off) <= 2,
-    `top ${at0.top} vs sticky offset ${at0.off}`);
+    `top ${at0.top} vs sticky offset ${at0.off} (${pinTell})`);
   check('7b and it is still there 2.5s later, after the document has resolved',
     at2500.key === at0.key && at2500.top !== null && Math.abs(at2500.top - at2500.off) <= 2,
     `${at0.key} at ${at0.top} → ${at2500.key} at ${at2500.top} (drift ${
@@ -577,7 +640,10 @@ if (currentRegime() === 'off-season') {
 // 2026-01-03, FAIL in both engines.
 {
   const wk = await webkit.launch();
-  const page = await newPageOn(wk, {});
+  // Pinned like checks 5 and 7, and for the same reason: every assertion in
+  // this block is about the reader being left exactly on today. `pinLandings`,
+  // not `pinnable` — see its note on what pinning does to an off-season run.
+  const page = await newPageOn(wk, pinLandings ? onPinnedToday({}) : {});
   await settle(page);
   const landed = await landedSection(page);
   const restore = await page.evaluate(() => history.scrollRestoration);
@@ -586,9 +652,12 @@ if (currentRegime() === 'off-season') {
   if (currentRegime() === 'off-season') {
     skip('5-webkit the reader lands on today (webkit)',
       'off-season, today falls outside the season, so there is no "today" section to land on');
+  } else if (!pinLandings) {
+    skip('5-webkit the reader lands on today (webkit)', unpinnable);
   } else {
     check('5-webkit the reader lands on today (webkit)', landed.key === today,
-      `landed on ${landed.key}, today is ${today} (of ${landed.days} sections, first ${landed.first})`);
+      `landed on ${landed.key}, today is ${today} (of ${landed.days} sections, ` +
+      `first ${landed.first}; ${pinTell})`);
   }
   // The app owns where a load lands: a browser restoring an offset against a
   // document whose height is entirely data-dependent cannot be right, and it
@@ -686,11 +755,10 @@ if (currentRegime() === 'off-season') {
       `first top ${nudged.firstTop}, last ${nudged.lastTop}), ${nudged.chips} chips`
     : '';
 
-  if (!rail) {
-    skip('5-webkit the rail centres the day it highlights (webkit)',
-      'no rail on screen, or no chip carries aria-current');
-    skip('5-webkit the rail highlights today (webkit)',
-      'no rail on screen, or no chip carries aria-current');
+  if (!rail || !(pinLandings || currentRegime() === 'off-season')) {
+    const why = rail ? unpinnable : 'no rail on screen, or no chip carries aria-current';
+    skip('5-webkit the rail centres the day it highlights (webkit)', why);
+    skip('5-webkit the rail highlights today (webkit)', why);
   } else {
     check('5-webkit the rail centres the day it highlights (webkit)',
       Math.abs(rail.off) <= 2,
@@ -725,12 +793,19 @@ if (currentRegime() === 'off-season') {
   await wk.close();
 }
 
+const TICKS = 30;
+const STEP = 80;
 for (const engineName of ['chromium', 'webkit']) {
   const launched = engineName === 'chromium' ? browser : await webkit.launch();
   const page = await newPageOn(launched, {});
   await settle(page);
-  const TICKS = 30;
-  const STEP = 80;
+  // Thirty 80px ticks need 2,400px of document below the reader to advance
+  // into. The load lands on today, and at the end of a season that is the
+  // bottom of the document: this check read `0px of 2400 requested over 30
+  // ticks` in BOTH engines on 2026-08-31, against a page that had nowhere
+  // left to go. See `makeRoomBelow` in `regime.mjs`.
+  const made = await makeRoomBelow(page, TICKS * STEP + 400);
+  await settle(page);
   const trace = [];
   const start = await page.evaluate(() => Math.round(window.scrollY));
   for (let i = 0; i < TICKS; i++) {
@@ -743,7 +818,8 @@ for (const engineName of ['chromium', 'webkit']) {
   const backwards = trace.filter((y, i) => y < (i === 0 ? start : trace[i - 1])).length;
   check(`9a slow scrolling advances the page (${engineName})`,
     advanced >= TICKS * STEP * 0.9,
-    `${advanced}px of ${TICKS * STEP} requested over ${TICKS} ticks`);
+    `${advanced}px of ${TICKS * STEP} requested over ${TICKS} ticks ` +
+    `(made ${made}px of room below first)`);
   check(`9b slow scrolling never snaps the reader backwards (${engineName})`,
     backwards === 0, `${backwards} of ${TICKS} ticks moved up`);
   await page.close();

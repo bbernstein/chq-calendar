@@ -17,7 +17,7 @@
 import { chromium } from 'playwright';
 import { pinClock } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList } from './regime.mjs';
+import { enterList, makeRoomBelow } from './regime.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -194,6 +194,8 @@ const strandedPanels = p => p.evaluate(() =>
   const p = await phone();
   await p.evaluate(() => window.scrollTo(0, 6000));
   await p.waitForTimeout(800);
+  // The downward flick below needs somewhere to flick to; see `makeRoomBelow`.
+  const made4a = await makeRoomBelow(p);
 
   // Wheel until it is actually hidden rather than assuming one tick does it —
   // the lesson `verify-header-reveal`'s own `deepAndHidden` already carries.
@@ -210,7 +212,7 @@ const strandedPanels = p => p.evaluate(() =>
   // The precondition is asserted, not assumed. A funnel that "came back" from
   // a header that never left proves nothing.
   check('4a the header, and the funnel with it, goes away on a downward flick',
-    hidden, `headerShown=${await headerShown(p)}`);
+    hidden, `headerShown=${await headerShown(p)} (made ${made4a}px of room below)`);
 
   await revealHeader(p);
   check('4b a small upward flick brings both back, and the funnel is usable',
@@ -762,6 +764,9 @@ const strandedPanels = p => p.evaluate(() =>
   const p = await phone();
   await p.evaluate(() => window.scrollTo(0, 6000));
   await p.waitForTimeout(800);
+  // Checks 36 and 37 both turn on a downward gesture moving the page; see
+  // `makeRoomBelow`.
+  const made37 = await makeRoomBelow(p);
   await openFilters(p);
   check('35 the panel opens with the header shown', await headerShown(p));
 
@@ -779,7 +784,8 @@ const strandedPanels = p => p.evaluate(() =>
   await p.mouse.wheel(0, 300);
   await p.waitForTimeout(600);
   check('37 the header hides again once the panel is closed',
-    !(await headerShown(p)), `headerShown=${await headerShown(p)}`);
+    !(await headerShown(p)),
+    `headerShown=${await headerShown(p)} (made ${made37}px of room below)`);
   await p.context().close();
 }
 

@@ -21,7 +21,7 @@
 import { chromium, webkit } from 'playwright';
 import { pinClock } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList } from './regime.mjs';
+import { enterList, makeRoomBelow } from './regime.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -148,6 +148,14 @@ const settle = async (p, { stableSamples = 4, gapMs = 120, timeoutMs = 8000, lab
  */
 const deepAndHidden = async (p, y = 6000) => {
   await p.evaluate((to) => window.scrollTo(0, to), y);
+  await settle(p);
+  // The wheels below need somewhere to wheel TO. `scrollTo` is undone by
+  // `useDayAnchor`'s hold, so the reader is wherever the load left them — and
+  // once the season's tail runs short that is the bottom of the document, where
+  // a downward wheel moves 0px and the header is right not to hide. Six checks
+  // in this suite reported `scrollY=159747` and a header that would not park on
+  // 2026-08-31; see `makeRoomBelow` in `regime.mjs` for the measurements.
+  await makeRoomBelow(p);
   await settle(p);
   // Wheel until it is actually hidden, rather than assuming one tick does it.
   //
