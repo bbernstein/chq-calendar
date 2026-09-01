@@ -197,11 +197,27 @@ if (!edges.first || !edges.last) {
   // Falsifying 3a-3c by disabling the branch in page.tsx once left the old
   // version of this check green on a page that had nothing on it. A check
   // that survives its own subject being deleted is not a check.
-  const archiveYear = Math.max(...edges.years.filter(y => y < edges.year));
+  // `null`, not -Infinity, when nothing is earlier: `Math.max()` of an empty
+  // spread is -Infinity, which would assert "Browse the -Infinity season" and
+  // fail for a reason that has nothing to do with the behaviour under test.
+  // The nil branch is the rule, not a defensive afterthought — a first
+  // published season has no earlier one, and `determineLandingState` returns
+  // `archiveYear: null` there, which correctly renders no button at all.
+  //
+  // Not exercised today, and deliberately not dressed up as if it were: the
+  // live manifest has carried an earlier year since 2025 was published, so
+  // the nil branch cannot be reached from this suite, which reads the real
+  // feed by design. It is here so that the day it IS reachable this check
+  // fails for its own reason or passes honestly, rather than reporting
+  // `Browse the -Infinity season`.
+  const earlier = edges.years.filter(y => y < edges.year);
+  const archiveYear = earlier.length > 0 ? Math.max(...earlier) : null;
   check('3d pre-season offers the last season that ran',
-    s.landing && s.buttons.length === 1
-      && s.buttons[0] === `Browse the ${archiveYear} season`,
-    `landing=${s.landing} archiveYear=${archiveYear} buttons=${s.buttons.join(' | ') || 'none'}`);
+    s.landing && (archiveYear === null
+      ? s.buttons.length === 0
+      : s.buttons.length === 1 && s.buttons[0] === `Browse the ${archiveYear} season`),
+    `landing=${s.landing} archiveYear=${archiveYear ?? 'none'} `
+      + `buttons=${s.buttons.join(' | ') || 'none'}`);
   // "Preview the _ season" stays post-season-only: pre-season IS the
   // upcoming season, so there is nothing ahead to preview.
   check('3e pre-season offers no preview action',
