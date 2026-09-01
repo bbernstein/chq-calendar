@@ -64,7 +64,7 @@ struct LandingStateTests {
         let opening = try #require(ChqTime.parse("2027-06-26 12:00:00"))
         let state = LandingState.determine(
             now: now, selectedYear: 2027, availableYears: manifestYears, yearHasUpcomingEvents: false, yearHasEvents: true)
-        #expect(state == .preSeason(opening: opening, daysUntil: 6))
+        #expect(state == .preSeason(opening: opening, daysUntil: 6, archiveYear: 2026))
     }
 
     /// No later year in the manifest yet: `nextSeasonYear`/`opening`/
@@ -113,7 +113,7 @@ struct LandingStateTests {
         let state = LandingState.determine(
             now: now, selectedYear: 2026, availableYears: manifestYears,
             yearHasUpcomingEvents: false, yearHasEvents: false)
-        #expect(state == .preSeason(opening: opening, daysUntil: 57))
+        #expect(state == .preSeason(opening: opening, daysUntil: 57, archiveYear: 2025))
     }
 
     // MARK: - Rule 4: no countdown to a season that has already opened (#288)
@@ -178,18 +178,28 @@ struct LandingStateTests {
 
     // MARK: - archiveYear
 
-    /// Reviewer-confirmed defect: `.preSeason`'s "Browse the _ season"
-    /// button used to label itself `selectedYear - 1` while the underlying
-    /// `AppModel.browseArchiveSeason()` applied `.season` scope to
-    /// `selectedYear` (the *upcoming* year) instead — a label/outcome
-    /// mismatch, reachable even when `selectedYear - 1` was in
-    /// `model.years`. The fix is `archiveYear` returning `nil`
-    /// unconditionally for `.preSeason`, which hides the button rather than
-    /// showing one whose action can't honor its own label.
-    @Test func archiveYearIsNilForPreSeasonEvenWhenAnEarlierYearExists() throws {
+    /// `archiveYear` is a projection, not a second rule: whatever
+    /// `determine` put on the case is what the button gets. Pinned against
+    /// a hand-built case so the projection is tested independently of rule
+    /// 2's arithmetic.
+    @Test func archiveYearIsThePreSeasonCasesOwnArchiveYear() throws {
         let opening = try #require(ChqTime.parse("2026-06-27 12:00:00"))
-        let preSeason = LandingState.preSeason(opening: opening, daysUntil: 5)
+        let preSeason = LandingState.preSeason(
+            opening: opening, daysUntil: 5, archiveYear: 2025)
+        #expect(preSeason.archiveYear == 2025)
+    }
+
+    /// The other half of the projection: a `.preSeason` carrying no earlier
+    /// year projects `nil`, which is what hides the button.
+    @Test func archiveYearIsNilForAPreSeasonCarryingNoEarlierYear() throws {
+        let opening = try #require(ChqTime.parse("2026-06-27 12:00:00"))
+        let preSeason = LandingState.preSeason(
+            opening: opening, daysUntil: 5, archiveYear: nil)
         #expect(preSeason.archiveYear == nil)
+    }
+
+    @Test func archiveYearIsNilForInSeason() {
+        #expect(LandingState.inSeason.archiveYear == nil)
     }
 
     @Test func archiveYearIsTheEndedSeasonYearForPostSeason() throws {
@@ -197,5 +207,63 @@ struct LandingStateTests {
         let postSeason = LandingState.postSeason(
             endedSeasonYear: 2026, nextSeasonYear: 2027, opening: opening, daysUntil: 288)
         #expect(postSeason.archiveYear == 2026)
+    }
+
+    // MARK: - Rule 2: the archive year `.preSeason` offers
+
+    /// The year offered is the newest season the manifest lists *below*
+    /// `selectedYear` — here 2026, the season that ran last, while the
+    /// reader waits for 2027.
+    @Test func preSeasonCarriesTheNewestEarlierYearInTheManifest() throws {
+        let now = try #require(ChqTime.parse("2027-06-20 00:00:00"))
+        let state = LandingState.determine(
+            now: now, selectedYear: 2027, availableYears: manifestYears,
+            yearHasUpcomingEvents: false, yearHasEvents: true)
+        #expect(state.archiveYear == 2026)
+    }
+
+    /// Nothing earlier in the manifest — the very first published season,
+    /// pre-season. `nil` hides the button rather than offering a year with
+    /// no feed behind it.
+    ///
+    /// Asserts the whole case, not `state.archiveYear`: the projection is
+    /// `nil` for `.inSeason` too, so a projection-only assertion here would
+    /// stay green if rule 2 stopped firing altogether and this fixture fell
+    /// through to `.inSeason`. The `nil` that matters is a `nil` on a
+    /// `.preSeason`.
+    @Test func preSeasonCarriesNoArchiveYearWhenTheManifestHasNothingEarlier() throws {
+        let now = try #require(ChqTime.parse("2026-05-01 00:00:00"))
+        let opening = try #require(ChqTime.parse("2026-06-27 12:00:00"))
+        let state = LandingState.determine(
+            now: now, selectedYear: 2026, availableYears: [2026, 2027],
+            yearHasUpcomingEvents: false, yearHasEvents: false)
+        #expect(state == .preSeason(opening: opening, daysUntil: 57, archiveYear: nil))
+    }
+
+    /// The reason this is manifest-derived rather than `selectedYear - 1`.
+    /// A manifest that skips a year is not hypothetical — a season can be
+    /// announced without the one before it ever being published — and
+    /// `selectedYear - 1` would name 2026 here, whose feed does not exist
+    /// and 404s into an empty screen. The newest year actually listed does.
+    @Test func preSeasonSkipsAGapInTheManifestRatherThanGuessingTheYearBefore() throws {
+        let now = try #require(ChqTime.parse("2027-06-20 00:00:00"))
+        let state = LandingState.determine(
+            now: now, selectedYear: 2027, availableYears: [2024, 2027],
+            yearHasUpcomingEvents: false, yearHasEvents: true)
+        #expect(state.archiveYear == 2024)
+    }
+
+    /// `availableYears` arrives from the years manifest and is not promised
+    /// to be sorted, so the rule must be a `max`, not "the element before
+    /// `selectedYear`". The fixture is deliberately out of order: a
+    /// positional rule reads 2024 here (the element preceding 2027) while
+    /// returning the correct 2026 on every sorted fixture in this file, so
+    /// this is the only test that can tell the two rules apart.
+    @Test func preSeasonTakesTheMaximumEarlierYearRegardlessOfManifestOrder() throws {
+        let now = try #require(ChqTime.parse("2027-06-20 00:00:00"))
+        let state = LandingState.determine(
+            now: now, selectedYear: 2027, availableYears: [2026, 2024, 2027, 2025],
+            yearHasUpcomingEvents: false, yearHasEvents: true)
+        #expect(state.archiveYear == 2026)
     }
 }

@@ -1,6 +1,10 @@
 # Off-season landing and regime-aware browser checks (#269)
 
-**Status:** Approved design, not yet implemented.
+**Status:** Implemented and shipped — PR
+[#270](https://github.com/bbernstein/chq-calendar/pull/270), squash
+`c1fed9e`, deployed 2026-08-24. Two clauses have since been superseded and
+carry dated notes in place: the `pre-season` archive-button restriction
+(#186) and §A3's open verification question.
 **Issue:** [#269](https://github.com/bbernstein/chq-calendar/issues/269)
 **Date:** 2026-08-24
 
@@ -149,6 +153,20 @@ Content mirrors iOS:
     is `null` for `pre-season` on iOS for a documented reason (there is no
     year-aware browse), and the web port keeps that restriction rather than
     inventing a divergence.
+
+    > **Superseded 2026-08-31 by #186 (both platforms).** The premise this
+    > restriction rested on — "there is no year-aware browse" — no longer
+    > holds. `LandingState.archiveYear` is now the newest year *below*
+    > `selectedYear` in the years manifest for `pre-season` as well as
+    > `post-season` (`ios/ChqCalendarShared/Domain/LandingState.swift`,
+    > `frontend/src/lib/utils/landingState.ts`), and the browse action takes
+    > the year it is labelled with (`AppModel.browsePastSeason(year:)`,
+    > `page.tsx`'s `browsePastSeason(year)`). So the button renders
+    > pre-season too, and it is `null`-hidden only when the manifest lists
+    > no earlier year at all. The web's `setDateFilter('season')` half of
+    > this bullet had already been superseded by #274 phase 4 (`3ac557b`),
+    > which deleted web date filtering; the archive is entered through
+    > `browsingArchive` now.
 - Footnote: starred events and filters still work in past seasons.
 - A stable `data-testid="off-season-landing"` for the harness to race
   against `[data-day-key]`.
@@ -182,6 +200,23 @@ just empty of events), so the chips are enabled and `goToDay` should expand
 `windowStartDay`. If it does not land, the rail must hide over the landing
 rather than offer taps that do nothing, matching the `scopeHasWindow`
 precedent.
+
+> **Discharged. Answer: it lands, on both platforms; the rail stays.**
+> Recorded 2026-08-31.
+>
+> - **Web**, by `3ac557b` (#274 phase 4) —
+>   `frontend/src/__tests__/integration/offSeasonLanding.test.tsx`, *"a rail
+>   day tap dismisses the landing and lands on the TAPPED day, not the
+>   default"*, plus the sibling that repeats it with the landing page
+>   already scrolled. The fixture pins `now` to 2026-09-15 (post-season),
+>   taps a chip, and asserts the scroll offset is the tapped day's and not
+>   the fallback landing day's. So the "hide the rail" fallback this
+>   section prescribed was never needed. Note that the mechanism it names
+>   is gone: #274 phase 4 deleted web date filtering, so there is no
+>   `scopeHasWindow` gate left to match.
+> - **iOS**, by `7fde4e3` (this branch) —
+>   `ios/ChqCalendarUITests/YearNavigationUITests.swift`,
+>   `testARailTapFromThePostSeasonLandingLandsOnThatDay()`.
 
 ### A4. Tests
 

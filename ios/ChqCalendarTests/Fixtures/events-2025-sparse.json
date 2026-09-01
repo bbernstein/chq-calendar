@@ -1,0 +1,239 @@
+{
+  "data": [
+    {
+      "id": "100868",
+      "uid": "chq-100868-20250621T104500",
+      "title": "Opening Three Taps",
+      "startDate": "2025-06-21 10:45:00",
+      "endDate": "2025-06-21 10:45:00",
+      "timezone": "America/New_York",
+      "venue": {
+        "name": "Amphitheater",
+        "id": 8024,
+        "address": "Amphitheater",
+        "showMap": true
+      },
+      "location": "Amphitheater",
+      "categories": [
+        {
+          "name": "Chautauqua Institution Program",
+          "parent": 0,
+          "id": 387,
+          "taxonomy": "tribe_events_cat",
+          "slug": "chautauqua-institution-program"
+        },
+        {
+          "name": "Week One (June 27–July 4)",
+          "parent": 342,
+          "id": 484,
+          "taxonomy": "tribe_events_cat",
+          "slug": "week-one"
+        },
+        {
+          "name": "Weekly Themes",
+          "parent": 0,
+          "id": 342,
+          "taxonomy": "tribe_events_cat",
+          "slug": "weekly-themes"
+        }
+      ],
+      "tags": [
+        "amphitheater",
+        "chautauqua-institution-program",
+        "chautauqua institution program",
+        "week-one",
+        "week one (june 27–july 4)",
+        "weekly-themes",
+        "weekly themes",
+        "free"
+      ],
+      "category": "Chautauqua Institution Program",
+      "cost": "Sunday Free Event",
+      "url": "https://www.chq.org/event/opening-three-taps/",
+      "status": "publish",
+      "featured": false,
+      "confidence": "confirmed",
+      "source": "events-calendar-api"
+    },
+    {
+      "id": "102807",
+      "uid": "chq-102807-20250719T153000",
+      "title": "Islam 101: Khalid and Sabeeha Rehman",
+      "startDate": "2025-07-19 15:30:00",
+      "endDate": "2025-07-19 15:30:00",
+      "timezone": "America/New_York",
+      "venue": {
+        "name": "Hall of Christ: Sanctuary",
+        "id": 41406,
+        "showMap": true
+      },
+      "location": "Hall of Christ: Sanctuary",
+      "categories": [
+        {
+          "name": "Chautauqua Institution Program",
+          "parent": 0,
+          "id": 387,
+          "taxonomy": "tribe_events_cat",
+          "slug": "chautauqua-institution-program"
+        },
+        {
+          "name": "Faith and Spiritual Programming",
+          "parent": 387,
+          "id": 344,
+          "taxonomy": "tribe_events_cat",
+          "slug": "faith-and-spiritual-programming"
+        }
+      ],
+      "tags": [
+        "hall of christ: sanctuary",
+        "chautauqua-institution-program",
+        "chautauqua institution program",
+        "faith-and-spiritual-programming",
+        "faith and spiritual programming",
+        "free"
+      ],
+      "category": "Chautauqua Institution Program",
+      "cost": "free",
+      "url": "https://www.chq.org/event/islam-101-khalid-and-sabeeha-rehman-21/",
+      "status": "publish",
+      "featured": false,
+      "confidence": "confirmed",
+      "source": "events-calendar-api"
+    },
+    {
+      "id": "102809",
+      "uid": "chq-102809-20250726T153000",
+      "title": "Islam 101: Khalid and Sabeeha Rehman",
+      "startDate": "2025-07-26 15:30:00",
+      "endDate": "2025-07-26 15:30:00",
+      "timezone": "America/New_York",
+      "venue": {
+        "name": "Hall of Christ: Sanctuary",
+        "id": 41406,
+        "showMap": true
+      },
+      "location": "Hall of Christ: Sanctuary",
+      "categories": [
+        {
+          "name": "Chautauqua Institution Program",
+          "parent": 0,
+          "id": 387,
+          "taxonomy": "tribe_events_cat",
+          "slug": "chautauqua-institution-program"
+        },
+        {
+          "name": "Faith and Spiritual Programming",
+          "parent": 387,
+          "id": 344,
+          "taxonomy": "tribe_events_cat",
+          "slug": "faith-and-spiritual-programming"
+        }
+      ],
+      "tags": [
+        "hall of christ: sanctuary",
+        "chautauqua-institution-program",
+        "chautauqua institution program",
+        "faith-and-spiritual-programming",
+        "faith and spiritual programming",
+        "free"
+      ],
+      "category": "Chautauqua Institution Program",
+      "cost": "free",
+      "url": "https://www.chq.org/event/islam-101-khalid-and-sabeeha-rehman-22/",
+      "status": "publish",
+      "featured": false,
+      "confidence": "confirmed",
+      "source": "events-calendar-api"
+    },
+    {
+      "id": "102810",
+      "uid": "chq-102810-20250802T153000",
+      "title": "Islam 101: Khalid and Sabeeha Rehman",
+      "startDate": "2025-08-02 15:30:00",
+      "endDate": "2025-08-02 15:30:00",
+      "timezone": "America/New_York",
+      "venue": {
+        "name": "Hall of Christ: Sanctuary",
+        "id": 41406,
+        "showMap": true
+      },
+      "location": "Hall of Christ: Sanctuary",
+      "categories": [
+        {
+          "name": "Chautauqua Institution Program",
+          "parent": 0,
+          "id": 387,
+          "taxonomy": "tribe_events_cat",
+          "slug": "chautauqua-institution-program"
+        },
+        {
+          "name": "Faith and Spiritual Programming",
+          "parent": 387,
+          "id": 344,
+          "taxonomy": "tribe_events_cat",
+          "slug": "faith-and-spiritual-programming"
+        }
+      ],
+      "tags": [
+        "hall of christ: sanctuary",
+        "chautauqua-institution-program",
+        "chautauqua institution program",
+        "faith-and-spiritual-programming",
+        "faith and spiritual programming",
+        "free"
+      ],
+      "category": "Chautauqua Institution Program",
+      "cost": "free",
+      "url": "https://www.chq.org/event/islam-101-khalid-and-sabeeha-rehman-23/",
+      "status": "publish",
+      "featured": false,
+      "confidence": "confirmed",
+      "source": "events-calendar-api"
+    },
+    {
+      "id": "102811",
+      "uid": "chq-102811-20250809T153000",
+      "title": "Islam 101: Khalid and Sabeeha Rehman",
+      "startDate": "2025-08-09 15:30:00",
+      "endDate": "2025-08-09 15:30:00",
+      "timezone": "America/New_York",
+      "venue": {
+        "name": "Hall of Christ: Sanctuary",
+        "id": 41406,
+        "showMap": true
+      },
+      "location": "Hall of Christ: Sanctuary",
+      "categories": [
+        {
+          "name": "Chautauqua Institution Program",
+          "parent": 0,
+          "id": 387,
+          "taxonomy": "tribe_events_cat",
+          "slug": "chautauqua-institution-program"
+        },
+        {
+          "name": "Faith and Spiritual Programming",
+          "parent": 387,
+          "id": 344,
+          "taxonomy": "tribe_events_cat",
+          "slug": "faith-and-spiritual-programming"
+        }
+      ],
+      "tags": [
+        "hall of christ: sanctuary",
+        "chautauqua-institution-program",
+        "chautauqua institution program",
+        "faith-and-spiritual-programming",
+        "faith and spiritual programming",
+        "free"
+      ],
+      "category": "Chautauqua Institution Program",
+      "cost": "free",
+      "url": "https://www.chq.org/event/islam-101-khalid-and-sabeeha-rehman-24/",
+      "status": "publish",
+      "featured": false,
+      "confidence": "confirmed",
+      "source": "events-calendar-api"
+    }
+  ]
+}

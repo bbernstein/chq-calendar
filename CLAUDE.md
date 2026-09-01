@@ -301,9 +301,17 @@ say so in both headers.
 changes without any app release. `EffectiveScope.resolve` degrades every
 `now`-relative scope to `.all` for a non-current year, which silently makes
 some states unreachable in tests — and reachable again the moment something
-upstream changes. The XCUITest fixture serves a single-year manifest
-(`UITestFixtureAPI.swift`), so no next-year path is reachable from a UI test
-at all.
+upstream changes. The XCUITest fixture serves a **three**-season manifest
+(`UITestFixtureAPI.swift`) precisely so those states are reachable: 2025 is
+an archived season with events, 2026 is the default year every pre-existing
+test is written against, and 2027 is announced in `years` while serving a
+valid but **empty** events payload. That last detail is the whole trick and
+it is easy to undo by accident — `LandingState`'s rule 1 sends a *populated*
+future year to `.inSeason`, and `AppModel.landingState`'s `guard snapshot !=
+nil` sends a **404**ing one there too, so an empty payload under a clock
+frozen before that season's start is the only way `.preSeason` is reachable
+at all. `YearNavigationUITests` covers the two paths this bought (#186, #253)
+and names in its own comments which launch reaches which state.
 
 **Prove a guard by breaking the code.** Injecting the defect and watching
 the specific test go red is the only evidence that a test tests anything;

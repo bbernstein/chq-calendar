@@ -10,11 +10,16 @@ export interface OffSeasonLandingProps {
    */
   onPreviewNextSeason: (year: number) => void;
   /**
-   * Stop covering the year already selected with this landing — it is over,
-   * and the reader wants to look at it anyway. Takes no year on purpose: the
-   * year on screen is already the one that ended.
+   * Browse the past season named on the button — the year is always the one
+   * on that button's own label, so the label and the outcome cannot come
+   * apart. It takes a year because the two landing states offer different
+   * ones (#186): `post-season` offers `endedSeasonYear`, which is already the
+   * year on screen, while `pre-season` offers an earlier year from the
+   * manifest and so needs a year switch as well as the dismissal. Mirrors
+   * iOS's `AppModel.browsePastSeason(year:)`, which replaced its own
+   * year-blind action for the same reason.
    */
-  onBrowseArchiveSeason: () => void;
+  onBrowseArchiveSeason: (year: number) => void;
 }
 
 /**
@@ -60,6 +65,14 @@ export function OffSeasonLanding({
   // cast, and a cast is exactly the thing that would hide the field's type
   // widening later. A `const` cannot be reassigned, so the narrowing holds.
   const nextSeasonYear = state.kind === 'post-season' ? state.nextSeasonYear : null;
+  // The past season this landing can offer, or `null` to hide the button —
+  // the web half of iOS's `LandingState.archiveYear` projection (#186).
+  // `post-season` offers the year that just ended, which is the one already
+  // selected; `pre-season` offers whatever earlier year `determineLandingState`
+  // found in the manifest, which is a DIFFERENT year from the one on screen.
+  // Hoisted to a `const` for the same reason as `nextSeasonYear` above: a
+  // property narrowing would not survive into the click handler's closure.
+  const archiveYear = state.kind === 'post-season' ? state.endedSeasonYear : state.archiveYear;
   // `state.kind === 'pre-season'` narrows the ternary's other branch to
   // `post-season`, so `state.endedSeasonYear` is valid there without a cast.
   const heading =
@@ -68,6 +81,37 @@ export function OffSeasonLanding({
       : seasonIsAhead
         ? 'See you next season'
         : `The ${state.endedSeasonYear} season has ended`;
+
+  // The two ways forward, each built here rather than gated inline in the
+  // JSX, so that each has exactly ONE guard. Gating a button inside a wrapper
+  // that is itself gated on the same condition makes both lines redundant and
+  // neither falsifiable: injected against the earlier inline version,
+  // deleting the archive button's own `archiveYear !== null` check changed
+  // nothing observable, because the wrapper had already declined to render.
+  // With the wrapper derived from these two values instead, deleting either
+  // guard renders a button with a blank year, which the tests catch.
+  const previewButton =
+    nextSeasonYear === null ? null : (
+      <button
+        type="button"
+        onClick={() => onPreviewNextSeason(nextSeasonYear)}
+        className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+      >
+        {seasonIsAhead
+          ? `Preview the ${nextSeasonYear} season`
+          : `Go to the ${nextSeasonYear} season`}
+      </button>
+    );
+  const archiveButton =
+    archiveYear === null ? null : (
+      <button
+        type="button"
+        onClick={() => onBrowseArchiveSeason(archiveYear)}
+        className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-500 text-gray-700 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+      >
+        Browse the {archiveYear} season
+      </button>
+    );
 
   return (
     <div data-testid="off-season-landing" className="text-center py-12 px-4">
@@ -93,26 +137,21 @@ export function OffSeasonLanding({
         </div>
       )}
 
-      {state.kind === 'post-season' && (
+      {/*
+        The row renders only when it has a button to hold — an empty one would
+        still contribute its own `mb-6`. Each button is gated on its own year
+        rather than on the landing's kind: the block used to be gated on
+        `state.kind === 'post-season'` wholesale, which is how a pre-season
+        reader got a countdown and no way anywhere — the web half of the dead
+        end #186 describes. `pre-season` now offers the archive button
+        whenever the manifest has an earlier year; the preview button stays
+        post-season-only because `nextSeasonYear` is `null` in every other
+        state by construction.
+      */}
+      {(previewButton !== null || archiveButton !== null) && (
         <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mb-6">
-          {nextSeasonYear !== null && (
-            <button
-              type="button"
-              onClick={() => onPreviewNextSeason(nextSeasonYear)}
-              className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-            >
-              {seasonIsAhead
-                ? `Preview the ${nextSeasonYear} season`
-                : `Go to the ${nextSeasonYear} season`}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onBrowseArchiveSeason}
-            className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-500 text-gray-700 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
-          >
-            Browse the {state.endedSeasonYear} season
-          </button>
+          {previewButton}
+          {archiveButton}
         </div>
       )}
 

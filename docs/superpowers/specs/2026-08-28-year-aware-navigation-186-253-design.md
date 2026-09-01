@@ -1,7 +1,17 @@
 # Year-aware navigation — #186 + #253
 
-**Status:** APPROVED, NOT IMPLEMENTED. Design agreed 2026-08-28; implementation
-deferred to a fresh session.
+**Status:** IMPLEMENTED 2026-08-31 on `feat/year-aware-navigation-186-253`
+(**PR #298** — referenced by PR rather than squash sha, which does not exist
+until merge). Design agreed 2026-08-28;
+implementation ran as the seven-task plan in
+`docs/superpowers/plans/2026-08-31-year-aware-navigation-186-253-plan.md`.
+Delivered beyond this design: the web half of #186 (`bacc6ac` — `LandingState`
+is a declared port, so fixing only iOS would have re-opened the divergence
+class #288 closed), a cross-year window-hygiene fix on the deep-link path
+(#234/#156), and the first end-to-end UI coverage either issue has had —
+`UITestFixtureAPI` now serves three seasons instead of one.
+The **"today" column of the table below is the pre-fix state**, kept as the
+record of what was wrong; read the "wanted" column for what ships.
 **Issues:** #186 (pre-season archive button), #253 (Siri on an archived year).
 **Queue:** item 2 in `docs/plans/2026-08-27-work-queue.md`. #288 is already
 merged (`01fa4e3`); these two are what remain of iOS 1.1.4.

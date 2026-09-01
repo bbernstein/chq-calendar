@@ -216,3 +216,39 @@ final class MockCache: DataCaching, @unchecked Sendable {
         storage.removeValue(forKey: key)
     }
 }
+
+/// Two cached seasons (2025 and 2026) plus the `[2025, 2026, 2027]`
+/// years manifest, with `now` mid-season 2026 — so 2026 is
+/// `isCurrentYear` and 2025 is an archived season. `start()` has already
+/// run, so `selectedYear` is the manifest's `defaultYear` (2026) and
+/// `years` is populated: the state a deep link actually arrives in.
+///
+/// 2025 gets its own fixture rather than a second helping of
+/// `events-sample`. `ViewWindow.navigableBounds` widens a year's bounds
+/// to cover every event in its snapshot, so filing 2026-dated events
+/// under 2025 would make 2026 days reachable from *within* 2025 — and
+/// every cross-year test would then pass without a year switch ever
+/// happening.
+///
+/// Shared rather than private to `AppModelTests` because `PendingDayLinkTests`
+/// needs the identical two-season state to exercise the deep-link consumer
+/// across a year switch, and two hand-kept copies of a fixture whose whole
+/// point is a subtle bounds relationship between the years is exactly the
+/// divergence this project keeps paying for.
+@MainActor
+func makeTwoSeasonModel(defaults: UserDefaults) async throws -> AppModel {
+    let cache = MockCache()
+    cache.write(
+        "events-2025", data: fixtureData("events-2025-sparse"), etag: "e25", fetchedAt: Date())
+    cache.write(
+        "events-2026", data: fixtureData("events-sample"), etag: "e26", fetchedAt: Date())
+    cache.write("years", data: fixtureData("years"), etag: "y1", fetchedAt: Date())
+    let now = try #require(ChqTime.parse("2026-08-03 12:00:00"))
+    let model = AppModel(
+        repository: EventRepository(api: MockAPI(), cache: cache),
+        store: UserStateStore(defaults: defaults, now: { Date() }),
+        now: { now }
+    )
+    await model.start()
+    return model
+}
