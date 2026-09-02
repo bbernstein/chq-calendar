@@ -210,6 +210,12 @@ async function main() {
           // Write the file (just the data part, not the cache metadata)
           await fs.writeFile(outputPath, JSON.stringify(cachedData, null, 2));
           console.log(`\nSaved all-events-${year}.json to: ${outputPath}`);
+          // Same refresh as the --save-local branch above. This fallback
+          // writes the same local files, so it has the same reason to keep
+          // years.json current; skipping it here would leave the manifest
+          // stale for anyone who reaches for --fetch-s3-direct when the cache
+          // service fails, which is the drift this change exists to stop.
+          await refreshYearsManifest();
           console.log('Set VITE_LOCAL_DATA=true to make the frontend read it; see backend/README-LOCAL-SYNC.md.');
         }
       } catch (error) {

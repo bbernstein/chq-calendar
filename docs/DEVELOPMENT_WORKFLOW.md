@@ -71,10 +71,16 @@ docker compose down
 # Test the static event data endpoint the local frontend actually reads.
 # Note the year suffix: `all-events.json` (no suffix) is a legacy every-year
 # blob of ~10MB that nothing requests.
-curl -s 'http://localhost:3000/cache/calendar-cache/all-events-2026.json' | jq '.data | length'
+#
+# The season turns over on October 1, so derive the year rather than pasting
+# one — a hardcoded example goes stale every autumn, which is the same drift
+# that left years.json six months wrong (#286).
+YEAR=$(date +%Y); [ "$(date +%m)" -ge 10 ] && YEAR=$((YEAR + 1))
+
+curl -s "http://localhost:3000/cache/calendar-cache/all-events-${YEAR}.json" | jq '.data | length'
 
 # Verify event data structure and freshness
-curl -s 'http://localhost:3000/cache/calendar-cache/all-events-2026.json' | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
+curl -s "http://localhost:3000/cache/calendar-cache/all-events-${YEAR}.json" | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
 
 # Going through localhost:3000 rather than straight to the CDN is deliberate:
 # it exercises the '/cache' proxy rule in frontend/vite.config.ts, which is the
