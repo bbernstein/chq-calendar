@@ -31,7 +31,7 @@ describe('useProgramLinks', () => {
     vi.unstubAllGlobals();
   });
 
-  it('fetches the dev-path sidecar and returns links keyed by event id', async () => {
+  it('fetches the sidecar from the CDN base and returns links keyed by event id', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve(PROGRAM_PAYLOAD),
@@ -42,8 +42,10 @@ describe('useProgramLinks', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // vitest runs with import.meta.env.DEV === true → dev cache base
-    expect(fetch).toHaveBeenCalledWith('/data/program-links-2026.json');
+    // The CDN base, in dev as well as production (#286). vitest runs with
+    // import.meta.env.DEV === true, so this fails if the old
+    // `DEV ? '/data' : …` branch ever comes back.
+    expect(fetch).toHaveBeenCalledWith('/cache/calendar-cache/program-links-2026.json');
     expect(result.current.links['91653']).toHaveLength(1);
     expect(result.current.links['91653'][0].title).toBe('Digital Program');
   });
@@ -80,10 +82,10 @@ describe('useProgramLinks', () => {
   it('does not collide with useArticleLinks cache for the same year', async () => {
     __resetArticleLinksCacheForTests();
     (fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (url === '/data/program-links-2026.json') {
+      if (url === '/cache/calendar-cache/program-links-2026.json') {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(PROGRAM_PAYLOAD) });
       }
-      if (url === '/data/article-links-2026.json') {
+      if (url === '/cache/calendar-cache/article-links-2026.json') {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(ARTICLE_PAYLOAD) });
       }
       return Promise.reject(new Error(`unexpected url: ${url}`));
@@ -101,7 +103,7 @@ describe('useProgramLinks', () => {
     expect(article.current.links['91653']).toEqual([
       { title: 'Najeeba Syeed speaks', url: 'https://chqdaily.com/a1/', kind: 'recap', pubDate: '2026-07-14' },
     ]);
-    expect(fetch).toHaveBeenCalledWith('/data/program-links-2026.json');
-    expect(fetch).toHaveBeenCalledWith('/data/article-links-2026.json');
+    expect(fetch).toHaveBeenCalledWith('/cache/calendar-cache/program-links-2026.json');
+    expect(fetch).toHaveBeenCalledWith('/cache/calendar-cache/article-links-2026.json');
   });
 });

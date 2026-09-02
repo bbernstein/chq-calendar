@@ -10,8 +10,13 @@ This document outlines the complete development workflow for the Chautauqua Cale
 # Clone repository and start local environment
 git clone <repository-url>
 cd chq-calendar
-./scripts/start-local.sh
+./scripts/setup-local.sh
 ```
+
+The calendar's events are proxied from the production CDN, so a fresh clone
+shows real data immediately and `setup-local.sh` fails loudly if it does not.
+To work offline or against your own synced feed, see
+[`backend/README-LOCAL-SYNC.md`](../backend/README-LOCAL-SYNC.md).
 
 ### 2. Feature Development
 - Create feature branch from `main`
@@ -63,11 +68,18 @@ docker compose down
 
 ### Local Testing
 ```bash
-# Test static event data endpoint (used by local frontend)
-curl -s 'https://www.chqcal.org/cache/calendar-cache/all-events.json' | jq '.data | length'
+# Test the static event data endpoint the local frontend actually reads.
+# Note the year suffix: `all-events.json` (no suffix) is a legacy every-year
+# blob of ~10MB that nothing requests.
+curl -s 'http://localhost:3000/cache/calendar-cache/all-events-2026.json' | jq '.data | length'
 
 # Verify event data structure and freshness
-curl -s 'https://www.chqcal.org/cache/calendar-cache/all-events.json' | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
+curl -s 'http://localhost:3000/cache/calendar-cache/all-events-2026.json' | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
+
+# Going through localhost:3000 rather than straight to the CDN is deliberate:
+# it exercises the '/cache' proxy rule in frontend/vite.config.ts, which is the
+# piece that makes a fresh clone render anything at all. To read locally-synced
+# files instead, see backend/README-LOCAL-SYNC.md and set VITE_LOCAL_DATA=true.
 
 # Test local frontend filtering (client-side)
 # Note: All filtering happens in browser after downloading static file

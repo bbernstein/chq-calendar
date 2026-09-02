@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Event, GlobalEventData, SeasonWeek } from '@/lib/types';
 import { CACHE_EXPIRY_MS, getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
 import { decodeHtmlEntities, decodeEventHtmlEntities } from '@/lib/utils/eventHelpers';
+import { dataBase, describeFetchFailure } from '@/lib/dataSource';
 
 interface UseEventDataProps {
   year: number;
@@ -84,7 +85,7 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
     setLoading(true);
     try {
       const sidecarEnabled = String(import.meta.env.VITE_ENABLE_PUBLISHER_FEEDS) === 'true';
-      const cacheBase = import.meta.env.DEV ? '/data' : '/cache/calendar-cache';
+      const cacheBase = dataBase();
       const primaryUrl = `${cacheBase}/all-events-${year}.json`;
       const sidecarUrl = sidecarEnabled ? `${cacheBase}/publisher-events-${year}.json` : null;
 
@@ -229,7 +230,10 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
           console.warn('Failed to save to localStorage:', e);
         }
       } else {
-        console.error('Failed to fetch events');
+        // Not a bare 'Failed to fetch events'. In dev that message left the
+        // developer with EmptyState's advice to reload, which could never
+        // help — see describeFetchFailure and #286.
+        console.error(describeFetchFailure(primaryUrl, primaryResp.status));
       }
     } catch (error) {
       console.error('Error fetching events:', error);

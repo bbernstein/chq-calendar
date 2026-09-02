@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { CACHE_EXPIRY_MS, getDefaultYear, YEARS_MANIFEST_PATH } from '@/lib/constants';
+import { CACHE_EXPIRY_MS, getDefaultYear } from '@/lib/constants';
+import { dataBase } from '@/lib/dataSource';
 
 interface YearsManifest {
   years: number[];
@@ -45,7 +46,7 @@ export function useAvailableYears(): UseAvailableYearsResult {
 
       // Fetch from network
       try {
-        const url = import.meta.env.DEV ? '/data/years.json' : YEARS_MANIFEST_PATH;
+        const url = `${dataBase()}/years.json`;
         const response = await fetch(url);
         if (response.ok) {
           const manifest: YearsManifest = await response.json();

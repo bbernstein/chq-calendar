@@ -126,6 +126,25 @@ docker compose up -d --build --renew-anon-volumes
 > added dependency is missing entirely. `./scripts/setup-local.sh` passes the
 > flag for you.
 
+### Where the event data comes from
+
+Nothing to do here — this section is what to read when something looks wrong.
+
+The dev server fetches events from the same place production does: the
+`/cache/calendar-cache/` prefix on the CDN. `frontend/vite.config.ts` proxies
+`/cache` to https://www.chqcal.org for both the dev server and `vite preview`,
+so a fresh clone renders the real calendar with no fixture, no sync step and no
+AWS credentials. `./scripts/setup-local.sh` asserts this actually worked rather
+than only that the ports answer.
+
+To work offline, or against a feed you have synced yourself, set
+`VITE_LOCAL_DATA=true` and the frontend reads `frontend/public/data/` instead.
+That directory is gitignored; populate it with
+`npm run sync:local --workspace=backend` — see
+[`backend/README-LOCAL-SYNC.md`](backend/README-LOCAL-SYNC.md), which also
+covers syncing a second season with `--year=` to exercise year switching and
+the off-season landing.
+
 ### Local Services
 - **Frontend**: http://localhost:3000 (Vite dev server with HMR)
 - **DynamoDB Local**: http://localhost:8000
