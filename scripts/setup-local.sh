@@ -162,9 +162,17 @@ check_events() {
 
     # Same October turnover as the frontend's getDefaultYear() and the sync
     # script's resolveYear(): from October, the app asks for next season.
+    #
+    # TZ is load-bearing, not decoration. The turnover is defined in the
+    # Institution's timezone (frontend/src/lib/constants.ts reads it through
+    # chqParts), so a contributor east of Eastern running this at 22:00 ET on
+    # Sep 30 is already on October 1 by their own clock — a bare `date` would
+    # check next season's file while their browser asked for this one, and
+    # report an empty calendar that isn't.
+    #
     # `10#` because `date +%m` zero-pads, and 08/09 are invalid octal.
-    year=$(date +%Y)
-    month=$((10#$(date +%m)))
+    year=$(TZ=America/New_York date +%Y)
+    month=$((10#$(TZ=America/New_York date +%m)))
     if [ "$month" -ge 10 ]; then
         year=$((year + 1))
     fi

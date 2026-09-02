@@ -74,8 +74,11 @@ docker compose down
 #
 # The season turns over on October 1, so derive the year rather than pasting
 # one — a hardcoded example goes stale every autumn, which is the same drift
-# that left years.json six months wrong (#286).
-YEAR=$(date +%Y); [ "$(date +%m)" -ge 10 ] && YEAR=$((YEAR + 1))
+# that left years.json six months wrong (#286). Read in the Institution's
+# timezone, which is where that turnover is defined: outside Eastern, a bare
+# `date` disagrees with the app for a few hours around Sep 30 / Oct 1.
+YEAR=$(TZ=America/New_York date +%Y)
+[ "$(TZ=America/New_York date +%m)" -ge 10 ] && YEAR=$((YEAR + 1))
 
 curl -s "http://localhost:3000/cache/calendar-cache/all-events-${YEAR}.json" | jq '.data | length'
 

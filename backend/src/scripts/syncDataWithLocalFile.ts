@@ -6,6 +6,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { seasonYearAt } from './seasonYear';
 
 // Load environment variables from .env file
 dotenv.config({ path: path.join(__dirname, '../../.env') });
@@ -13,12 +14,10 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 /**
  * Which season to sync, matching the season the frontend will ask for.
  *
- * The turnover is October 1, not January 1 — the same rule as
- * `EventsCalendarDataSyncService.getDefaultYear` (private, hence restated
- * here) and `frontend/src/lib/constants.ts:getDefaultYear`. A plain
- * `getFullYear()` would sync 2026 all through October while the frontend
- * requested `all-events-2027.json`, reproducing #286's empty calendar three
- * months after it was fixed.
+ * The rule itself lives in `./seasonYear`, which documents why it is read in
+ * Chautauqua time and what it is deliberately not in step with. It is a
+ * separate module because it is the part worth testing — see
+ * `src/__tests__/seasonYear.test.ts`.
  *
  * `--year=<n>` overrides it. That is how you get a second season on disk to
  * exercise year switching, the off-season landing and previewNextSeason
@@ -34,8 +33,7 @@ function resolveYear(): number {
     }
     return parsed;
   }
-  const now = new Date();
-  return now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
+  return seasonYearAt(new Date());
 }
 
 /**
@@ -48,9 +46,9 @@ function resolveYear(): number {
  * previewNextSeason (#286). Resetting it by hand only restarts that clock;
  * syncing it here is what stops it.
  *
- * Fetched over plain HTTPS from the CDN rather than through the S3 client
- * above: the manifest is public, so this works with no credentials, and it is
- * the same bytes the browser would get. A failure here is a warning, not an
+ * Fetched over plain HTTPS from the CDN rather than through the S3 client:
+ * the manifest is public, so this works with no credentials, and it is the
+ * same bytes the browser would get. A failure here is a warning, not an
  * error — the feed is what the calendar cannot render without.
  */
 async function refreshYearsManifest(): Promise<void> {
@@ -62,8 +60,17 @@ async function refreshYearsManifest(): Promise<void> {
       console.warn(`Could not refresh years.json: HTTP ${res.status} from ${url}`);
       return;
     }
-    const manifest = await res.json() as { years?: number[]; defaultYear?: number };
-    if (!Array.isArray(manifest.years) || typeof manifest.defaultYear !== 'number') {
+    // Typed with every field the frontend's `YearsManifest`
+    // (useAvailableYears.ts) declares, not just the two read below. The
+    // manifest is written through whole — `JSON.stringify(manifest)` emits
+    // whatever came back, so `generated` is preserved — but a narrower
+    // assertion here understates that contract, and a review already misread
+    // it as dropping the field. Say what the file actually holds, and check
+    // it, so the next reader does not have to run the code to find out.
+    const manifest = await res.json() as { years?: number[]; defaultYear?: number; generated?: string };
+    if (!Array.isArray(manifest.years)
+      || typeof manifest.defaultYear !== 'number'
+      || typeof manifest.generated !== 'string') {
       console.warn(`Could not refresh years.json: unexpected shape from ${url}`);
       return;
     }
