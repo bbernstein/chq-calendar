@@ -41,7 +41,7 @@ opt-out.
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
 | 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
 | 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | DONE | PR #298 |
-| 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
+| 3 | Fresh-clone empty calendar | #286 | IN PROGRESS — PR open | PR #300 |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
 | 6 | Date-filtering divergence | #285 | NEEDS A DECISION | — |
@@ -72,7 +72,7 @@ Nothing else in the queue has a deadline.
 
 ## 3. #286 — a fresh clone renders an empty calendar
 
-**Status:** NOT STARTED · **Size:** S · Can run in parallel with item 2 (web only)
+**Status:** IN PROGRESS — PR #300 open, awaiting review/merge · **Size:** S
 
 `useEventData.ts:87` reads `/data` in dev, not CloudFront.
 `all-events-2026.json` is gitignored (`.gitignore:63`). The 404 is a bare
@@ -87,17 +87,40 @@ Also refresh the tracked `frontend/public/data/years.json` — it says
 production's `[2025,2026,2027]`, so no fresh checkout can exercise 2027.
 
 **Done when** a fresh clone plus `docker compose up` shows events, or fails
-with a message naming the sync step.
+with a message naming the sync step. **Met** — verified 1,687 cards / 89 days
+on a tree reduced to `git ls-files frontend/public/data`, and 0 cards + 🎭 with
+the defect injected back.
+
+**The fix was neither option the issue listed.** `vite.config.ts:117-120` has
+proxied `/cache` to production since 2026-03-02, for the dev server *and*
+`vite preview` — so the `DEV ? '/data'` branch had been redundant for five
+months and deleting it was smaller than either fetching the feed or tracking a
+fixture. Escape hatch is `VITE_LOCAL_DATA=true`, explicit by design.
+
+Three further defects fixed en route: `syncDataWithLocalFile.ts` wrote
+`all-events.json` while the app reads `all-events-<year>.json` (so the
+*documented remedy never worked*, which kills option 3 outright);
+`setup-local.sh` checked ports, not content; `README-LOCAL-SYNC.md` still had
+zero referrers.
 
 ---
 
 ## 4. #215 — CI for the Docker dev stack
 
-**Status:** NOT STARTED · **Size:** M · **Entry criterion: do #286 first**
+**Status:** READY — entry criterion met by PR #300 · **Size:** M
 
 Do it after #286 so the boot assertion can check *a rendered event*, not just
 a 200 — the two failures that actually shipped were both silent, and a
 build-only job would have caught neither.
+
+**#300 leaves two things ready to reuse.** `check_events` in
+`setup-local.sh` is the assertion in shell form, already exercised in both
+directions. And #300's throwaway Playwright probe is the browser form: load
+the page, `document.querySelectorAll('[data-event-id]').length > 0`, and
+assert `[data-testid="empty-state"]` is absent — deliberately not committed,
+because it is this job's to own. Run it against a tree reduced to
+`git ls-files frontend/public/data`; that reduction *is* the fresh-clone
+simulation.
 
 Still true: zero `docker` references across the eight workflows. `#248`
 (2026-08-24) changed `docker-compose.yml`, `scripts/setup-local.sh` and
