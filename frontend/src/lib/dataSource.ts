@@ -31,9 +31,14 @@ export const LOCAL_DATA_BASE = '/data';
 
 /**
  * True when this build was asked to read locally-synced files instead of the
- * CDN. Read through a function rather than a module constant so tests can
- * `vi.stubEnv` it, and so a `.env` change takes effect on reload rather than
- * being frozen into the module graph.
+ * CDN.
+ *
+ * Read through a function rather than a module constant so the value is not
+ * captured at import time — that is what lets tests `vi.stubEnv` it without
+ * re-importing the module. It does *not* make a `.env` edit take effect
+ * without a restart: Vite statically replaces `import.meta.env.VITE_*` at
+ * transform time, so changing `.env` still requires restarting the dev server
+ * or test runner either way.
  */
 export function usingLocalData(): boolean {
   return String(import.meta.env.VITE_LOCAL_DATA) === 'true';

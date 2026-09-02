@@ -98,6 +98,36 @@ async function main() {
     const forceUpdate = process.argv.includes('--force');
     const saveLocal = process.argv.includes('--save-local');
     const year = resolveYear();
+
+    // `--year=` only reaches the sync through `syncAllSeasonEvents(year)`,
+    // which is the `--force` path. Without it we run `performIncrementalSync()`,
+    // which takes no year at all and syncs a now-relative window — so
+    // `sync:local -- --year=2027` would sync *this* season and then write
+    // whatever the cache happened to hold for 2027 under a 2027 filename.
+    // That is a silently wrong file, which is the exact failure mode this
+    // whole change exists to remove, so refuse rather than warn.
+    //
+    // The fetch modes are exempt, but not because they skip the sync — they
+    // don't; the incremental sync above runs regardless of these flags. They
+    // are exempt because for them `--year` selects *which cached season to
+    // pull down*, and that is exactly what it does. Nothing about the named
+    // year is promised and then quietly not delivered, which is the only
+    // thing this guard is here to prevent.
+    const yearWasExplicit = process.argv.some((a) => a.startsWith('--year='));
+    const fetchOnly = process.argv.includes('--fetch-cache')
+      || process.argv.includes('--fetch-s3-direct');
+    if (yearWasExplicit && !forceUpdate && !fetchOnly) {
+      console.error(`Refusing to run: --year=${year} without --force.`);
+      console.error('');
+      console.error('  An incremental sync ignores --year, so this would sync the current');
+      console.error(`  season and then write the cache's ${year} data to all-events-${year}.json.`);
+      console.error('');
+      console.error('  To actually sync that season:');
+      console.error(`    npm run sync:local -- --year=${year} --force`);
+      console.error('  To only pull down what is already cached for it:');
+      console.error(`    npm run sync:fetch -- --year=${year}`);
+      process.exit(1);
+    }
     
     let result;
     if (forceUpdate) {

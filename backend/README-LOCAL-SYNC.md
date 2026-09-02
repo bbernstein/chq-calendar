@@ -82,6 +82,18 @@ For a different season — this is how you get 2027 (or 2025) on disk:
 npm run sync:local -- --year=2027 --force
 ```
 
+**`--year=` requires `--force` here, and the script refuses without it.** An
+incremental sync takes no year — it syncs a now-relative window — so
+`sync:local -- --year=2027` on its own would sync *this* season and then write
+whatever the cache held for 2027 under a 2027 filename. Rather than warn about
+a silently wrong file, the script stops and names both alternatives.
+
+If you only want what is already cached for a season, no sync needed, the
+fetch mode takes `--year` on its own:
+```bash
+npm run sync:fetch -- --year=2027
+```
+
 The year defaults to the current season using the same October 1 turnover as
 the frontend, so from October onwards it syncs *next* year — matching the file
 the app will ask for.
@@ -97,7 +109,8 @@ npm run sync:fetch
 - **`npm run sync`**: Runs incremental sync (only updates changed events)
 - **`npm run sync:local`**: Runs sync AND saves `all-events-<year>.json` locally, plus a refreshed `years.json`
 - **`npm run sync:fetch`**: Only fetches the cached `all-events-<year>.json` (no sync)
-- **`--year=<n>`**: available to both; defaults to the current season (October turnover)
+- **`--year=<n>`**: defaults to the current season (October turnover). Requires
+  `--force` with `sync:local`; stands alone with `sync:fetch`
 
 ## Local Development Flow
 
