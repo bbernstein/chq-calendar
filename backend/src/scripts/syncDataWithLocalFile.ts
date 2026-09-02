@@ -131,8 +131,10 @@ async function main() {
       console.error('');
       console.error('  To actually sync that season:');
       console.error(`    npm run sync:local -- --year=${year} --force`);
-      console.error('  To only pull down what is already cached for it:');
-      console.error(`    npm run sync:fetch -- --year=${year}`);
+      console.error('  To just download that season\'s published feed (no AWS access,');
+      console.error('  no cache TTL to race):');
+      console.error(`    curl -o frontend/public/data/all-events-${year}.json \\`);
+      console.error(`      https://www.chqcal.org/cache/calendar-cache/all-events-${year}.json`);
       process.exit(1);
     }
     
@@ -170,7 +172,15 @@ async function main() {
     // read by nothing. This script wrote that one, under that name, so
     // `npm run sync:local` produced a file the app never requested and the
     // developer was left with an empty calendar and no clue why (#286).
-    if (saveLocal || process.argv.includes('--fetch-cache')) {
+    // `--fetch-cache` persists too, not just `--save-local`. It used to fetch
+    // the feed, print a count and write nothing — so `npm run sync:fetch`,
+    // whose whole documented job is "fetch the cached feed", left the
+    // developer with console output, no file, and no indication it had not
+    // done what it said. That is the silent-success-over-empty-output shape
+    // this change exists to remove, so the command now does what its name,
+    // its docs and the --year guard's own advice all promise.
+    const persistLocally = saveLocal || process.argv.includes('--fetch-cache');
+    if (persistLocally) {
       console.log(`\nFetching all-events-${year}.json from cache...`);
       
       // Initialize cache service to retrieve the data
@@ -187,7 +197,7 @@ async function main() {
       if (allEvents && allEvents.data) {
         console.log(`Retrieved ${allEvents.data.length} events from cache`);
         
-        if (saveLocal) {
+        if (persistLocally) {
           // Save to local file system
           const outputDir = path.join(__dirname, '../../../../frontend/public/data');
           const outputPath = path.join(outputDir, `all-events-${year}.json`);

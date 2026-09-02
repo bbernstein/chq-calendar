@@ -88,18 +88,27 @@ incremental sync takes no year — it syncs a now-relative window — so
 whatever the cache held for 2027 under a 2027 filename. Rather than warn about
 a silently wrong file, the script stops and names both alternatives.
 
-If you only want what is already cached for a season, no sync needed, the
-fetch mode takes `--year` on its own:
+If you only want a season's published feed on disk, **don't use this script
+at all** — the feed is public, so one line does it with no AWS access:
+
 ```bash
-npm run sync:fetch -- --year=2027
+curl -o frontend/public/data/all-events-2027.json \
+  https://www.chqcal.org/cache/calendar-cache/all-events-2027.json
 ```
+
+`npm run sync:fetch -- --year=2027` reads the *private* S3 cache instead, and
+that object carries a 60-minute TTL while 2027's is regenerated once a day —
+so outside a one-hour window each day it reports `Cache EXPIRED` and writes
+nothing. It is the wrong tool for this; the curl above always works.
 
 The year defaults to the current season using the same October 1 turnover as
 the frontend, so from October onwards it syncs *next* year — matching the file
 the app will ask for.
 
-### 4. Fetch Cached Data Only (Without sync)
-If data is already synced and you just want to fetch the cached `all-events-<year>.json`:
+### 4. Fetch Cached Data Only
+If data is already synced and you just want to pull down the cached
+`all-events-<year>.json` (an incremental sync of the current window still runs
+first — it just isn't what produces the file):
 ```bash
 npm run sync:fetch
 ```
@@ -108,7 +117,8 @@ npm run sync:fetch
 
 - **`npm run sync`**: Runs incremental sync (only updates changed events)
 - **`npm run sync:local`**: Runs sync AND saves `all-events-<year>.json` locally, plus a refreshed `years.json`
-- **`npm run sync:fetch`**: Only fetches the cached `all-events-<year>.json` (no sync)
+- **`npm run sync:fetch`**: Pulls down the cached `all-events-<year>.json` and
+  writes it, without a full-season sync first
 - **`--year=<n>`**: defaults to the current season (October turnover). Requires
   `--force` with `sync:local`; stands alone with `sync:fetch`
 
