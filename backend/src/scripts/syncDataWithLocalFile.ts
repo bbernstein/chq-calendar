@@ -7,6 +7,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { seasonYearAt } from './seasonYear';
+import { LOCAL_DATA_DIR } from './localDataDir';
 
 // Load environment variables from .env file
 dotenv.config({ path: path.join(__dirname, '../../.env') });
@@ -74,7 +75,7 @@ async function refreshYearsManifest(): Promise<void> {
       console.warn(`Could not refresh years.json: unexpected shape from ${url}`);
       return;
     }
-    const outputPath = path.join(__dirname, '../../../../frontend/public/data/years.json');
+    const outputPath = path.join(LOCAL_DATA_DIR, 'years.json');
     await fs.writeFile(outputPath, JSON.stringify(manifest, null, 2) + '\n');
     console.log(`Refreshed years.json (${manifest.years.join(', ')}) at: ${outputPath}`);
   } catch (error) {
@@ -191,22 +192,37 @@ async function main() {
         s3KeyPrefix: process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache'
       });
 
-      // Get all events (empty filter means all events)
-      const allEvents = await cacheService.get({ filters: {}, year });
-      
-      if (allEvents && allEvents.data) {
-        console.log(`Retrieved ${allEvents.data.length} events from cache`);
-        
+    // `get()` returns the cached *payload*, not the stored wrapper — it ends
+      // in `return cached.data` (multiLayerCacheService.ts:200). So this is an
+      // Event[], and the guard that used to read `allEvents.data` could never
+      // be true: the script logged "No events found in cache" and wrote
+      // nothing on a confirmed `Cache HIT`. Together with the filename bug
+      // fixed earlier, that is why `npm run sync:local` had never once
+      // produced a file the frontend would read.
+      const events = await cacheService.get({ filters: {}, year }) as unknown[] | null;
+
+      if (Array.isArray(events) && events.length > 0) {
+        console.log(`Retrieved ${events.length} events from cache`);
+
         if (persistLocally) {
           // Save to local file system
-          const outputDir = path.join(__dirname, '../../../../frontend/public/data');
+          const outputDir = LOCAL_DATA_DIR;
           const outputPath = path.join(outputDir, `all-events-${year}.json`);
           
           // Ensure directory exists
           await fs.mkdir(outputDir, { recursive: true });
           
-          // Write the file
-          await fs.writeFile(outputPath, JSON.stringify(allEvents, null, 2));
+          // Re-wrap in the `{ data: [...] }` envelope the frontend reads
+          // (`data.data` — useEventData.ts:124), which is also the shape
+          // CloudFront serves. The cache handed us the bare array, so writing
+          // it as-is would produce a file the app parses to zero events —
+          // the same empty calendar, one layer down.
+          const payload = {
+            data: events,
+            timestamp: Date.now(),
+            cacheKey: `all-events-${year}`,
+          };
+          await fs.writeFile(outputPath, JSON.stringify(payload, null, 2));
           console.log(`\nSaved all-events-${year}.json to: ${outputPath}`);
           await refreshYearsManifest();
           console.log('Set VITE_LOCAL_DATA=true to make the frontend read it; see backend/README-LOCAL-SYNC.md.');
@@ -248,13 +264,16 @@ async function main() {
           console.log(`Retrieved ${cachedData.data.length} events directly from S3`);
           
           // Save to local file system
-          const outputDir = path.join(__dirname, '../../../../frontend/public/data');
+          const outputDir = LOCAL_DATA_DIR;
           const outputPath = path.join(outputDir, `all-events-${year}.json`);
           
           // Ensure directory exists
           await fs.mkdir(outputDir, { recursive: true });
           
-          // Write the file (just the data part, not the cache metadata)
+          // Written whole: the S3 object is already the `{ data: [...] }`
+          // envelope the frontend reads, so passing it through is correct
+          // here — unlike the cacheService path above, which hands back the
+          // bare array and has to re-wrap.
           await fs.writeFile(outputPath, JSON.stringify(cachedData, null, 2));
           console.log(`\nSaved all-events-${year}.json to: ${outputPath}`);
           // Same refresh as the --save-local branch above. This fallback
