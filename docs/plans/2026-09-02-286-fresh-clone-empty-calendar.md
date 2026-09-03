@@ -143,3 +143,51 @@ to unstable props is a different change than this one.
   `public/`, not a CDN sidecar. Correct as it stands.
 - The CI job that would catch this class is #215, queue item 4, whose entry
   criterion is this issue.
+
+
+---
+
+## Review rounds — five, each finding something real
+
+Recorded because the pattern is the point: **the core fix was right from
+round one and never changed; every later finding was in the sync tooling I
+added or walked into.**
+
+| # | Finding | Whose |
+|---|---|---|
+| 1 | `refreshYearsManifest` called from one write path; `.env` comment false; doc pinned to 2026 | mine, new |
+| 2 | `--year=` a silent no-op without `--force` | pre-existing, exposed by my `--year` flag |
+| 3 | Turnover read on the machine's clock, not Chautauqua's | **mine, new — reproduced #286's own symptom** |
+| 4 | `sync:fetch` wrote nothing; three false claims in the guide | pre-existing + mine |
+| 5 | `cacheService.get()` returns the bare payload; output path escaped the repo | **pre-existing, both** |
+
+### What round 5 established
+
+`npm run sync:local` had **never once produced a usable file**, for four
+independent reasons:
+
+1. wrong filename (`all-events.json` vs `all-events-<year>.json`)
+2. a guard on `allEvents.data` that could not pass — `get()` returns
+   `cached.data`, so it is already the array
+3. the cache hands back a bare array, needing a `{ data: [...] }` re-wrap
+4. `../../../../` in all four write sites, resolving **outside the
+   repository** — it had been silently building a `frontend/public/data/`
+   tree next to the checkout that nothing serves and no `git status` shows
+
+**A claim I made in this PR and had to retract:** that fixing the filename
+made the documented remedy work. The filename was the only one of the four I
+had actually tested; the rest I inferred from reading. Same mistake the issue
+itself made about `sync:local` being a viable remedy — and the reason the
+verification for the escape hatch is now an actual browser run
+(`VITE_LOCAL_DATA=true` → `{cards: 1687, days: 89, requested:
+["/data/all-events-2026.json"]}`) rather than an argument.
+
+### Spun out rather than folded in
+
+#301 (production: `defaultYear` 4h early), #302 (`sync:upload-local`
+filename), #303 (retire the 10.3MB legacy feed), #304 (`useEventData` loop),
+#305 (`sync:fetch` TTL + credentials). See queue items 3a–3d.
+
+**#301 is the one that reaches readers** and should be done first — it is the
+server-side twin of the round-3 bug, and closing it lets
+`seasonYearAt`'s "deliberately does not match" note be deleted.
