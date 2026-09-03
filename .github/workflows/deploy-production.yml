@@ -548,6 +548,64 @@ jobs:
 
           rm -rf package_temp lambda-publisher-ingest.zip
 
+      - name: Deploy classes-ingest Lambda
+        working-directory: ./backend
+        run: |
+          # Created by `terraform apply` (infrastructure/classes-ingest.tf).
+          # Before that apply the function does not exist, so skip cleanly
+          # rather than failing the whole deploy — same guard as article-ingest
+          # below, including failing loud on anything that is not a genuine
+          # not-found.
+          FUNC="chautauqua-calendar-classes-ingest"
+          if aws lambda get-function --function-name "$FUNC" >/dev/null 2>/tmp/gf-classes-deploy.err; then
+            :
+          elif grep -q 'ResourceNotFoundException\|Function not found' /tmp/gf-classes-deploy.err; then
+            echo "::notice::${FUNC} not created yet — run 'terraform apply' to create it; skipping code deploy this run"
+            exit 0
+          else
+            echo "::error::checking ${FUNC} failed (not a not-found error — likely IAM/API):"
+            cat /tmp/gf-classes-deploy.err
+            exit 1
+          fi
+
+          # esbuild inlines everything except the S3 client, including the
+          # compiled catalog — the bundle is ~2.7 MB and carries no
+          # node_modules of its own beyond that one external.
+          mkdir -p package_temp/node_modules
+
+          echo "Installing classes-ingest handler dependencies..."
+          cd package_temp
+          cat > package.json << 'EOF'
+          {
+            "name": "lambda-classes-ingest",
+            "version": "1.0.0",
+            "dependencies": {
+              "@aws-sdk/client-s3": "^3.0.0"
+            }
+          }
+          EOF
+          npm install --omit=dev
+          cd ..
+
+          mkdir -p package_temp/dist
+          cp dist/classesIngestHandler.js package_temp/dist/
+
+          cd package_temp
+          zip -r ../lambda-classes-ingest.zip . \
+            -x "*.md" "*/test/*" "*/tests/*" "*/examples/*" "README.md" "CHANGELOG.md"
+          cd ..
+
+          echo "Deploying classes-ingest Lambda..."
+          aws lambda update-function-code \
+            --function-name "$FUNC" \
+            --zip-file fileb://lambda-classes-ingest.zip
+
+          echo "Waiting for classes-ingest Lambda to finish updating..."
+          aws lambda wait function-updated \
+            --function-name "$FUNC"
+
+          rm -rf package_temp lambda-classes-ingest.zip
+
       - name: Deploy article-ingest Lambda
         working-directory: ./backend
         run: |
