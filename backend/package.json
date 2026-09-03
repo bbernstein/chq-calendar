@@ -19,7 +19,7 @@
     "type-check": "tsc --noEmit",
     "prevalidate": "npm run build:publisher-refs",
     "validate": "npm run type-check && npm run lint",
-    "test": "jest --passWithNoTests",
+    "test": "jest --passWithNoTests --maxWorkers=4",
     "test:ci": "jest --passWithNoTests --ci --coverage --watchAll=false",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

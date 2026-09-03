@@ -237,6 +237,18 @@ xcodebuild test -project ChqCalendar.xcodeproj -scheme ChqCalendar \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO   # both legs, before committing
 ```
 
+The backend `test` script pins `--maxWorkers=4`. Jest otherwise spawns one
+worker per core, which on a many-core developer machine leaves the suite with
+almost no memory headroom — measured on a 16-core host, an uncapped run passed
+but peaked within a couple of GB of the machine's total RAM. Adding suites
+tips that over, and the failure mode is unhelpful: `npm run build` dies with a
+bare `exit 137`, no test failure and no message, just a killed process.
+
+The cap costs nothing. At 4 workers the suite finished *faster* than at 8 on
+that host, so parallelism had stopped paying well before the limit — the
+default was buying memory pressure rather than speed. CI keeps its own uncapped
+`test:ci`: its runners have few cores, so the arithmetic never arises there.
+
 The backend `lint` script runs with `--max-warnings=0`, so any ESLint
 warning fails the build. The frontend `lint` script does not (warnings
 are reported but do not fail). New backend code must pass
