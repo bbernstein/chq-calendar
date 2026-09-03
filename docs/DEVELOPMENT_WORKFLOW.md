@@ -10,8 +10,13 @@ This document outlines the complete development workflow for the Chautauqua Cale
 # Clone repository and start local environment
 git clone <repository-url>
 cd chq-calendar
-./scripts/start-local.sh
+./scripts/setup-local.sh
 ```
+
+The calendar's events are proxied from the production CDN, so a fresh clone
+shows real data immediately and `setup-local.sh` fails loudly if it does not.
+To work offline or against your own synced feed, see
+[`backend/README-LOCAL-SYNC.md`](../backend/README-LOCAL-SYNC.md).
 
 ### 2. Feature Development
 - Create feature branch from `main`
@@ -63,11 +68,27 @@ docker compose down
 
 ### Local Testing
 ```bash
-# Test static event data endpoint (used by local frontend)
-curl -s 'https://www.chqcal.org/cache/calendar-cache/all-events.json' | jq '.data | length'
+# Test the static event data endpoint the local frontend actually reads.
+# Note the year suffix: `all-events.json` (no suffix) is a legacy every-year
+# blob of ~10MB that nothing requests.
+#
+# The season turns over on October 1, so derive the year rather than pasting
+# one — a hardcoded example goes stale every autumn, which is the same drift
+# that left years.json six months wrong (#286). Read in the Institution's
+# timezone, which is where that turnover is defined: outside Eastern, a bare
+# `date` disagrees with the app for a few hours around Sep 30 / Oct 1.
+YEAR=$(TZ=America/New_York date +%Y)
+[ "$(TZ=America/New_York date +%m)" -ge 10 ] && YEAR=$((YEAR + 1))
+
+curl -s "http://localhost:3000/cache/calendar-cache/all-events-${YEAR}.json" | jq '.data | length'
 
 # Verify event data structure and freshness
-curl -s 'https://www.chqcal.org/cache/calendar-cache/all-events.json' | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
+curl -s "http://localhost:3000/cache/calendar-cache/all-events-${YEAR}.json" | jq '{cacheKey, timestamp, eventCount: (.data | length)}'
+
+# Going through localhost:3000 rather than straight to the CDN is deliberate:
+# it exercises the '/cache' proxy rule in frontend/vite.config.ts, which is the
+# piece that makes a fresh clone render anything at all. To read locally-synced
+# files instead, see backend/README-LOCAL-SYNC.md and set VITE_LOCAL_DATA=true.
 
 # Test local frontend filtering (client-side)
 # Note: All filtering happens in browser after downloading static file

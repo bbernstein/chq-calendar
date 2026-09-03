@@ -4,6 +4,7 @@ import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { LOCAL_DATA_DIR } from './localDataDir';
 
 // Load environment variables from .env file
 dotenv.config({ path: path.join(__dirname, '../../.env') });
@@ -93,7 +94,7 @@ async function main() {
 
     // Also save locally if requested
     if (process.argv.includes('--save-local')) {
-      const outputDir = path.join(__dirname, '../../../../frontend/public/data');
+      const outputDir = LOCAL_DATA_DIR;
       const outputPath = path.join(outputDir, 'all-events.json');
       
       await fs.mkdir(outputDir, { recursive: true });

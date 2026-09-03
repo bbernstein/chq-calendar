@@ -146,6 +146,91 @@ wait_for "DynamoDB Admin" 8001 http://localhost:8001        || all_ready=false
 # after start, which every check above is blind to (issue #247 item 1).
 wait_for "LocalStack (S3)" 4566 http://localhost:4566/_localstack/health || all_ready=false
 
+# Every check above asks "did something answer?" — none of them asks "did it
+# answer with anything?". That gap is #286: a fresh clone brought up a stack
+# where all five services were genuinely healthy and the calendar rendered
+# zero events, and this script printed the success banner over it. #214 and
+# #247 were the same shape. So assert content, once, on the one file the
+# calendar cannot render without.
+#
+# It runs through the frontend rather than against the CDN directly, because
+# what is being tested is the path the browser will actually take — including
+# the /cache proxy rule in frontend/vite.config.ts, which is the piece that
+# makes a fresh clone work at all.
+check_events() {
+    local year month base url count
+
+    # Same October turnover as the frontend's getDefaultYear() and the sync
+    # script's resolveYear(): from October, the app asks for next season.
+    #
+    # TZ is load-bearing, not decoration. The turnover is defined in the
+    # Institution's timezone (frontend/src/lib/constants.ts reads it through
+    # chqParts), so a contributor east of Eastern running this at 22:00 ET on
+    # Sep 30 is already on October 1 by their own clock — a bare `date` would
+    # check next season's file while their browser asked for this one, and
+    # report an empty calendar that isn't.
+    #
+    # `10#` because `date +%m` zero-pads, and 08/09 are invalid octal.
+    year=$(TZ=America/New_York date +%Y)
+    month=$((10#$(TZ=America/New_York date +%m)))
+    if [ "$month" -ge 10 ]; then
+        year=$((year + 1))
+    fi
+
+    # Follow the same branch the browser will: dataBase() in
+    # frontend/src/lib/dataSource.ts reads /data when VITE_LOCAL_DATA=true and
+    # the CDN prefix otherwise. Checking the other one would pass while the
+    # calendar stayed empty, which is exactly the failure being fixed.
+    if [ "${VITE_LOCAL_DATA:-}" = "true" ]; then
+        base="/data"
+    else
+        base="/cache/calendar-cache"
+    fi
+    url="http://localhost:3000${base}/all-events-${year}.json"
+
+    echo "🔎 Checking the calendar has events for ${year}..."
+
+    # Counted by node rather than grepped: node is already a hard requirement
+    # above, and a substring count over 5MB of descriptions is a guess where
+    # this needs to be a fact. Prints 0 for anything unparseable or
+    # unexpectedly shaped, which is the answer we want in every such case.
+    #
+    # --max-time is generous: ~5MB proxied to the CDN on a cold cache.
+    count=$(curl -s --max-time 60 "$url" \
+        | node -e 'let b="";process.stdin.on("data",c=>b+=c).on("end",()=>{try{const d=JSON.parse(b);console.log(Array.isArray(d.data)?d.data.length:0)}catch{console.log(0)}})' \
+        2>/dev/null) || count=0
+
+    if [ "${count:-0}" -eq 0 ] 2>/dev/null || [ -z "${count:-}" ]; then
+        echo ""
+        echo "❌ The stack is up, but the calendar has no events to show."
+        echo "   Fetched: $url"
+        echo ""
+        if [ "${VITE_LOCAL_DATA:-}" = "true" ]; then
+            echo "   VITE_LOCAL_DATA=true is set, so the frontend reads"
+            echo "   frontend/public/data/ — which git ignores, so a fresh"
+            echo "   clone has nothing there. Populate it with:"
+            echo "     npm run sync:local --workspace=backend"
+            echo "   (needs AWS credentials — see backend/README-LOCAL-SYNC.md)"
+            echo "   or unset VITE_LOCAL_DATA to load from the CDN instead."
+        else
+            echo "   The frontend proxies /cache to https://www.chqcal.org"
+            echo "   (see the '/cache' rule in frontend/vite.config.ts), so this"
+            echo "   usually means no outbound network. To work offline, sync a"
+            echo "   local copy and set VITE_LOCAL_DATA=true:"
+            echo "     npm run sync:local --workspace=backend"
+            echo "   See backend/README-LOCAL-SYNC.md."
+        fi
+        return 1
+    fi
+
+    echo "✅ Calendar data for ${year} is reachable (${count} events)"
+    return 0
+}
+
+if [ "$all_ready" = true ]; then
+    check_events || all_ready=false
+fi
+
 # Fail loudly rather than printing the success banner over a broken stack.
 # `npm run setup` runs this script, so a zero exit here is a health claim that
 # automation and humans both act on — announcing "ready" when a service never
@@ -153,7 +238,7 @@ wait_for "LocalStack (S3)" 4566 http://localhost:4566/_localstack/health || all_
 # left running so the logs are still there to read.
 if [ "$all_ready" != true ]; then
     echo ""
-    echo "❌ Some services never became ready. Inspect them with:"
+    echo "❌ The stack is not ready. Inspect it with:"
     echo "     docker compose logs -f"
     echo ""
     echo "   The stack is still running. Fix the problem and re-run this"

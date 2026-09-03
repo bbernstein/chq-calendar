@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { dataBase } from '@/lib/dataSource';
 
 interface SidecarLinksFile<T> {
   generatedAt: string;
@@ -25,11 +26,9 @@ async function loadLinks<T>(filePrefix: string, year: number): Promise<LoadResul
 
   const promise = (async (): Promise<LoadResult<T>> => {
     try {
-      // Same dev/prod split as useEventData: Vite dev serves fixtures from
-      // /public/data; production serves the Lambda-published sidecar from
-      // the CloudFront calendar-cache path.
-      const cacheBase = import.meta.env.DEV ? '/data' : '/cache/calendar-cache';
-      const res = await fetch(`${cacheBase}/${key}.json`);
+      // Same source as useEventData: the CloudFront calendar-cache prefix,
+      // which Vite proxies to production in dev and preview alike.
+      const res = await fetch(`${dataBase()}/${key}.json`);
       if (res.status === 404) {
         return { links: {}, cacheable: true };
       }

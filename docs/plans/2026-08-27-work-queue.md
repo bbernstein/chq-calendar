@@ -41,7 +41,11 @@ opt-out.
 | 0 | Triage record + this queue | — | DONE (`9399318`, `7ee9b72`) | PR #289, #291 |
 | 1 | e2e off-season crash + 200%-zoom flake | #287, #290 | DONE (`8bee59b`) | PR #292 |
 | 2 | **iOS 1.1.4** — year-aware navigation | #186, #288, #253 | DONE | PR #298 |
-| 3 | Fresh-clone empty calendar | #286 | NOT STARTED | — |
+| 3 | Fresh-clone empty calendar | #286 | IN PROGRESS — PR open | PR #300 |
+| 3a | **years.json flips defaultYear ~4h early** | #301 | NOT STARTED | — |
+| 3b | Local-sync tooling repairs | #302, #305 | NOT STARTED | — |
+| 3c | Retire the legacy 10.3MB feed | #303 | NOT STARTED — needs log evidence | — |
+| 3d | `useEventData` failure-path re-fetch loop | #304 | NOT STARTED | — |
 | 4 | CI for the Docker dev stack | #215 | NOT STARTED | — |
 | 5 | Dev-env docs + deploy scripts | #216, #217 | NOT STARTED | — |
 | 6 | Date-filtering divergence | #285 | NEEDS A DECISION | — |
@@ -72,7 +76,7 @@ Nothing else in the queue has a deadline.
 
 ## 3. #286 — a fresh clone renders an empty calendar
 
-**Status:** NOT STARTED · **Size:** S · Can run in parallel with item 2 (web only)
+**Status:** IN PROGRESS — PR #300 open, awaiting review/merge · **Size:** S
 
 `useEventData.ts:87` reads `/data` in dev, not CloudFront.
 `all-events-2026.json` is gitignored (`.gitignore:63`). The 404 is a bare
@@ -87,17 +91,92 @@ Also refresh the tracked `frontend/public/data/years.json` — it says
 production's `[2025,2026,2027]`, so no fresh checkout can exercise 2027.
 
 **Done when** a fresh clone plus `docker compose up` shows events, or fails
-with a message naming the sync step.
+with a message naming the sync step. **Met** — verified 1,687 cards / 89 days
+on a tree reduced to `git ls-files frontend/public/data`, and 0 cards + 🎭 with
+the defect injected back.
+
+**The fix was neither option the issue listed.** `vite.config.ts:117-120` has
+proxied `/cache` to production since 2026-03-02, for the dev server *and*
+`vite preview` — so the `DEV ? '/data'` branch had been redundant for five
+months and deleting it was smaller than either fetching the feed or tracking a
+fixture. Escape hatch is `VITE_LOCAL_DATA=true`, explicit by design.
+
+Three further defects fixed en route: `syncDataWithLocalFile.ts` wrote
+`all-events.json` while the app reads `all-events-<year>.json` (so the
+*documented remedy never worked*, which kills option 3 outright);
+`setup-local.sh` checked ports, not content; `README-LOCAL-SYNC.md` still had
+zero referrers.
+
+---
+
+## 3a–3d. Spun out of #286 while fixing it
+
+All five were **found by verifying #286's own premises and then running the
+code** rather than reading it. Four are pre-existing; none were caused by
+PR #300. Filed 2026-09-02 so they survive the PR.
+
+### 3a. #301 — `years.json` flips `defaultYear` ~4 hours early · **Size: S · do this one first**
+
+The only one that reaches **production readers**.
+`eventsCalendarDataSyncService.ts:987` computes the October turnover on the
+server's clock; Lambda runs UTC, so the manifest flips at 20:00 ET on Sep 30.
+`useAvailableYears.ts:55` then **overwrites** the client's correct
+Chautauqua-time value with it — so the `chqParts` indirection #243 added,
+whose docstring says it exists "so a reader east of Eastern does not see next
+season a few hours early", is defeated by the server for four hours a year.
+
+Fix mirrors `backend/src/scripts/seasonYear.ts` (added in #300, with tests
+covering this exact boundary). **`seasonYearAt`'s docstring currently explains
+why it deliberately diverges from the service — closing #301 is what makes
+that note deletable.**
+
+### 3b. #302 + #305 — the local-sync tooling
+
+- **#302** — `uploadToFrontendBucket.ts` writes the unsuffixed
+  `all-events.json` both to S3 and to disk; no client reads that name. Same
+  bug #300 fixed in the sibling script, left alone because this one writes to
+  the **production frontend bucket** and deserves its own risk assessment.
+- **#305** — `sync:fetch` reads the private S3 cache, so it needs credentials
+  *and* only works inside the 60-minute TTL window (2027's object is
+  regenerated once a day → ~4% of the day, maintainers only). #300 documented
+  a credential-free `curl` as the honest path; the command remains worse than
+  that curl.
+
+### 3c. #303 — retire the legacy `all-events.json`
+
+10.3MB, regenerated on every full sync, served by CloudFront, **read by
+nothing** (web and iOS both request the year-suffixed name; the e2e already
+says so in a comment). **Entry criterion: CloudFront log evidence** that
+nothing has fetched it over a full season — old iOS installs are the risk.
+The traffic-analytics Athena queries can answer it.
+
+### 3d. #304 — `useEventData` re-fetch loop
+
+On the failure path nothing latches, so unstable props identity = an unbounded
+fetch loop. **Not live** — `page.tsx:45-46` passes a context value and a
+`useMemo` — but the safety depends on every future caller memoizing, and it
+bites hardest for a reader whose feed will not load. It killed a vitest worker
+in #300, which is how it was found. Fixing it well means giving
+`EmptyState`'s "try reloading in a moment" a retry that actually exists.
 
 ---
 
 ## 4. #215 — CI for the Docker dev stack
 
-**Status:** NOT STARTED · **Size:** M · **Entry criterion: do #286 first**
+**Status:** READY — entry criterion met by PR #300 · **Size:** M
 
 Do it after #286 so the boot assertion can check *a rendered event*, not just
 a 200 — the two failures that actually shipped were both silent, and a
 build-only job would have caught neither.
+
+**#300 leaves two things ready to reuse.** `check_events` in
+`setup-local.sh` is the assertion in shell form, already exercised in both
+directions. And #300's throwaway Playwright probe is the browser form: load
+the page, `document.querySelectorAll('[data-event-id]').length > 0`, and
+assert `[data-testid="empty-state"]` is absent — deliberately not committed,
+because it is this job's to own. Run it against a tree reduced to
+`git ls-files frontend/public/data`; that reduction *is* the fresh-clone
+simulation.
 
 Still true: zero `docker` references across the eight workflows. `#248`
 (2026-08-24) changed `docker-compose.yml`, `scripts/setup-local.sh` and

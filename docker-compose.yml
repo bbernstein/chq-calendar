@@ -69,6 +69,13 @@ services:
       - NODE_ENV=development
       # Points browser directly to backend (Docker proxy can't reach localhost:3001)
       - VITE_API_URL=http://localhost:3001
+      # Opt in to locally-synced event files instead of the CDN. Empty by
+      # default, which is what makes a fresh clone show real events: the dev
+      # server proxies /cache to production (frontend/vite.config.ts). Passed
+      # through from the host so the escape hatch documented in
+      # backend/README-LOCAL-SYNC.md works inside the container too — without
+      # this line, setting it on the host would silently do nothing here.
+      - VITE_LOCAL_DATA=${VITE_LOCAL_DATA:-}
     volumes:
       # Scoped mounts — see the backend service above for the rationale.
       - ./frontend:/app/frontend

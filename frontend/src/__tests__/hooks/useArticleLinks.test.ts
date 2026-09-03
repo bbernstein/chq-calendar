@@ -22,7 +22,7 @@ describe('useArticleLinks', () => {
     vi.unstubAllGlobals();
   });
 
-  it('fetches the dev-path sidecar and returns links keyed by event id', async () => {
+  it('fetches the sidecar from the CDN base and returns links keyed by event id', async () => {
     (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve(PAYLOAD),
@@ -33,8 +33,10 @@ describe('useArticleLinks', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // vitest runs with import.meta.env.DEV === true → dev cache base
-    expect(fetch).toHaveBeenCalledWith('/data/article-links-2026.json');
+    // The CDN base, in dev as well as production (#286). vitest runs with
+    // import.meta.env.DEV === true, so this fails if the old
+    // `DEV ? '/data' : …` branch ever comes back.
+    expect(fetch).toHaveBeenCalledWith('/cache/calendar-cache/article-links-2026.json');
     expect(result.current.links['91653']).toHaveLength(1);
     expect(result.current.links['91653'][0].kind).toBe('recap');
   });
