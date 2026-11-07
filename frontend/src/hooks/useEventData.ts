@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Event, GlobalEventData, SeasonWeek } from '@/lib/types';
 import { CACHE_EXPIRY_MS, getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
 import { decodeHtmlEntities, decodeEventHtmlEntities } from '@/lib/utils/eventHelpers';
-import { dataBase, describeFetchFailure } from '@/lib/dataSource';
+import { dataBase, dataCacheKey, describeFetchFailure } from '@/lib/dataSource';
 
 interface UseEventDataProps {
   year: number;
@@ -17,7 +17,9 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
-  const cacheKey = `chq-calendar-events-${year}`;
+  // Namespaced by data source so toggling VITE_LOCAL_DATA is visible at once
+  // rather than after the cache expires; see dataCacheKey().
+  const cacheKey = dataCacheKey(`chq-calendar-events-${year}`);
 
   const fetchAllEvents = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {

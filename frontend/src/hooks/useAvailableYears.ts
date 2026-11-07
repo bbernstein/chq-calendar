@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CACHE_EXPIRY_MS, getDefaultYear } from '@/lib/constants';
-import { dataBase } from '@/lib/dataSource';
+import { dataBase, dataCacheKey } from '@/lib/dataSource';
 
 interface YearsManifest {
   years: number[];
@@ -14,6 +14,8 @@ interface UseAvailableYearsResult {
   loading: boolean;
 }
 
+// The production key. Read through dataCacheKey() at use, not captured here,
+// so a VITE_LOCAL_DATA dev server caches under its own key; see dataCacheKey().
 const CACHE_KEY = 'chq-calendar-years';
 
 export function useAvailableYears(): UseAvailableYearsResult {
@@ -28,7 +30,7 @@ export function useAvailableYears(): UseAvailableYearsResult {
     async function fetchManifest() {
       // Check localStorage cache first
       try {
-        const cached = localStorage.getItem(CACHE_KEY);
+        const cached = localStorage.getItem(dataCacheKey(CACHE_KEY));
         if (cached) {
           const parsed = JSON.parse(cached);
           if (parsed.cachedAt && Date.now() - parsed.cachedAt < CACHE_EXPIRY_MS) {
@@ -57,7 +59,7 @@ export function useAvailableYears(): UseAvailableYearsResult {
           }
           // Cache in localStorage
           try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify({
+            localStorage.setItem(dataCacheKey(CACHE_KEY), JSON.stringify({
               ...manifest,
               cachedAt: Date.now(),
             }));

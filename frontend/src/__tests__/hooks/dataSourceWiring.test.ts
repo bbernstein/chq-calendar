@@ -16,7 +16,7 @@ import { renderHook, waitFor } from '@testing-library/preact';
 import { useEventData } from '@/hooks/useEventData';
 import { useAvailableYears } from '@/hooks/useAvailableYears';
 import { useSidecarLinks } from '@/hooks/useSidecarLinks';
-import { CDN_DATA_BASE } from '@/lib/dataSource';
+import { CDN_DATA_BASE, LOCAL_DATA_BASE } from '@/lib/dataSource';
 import type { GlobalEventData } from '@/lib/types';
 
 const FEED = {
@@ -127,5 +127,72 @@ describe('published-data hooks all read from the CDN base', () => {
     // The remedy, which the old bare message did not carry.
     expect(message).toContain('sync:local');
     expect(message).toContain('backend/README-LOCAL-SYNC.md');
+  });
+
+  // The localStorage half of the same wiring. Each hook serves its cache for
+  // an hour without touching the network, so a hook that kept the bare key
+  // would make a VITE_LOCAL_DATA toggle look broken for that long — whatever
+  // URL it would have fetched. And the production keys have to stay exactly
+  // as they are, because every reader's warm cache is filed under them.
+  describe('cache keys', () => {
+    const YEARS = { years: [2025, 2026, 2027], defaultYear: 2026, generated: 'x' };
+
+    it('useEventData caches under the unchanged production key by default', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => FEED } as Response)));
+      const props = eventDataProps();
+      const { result } = renderHook(() => useEventData(props));
+      await waitFor(() => expect(result.current.events.length).toBe(1));
+
+      await waitFor(() => expect(localStorage.getItem('chq-calendar-events-2026')).not.toBeNull());
+      expect(localStorage.getItem('chq-calendar-events-2026-local')).toBeNull();
+    });
+
+    it('useEventData in local mode ignores a fresh CDN entry and caches under its own key', async () => {
+      vi.stubEnv('VITE_LOCAL_DATA', 'true');
+      // A fresh entry under the production key, with an event the feed does
+      // not have. Served, it would satisfy the hook without a fetch.
+      localStorage.setItem('chq-calendar-events-2026', JSON.stringify({
+        events: [{ ...FEED.data[0], id: 'from-the-cdn-cache' }],
+        categories: [],
+        locations: [],
+        tags: [],
+        weeks: [],
+        timestamp: Date.now(),
+        version: 'v4-publisher-feeds',
+      }));
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => FEED } as Response)));
+
+      const props = eventDataProps();
+      const { result } = renderHook(() => useEventData(props));
+      await waitFor(() => expect(result.current.events.length).toBe(1));
+
+      expect(result.current.events[0].id).toBe('e1');
+      expect(requestedUrls()).toContain(`${LOCAL_DATA_BASE}/all-events-2026.json`);
+      await waitFor(() => expect(localStorage.getItem('chq-calendar-events-2026-local')).not.toBeNull());
+    });
+
+    it('useAvailableYears caches under the unchanged production key by default', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => YEARS } as Response)));
+      const { result } = renderHook(() => useAvailableYears());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(localStorage.getItem('chq-calendar-years')).not.toBeNull();
+      expect(localStorage.getItem('chq-calendar-years-local')).toBeNull();
+    });
+
+    it('useAvailableYears in local mode ignores a fresh CDN entry and caches under its own key', async () => {
+      vi.stubEnv('VITE_LOCAL_DATA', 'true');
+      localStorage.setItem('chq-calendar-years', JSON.stringify({
+        years: [2026], defaultYear: 2026, generated: 'x', cachedAt: Date.now(),
+      }));
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => YEARS } as Response)));
+
+      const { result } = renderHook(() => useAvailableYears());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(result.current.years).toEqual([2025, 2026, 2027]);
+      expect(requestedUrls()).toContain(`${LOCAL_DATA_BASE}/years.json`);
+      expect(localStorage.getItem('chq-calendar-years-local')).not.toBeNull();
+    });
   });
 });
