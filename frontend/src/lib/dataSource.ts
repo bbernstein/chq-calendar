@@ -32,6 +32,8 @@
  * specifiers Vite rewrites imports to. An import would not cause a false
  * pass (the check fails loudly when it cannot evaluate the module), but it
  * would break the one first-run check that asserts the calendar has events.
+ * `src/__tests__/lib/dataSource.test.ts` fails on one, so it is caught here
+ * rather than on someone's first run.
  */
 
 /** The CDN prefix, proxied to production by Vite in dev and preview. */
@@ -98,9 +100,19 @@ export function dataCacheKey(key: string): string {
  * reader whose season has no data is EmptyState's, which is correct for them.
  * The person staring at an empty calendar in dev is a different person with a
  * different problem, and #286 is what happens when we address only the first.
+ *
+ * `cause` is the HTTP status when the server answered, or the error when the
+ * request never got an answer (`fetch()` rejected: offline, DNS, the dev
+ * server's proxy unreachable) or the answer could not be read. Both need the
+ * same remedy, and the second is the more likely one for a developer who is
+ * offline — which is exactly who the local-data route is for.
  */
-export function describeFetchFailure(url: string, status?: number): string {
-  const what = status === undefined ? `Failed to fetch ${url}` : `Failed to fetch ${url} (HTTP ${status})`;
+export function describeFetchFailure(url: string, cause?: number | Error): string {
+  const what = cause === undefined
+    ? `Failed to fetch ${url}`
+    : typeof cause === 'number'
+      ? `Failed to fetch ${url} (HTTP ${cause})`
+      : `Failed to fetch ${url} (${cause.name}: ${cause.message})`;
   if (!import.meta.env.DEV) return what;
   return usingLocalData()
     ? `${what}\nVITE_LOCAL_DATA=true is set, so this reads ${LOCAL_DATA_BASE} from frontend/public/data/, which git ignores. Populate it with \`npm run sync:local --workspace=backend\` (see backend/README-LOCAL-SYNC.md), or unset VITE_LOCAL_DATA to load from the CDN instead.`

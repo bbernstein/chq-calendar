@@ -1,4 +1,6 @@
 /// <reference types="vitest/globals" />
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   CDN_DATA_BASE,
   LOCAL_DATA_BASE,
@@ -130,6 +132,60 @@ describe('dataSource', () => {
       expect(msg).toContain('vite.config.ts');
       expect(msg).toContain('sync:local');
       expect(msg).toContain('VITE_LOCAL_DATA=true');
+    });
+
+    // A rejected fetch has no status. It is named by its error rather than as
+    // `HTTP undefined`, and it gets the same remedy: offline is the likeliest
+    // reason for it, and offline is what the local-data route is for.
+    it('describes a request that never got an answer by its error', () => {
+      const msg = describeFetchFailure(
+        '/cache/calendar-cache/all-events-2026.json',
+        new TypeError('Failed to fetch'),
+      );
+      expect(msg).toContain('/cache/calendar-cache/all-events-2026.json');
+      expect(msg).toContain('TypeError: Failed to fetch');
+      expect(msg).not.toContain('HTTP');
+      expect(msg).not.toContain('undefined');
+      expect(msg).toContain('network connection');
+      expect(msg).toContain('sync:local');
+    });
+  });
+
+  // `scripts/setup-local.sh`'s check_events fetches this module from the
+  // running dev server and evaluates it in node to learn which base the
+  // browser reads. Vite rewrites import specifiers to `/src/...` paths node
+  // cannot resolve, so one import breaks the only first-run check that asserts
+  // the calendar has events. The module header says so; this is what makes it
+  // more than a comment. Type-only imports are refused too, although the
+  // transform erases them today: whether a given import survives into what
+  // the dev server serves is a detail of the transform, and a rule that
+  // depends on it is one a reviewer cannot check by reading the file.
+  describe('stays import-free', () => {
+    const source = readFileSync(resolve(__dirname, '../../lib/dataSource.ts'), 'utf8');
+    // Comments stripped first, because the header explains this very rule in
+    // prose. `import.meta.env` is not an import; the lookahead below skips it.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const why = 'frontend/src/lib/dataSource.ts must stay import-free: scripts/setup-local.sh '
+      + '(check_events) evaluates the dev server\'s copy of it in node, which cannot resolve '
+      + 'the /src/... specifiers Vite rewrites imports to.';
+
+    it('has no static import', () => {
+      expect(code.match(/^[ \t]*import\b(?!\s*[.(])[^\n]*/gm) ?? [], why).toEqual([]);
+    });
+
+    it('has no dynamic import()', () => {
+      expect(code.match(/\bimport\s*\([^\n]*/g) ?? [], why).toEqual([]);
+    });
+
+    it('has no re-export from another module', () => {
+      expect(code.match(/^[ \t]*export\b[^;]*?\bfrom\s*['"][^\n]*/gm) ?? [], why).toEqual([]);
+    });
+
+    // Without this, a path that read some other, empty file would pass all
+    // three above.
+    it('is reading the module it guards', () => {
+      expect(code).toContain('export function dataBase');
+      expect(code).toContain('import.meta.env.DEV');
     });
   });
 });

@@ -129,6 +129,63 @@ describe('published-data hooks all read from the CDN base', () => {
     expect(message).toContain('backend/README-LOCAL-SYNC.md');
   });
 
+  // The other way the feed fails to arrive: fetch() rejects, with no response
+  // at all (offline, DNS, the /cache proxy unable to reach production). This
+  // reached the catch block, which logged a bare 'Error fetching events:' and
+  // none of the remedy above.
+  it('explains what to do when the feed request never gets an answer', async () => {
+    // The FIRST argument only: the raw error is logged beside the message, so
+    // joining every argument would let `String(error)` satisfy the assertions
+    // below even if the error never reached describeFetchFailure.
+    const errors: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args) => {
+      errors.push(String(args[0]));
+    });
+    const rejection = new TypeError('Failed to fetch');
+    vi.stubGlobal('fetch', vi.fn(async () => { throw rejection; }));
+
+    // Built once: see the first test. This is the failure path, the one with
+    // no `dataLoaded` guard, so per-render props would re-fetch without bound
+    // (#304).
+    const props = eventDataProps();
+    const { result } = renderHook(() => useEventData(props));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const message = errors.join('\n');
+    expect(message).toContain(`${CDN_DATA_BASE}/all-events-2026.json`);
+    expect(message).toContain('TypeError: Failed to fetch');
+    expect(message).not.toContain('HTTP undefined');
+    expect(message).toContain('sync:local');
+    expect(message).toContain('backend/README-LOCAL-SYNC.md');
+    // The caught error is still in the log, not replaced by the message.
+    expect((console.error as ReturnType<typeof vi.fn>).mock.calls.some((c) => c.includes(rejection))).toBe(true);
+  });
+
+  // The catch also sees errors from PROCESSING a feed that did arrive. The
+  // sync:local remedy is wrong advice for those — refetching cannot fix a
+  // processing bug — so it is reserved for a feed that never parsed.
+  it('does not blame the feed when processing an arrived feed fails', async () => {
+    const first: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args) => {
+      first.push(String(args[0]));
+    });
+    const boom = new Error('processing boom');
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ get data() { throw boom; } }),
+    })));
+
+    const props = eventDataProps();
+    const { result } = renderHook(() => useEventData(props));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const message = first.join('\n');
+    expect(message).toContain(`Error processing ${CDN_DATA_BASE}/all-events-2026.json`);
+    expect(message).not.toContain('sync:local');
+    expect((console.error as ReturnType<typeof vi.fn>).mock.calls.some((c) => c.includes(boom))).toBe(true);
+  });
+
   // The localStorage half of the same wiring. Each hook serves its cache for
   // an hour without touching the network, so a hook that kept the bare key
   // would make a VITE_LOCAL_DATA toggle look broken for that long — whatever
