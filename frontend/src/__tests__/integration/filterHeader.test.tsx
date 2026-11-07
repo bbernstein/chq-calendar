@@ -407,12 +407,20 @@ describe('page.tsx — the list and the count agree', () => {
         },
       ],
     });
+    // Pin the clock BEFORE seeding, so `lastSaved` is stamped with the
+    // page's "now" rather than the machine's. `useFilterState` discards saved
+    // state older than USER_STATE_EXPIRY_MS (30 days), and from October 1
+    // `YEAR` is next season, so the pinned July 1 sits ~8 months after the
+    // real clock. A real-clock `lastSaved` then reads as expired, the seeded
+    // search is silently dropped, and the empty state never renders. That
+    // is how this test went red on every branch in November 2026 with no
+    // code change.
+    vi.setSystemTime(chqDateAt(YEAR, 7, 1, 10));
     localStorage.setItem('chq-calendar-user-state', JSON.stringify({
       searchTerm: 'broken', selectedTags: [], selectedLocations: [],
       expandedDescriptions: [], recentLocations: [], recentCategories: [],
       showFavoritesOnly: false, lastSaved: Date.now(),
     }));
-    vi.setSystemTime(chqDateAt(YEAR, 7, 1, 10));
     await renderPage();
 
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
