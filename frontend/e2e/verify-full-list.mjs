@@ -13,14 +13,15 @@
 import { chromium, webkit } from 'playwright';
 import { pinClock, atMidMorning, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList, currentRegime, makeRoomBelow, surveyPinnableToday } from './regime.mjs';
+import { enterList, enterYear, currentRegime, makeRoomBelow, surveyPinnableToday } from './regime.mjs';
+import { yearsWithBusyDay, describeSurvey } from './feed.mjs';
 
 const URL = process.env.URL || 'http://localhost:3000/';
 const browser = await chromium.launch();
 
 async function newPageOn(
   engine,
-  { width = 390, height = 844, storage, cpu, query = '', traceScrolls = false, clock = FIXED_NOW } = {}
+  { width = 390, height = 844, storage, cpu, query = '', traceScrolls = false, clock = FIXED_NOW, year } = {}
 ) {
   const ctx = await engine.newContext({ viewport: { width, height }, timezoneId: 'America/New_York' });
   const page = await ctx.newPage();
@@ -53,8 +54,15 @@ async function newPageOn(
     const client = await ctx.newCDPSession(page);
     await client.send('Emulation.setCPUThrottlingRate', { rate: cpu });
   }
-  await page.goto(URL + query, { waitUntil: 'networkidle' });
-  await enterList(page);
+  // `year` opens a year other than the default — checks 4 and 10 use it when
+  // the default year's data cannot exercise them; see `enterYear`.
+  if (year) {
+    await page.goto(`${URL}?year=${year}`, { waitUntil: 'networkidle' });
+    await enterYear(page, year);
+  } else {
+    await page.goto(URL + query, { waitUntil: 'networkidle' });
+    await enterList(page);
+  }
   return page;
 }
 const newPage = opts => newPageOn(browser, opts);
@@ -358,8 +366,22 @@ const selectedYear = page => page.evaluate(() => {
 // measured 2026-07-30 (32 cards): estimate 300px against a real 2,851px,
 // ratio 0.11 — FAIL. The same section reads 2,988px against 2,851px on the
 // shipped constants, ratio 1.05.
+//
+// **Measured in whichever year has a day to measure.** Since the 2026-10-01
+// rollover the default year is a sparse 2027 — never more than three events
+// on a day — so "no day section with 8+ cards" was the honest answer and the
+// check failed on an app whose estimate was fine. The constants are per
+// card, not per year, so the subject is the same in any season: the default
+// year is used whenever its feed has an 8-event day, and otherwise the newest
+// archived year that does (`yearsWithBusyDay`, opened through `?year=` and
+// the landing's "Browse the N season" — `enterYear`). The detail names it.
+const DENSE = await yearsWithBusyDay(URL, 8);
+const denseYear = DENSE.years[0] ?? null;
+const denseOpts = denseYear === null || denseYear === DENSE.defaultYear ? {} : { year: denseYear };
+const denseTell = denseYear === DENSE.defaultYear ? `in ${denseYear}`
+  : `in ${denseYear}, the default ${DENSE.defaultYear} having no 8-event day`;
 {
-  const page = await newPage();
+  const page = await newPage(denseOpts);
   await settle(page);
   const measured = await page.evaluate(async () => {
     const secs = [...document.querySelectorAll('[data-day-key]')];
@@ -382,13 +404,14 @@ const selectedYear = page => page.evaluate(() => {
   });
   if (!measured) {
     check('4 the intrinsic size is in the right order of magnitude', false,
-      'no day section with 8+ cards to measure');
+      `no day section with 8+ cards to measure ${denseYear === null ? 'in any year' : denseTell}; ` +
+      `feeds: ${describeSurvey(DENSE.survey)}`);
   } else {
     const ratio = measured.estimate / measured.real;
     check('4 the intrinsic size is in the right order of magnitude',
       ratio >= 0.4 && ratio <= 1.6,
       `${measured.key}: ${measured.cards} cards, estimate ${measured.estimate}px vs real ` +
-      `${measured.real}px (ratio ${ratio.toFixed(2)}, ±60% allowed)`);
+      `${measured.real}px (ratio ${ratio.toFixed(2)}, ±60% allowed) ${denseTell}`);
   }
   await page.close();
 }
@@ -962,6 +985,10 @@ for (const engineName of ['chromium', 'webkit']) {
 // measurement: the same forty gestures sample ~135 frames here, so the
 // spike's run was roughly twice as long in wall-clock and its percentiles are
 // diluted by idle frames this loop does not have.
+const LONG = await (async () => {
+  const any = await yearsWithBusyDay(URL, 1);
+  return { ...any, candidates: [any.defaultYear, ...any.years.filter(y => y !== any.defaultYear)] };
+})();
 {
   // A browser of its own, and that is the whole reason this check is
   // trustworthy.
@@ -980,30 +1007,66 @@ for (const engineName of ['chromium', 'webkit']) {
   // other two are recorded in `verify-rail.mjs` and in check 10's own history
   // above. A dedicated process costs one browser launch and removes the
   // confound by construction rather than by tuning a threshold around it.
+  // ## Which year it scrolls through
+  //
+  // Forty 600px gestures plus a warm-up need ~24,600px of document below the
+  // first day, and the default year stopped having that on 2026-10-01: the
+  // rollover made it a sparse 2027 whose whole list is ~6,400px of scroll on
+  // this phone. Measured on that build: `669 → 5473` — the run ran out of page
+  // after about eight gestures and the other thirty-two sampled a CLAMPED
+  // page, which is exactly the self-measurement this check's header records
+  // fixing once already. It still passed; it was measuring nothing.
+  //
+  // So the document's room is measured, from where the run starts, and the
+  // run takes the default year when it has the room and otherwise the newest
+  // archived year that does — same route as check 4 (`enterYear`). The room is
+  // also asserted below rather than merely printed: a run that clamps is not
+  // a measurement of scrolling, and passing it would be the vacuity again.
+  //
+  // The room is read off the document as laid out, so sections the browser
+  // has skipped contribute their `contain-intrinsic-size` ESTIMATE, not their
+  // real height (check 4 holds that estimate to ±60%; measured ~5% on the
+  // shipped constants). On a bundle with a broken estimate the reading can
+  // therefore fall short on a long year and move the run on to the next one —
+  // seen once with the card estimate injected at 8px: 2026 read 23,538px and
+  // the run took 2025. That costs nothing (check 4 is red on that bundle) and
+  // cannot make this check pass a clamped run, because the run's own room is
+  // what is asserted.
+  const NEED = 41 * 600;
   const ownBrowser = await chromium.launch();
-  const page = await newPageOn(ownBrowser, { cpu: 4 });
-  await settle(page);
-  // Started from the FIRST day of the year, not from wherever the load
-  // landing left the reader.
-  //
-  // The first version of this check did the latter and measured its own
-  // setup: in season the landing parks the reader on today, which in late
-  // August is ~149,000px into a ~160,000px document, so 40 x 600px of wheel
-  // ran out of document after about nine gestures and the rest scrolled a
-  // clamped page. Measured 2026-08-26 on the shipped build: p95 55ms, worst
-  // 168ms and 129 frames sampled from the clamped start, against p95 25-30ms
-  // and ~142 frames from the top of the list.
-  //
-  // A rail tap rather than `scrollTo`: it is the app's own navigation, it
-  // leaves the settle hold in the state a reader's jump would, and the first
-  // wheel gesture cancels that hold exactly as a reader's would.
-  await page.evaluate(() => {
-    const first = [...document.querySelectorAll('[data-day-rail] [data-chip]')]
-      .find(e => e.getAttribute('aria-disabled') !== 'true');
-    first?.click();
-  });
-  await page.waitForTimeout(1500);
-  await waitForQuiet(page);
+  let page, year, room;
+  const passedOver = [];
+  for (year of LONG.candidates) {
+    page = await newPageOn(ownBrowser, { cpu: 4, ...(year === LONG.defaultYear ? {} : { year }) });
+    await settle(page);
+    // Started from the FIRST day of the year, not from wherever the load
+    // landing left the reader.
+    //
+    // The first version of this check did the latter and measured its own
+    // setup: in season the landing parks the reader on today, which in late
+    // August is ~149,000px into a ~160,000px document, so 40 x 600px of wheel
+    // ran out of document after about nine gestures and the rest scrolled a
+    // clamped page. Measured 2026-08-26 on the shipped build: p95 55ms, worst
+    // 168ms and 129 frames sampled from the clamped start, against p95 25-30ms
+    // and ~142 frames from the top of the list.
+    //
+    // A rail tap rather than `scrollTo`: it is the app's own navigation, it
+    // leaves the settle hold in the state a reader's jump would, and the first
+    // wheel gesture cancels that hold exactly as a reader's would.
+    await page.evaluate(() => {
+      const first = [...document.querySelectorAll('[data-day-rail] [data-chip]')]
+        .find(e => e.getAttribute('aria-disabled') !== 'true');
+      first?.click();
+    });
+    await page.waitForTimeout(1500);
+    await waitForQuiet(page);
+    room = await page.evaluate(() => Math.round(
+      document.documentElement.scrollHeight - window.innerHeight - window.scrollY));
+    if (room >= NEED || year === LONG.candidates.at(-1)) break;
+    passedOver.push(`${year} has ${room}px of ${NEED}`);
+    await page.close();
+  }
+  const where = `in ${year}` + (passedOver.length ? ` (${passedOver.join('; ')})` : '');
   // One warm-up gesture INSIDE the recording, then the frame log is cleared.
   // The first interval a fresh rAF loop records spans the gap between
   // registering the callback and the first wheel arriving over CDP — idle
@@ -1044,8 +1107,9 @@ for (const engineName of ['chromium', 'webkit']) {
   // that the worst frame is not a property of the build. `worst`, `over100`
   // and `over50` are printed as diagnostics on every run, pass or fail.
   check('10 forty gestures over the whole year stay smooth',
-    f.p50 < 40 && f.p95 < 90,
-    `p50 ${f.p50}ms, p95 ${f.p95}ms (asserted: p50 < 40, p95 < 90) — diagnostics: ` +
+    room >= NEED && f.p50 < 40 && f.p95 < 90,
+    `p50 ${f.p50}ms, p95 ${f.p95}ms (asserted: p50 < 40, p95 < 90; ${room}px of room for ` +
+    `${NEED}px of gestures, asserted) ${where} — diagnostics: ` +
     `worst ${f.worst}ms, ${f.over100} frames over 100ms and ${f.over50} over 50ms ` +
     `of ${f.count}, ${f.startY} → ${f.scrollY}`);
   await page.close();
