@@ -24,11 +24,51 @@ cache bucket. If you do not have those, you want the default CDN path, not
 this guide.
 
 **Whatever you sync is only read if you ask for it.** Set `VITE_LOCAL_DATA=true`
-in the frontend's environment to switch from the CDN to
-`frontend/public/data/`; see `frontend/src/lib/dataSource.ts`. This is
+to switch the dev server from the CDN to `frontend/public/data/` — where to
+set it is below; see also `frontend/src/lib/dataSource.ts`. This is
 deliberately explicit rather than "use the local file if one exists" — the
 implicit version was issue #286, where a gitignored directory silently decided
 whether the calendar had any events in it.
+
+## Turning local data on
+
+`VITE_LOCAL_DATA` is a **dev-server-only switch**. The Vite dev server honours
+it — `npm run dev` on the host, or the Docker frontend container, which runs
+the same thing. A production build and `vite preview` always read the CDN,
+whatever it is set to. Vite reads it once at startup, so restart after
+changing it.
+
+**Host dev server** (`cd frontend && npm run dev`) — either:
+
+- put `VITE_LOCAL_DATA=true` in `frontend/.env.local` (gitignored; there is a
+  commented-out line for it in `frontend/.env.example`), or
+- prefix the command: `VITE_LOCAL_DATA=true npm run dev`.
+
+The repository-root `.env` is **not** read here — Vite looks for env files in
+`frontend/` only.
+
+**Docker** (`docker compose up`) — any one of these, consulted in this order,
+the first that sets it winning:
+
+1. the shell you run Compose from: `VITE_LOCAL_DATA=true docker compose up -d`
+2. the repository-root `.env`, which Compose reads
+3. `frontend/.env.local`, which is bind-mounted into the container
+
+After changing 1 or 2, run `docker compose up -d frontend` so Compose
+recreates the container with the new environment; after changing 3,
+`docker compose restart frontend` is enough.
+
+**Set it in one place.** An empty `VITE_LOCAL_DATA=` in the shell or the root
+`.env` still counts as set: it turns local data *off* and overrides a `true`
+in `frontend/.env.local`, because Vite lets the process environment beat its
+env files, empty values included. `docker-compose.yml` passes the variable
+through by bare name for exactly this reason — it used to interpolate it with
+a `:-` default, which defined it as an empty string in every container and
+so silently disabled `frontend/.env.local` under Docker.
+
+`./scripts/setup-local.sh` asks the running frontend which source it is
+reading rather than trusting your shell, so it reports the mode you actually
+got.
 
 ## Prerequisites
 
@@ -77,6 +117,15 @@ For a full sync with local save:
 npm run sync:local -- --force
 ```
 
+`--force` runs the service's full-year sync (`syncFullYearEvents`) — the same
+one production's daily and weekly syncs run — so it also records a `full` row
+in the sync-status table and rewarms that year's published feed. Without
+`--force` it is an incremental, now-relative sync.
+
+Both `sync:local` and `sync:fetch` **exit non-zero when they write no file**
+(an empty cache, a missing S3 object), rather than printing a success line over
+nothing.
+
 For a different season — this is how you get 2027 (or 2025) on disk:
 ```bash
 npm run sync:local -- --year=2027 --force
@@ -88,13 +137,26 @@ incremental sync takes no year — it syncs a now-relative window — so
 whatever the cache held for 2027 under a 2027 filename. Rather than warn about
 a silently wrong file, the script stops and names both alternatives.
 
-If you only want a season's published feed on disk, **don't use this script
-at all** — the feed is public, so one line does it with no AWS access:
+If you only want the published feed on disk, **don't use this script at
+all** — the feed is public, so this does it with no AWS access:
 
 ```bash
-curl -o frontend/public/data/all-events-2027.json \
-  https://www.chqcal.org/cache/calendar-cache/all-events-2027.json
+cd frontend/public/data
+
+# The manifest first. The app opens on its defaultYear, so that is the feed
+# you need; a feed for any other season sits unread. Written through node so
+# a failed fetch leaves the tracked file alone and the indentation matches.
+node -e 'fetch("https://www.chqcal.org/cache/calendar-cache/years.json").then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}).then(m=>require("fs").writeFileSync("years.json",JSON.stringify(m,null,2)+"\n"))'
+
+YEAR=$(node -p 'require("./years.json").defaultYear')
+curl -fo "all-events-${YEAR}.json" \
+  "https://www.chqcal.org/cache/calendar-cache/all-events-${YEAR}.json"
 ```
+
+`years.json` is tracked, so this shows up in `git status` whenever production
+has moved on — that diff is the refresh, and worth committing. To have
+another season on disk as well, fetch its `all-events-<year>.json` the same
+way; it is reachable from the year switcher as long as `years.json` lists it.
 
 `npm run sync:fetch -- --year=2027` reads the *private* S3 cache instead, and
 that object carries a 60-minute TTL while 2027's is regenerated once a day —
@@ -102,8 +164,10 @@ so outside a one-hour window each day it reports `Cache EXPIRED` and writes
 nothing. It is the wrong tool for this; the curl above always works.
 
 The year defaults to the current season using the same October 1 turnover as
-the frontend, so from October onwards it syncs *next* year — matching the file
-the app will ask for.
+the frontend's fallback, so from October onwards it syncs *next* year. The app
+itself asks for `years.json`'s `defaultYear`, which `sync:local` refreshes
+alongside; the two normally agree, and when they do not, `years.json` is the
+one the app follows.
 
 ### 4. Fetch Cached Data Only
 If data is already synced and you just want to pull down the cached
@@ -127,8 +191,9 @@ npm run sync:fetch
 1. Run `npm run sync:local` to sync data and generate the local files
 2. They are saved to `frontend/public/data/` as `all-events-<year>.json`,
    alongside a refreshed `years.json`
-3. Set `VITE_LOCAL_DATA=true` for the frontend — without it the app reads the
-   CDN and your synced files are ignored
+3. Set `VITE_LOCAL_DATA=true` for the dev server (see "Turning local data
+   on" above) — without it the app reads the CDN and your synced files are
+   ignored
 
 ## Troubleshooting
 
@@ -146,13 +211,20 @@ npm run sync:fetch
 - Try running with `--fetch-s3-direct` flag if cache service fails
 
 ### The file exists but the calendar is still empty
-- `VITE_LOCAL_DATA=true` must be set for the frontend to read
-  `frontend/public/data/` at all; otherwise it loads from the CDN
+- `VITE_LOCAL_DATA=true` must reach the dev server for it to read
+  `frontend/public/data/` at all; otherwise it loads from the CDN. Under
+  Docker, an empty `VITE_LOCAL_DATA=` in your shell or the root `.env`
+  overrides `frontend/.env.local` — see "Turning local data on". A production
+  build and `vite preview` never read it
 - Check the filename has the year suffix. The frontend requests
   `all-events-<year>.json`; a bare `all-events.json` is the legacy every-year
   blob (~10MB) that nothing reads. Older versions of this script wrote that
   name, which is what made issue #286 so hard to diagnose
-- From October the frontend asks for *next* year — sync it with `--year=`
+- Check the year is the one `frontend/public/data/years.json` names as
+  `defaultYear` — that is the file the app requests, not one worked out from
+  today's date. A stale `years.json` makes the app ask for a season you did
+  not download; the curl recipe above fetches the two together, and
+  `sync:local` refreshes it for you
 
 ## Production Deployment
 

@@ -1,3 +1,7 @@
+/**
+ * @jest-environment ./src/__tests__/environments/timeZoneEnvironment.ts
+ * @jest-environment-options {"timeZone": "Asia/Tokyo"}
+ */
 import { seasonYearAt, CHQ_TIMEZONE } from '../scripts/seasonYear';
 
 /**
@@ -6,6 +10,24 @@ import { seasonYearAt, CHQ_TIMEZONE } from '../scripts/seasonYear';
  * pinned here.
  */
 describe('seasonYearAt', () => {
+  // The whole file runs with the worker on Asia/Tokyo — see the docblock at
+  // the top and `environments/timeZoneEnvironment.ts`. Backend jest does not
+  // otherwise pin TZ, and the maintainer works on America/New_York, where
+  // "the default zone fell back to the machine clock" resolves exactly as
+  // Chautauqua time does, so every assertion below would pass over the very
+  // regression it exists to catch. Tokyo is 13 hours ahead: at 22:00 ET on
+  // Sep 30 it is already October 1.
+  const PROCESS_ZONE = 'Asia/Tokyo';
+
+  // Checks the harness, not the code. If the environment stopped taking
+  // effect, the suite would quietly be back on the machine's zone and
+  // vacuous on an Eastern machine; this is what says so.
+  it('really is running on a clock that disagrees with Chautauqua\'s', () => {
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(PROCESS_ZONE);
+    // 2026-10-01T02:00Z: 22:00 on Sep 30 at Chautauqua, 11:00 on Oct 1 here.
+    expect(new Date('2026-10-01T02:00:00Z').getMonth()).toBe(9);
+  });
+
   describe('the October turnover', () => {
     it.each([
       ['2026-01-15T12:00:00Z', 2026],
