@@ -11,7 +11,8 @@
 import { chromium } from 'playwright';
 import { pinClock, atMidMorning, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList, currentRegime, surveyPinnableToday } from './regime.mjs';
+import { enterList, enterYear, currentRegime, surveyPinnableToday } from './regime.mjs';
+import { fetchManifest, fetchYear, isolatingSearchTerm, yearsWithBusyDay, describeSurvey } from './feed.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -19,7 +20,7 @@ const browser = await chromium.launch();
 
 
 async function newPage(
-  { width = 900, height = 900, storage, seedsOwnFilter = false, clock = FIXED_NOW } = {}
+  { width = 900, height = 900, storage, seedsOwnFilter = false, clock = FIXED_NOW, year } = {}
 ) {
   // Chautauqua's own timezone, kept for belt-and-braces — it is no longer
   // load-bearing. The paragraph that used to be here claimed the app "treats
@@ -77,11 +78,14 @@ async function newPage(
   if (storage) {
     await page.addInitScript(([k, v]) => localStorage.setItem(k, v), storage);
   }
-  await page.goto(URL, { waitUntil: 'networkidle' });
+  // `year` opens a year other than the default — checks 12, 18 and 20h use it
+  // when the default year's data cannot exercise them; see `enterYear`.
+  await page.goto(year ? `${URL}?year=${year}` : URL, { waitUntil: 'networkidle' });
   // Off-season the default screen is the landing, not a day list; see
   // `regime.mjs` for what this does about it, and for why a page that seeded
   // a filter into storage has to opt out of reporting the regime (#287).
-  await enterList(page, { seedsOwnFilter });
+  if (year) await enterYear(page, year);
+  else await enterList(page, { seedsOwnFilter });
   return page;
 }
 
@@ -698,233 +702,272 @@ if (currentRegime() === 'off-season') {
 }
 
 // ------------------------------------------- 12. sticky stack, narrow + zoomed
+//
+// **Which season it parks in is surveyed, not assumed.** The check needs a
+// day taller than the rail, its own header and two 120px margins — a day with
+// several events on it. Every season it was written against had dozens. On
+// 2026-10-01 the default year rolled over to a published but sparse 2027: 52
+// events, never more than three on a day. Measured at 320px: the tallest
+// section 320px (2027-08-20, 3 cards) against the 441px the park needs, so
+// `roomy()` found nothing and 12 failed on an app whose sticky header was
+// fine — the fixture had stopped containing the thing the check parks in.
+//
+// So the default year is tried first, and when it has no tall enough day the
+// check moves to the newest ARCHIVED year whose feed has a day with 8+ events
+// (`yearsWithBusyDay`, `feed.mjs`), opened through the app's own `?year=`
+// route and "Browse the N season" button (`enterYear`). Sticky geometry is
+// not a property of which year is showing — the rail, the header and the
+// section markup are the same components either way — so the subject is
+// intact; the detail line names the year it parked in and why.
+//
+// The 200% case currently still parks in 2027 (2x type makes even a 3-card
+// day tall enough); the 320px case currently takes 2026. Both flip back to the
+// default year by themselves once that season's programme is published.
+const TALL = await (async () => {
+  const busy = await yearsWithBusyDay(URL, 8);
+  return { ...busy,
+    candidates: [busy.defaultYear, ...busy.years.filter(y => y !== busy.defaultYear)] };
+})();
 for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
-  const page = await newPage({ width, height: 800 });
-  if (zoom !== 1) {
-    await page.evaluate(z => { document.documentElement.style.fontSize = `${16 * z}px`; }, zoom);
-    await page.waitForTimeout(600);
-  }
+  // Which year to park in, tried in order — see TALL above. The default year
+  // first, always: if its data can hold a stuck header the check runs where a
+  // reader is. Only a "no day tall enough" answer moves on to the next
+  // candidate; any other failure (a scroll that never settled, a missing rail)
+  // is a finding about the app and is reported from the year it happened in.
+  let page, parked, year;
+  const passedOver = [];
+  for (year of TALL.candidates) {
+    page = await newPage({ width, height: 800, ...(year === TALL.defaultYear ? {} : { year }) });
+    if (zoom !== 1) {
+      await page.evaluate(z => { document.documentElement.style.fontSize = `${16 * z}px`; }, zoom);
+      await page.waitForTimeout(600);
+    }
 
-  // Take ownership of the scroll position before parking anywhere.
-  //
-  // `enterList` returns as soon as the first day section exists, which is
-  // BEFORE the app has finished moving: in season it lands the reader on
-  // today, and `useDayAnchor`'s hold then re-asserts that position on every
-  // later layout change. Neither is cancelled by `window.scrollBy`, which is
-  // all the parking loop below uses — so the harness would park on a day in
-  // June, and the app would put the reader back on today underneath it.
-  //
-  // With the whole year mounted (#274 phase 4) that is a ~149,000px
-  // correction, and `roomy()` picks the first tall day of the YEAR rather
-  // than one near today, so the two are now always far apart. Measured on
-  // this list: parked at scrollY 3,561, measured 300ms later at 152,663 —
-  // `headerTop -148,557` against a `railBottom` of 140. CI failed on exactly
-  // that, at 320px, on two commits running.
-  //
-  // One real wheel tick settles it in either order: arriving before the
-  // landing it arms `useInitialLanding`'s takeover guard, and arriving after
-  // it cancels the hold. Reproduced and fixed at 1x, 4x and 8x CPU throttle —
-  // it is an ordering bug, not a slow-machine one, which is why it passed
-  // locally and failed in CI on identical code.
-  //
-  // A wheel, not `window.scrollTo`, for the reason `settleAtTop` records:
-  // only a real gesture cancels the hold.
-  await page.mouse.move(Math.round(width / 2), 400);
-  await page.mouse.wheel(0, 1);
-  await page.waitForTimeout(800);
-
-  // Park deliberately inside a day whose header is genuinely stuck, rather
-  // than scrolling a fixed distance and measuring whatever is there.
-  //
-  // `mouse.wheel(0, 1800)` used to do the latter, and where 1800px lands
-  // depends on how many events the current scope is showing — so it depended
-  // on the wall-clock hour. At 200% zoom it landed in the gap between two
-  // days: the outgoing header was being pushed up by the end of its own
-  // section (correct `position: sticky` behaviour, bounded by its containing
-  // block) while the next day's header had not reached the rail yet. Nothing
-  // was stuck, so there was nothing for the assertion below to be about, and
-  // it failed on `main` as well as on every branch.
-  //
-  // Iterated rather than scrolled once: sections carry `content-visibility:
-  // auto`, so a section's real height replaces its `contain-intrinsic-size`
-  // estimate as it comes into view — which moves the target out from under a
-  // single computed delta. (Until #274 phase 4 the render window mounting
-  // more days as the reader descended did the same thing, and was the reason
-  // recorded here.) Loop until the section is actually in position, then
-  // stop.
-  const parked = await page.evaluate(async () => {
-    const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    // Null-returning rather than throwing: an exception inside `evaluate`
-    // aborts the whole script, where every other failure in this harness is
-    // reported as a named check with the value it measured.
-    const railBottom = () => {
-      const rail = document.querySelector('[data-day-rail]');
-      return rail ? rail.getBoundingClientRect().bottom : null;
-    };
-    // `[data-day-header]` rather than `.sticky`: the attribute is the declared
-    // DOM contract (`DAY_SECTION_ATTR`'s neighbour in `daySections.ts`), while
-    // the class is a Tailwind utility that would silently match any other
-    // sticky descendant a section gained later.
-    const headerOf = (sec) => sec.querySelector('[data-day-header]');
-
-    if (railBottom() === null) return { ok: false, why: 'no day rail on the page' };
-
-    // A day tall enough that its header is still stuck once we are inside it:
-    // it must outlast the rail, its own header, and the margin we park at.
-    const MARGIN = 120;
-    const roomy = () => [...document.querySelectorAll('[data-day-key]')].find((e) => {
-      const header = headerOf(e);
-      if (!header) return false;
-      const bottom = railBottom();
-      if (bottom === null) return false;
-      return e.getBoundingClientRect().height
-        > bottom + header.getBoundingClientRect().height + MARGIN * 2;
-    });
-
-    // Search across everything mounted, retrying as the document settles.
+    // Take ownership of the scroll position before parking anywhere.
     //
-    // This loop was written for a list that grew: the first render mounted
-    // only enough days to reach RENDER_BATCH_EVENTS, and more arrived as an
-    // IntersectionObserver on a bottom sentinel was tripped, so choosing a
-    // target from the initially-mounted set alone made the check depend on
-    // whether the first batch happened to contain a tall day. #274 phase 4
-    // deleted the render window, the sentinel and the observer: every day of
-    // the year is mounted in the first commit, so `roomy()` finds its target
-    // on the first call and the loop below exits without ever scrolling.
+    // `enterList` returns as soon as the first day section exists, which is
+    // BEFORE the app has finished moving: in season it lands the reader on
+    // today, and `useDayAnchor`'s hold then re-asserts that position on every
+    // later layout change. Neither is cancelled by `window.scrollBy`, which is
+    // all the parking loop below uses — so the harness would park on a day in
+    // June, and the app would put the reader back on today underneath it.
     //
-    // It is kept rather than deleted because its exit condition is still the
-    // honest one — it stops the moment the mounted count stops changing,
-    // which is now immediately — and because `roomy()` reads
-    // `getBoundingClientRect().height` on sections the browser may have
-    // SKIPPED under `content-visibility: auto`, where that height is the
-    // `contain-intrinsic-size` estimate rather than a real measurement. The
-    // estimate is close enough for this purpose (measured 2,988px against a
-    // real 2,851px on the same section, ~5%), so a day picked by estimate is
-    // genuinely tall — but the retry is the thing that would absorb it if
-    // that ever stopped being true.
-    let target = roomy();
-    for (let grow = 0; grow < 20 && !target; grow++) {
-      const before = Math.round(window.scrollY);
-      window.scrollBy(0, window.innerHeight);
-      await frame();
-      await frame();
-      target = roomy();
-      // The document will not scroll any further and nothing tall enough has
-      // come into view — more scrolling cannot help, so stop rather than spin
-      // out the loop.
+    // With the whole year mounted (#274 phase 4) that is a ~149,000px
+    // correction, and `roomy()` picks the first tall day of the YEAR rather
+    // than one near today, so the two are now always far apart. Measured on
+    // this list: parked at scrollY 3,561, measured 300ms later at 152,663 —
+    // `headerTop -148,557` against a `railBottom` of 140. CI failed on exactly
+    // that, at 320px, on two commits running.
+    //
+    // One real wheel tick settles it in either order: arriving before the
+    // landing it arms `useInitialLanding`'s takeover guard, and arriving after
+    // it cancels the hold. Reproduced and fixed at 1x, 4x and 8x CPU throttle —
+    // it is an ordering bug, not a slow-machine one, which is why it passed
+    // locally and failed in CI on identical code.
+    //
+    // A wheel, not `window.scrollTo`, for the reason `settleAtTop` records:
+    // only a real gesture cancels the hold.
+    await page.mouse.move(Math.round(width / 2), 400);
+    await page.mouse.wheel(0, 1);
+    await page.waitForTimeout(800);
+
+    // Park deliberately inside a day whose header is genuinely stuck, rather
+    // than scrolling a fixed distance and measuring whatever is there.
+    //
+    // `mouse.wheel(0, 1800)` used to do the latter, and where 1800px lands
+    // depends on how many events the current scope is showing — so it depended
+    // on the wall-clock hour. At 200% zoom it landed in the gap between two
+    // days: the outgoing header was being pushed up by the end of its own
+    // section (correct `position: sticky` behaviour, bounded by its containing
+    // block) while the next day's header had not reached the rail yet. Nothing
+    // was stuck, so there was nothing for the assertion below to be about, and
+    // it failed on `main` as well as on every branch.
+    //
+    // Iterated rather than scrolled once: sections carry `content-visibility:
+    // auto`, so a section's real height replaces its `contain-intrinsic-size`
+    // estimate as it comes into view — which moves the target out from under a
+    // single computed delta. (Until #274 phase 4 the render window mounting
+    // more days as the reader descended did the same thing, and was the reason
+    // recorded here.) Loop until the section is actually in position, then
+    // stop.
+    parked = await page.evaluate(async () => {
+      const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // Null-returning rather than throwing: an exception inside `evaluate`
+      // aborts the whole script, where every other failure in this harness is
+      // reported as a named check with the value it measured.
+      const railBottom = () => {
+        const rail = document.querySelector('[data-day-rail]');
+        return rail ? rail.getBoundingClientRect().bottom : null;
+      };
+      // `[data-day-header]` rather than `.sticky`: the attribute is the declared
+      // DOM contract (`DAY_SECTION_ATTR`'s neighbour in `daySections.ts`), while
+      // the class is a Tailwind utility that would silently match any other
+      // sticky descendant a section gained later.
+      const headerOf = (sec) => sec.querySelector('[data-day-header]');
+
+      if (railBottom() === null) return { ok: false, why: 'no day rail on the page' };
+
+      // A day tall enough that its header is still stuck once we are inside it:
+      // it must outlast the rail, its own header, and the margin we park at.
+      const MARGIN = 120;
+      const roomy = () => [...document.querySelectorAll('[data-day-key]')].find((e) => {
+        const header = headerOf(e);
+        if (!header) return false;
+        const bottom = railBottom();
+        if (bottom === null) return false;
+        return e.getBoundingClientRect().height
+          > bottom + header.getBoundingClientRect().height + MARGIN * 2;
+      });
+
+      // Search across everything mounted, retrying as the document settles.
       //
-      // Keyed on the SCROLL POSITION. It used to break when the mounted day
-      // COUNT stopped growing, which said the same thing while a render
-      // window mounted days as the reader descended. #274 phase 4 mounts
-      // every day up front, so that count is a constant and this loop broke
-      // after its FIRST scroll — having scanned one viewport of a list it
-      // exists to scan the length of.
-      if (!target && Math.round(window.scrollY) === before) break;
-    }
-    if (!target) {
-      return { ok: false, why: 'no mounted day was tall enough to hold a stuck header, even after scrolling to the end of the list' };
-    }
-
-    const key = target.dataset.dayKey;
-
-    // How far the target is from where we want it. Aim to sit MARGIN pixels
-    // past the section's start, so the header has stuck and the section has
-    // not yet begun pushing it back out.
-    const offBy = () => {
-      const sec = document.querySelector(`[data-day-key="${key}"]`);
-      if (!sec) return { why: `target day ${key} left the DOM while homing in on it` };
-      const bottom = railBottom();
-      if (bottom === null) return { why: 'the day rail left the page while homing in' };
-      return { delta: sec.getBoundingClientRect().top - bottom + MARGIN };
-    };
-
-    // Wait until the document stops growing under us. Returns whether it
-    // actually stopped, so a page that never settles is reported as that
-    // rather than as a scroll that missed.
-    // Bounded at 4s per call (40 samples), and only an attempt that has
-    // already parked pays it — so a normal run spends one or two of these at
-    // the ~400ms floor and a pathological one exhausts the 25 attempts in
-    // well under two minutes and fails with a reason.
-    //
-    // The floor is 400ms and four samples, not 300 and three: the first
-    // sample only sets `last` (it compares against the -1 sentinel), so
-    // three *consecutive equal* readings need a baseline before them.
-    const sleep = ms => new Promise(r => setTimeout(r, ms));
-    const heightHolds = async () => {
-      let last = -1, same = 0;
-      for (let i = 0; i < 40 && same < 3; i++) {
-        await sleep(100);
-        const h = document.documentElement.scrollHeight;
-        if (h === last) same++; else { same = 0; last = h; }
-      }
-      return same >= 3;
-    };
-
-    let stalled = false;
-    for (let i = 0; i < 25; i++) {
-      const at = offBy();
-      if (at.why) return { ok: false, why: at.why };
-      if (Math.abs(at.delta) > 2) {
-        window.scrollBy(0, at.delta);
+      // This loop was written for a list that grew: the first render mounted
+      // only enough days to reach RENDER_BATCH_EVENTS, and more arrived as an
+      // IntersectionObserver on a bottom sentinel was tripped, so choosing a
+      // target from the initially-mounted set alone made the check depend on
+      // whether the first batch happened to contain a tall day. #274 phase 4
+      // deleted the render window, the sentinel and the observer: every day of
+      // the year is mounted in the first commit, so `roomy()` finds its target
+      // on the first call and the loop below exits without ever scrolling.
+      //
+      // It is kept rather than deleted because its exit condition is still the
+      // honest one — it stops the moment the mounted count stops changing,
+      // which is now immediately — and because `roomy()` reads
+      // `getBoundingClientRect().height` on sections the browser may have
+      // SKIPPED under `content-visibility: auto`, where that height is the
+      // `contain-intrinsic-size` estimate rather than a real measurement. The
+      // estimate is close enough for this purpose (measured 2,988px against a
+      // real 2,851px on the same section, ~5%), so a day picked by estimate is
+      // genuinely tall — but the retry is the thing that would absorb it if
+      // that ever stopped being true.
+      let target = roomy();
+      for (let grow = 0; grow < 20 && !target; grow++) {
+        const before = Math.round(window.scrollY);
+        window.scrollBy(0, window.innerHeight);
         await frame();
-        continue;
+        await frame();
+        target = roomy();
+        // The document will not scroll any further and nothing tall enough has
+        // come into view — more scrolling cannot help, so stop rather than spin
+        // out the loop.
+        //
+        // Keyed on the SCROLL POSITION. It used to break when the mounted day
+        // COUNT stopped growing, which said the same thing while a render
+        // window mounted days as the reader descended. #274 phase 4 mounts
+        // every day up front, so that count is a constant and this loop broke
+        // after its FIRST scroll — having scanned one viewport of a list it
+        // exists to scan the length of.
+        if (!target && Math.round(window.scrollY) === before) break;
+      }
+      if (!target) {
+        return { ok: false, noTallDay: true, why: 'no mounted day was tall enough to hold a stuck header, even after scrolling to the end of the list' };
       }
 
-      // Parked — but only for this frame, and that was #290.
+      const key = target.dataset.dayKey;
+
+      // How far the target is from where we want it. Aim to sit MARGIN pixels
+      // past the section's start, so the header has stuck and the section has
+      // not yet begun pushing it back out.
+      const offBy = () => {
+        const sec = document.querySelector(`[data-day-key="${key}"]`);
+        if (!sec) return { why: `target day ${key} left the DOM while homing in on it` };
+        const bottom = railBottom();
+        if (bottom === null) return { why: 'the day rail left the page while homing in' };
+        return { delta: sec.getBoundingClientRect().top - bottom + MARGIN };
+      };
+
+      // Wait until the document stops growing under us. Returns whether it
+      // actually stopped, so a page that never settles is reported as that
+      // rather than as a scroll that missed.
+      // Bounded at 4s per call (40 samples), and only an attempt that has
+      // already parked pays it — so a normal run spends one or two of these at
+      // the ~400ms floor and a pathological one exhausts the 25 attempts in
+      // well under two minutes and fails with a reason.
       //
-      // `enterList` lands the reader on today, which with the whole year
-      // mounted (#274 phase 4) is ~158,000px down a ~172,000px document,
-      // while `roomy()` picks the first tall day of the YEAR. So the scroll
-      // above is a ~152,000px jump back up, and it lands among ninety day
-      // sections the browser has never laid out: they carry
-      // `content-visibility: auto`, so each is still reporting its
-      // `contain-intrinsic-size` estimate rather than a measured height.
-      // Coming into view they swap one for the other and the document grows
-      // — measured here, 169,546 to 172,664, ~3,100px of it ABOVE the target.
-      // Chromium's scroll anchoring absorbs some of that (+478px of the
-      // +2,292 in the run below) and the remainder moves the target down.
-      //
-      // Which frame the growth lands in is the whole of the flake. It used to
-      // arrive after this loop returned, inside the caller's 300ms wait, and
-      // check 12 then measured a header 277 to 547px below the rail on a page
-      // that had already confirmed it flush — roughly one run in four:
-      //
-      //     i=0 y=158,026 delta=-152,828 h=169,546
-      //     i=1 y=  5,198 delta=       0 h=169,546   <- old loop returned here
-      //         y=  5,676 delta=     547 h=172,716   <- 17ms later
-      //
-      // The app is not exposed to this: `useDayAnchor`'s hold exists for
-      // exactly this ("a scroll decision invalidated by content changing
-      // height after it was made") and re-asserts the tapped day on every
-      // resize. The harness disarms it on purpose with the `mouse.wheel(0, 1)`
-      // above, because it would otherwise pull the reader back to today
-      // underneath this loop — so having disarmed it, the loop has to do the
-      // hold's job itself. It is the same correction, driven by a settled
-      // document height rather than by a ResizeObserver.
-      //
-      // BOTH conditions, and `held` is not decoration. A document that never
-      // stopped growing can still read `<= 2` for the one frame it is
-      // sampled in — which is the same coincidence this whole block exists to
-      // stop trusting, merely made four seconds less likely. Requiring the
-      // height to have actually held is what makes the code enforce what the
-      // paragraph above claims. An unsettled page loops instead, and if it
-      // never settles it exhausts the attempts and is reported as that,
-      // rather than passing on a lucky sample.
-      const held = await heightHolds();
-      stalled = !held;
-      const after = offBy();
-      if (after.why) return { ok: false, why: after.why };
-      if (held && Math.abs(after.delta) <= 2) return { ok: true, key };
-    }
-    // Distinct from the search failure above: a day WAS found, the scroll just
-    // never settled on it. Worth telling apart — one is about the fixture, the
-    // other about the page moving under the scroll.
-    return {
-      ok: false,
-      why: `scroll did not settle on ${key} within 25 attempts` +
-        (stalled ? ' — the document never stopped changing height' : ''),
-    };
-  });
+      // The floor is 400ms and four samples, not 300 and three: the first
+      // sample only sets `last` (it compares against the -1 sentinel), so
+      // three *consecutive equal* readings need a baseline before them.
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const heightHolds = async () => {
+        let last = -1, same = 0;
+        for (let i = 0; i < 40 && same < 3; i++) {
+          await sleep(100);
+          const h = document.documentElement.scrollHeight;
+          if (h === last) same++; else { same = 0; last = h; }
+        }
+        return same >= 3;
+      };
+
+      let stalled = false;
+      for (let i = 0; i < 25; i++) {
+        const at = offBy();
+        if (at.why) return { ok: false, why: at.why };
+        if (Math.abs(at.delta) > 2) {
+          window.scrollBy(0, at.delta);
+          await frame();
+          continue;
+        }
+
+        // Parked — but only for this frame, and that was #290.
+        //
+        // `enterList` lands the reader on today, which with the whole year
+        // mounted (#274 phase 4) is ~158,000px down a ~172,000px document,
+        // while `roomy()` picks the first tall day of the YEAR. So the scroll
+        // above is a ~152,000px jump back up, and it lands among ninety day
+        // sections the browser has never laid out: they carry
+        // `content-visibility: auto`, so each is still reporting its
+        // `contain-intrinsic-size` estimate rather than a measured height.
+        // Coming into view they swap one for the other and the document grows
+        // — measured here, 169,546 to 172,664, ~3,100px of it ABOVE the target.
+        // Chromium's scroll anchoring absorbs some of that (+478px of the
+        // +2,292 in the run below) and the remainder moves the target down.
+        //
+        // Which frame the growth lands in is the whole of the flake. It used to
+        // arrive after this loop returned, inside the caller's 300ms wait, and
+        // check 12 then measured a header 277 to 547px below the rail on a page
+        // that had already confirmed it flush — roughly one run in four:
+        //
+        //     i=0 y=158,026 delta=-152,828 h=169,546
+        //     i=1 y=  5,198 delta=       0 h=169,546   <- old loop returned here
+        //         y=  5,676 delta=     547 h=172,716   <- 17ms later
+        //
+        // The app is not exposed to this: `useDayAnchor`'s hold exists for
+        // exactly this ("a scroll decision invalidated by content changing
+        // height after it was made") and re-asserts the tapped day on every
+        // resize. The harness disarms it on purpose with the `mouse.wheel(0, 1)`
+        // above, because it would otherwise pull the reader back to today
+        // underneath this loop — so having disarmed it, the loop has to do the
+        // hold's job itself. It is the same correction, driven by a settled
+        // document height rather than by a ResizeObserver.
+        //
+        // BOTH conditions, and `held` is not decoration. A document that never
+        // stopped growing can still read `<= 2` for the one frame it is
+        // sampled in — which is the same coincidence this whole block exists to
+        // stop trusting, merely made four seconds less likely. Requiring the
+        // height to have actually held is what makes the code enforce what the
+        // paragraph above claims. An unsettled page loops instead, and if it
+        // never settles it exhausts the attempts and is reported as that,
+        // rather than passing on a lucky sample.
+        const held = await heightHolds();
+        stalled = !held;
+        const after = offBy();
+        if (after.why) return { ok: false, why: after.why };
+        if (held && Math.abs(after.delta) <= 2) return { ok: true, key };
+      }
+      // Distinct from the search failure above: a day WAS found, the scroll just
+      // never settled on it. Worth telling apart — one is about the fixture, the
+      // other about the page moving under the scroll.
+      return {
+        ok: false,
+        why: `scroll did not settle on ${key} within 25 attempts` +
+          (stalled ? ' — the document never stopped changing height' : ''),
+      };
+    });
+    if (parked.ok || !parked.noTallDay || year === TALL.candidates.at(-1)) break;
+    passedOver.push(`${year} has no day tall enough at ${label}`);
+    await page.close();
+  }
+  const where = `in ${year}` + (passedOver.length ? ` (${passedOver.join('; ')})` : '');
   await page.waitForTimeout(300);
 
   const geom = !parked.ok ? null : await page.evaluate((key) => {
@@ -939,7 +982,8 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   if (!geom) {
     // Said out loud rather than skipped: "no day was tall enough to park in"
     // is a fact about the fixture the next reader needs, not a pass.
-    check(`12 header clears the rail @ ${label}`, false, parked.why ?? 'rail or header missing');
+    check(`12 header clears the rail @ ${label}`, false,
+      `${parked.why ?? 'rail or header missing'} — ${where}; feeds: ${describeSurvey(TALL.survey)}`);
     await page.close();
     continue;
   }
@@ -950,9 +994,9 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   // this check exists for: the day title comes to rest flush under the rail
   // rather than sliding beneath it.
   check(`12 header clears the rail @ ${label}`, Math.abs(geom.headerTop - geom.railBottom) <= 2,
-    `day=${geom.day} railBottom=${geom.railBottom.toFixed(1)} headerTop=${geom.headerTop.toFixed(1)}`);
+    `day=${geom.day} railBottom=${geom.railBottom.toFixed(1)} headerTop=${geom.headerTop.toFixed(1)} ${where}`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  check(`12 no horizontal page overflow @ ${label}`, overflow <= 1, `${overflow}px`);
+  check(`12 no horizontal page overflow @ ${label}`, overflow <= 1, `${overflow}px ${where}`);
   await page.close();
 }
 
@@ -1278,16 +1322,31 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // check 3 that seeded a `'this-week'` date scope; #274 phase 4 deleted the
 // scopes and that check with them, so this is now the only user of it.)
 //
-// The term is 'williamsburg': Colonial Williamsburg's themed week-6
-// residency, a whole week of named partner programming rather than one
-// event a routine feed refresh could drop, which is what "stable against
-// feed churn" means here — not that the exact match count is fixed (it
-// isn't: the local dev fixture carries 4 matching events, live production
-// 9, both entirely inside week 6), but that the THEME is a fixture of the
-// season rather than a coincidence of today's snapshot. It leaves every
-// other in-season week with zero matches, which is the unreachable state
-// 18a/18b need, and it never fully empties the reachable side either (see
-// 18-pre), which is what keeps 18a from going vacuous.
+// The term is DERIVED from the feed each run (`isolatingSearchTerm` in
+// `feed.mjs`): a word whose matches all fall inside one season week. It used
+// to be the literal 'williamsburg' — Colonial Williamsburg's week-6 residency
+// in 2026, chosen as "a fixture of the season". It was a fixture of ONE
+// season. On 2026-10-01 `defaultYear` rolled over to a published but sparse
+// 2027 with no Williamsburg programme, the seeded search matched nothing, the
+// list emptied, and `enterList` threw on the generic empty state — aborting
+// `verify-rail` before checks 18-21 and, through the `&&` chain, the five
+// suites after it. Instrumented: the page was 2027, clock pinned to the run's
+// own morning, seed intact (`lastSaved` from the pinned instant), feed loaded
+// — and 0 of 52 events containing the word. The app was right.
+//
+// The derivation is a check on itself: against the 2026 feed it picks
+// 'williamsburg' (19 events, 2026-08-03..07, week 6) — the term a person chose
+// by hand. Against 2027 it currently picks a one-day term.
+//
+// It leaves every other in-season week with zero matches, which is the
+// unreachable state 18a/18b need, and it never empties the reachable side
+// either — 18-pre asserts the app's rail shows EXACTLY the predicted number of
+// reachable weeks and at least one unreachable, so a prediction the app
+// disagrees with is a red 18-pre rather than a vacuous 18a.
+//
+// If the default year cannot isolate a week at all (an announced season with
+// a handful of events in one week), the newest archived year that can is used
+// instead, through the app's own `?year=` route, and the detail says so.
 //
 // The seed used to carry `dateFilter: 'all'` as well, because week 6 is in
 // the past relative to `now` this season and the default `next` scope would
@@ -1295,26 +1354,53 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // the whole year unconditionally, so the search term is the only thing
 // narrowing it and the date keys are ignored on read. Re-verified after
 // removing them — 1 reachable week, 8 unreachable, unchanged.
-{
-  const page = await newPage({
+const ISOLATE = await (async () => {
+  const manifest = await fetchManifest(URL);
+  const order = [manifest.defaultYear,
+    ...manifest.years.filter(y => y < manifest.defaultYear).sort((a, b) => b - a)];
+  const tried = [];
+  for (const year of order) {
+    const found = isolatingSearchTerm(await fetchYear(URL, year).catch(() => []), year);
+    if (found.term) {
+      return { ...found, year, isDefault: year === manifest.defaultYear,
+        tell: `term '${found.term}' from the ${year} feed: ${found.events} events on ` +
+          `${found.days.join(',')}, week ${found.weeks.join('/')}` +
+          (tried.length ? `; ${tried.join('; ')}` : '') };
+    }
+    tried.push(found.why);
+  }
+  return { term: null, why: tried.join('; ') };
+})();
+// Opens the page a seeded check needs: the default year when it can isolate a
+// week, otherwise the archived year that can (`enterYear` never announces).
+const isolatedPage = (opts) => newPage({
+  ...opts,
+  ...(ISOLATE.isDefault ? {} : { year: ISOLATE.year }),
+  storage: ['chq-calendar-user-state', JSON.stringify({
+    searchTerm: ISOLATE.term,
+    selectedTags: [], selectedLocations: [], expandedDescriptions: [],
+    recentLocations: [], recentCategories: [], showFavoritesOnly: false,
+    // The PAGE's now, not Node's. `useFilterState` discards a payload
+    // older than `USER_STATE_EXPIRY_MS` (30 days), and `Date.now()` inside
+    // the page is whatever `pinClock` pinned — so a `Date.now()` evaluated
+    // out here reads as 30+ days stale the moment `E2E_NOW` is set that far
+    // ahead, and the seed is dropped in silence. Measured at
+    // `E2E_NOW=2026-09-30` (34 days on): six red checks reporting "9
+    // reachable, 0 unreachable", which is not a finding about the app but
+    // about a seed that never arrived. The state is "saved" at the same
+    // instant the page believes it is.
+    lastSaved: FIXED_NOW.getTime(),
+  })],
+});
+if (!ISOLATE.term) {
+  for (const name of ['18-pre the search term narrows to exactly one theme week',
+    '18a an unreachable week says so rather than offering a trip',
+    '18b the fill is faded and the label is not']) skip(name, ISOLATE.why);
+} else {
+  const page = await isolatedPage({
     // The seed suppresses the off-season landing, so this page's screen says
     // nothing about the run's regime — see `enterList` (#287).
     seedsOwnFilter: true,
-    storage: ['chq-calendar-user-state', JSON.stringify({
-      searchTerm: 'williamsburg',
-      selectedTags: [], selectedLocations: [], expandedDescriptions: [],
-      recentLocations: [], recentCategories: [], showFavoritesOnly: false,
-      // The PAGE's now, not Node's. `useFilterState` discards a payload
-      // older than `USER_STATE_EXPIRY_MS` (30 days), and `Date.now()` inside
-      // the page is whatever `pinClock` pinned — so a `Date.now()` evaluated
-      // out here reads as 30+ days stale the moment `E2E_NOW` is set that far
-      // ahead, and the seed is dropped in silence. Measured at
-      // `E2E_NOW=2026-09-30` (34 days on): six red checks reporting "9
-      // reachable, 0 unreachable", which is not a finding about the app but
-      // about a seed that never arrived. The state is "saved" at the same
-      // instant the page believes it is.
-      lastSaved: FIXED_NOW.getTime(),
-    })],
   });
   const state = await page.evaluate(() => {
     const buttons = [...document.querySelectorAll('[data-week-band-button]')];
@@ -1341,9 +1427,16 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   // reachable would mean the term matched nothing at all (an empty
   // `weekDestinations` map dims nothing, by design — see WeekBandCell — so a
   // term with no matches would make 18a vacuously true instead of failing).
+  //
+  // And the reachable count must be EXACTLY the number of weeks the feed
+  // survey predicted (one, or two for a term living on a boundary Saturday).
+  // `> 0` alone was enough while the term was a hand-checked constant; now the
+  // term is chosen by code, and a rail that offered a trip to a week the term
+  // never touches must not pass because the count happened to be non-zero.
   check('18-pre the search term narrows to exactly one theme week',
-    state.count > 0 && state.reachableCount > 0,
-    `${state.reachableCount} reachable, ${state.count} unreachable`);
+    state.count > 0 && state.reachableCount === ISOLATE.weeks.length,
+    `${state.reachableCount} reachable (predicted ${ISOLATE.weeks.length}), ` +
+    `${state.count} unreachable — ${ISOLATE.tell}`);
   check('18a an unreachable week says so rather than offering a trip',
     state.count > 0 && state.labels.every(l => /^Week \d+, no events$/.test(l ?? '')),
     state.labels.slice(0, 3).join(' | ') || 'no unreachable week found');
@@ -1424,24 +1517,61 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   check('20c the popover fits a 390px phone', opened.withinViewport && opened.width < 390,
     `${opened.width}px wide, within=${opened.withinViewport}`);
 
-  // The jump itself: the furthest reachable week from wherever the rail opened,
-  // so the check cannot pass on a one-week nudge.
+  // The jump itself: the reachable week whose day is FARTHEST from where the
+  // reader is standing, so the check cannot pass on a one-week nudge — among
+  // the weeks whose day the document can actually park under the rail.
+  //
+  // That second condition is new, and the sparse 2027 season is why. This
+  // used to tap the LAST reachable week unconditionally. Its day was always
+  // parkable while the default year was a full season with weeks of programme
+  // after it; 2027's last week opens on 2027-08-23, which has two one-event
+  // days behind it. Measured on this 390x844 page: after the tap
+  // `scrollY 6378 === maxScroll`, the 08-23 section top at 173px against a
+  // sticky offset of 80 — 93px the document cannot scroll — so the rail's
+  // anchor correctly stayed on 08-20 and 20e ("named 2027-08-23, landed
+  // 2027-08-20") and 20g ("lit=8 expected=9") went red against an app doing
+  // the only thing it could at the clamp. #299's sparse tail, arrived at from
+  // a sparse SEASON instead of a season's end.
+  //
+  // Parkability and distance are both read from the DOM's own geometry — the
+  // section's document top against the sticky offset and the maximum scroll —
+  // never from the rail's anchor, which is the thing 20d-20g test. #299's
+  // first draft of 8e chose its plan from the anchor and stood DOWN on the
+  // very build that broke the anchor.
   const jumped = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const offset = (parseFloat(cs.getPropertyValue('--site-header-offset-target')) || 0)
+      + (parseFloat(cs.getPropertyValue('--day-rail-h')) || 0);
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
     const cells = [...document.querySelectorAll('[data-week-cell]')]
-      .filter(c => c.getAttribute('aria-disabled') !== 'true');
-    const target = cells[cells.length - 1];
-    if (!target) return null;
-    target.click();
-    return { week: target.dataset.weekCell, day: target.dataset.weekCellTarget,
-             label: target.getAttribute('aria-label') };
+      .filter(c => c.getAttribute('aria-disabled') !== 'true')
+      .map(c => {
+        const sec = document.querySelector(`[data-day-key="${c.dataset.weekCellTarget}"]`);
+        const docTop = sec ? sec.getBoundingClientRect().top + window.scrollY : null;
+        return { c, docTop,
+          parkable: docTop !== null && docTop - offset <= maxScroll + 2,
+          distance: docTop === null ? -1 : Math.abs(docTop - offset - window.scrollY) };
+      });
+    const unparkable = cells.filter(x => !x.parkable).map(x => x.c.dataset.weekCellTarget);
+    const target = cells.filter(x => x.parkable).sort((a, b) => b.distance - a.distance)[0];
+    if (!target) return { none: true, unparkable, reachable: cells.length };
+    target.c.click();
+    return { week: target.c.dataset.weekCell, day: target.c.dataset.weekCellTarget,
+             label: target.c.getAttribute('aria-label'),
+             distance: Math.round(target.distance), unparkable };
   });
-  if (!jumped) {
-    check('20d a chooser tap navigates', false, 'no reachable week cell');
+  if (jumped.none) {
+    // A FAILURE, not a skip: a season with no week the reader can be put on is
+    // not one a real feed produces, and if it ever does it deserves a look.
+    check('20d a chooser tap navigates', false,
+      `no reachable week whose day can be parked under the rail (${jumped.reachable} ` +
+      `reachable, unparkable: ${jumped.unparkable.join(',') || 'none'})`);
   } else {
     await page.waitForTimeout(900);
     const after = await anchorChip(page);
     check('20d a chooser tap navigates', !!after && after !== before,
-      `${before} → ${after} (week ${jumped.week})`);
+      `${before} → ${after} (week ${jumped.week}, ${jumped.distance}px away` +
+      (jumped.unparkable.length ? `; passed over unparkable ${jumped.unparkable.join(',')}` : '') + ')');
     // Where it SAID it would go, not merely somewhere. The rail's standing rule:
     // a control names its destination, and the destination is where it lands.
     check('20e it lands on the day it named', after === jumped.day,
@@ -1469,21 +1599,18 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // Same storage seed as check 18, and for the same reason: the default feed
 // fills every in-season week, so this state has to be CONSTRUCTED rather than
 // hoped for. A check that never creates the state it names can only skip.
-// 'williamsburg' leaves week 6 reachable and every other in-season week empty,
-// in both the local dev fixture and live production.
-{
-  const page = await newPage({
+// The term is check 18's — derived from the feed (`ISOLATE`), and opened in the
+// same year — so both checks construct the same state and agree about it.
+if (!ISOLATE.term) {
+  for (const name of ['20h-pre the seed narrows to exactly one theme week',
+    '20h an unreachable week in the grid says so rather than offering a trip',
+    '20i the grid fades the fill and not the numeral']) skip(name, ISOLATE.why);
+} else {
+  const page = await isolatedPage({
     width: 390, height: 844,
     // As in check 18: a seeded filter beats the landing, so this page cannot
     // report the regime (#287).
     seedsOwnFilter: true,
-    storage: ['chq-calendar-user-state', JSON.stringify({
-      searchTerm: 'williamsburg',
-      selectedTags: [], selectedLocations: [], expandedDescriptions: [],
-      recentLocations: [], recentCategories: [], showFavoritesOnly: false,
-      // The PAGE's now, not Node's — see check 18's seed.
-      lastSaved: FIXED_NOW.getTime(),
-    })],
   });
   await page.click('[data-week-chooser-trigger]');
   await page.waitForSelector('[data-week-chooser-popover]', { timeout: 3000 });
@@ -1506,8 +1633,8 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   // reachable would mean the term matched nothing at all and 20h passes
   // vacuously.
   check('20h-pre the seed narrows to exactly one theme week',
-    state.dim > 0 && state.reachable > 0,
-    `${state.reachable} reachable, ${state.dim} unreachable`);
+    state.dim > 0 && state.reachable === ISOLATE.weeks.length,
+    `${state.reachable} reachable (predicted ${ISOLATE.weeks.length}), ${state.dim} unreachable — ${ISOLATE.tell}`);
   check('20h an unreachable week in the grid says so rather than offering a trip',
     state.dim > 0 && state.labels.every(l => /^Week \d+, no events$/.test(l ?? '')),
     state.labels.slice(0, 3).join(' | ') || 'none');

@@ -21,7 +21,7 @@
 import { chromium, webkit } from 'playwright';
 import { pinClock } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList, makeRoomBelow } from './regime.mjs';
+import { enterList, makeRoomAbove, makeRoomBelow } from './regime.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -156,6 +156,21 @@ const deepAndHidden = async (p, y = 6000) => {
   // in this suite reported `scrollY=159747` and a header that would not park on
   // 2026-08-31; see `makeRoomBelow` in `regime.mjs` for the measurements.
   await makeRoomBelow(p);
+  await settle(p);
+  // ...and somewhere to have come FROM. The opposite trap, and the regime that
+  // sprang it is the 2026-10-01 rollover: the default year became a season
+  // that has not started, the load lands on its FIRST day at the top of the
+  // document, and `scrollTo` cannot move the reader (the hold undoes it) — so
+  // "deep in the list" was `scrollY 189`, and check 4 (`scrollY > 3000`) went
+  // red on a header that had revealed perfectly. Measured, and the full
+  // reasoning, on `makeRoomAbove` in `regime.mjs`.
+  //
+  // Below-room first, depth second, and the depth asked for is 3600 — check
+  // 4's 3000 plus the ~400px of wheeling between here and its measurement —
+  // so that neither undoes the other: in the 2026 tail the reader starts at
+  // the bottom and only `makeRoomBelow` moves; at the 2027 rollover the
+  // reader starts at the top and only this does.
+  await makeRoomAbove(p, 3600);
   await settle(p);
   // Wheel until it is actually hidden, rather than assuming one tick does it.
   //
