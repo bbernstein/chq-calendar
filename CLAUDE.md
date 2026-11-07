@@ -83,7 +83,7 @@ chq-calendar/                    # Root (npm workspaces)
 | Backend | AWS Lambda + API Gateway | — |
 | Database | DynamoDB | — |
 | IaC | Terraform | — |
-| Node.js | 26 for development, CI and builds (`.nvmrc`; engines `>=26.0.0`). The backend stays at engines `>=24.0.0` and its CI runs 24 + 26, because the Lambdas run `nodejs24.x` and esbuild targets `node24` until `nodejs26.x` reaches GA. | — |
+| Node.js | 26 for development, CI and builds (`.nvmrc`; engines `>=26.0.0`). The backend and `tools/publisher-format` (bundled into the Lambdas) stay at engines `>=24.0.0`, and backend CI runs 24 + 26, because the Lambdas run `nodejs24.x` and esbuild targets `node24` until `nodejs26.x` reaches GA. | — |
 | iOS app | SwiftUI / Swift 6, deployment target iOS 18.0 | — |
 | iOS toolchain | Xcode 26+ (hard floor — synchronized folder groups) | — |
 
