@@ -192,7 +192,7 @@ async function main() {
         s3KeyPrefix: process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache'
       });
 
-    // `get()` returns the cached *payload*, not the stored wrapper — it ends
+      // `get()` returns the cached *payload*, not the stored wrapper — it ends
       // in `return cached.data` (multiLayerCacheService.ts:200). So this is an
       // Event[], and the guard that used to read `allEvents.data` could never
       // be true: the script logged "No events found in cache" and wrote
@@ -204,29 +204,27 @@ async function main() {
       if (Array.isArray(events) && events.length > 0) {
         console.log(`Retrieved ${events.length} events from cache`);
 
-        if (persistLocally) {
-          // Save to local file system
-          const outputDir = LOCAL_DATA_DIR;
-          const outputPath = path.join(outputDir, `all-events-${year}.json`);
-          
-          // Ensure directory exists
-          await fs.mkdir(outputDir, { recursive: true });
-          
-          // Re-wrap in the `{ data: [...] }` envelope the frontend reads
-          // (`data.data` — useEventData.ts:124), which is also the shape
-          // CloudFront serves. The cache handed us the bare array, so writing
-          // it as-is would produce a file the app parses to zero events —
-          // the same empty calendar, one layer down.
-          const payload = {
-            data: events,
-            timestamp: Date.now(),
-            cacheKey: `all-events-${year}`,
-          };
-          await fs.writeFile(outputPath, JSON.stringify(payload, null, 2));
-          console.log(`\nSaved all-events-${year}.json to: ${outputPath}`);
-          await refreshYearsManifest();
-          console.log('Set VITE_LOCAL_DATA=true to make the frontend read it; see backend/README-LOCAL-SYNC.md.');
-        }
+        // Save to local file system
+        const outputDir = LOCAL_DATA_DIR;
+        const outputPath = path.join(outputDir, `all-events-${year}.json`);
+        
+        // Ensure directory exists
+        await fs.mkdir(outputDir, { recursive: true });
+        
+        // Re-wrap in the `{ data: [...] }` envelope the frontend reads
+        // (`data.data` — useEventData.ts:124), which is also the shape
+        // CloudFront serves. The cache handed us the bare array, so writing
+        // it as-is would produce a file the app parses to zero events —
+        // the same empty calendar, one layer down.
+        const payload = {
+          data: events,
+          timestamp: Date.now(),
+          cacheKey: `all-events-${year}`,
+        };
+        await fs.writeFile(outputPath, JSON.stringify(payload, null, 2));
+        console.log(`\nSaved all-events-${year}.json to: ${outputPath}`);
+        await refreshYearsManifest();
+        console.log('Set VITE_LOCAL_DATA=true to make the frontend read it; see backend/README-LOCAL-SYNC.md.');
       } else {
         console.log('No events found in cache');
       }
