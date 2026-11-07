@@ -107,7 +107,8 @@ npm run sync -- --force
 
 ### 3. Sync and Save Locally (the one you want for offline work)
 This syncs data and saves `all-events-<year>.json` to `frontend/public/data/`,
-and refreshes the tracked `years.json` from the published manifest:
+and rewrites the tracked `years.json` to match (see "How `years.json` is
+written" below):
 ```bash
 npm run sync:local
 ```
@@ -123,8 +124,37 @@ in the sync-status table and rewarms that year's published feed. Without
 `--force` it is an incremental, now-relative sync.
 
 Both `sync:local` and `sync:fetch` **exit non-zero when they write no file**
-(an empty cache, a missing S3 object), rather than printing a success line over
-nothing.
+(an empty cache, a missing or empty S3 object), rather than printing a success
+line over nothing. They also exit non-zero when the feed was written but
+`years.json` beside it could not be, since the old manifest may name a season
+you do not have.
+
+#### How `years.json` is written
+
+It is built from production's manifest *and* the feeds on disk, not copied
+from production:
+
+- **`years`** — production's seasons plus every `all-events-<year>.json` in
+  `frontend/public/data/`, including the one just written.
+- **`defaultYear`** — production's, if that season's feed is on disk;
+  otherwise the season just written. Around October 1 production's default
+  can flip to next year before this script's does (#301); a copied manifest
+  then opened local mode on a file nobody had downloaded — the empty calendar
+  again. The script says when the local default differs from production's,
+  and how to sync production's season too.
+- **`generated`** — production's, or the time of the run if production's
+  manifest could not be fetched.
+
+"On disk" means a file with that name exists. Its contents are not checked,
+so a stale or broken `all-events-<year>.json` still counts, and can become the
+default. An error page saved by a plain `curl -o` is the usual culprit, which
+is why every recipe here uses `curl -fo`. Delete such a file rather than
+leaving it for the manifest to find.
+
+A failed fetch of production's manifest is only a warning: the file is then
+built from the feeds on disk alone. Because the result reflects your disk,
+read its `git diff` before committing it — a season only you synced, or a
+default other than production's, does not belong in the tracked file.
 
 For a different season — this is how you get 2027 (or 2025) on disk:
 ```bash
@@ -165,9 +195,8 @@ nothing. It is the wrong tool for this; the curl above always works.
 
 The year defaults to the current season using the same October 1 turnover as
 the frontend's fallback, so from October onwards it syncs *next* year. The app
-itself asks for `years.json`'s `defaultYear`, which `sync:local` refreshes
-alongside; the two normally agree, and when they do not, `years.json` is the
-one the app follows.
+itself asks for `years.json`'s `defaultYear`, which `sync:local` rewrites
+alongside, and only ever to a season whose feed is on disk.
 
 ### 4. Fetch Cached Data Only
 If data is already synced and you just want to pull down the cached
@@ -180,7 +209,7 @@ npm run sync:fetch
 ## What Each Script Does
 
 - **`npm run sync`**: Runs incremental sync (only updates changed events)
-- **`npm run sync:local`**: Runs sync AND saves `all-events-<year>.json` locally, plus a refreshed `years.json`
+- **`npm run sync:local`**: Runs sync AND saves `all-events-<year>.json` locally, plus a `years.json` that matches it
 - **`npm run sync:fetch`**: Pulls down the cached `all-events-<year>.json` and
   writes it, without a full-season sync first
 - **`--year=<n>`**: defaults to the current season (October turnover). Requires
@@ -190,7 +219,7 @@ npm run sync:fetch
 
 1. Run `npm run sync:local` to sync data and generate the local files
 2. They are saved to `frontend/public/data/` as `all-events-<year>.json`,
-   alongside a refreshed `years.json`
+   alongside a `years.json` whose `defaultYear` is a season on disk
 3. Set `VITE_LOCAL_DATA=true` for the dev server (see "Turning local data
    on" above) — without it the app reads the CDN and your synced files are
    ignored
@@ -208,7 +237,8 @@ npm run sync:fetch
 ### Local File Not Created
 - Check that the `frontend/public/data/` directory exists
 - Ensure the sync completed successfully (check console output)
-- Try running with `--fetch-s3-direct` flag if cache service fails
+- Try running with `--fetch-s3-direct` flag if cache service fails. It writes
+  nothing (and exits non-zero) if the S3 object holds no events
 
 ### The file exists but the calendar is still empty
 - `VITE_LOCAL_DATA=true` must reach the dev server for it to read
@@ -224,7 +254,7 @@ npm run sync:fetch
   `defaultYear` — that is the file the app requests, not one worked out from
   today's date. A stale `years.json` makes the app ask for a season you did
   not download; the curl recipe above fetches the two together, and
-  `sync:local` refreshes it for you
+  `sync:local` writes it to name a season it has on disk
 
 ## Production Deployment
 

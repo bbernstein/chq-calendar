@@ -138,3 +138,108 @@ export async function runLocalSync(
   }
   return syncService.performIncrementalSync();
 }
+
+/**
+ * Whether an `all-events-<year>.json` object read straight from S3 (the
+ * `--fetch-s3-direct` fallback) is a feed worth writing.
+ *
+ * The same rule as `isUsableCachedFeed`, applied one layer out. The S3 object
+ * is the stored `{ data: [...], timestamp, cacheKey }` envelope, not the bare
+ * array the cache service hands back, so it is the envelope's `data` that has
+ * to be non-empty. The fallback used to write whatever it parsed, so an object
+ * holding `{ data: [] }` — a warm that ran over an empty table, say — became
+ * an empty feed on disk and a run that reported success. That is the empty
+ * calendar again, reached through the path people use when the first one
+ * failed.
+ */
+export function isUsableFeedPayload(payload: unknown): payload is { data: unknown[] } {
+  return typeof payload === 'object'
+    && payload !== null
+    && isUsableCachedFeed((payload as { data?: unknown }).data);
+}
+
+/**
+ * The shape of `years.json`, on the CDN and on disk — every field the
+ * frontend's `YearsManifest` (frontend/src/hooks/useAvailableYears.ts)
+ * declares.
+ */
+export interface YearsManifest {
+  years: number[];
+  defaultYear: number;
+  generated: string;
+}
+
+/**
+ * `years.json` as fetched from the CDN, or `null` if it is not that shape.
+ *
+ * Checked rather than asserted: whatever passes here is merged into the file
+ * the frontend follows, so a manifest with no usable `defaultYear` has to be
+ * treated as no manifest at all, not written through.
+ */
+export function parseYearsManifest(raw: unknown): YearsManifest | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const m = raw as Partial<Record<keyof YearsManifest, unknown>>;
+  if (!Array.isArray(m.years) || !m.years.every((y) => Number.isInteger(y))) return null;
+  if (!Number.isInteger(m.defaultYear)) return null;
+  if (typeof m.generated !== 'string') return null;
+  return { years: m.years as number[], defaultYear: m.defaultYear as number, generated: m.generated };
+}
+
+/**
+ * The seasons that have a feed in a directory listing of `frontend/public/data/`.
+ *
+ * Exactly the `localFeedFilename` names. The unsuffixed legacy
+ * `all-events.json` is not a season, and the `-links-` sidecars that sit
+ * beside the feeds are not feeds.
+ */
+export function localFeedYears(filenames: readonly string[]): number[] {
+  const years = new Set<number>();
+  for (const name of filenames) {
+    const match = /^all-events-(\d{4})\.json$/.exec(name);
+    if (match) years.add(Number(match[1]));
+  }
+  return [...years].sort((a, b) => a - b);
+}
+
+/**
+ * The `years.json` to write beside the feeds, given production's manifest
+ * (`null` if it could not be fetched), the seasons already on disk and the
+ * season this run just wrote.
+ *
+ * In local-data mode the app opens on this file's `defaultYear` and requests
+ * that season's `all-events-<year>.json` from disk, so the one thing the file
+ * must not do is name a default with no feed behind it — that is the #286
+ * empty calendar again. Copying production's manifest verbatim did exactly
+ * that around October 1: production's `defaultYear` flips on the server's
+ * clock (#301), the script picks its season on Chautauqua's (`./seasonYear`),
+ * and for a while the two name different years. The manifest named 2027, the
+ * run wrote 2026, and the app asked for a file nobody had downloaded.
+ *
+ * So:
+ *
+ * - `years` is production's list plus every season on disk, the one just
+ *   written included. Production's seasons stay so that the year switcher
+ *   matches what a reader sees; the local ones are added because a season you
+ *   synced with `--year=` and cannot reach is a sync that did nothing.
+ * - `defaultYear` is production's when that season is on disk, because
+ *   following production is what this file is for; otherwise it is the season
+ *   just written, which is the one season certain to be there.
+ * - `generated` is production's when there is one, so the file is still the
+ *   document the CDN served whenever the two agree, and the time of this run
+ *   otherwise.
+ */
+export function buildLocalYearsManifest(
+  remote: YearsManifest | null,
+  localYears: readonly number[],
+  writtenYear: number,
+  now: Date = new Date(),
+): YearsManifest {
+  const onDisk = new Set<number>([...localYears, writtenYear]);
+  const years = [...new Set<number>([...(remote?.years ?? []), ...onDisk])].sort((a, b) => a - b);
+  const defaultYear = remote && onDisk.has(remote.defaultYear) ? remote.defaultYear : writtenYear;
+  return {
+    years,
+    defaultYear,
+    generated: remote?.generated ?? now.toISOString(),
+  };
+}

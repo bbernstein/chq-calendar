@@ -5,10 +5,15 @@ import { GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { LOCAL_DATA_DIR } from '../scripts/localDataDir';
 import {
   buildLocalFeedPayload,
+  buildLocalYearsManifest,
   isUsableCachedFeed,
+  isUsableFeedPayload,
   localFeedCacheKey,
   localFeedFilename,
+  localFeedYears,
+  parseYearsManifest,
   runLocalSync,
+  type YearsManifest,
 } from '../scripts/localFeed';
 import { EventsCalendarDataSyncService } from '../services/eventsCalendarDataSyncService';
 import { EventTransformationService } from '../services/eventTransformationService';
@@ -76,6 +81,152 @@ describe('sync:local output', () => {
     // old script wrote nothing on every real `Cache HIT`.
     it('rejects the { data: [...] } wrapper that get() never returns', () => {
       expect(isUsableCachedFeed({ data: [{ id: 1 }] })).toBe(false);
+    });
+  });
+
+  describe('isUsableFeedPayload', () => {
+    // The `--fetch-s3-direct` fallback reads the stored object, which is the
+    // `{ data: [...] }` envelope, and used to write it unchecked.
+    it('accepts the S3 object\'s envelope with events in it', () => {
+      expect(isUsableFeedPayload({ data: [{ id: 1 }], timestamp: 1, cacheKey: 'all-events-2026' })).toBe(true);
+    });
+
+    // The case the review named: an object of `{ data: [] }` became an empty
+    // feed on disk and a run that exited 0.
+    it('rejects an envelope with no events', () => {
+      expect(isUsableFeedPayload({ data: [], timestamp: 1, cacheKey: 'all-events-2026' })).toBe(false);
+    });
+
+    it('rejects an envelope without a data array', () => {
+      expect(isUsableFeedPayload({})).toBe(false);
+      expect(isUsableFeedPayload({ data: null })).toBe(false);
+      expect(isUsableFeedPayload({ data: { 0: { id: 1 } } })).toBe(false);
+    });
+
+    // An empty body parses to nothing at all; so does a missing one.
+    it('rejects no object at all', () => {
+      expect(isUsableFeedPayload(undefined)).toBe(false);
+      expect(isUsableFeedPayload(null)).toBe(false);
+      expect(isUsableFeedPayload('{"data":[1]}')).toBe(false);
+    });
+
+    // The bare array is the cache service's shape, not the S3 object's.
+    // Written through as-is it parses to zero events in the frontend.
+    it('rejects a bare event array', () => {
+      expect(isUsableFeedPayload([{ id: 1 }])).toBe(false);
+    });
+  });
+
+  describe('parseYearsManifest', () => {
+    const good = { years: [2025, 2026, 2027], defaultYear: 2027, generated: '2026-11-07T06:00:18.100Z' };
+
+    it('accepts the published manifest', () => {
+      expect(parseYearsManifest(good)).toEqual(good);
+    });
+
+    // Whatever passes is merged into the file the frontend follows, so a
+    // manifest without a usable default must count as no manifest.
+    it.each([
+      ['no years', { ...good, years: undefined }],
+      ['non-integer years', { ...good, years: [2025, '2026'] }],
+      ['no defaultYear', { ...good, defaultYear: undefined }],
+      ['a string defaultYear', { ...good, defaultYear: '2027' }],
+      ['no generated', { ...good, generated: undefined }],
+      ['null', null],
+      ['an array', [2026]],
+    ])('rejects %s', (_label, raw) => {
+      expect(parseYearsManifest(raw)).toBeNull();
+    });
+  });
+
+  describe('localFeedYears', () => {
+    // A real listing of frontend/public/data/: feeds, the legacy blob, the
+    // link sidecars, years.json and a directory.
+    it('finds the seasons with a feed, and nothing else', () => {
+      expect(localFeedYears([
+        'all-events-2026.json',
+        'all-events.json',
+        'article-links-2026.json',
+        'program-links-2027.json',
+        'years.json',
+        'weekly-themes',
+        'all-events-2025.json',
+        // Seasons that are not on disk under the name the app requests.
+        'all-events-2024.json.tmp',
+        'old-all-events-2023.json',
+      ])).toEqual([2025, 2026]);
+    });
+
+    it('agrees with localFeedFilename', () => {
+      expect(localFeedYears([localFeedFilename(2027)])).toEqual([2027]);
+    });
+  });
+
+  describe('buildLocalYearsManifest', () => {
+    const now = new Date('2026-10-01T03:00:00Z');
+    const remote = (defaultYear: number, years = [2025, 2026, 2027]): YearsManifest => ({
+      years,
+      defaultYear,
+      generated: '2026-10-01T02:00:00.000Z',
+    });
+
+    // The Copilot finding, as it happens around October 1: production's
+    // defaultYear has flipped on the server's clock (#301), this run picked
+    // 2026 on Chautauqua's, and only 2026's feed is on disk. A verbatim copy
+    // named 2027, and local mode opened on a file nobody downloaded.
+    it('does not default to production\'s season when its feed is not on disk', () => {
+      const manifest = buildLocalYearsManifest(remote(2027), [2026], 2026, now);
+      expect(manifest.defaultYear).toBe(2026);
+      // Production's seasons are still listed, so the switcher matches.
+      expect(manifest.years).toEqual([2025, 2026, 2027]);
+      expect(manifest.generated).toBe('2026-10-01T02:00:00.000Z');
+    });
+
+    it('follows production\'s default when that feed is on disk', () => {
+      expect(buildLocalYearsManifest(remote(2027), [2026, 2027], 2026, now).defaultYear).toBe(2027);
+      // And when the feed is the one this run wrote, before any listing saw it.
+      expect(buildLocalYearsManifest(remote(2027), [], 2027, now).defaultYear).toBe(2027);
+    });
+
+    // Production's manifest and the default case, agreeing: the file is the
+    // document the CDN served, byte-for-byte in content.
+    it('is production\'s manifest when the disk agrees with it', () => {
+      expect(buildLocalYearsManifest(remote(2026), [2026], 2026, now)).toEqual(remote(2026));
+    });
+
+    // `--year=2028 --force` wrote a season production does not list yet. A
+    // season synced and unreachable from the year switcher is a sync that did
+    // nothing.
+    it('lists every season on disk, including ones production does not', () => {
+      const manifest = buildLocalYearsManifest(remote(2026), [2024, 2026], 2028, now);
+      expect(manifest.years).toEqual([2024, 2025, 2026, 2027, 2028]);
+      expect(manifest.defaultYear).toBe(2026);
+    });
+
+    // A failed fetch is survivable: the manifest is built from the disk alone,
+    // and it can still only name seasons that are there.
+    it('without production\'s manifest, lists the disk and defaults to the season written', () => {
+      expect(buildLocalYearsManifest(null, [2025, 2026], 2026, now)).toEqual({
+        years: [2025, 2026],
+        defaultYear: 2026,
+        generated: now.toISOString(),
+      });
+      // The written season counts even if the listing missed it.
+      expect(buildLocalYearsManifest(null, [], 2027, now).years).toEqual([2027]);
+    });
+
+    // The invariant the whole function exists for, over every combination
+    // the cases above sample.
+    it('never names a default with no feed on disk', () => {
+      for (const remoteDefault of [2025, 2026, 2027, 2028]) {
+        for (const local of [[], [2025], [2026], [2025, 2027]]) {
+          for (const written of [2026, 2027]) {
+            const m = buildLocalYearsManifest(remote(remoteDefault), local, written, now);
+            expect([...local, written]).toContain(m.defaultYear);
+            expect(m.years).toContain(m.defaultYear);
+          }
+        }
+      }
     });
   });
 
