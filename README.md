@@ -138,12 +138,16 @@ AWS credentials. `./scripts/setup-local.sh` asserts this actually worked rather
 than only that the ports answer.
 
 To work offline, or against a feed you have synced yourself, set
-`VITE_LOCAL_DATA=true` and the frontend reads `frontend/public/data/` instead.
-That directory is gitignored; populate it with
+`VITE_LOCAL_DATA=true` and the dev server reads `frontend/public/data/`
+instead. It is a dev-server-only switch — a production build and `vite
+preview` always read the CDN. For the host dev server put it in
+`frontend/.env.local`; under Docker the shell, the root `.env` or
+`frontend/.env.local` all work. The event feeds in that directory are
+gitignored; fetch them from the public CDN (no AWS needed) or run
 `npm run sync:local --workspace=backend` — see
-[`backend/README-LOCAL-SYNC.md`](backend/README-LOCAL-SYNC.md), which also
-covers syncing a second season with `--year=` to exercise year switching and
-the off-season landing.
+[`backend/README-LOCAL-SYNC.md`](backend/README-LOCAL-SYNC.md), which covers
+where to set the variable in detail, and syncing a second season with
+`--year=` to exercise year switching and the off-season landing.
 
 ### Local Services
 - **Frontend**: http://localhost:3000 (Vite dev server with HMR)

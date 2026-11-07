@@ -72,13 +72,13 @@ docker compose down
 # Note the year suffix: `all-events.json` (no suffix) is a legacy every-year
 # blob of ~10MB that nothing requests.
 #
-# The season turns over on October 1, so derive the year rather than pasting
-# one — a hardcoded example goes stale every autumn, which is the same drift
-# that left years.json six months wrong (#286). Read in the Institution's
-# timezone, which is where that turnover is defined: outside Eastern, a bare
-# `date` disagrees with the app for a few hours around Sep 30 / Oct 1.
-YEAR=$(TZ=America/New_York date +%Y)
-[ "$(TZ=America/New_York date +%m)" -ge 10 ] && YEAR=$((YEAR + 1))
+# Take the year from years.json, the way the app does: it opens on the
+# manifest's defaultYear, not on a year worked out from the date. A hardcoded
+# example goes stale every autumn — the same drift that left years.json six
+# months wrong (#286) — and a date computation disagrees with the server for
+# hours or days around the October turnover, so either can probe a file the
+# browser never asks for.
+YEAR=$(curl -s http://localhost:3000/cache/calendar-cache/years.json | jq .defaultYear)
 
 curl -s "http://localhost:3000/cache/calendar-cache/all-events-${YEAR}.json" | jq '.data | length'
 
@@ -88,7 +88,10 @@ curl -s "http://localhost:3000/cache/calendar-cache/all-events-${YEAR}.json" | j
 # Going through localhost:3000 rather than straight to the CDN is deliberate:
 # it exercises the '/cache' proxy rule in frontend/vite.config.ts, which is the
 # piece that makes a fresh clone render anything at all. To read locally-synced
-# files instead, see backend/README-LOCAL-SYNC.md and set VITE_LOCAL_DATA=true.
+# files instead, see backend/README-LOCAL-SYNC.md and set VITE_LOCAL_DATA=true
+# (dev server only), then swap /cache/calendar-cache for /data in the URLs above.
+# ./scripts/setup-local.sh runs this same check and asks the running frontend
+# which of the two it is actually reading.
 
 # Test local frontend filtering (client-side)
 # Note: All filtering happens in browser after downloading static file

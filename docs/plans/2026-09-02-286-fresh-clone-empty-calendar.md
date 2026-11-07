@@ -30,7 +30,7 @@ proxies `/cache` to `https://www.chqcal.org`, in both `server.proxy` and
 That proxy landed 2026-03-02 (`9110d17`). The `import.meta.env.DEV ? '/data'`
 branch is older — `931cff8` (2026-05-02) only *refactored* it into a
 `cacheBase` variable. So the dev branch is legacy that the proxy made
-redundant five months ago, and nobody noticed because everybody's working
+redundant six months ago, and nobody noticed because everybody's working
 tree already had the file.
 
 So the fix is smaller than either option the issue proposed: **delete the
@@ -61,8 +61,10 @@ this bug.
 
 1. **`frontend/src/lib/dataSource.ts` (new)** — one source of truth for the
    base path, replacing three copies of the same ternary. Default is
-   `/cache/calendar-cache` everywhere; `VITE_LOCAL_DATA=true` opts back into
-   `/data` for offline / local-backend work.
+   `/cache/calendar-cache` everywhere; `VITE_LOCAL_DATA=true` opts the Vite
+   dev server back into `/data` for offline / local-backend work. It is a
+   dev-server-only switch: a production build and `vite preview` always read
+   the CDN.
 2. **`useEventData.ts:87`**, **`useSidecarLinks.ts:31`**,
    **`useAvailableYears.ts:48`** — consume it.
 3. **`useEventData.ts:232`** — the bare `console.error('Failed to fetch
@@ -72,17 +74,26 @@ this bug.
    write sites, and mention `VITE_LOCAL_DATA=true`.
 5. **`scripts/setup-local.sh`** — assert the frontend actually serves
    events, not just that ports answer. This is the check that would have
-   caught #286, #214 and #247's class.
-6. **`frontend/public/data/years.json`** — refresh to `[2025,2026,2027]`.
-   Now only read in local-data mode, but it should not lie.
+   caught #286, #214 and #247's class. Every input to it is read from the
+   running frontend: the data base by evaluating the served
+   `/src/lib/dataSource.ts`'s `dataBase()`, the year from that base's
+   `years.json` `defaultYear` (the turnover only as the app's own fallback).
+   An earlier version guessed both from the shell and the clock and could
+   pass over an empty calendar — see review round 6 below.
+6. **`frontend/public/data/years.json`** — refresh to production's live
+   manifest (`[2025,2026,2027,2028]`, `defaultYear` 2027 as of 2026-11-07).
+   Now only read in local-data mode, but it should not lie — and in that mode
+   its `defaultYear` decides which feed the app requests.
 7. **Docs** — `README.md`, `docs/DEVELOPMENT_WORKFLOW.md` and
    `backend/README-LOCAL-SYNC.md` gain the referrers that `grep -rn
    "README-LOCAL-SYNC"` could not find. `DEVELOPMENT_WORKFLOW.md`'s
    first-run command also moves from `start-local.sh` to `setup-local.sh` —
    the fresh clone needs the one that runs `npm ci` and now asserts content.
 8. **`docker-compose.yml`** — pass `VITE_LOCAL_DATA` through to the frontend
-   container. Without it the documented escape hatch is inert on the Docker
-   path, which is the path the issue is about.
+   container, by bare name. Without it the documented escape hatch is inert on
+   the Docker path, which is the path the issue is about; with the
+   `${VITE_LOCAL_DATA:-}` form it first shipped with, the container always had
+   it defined as `""`, which overrides `frontend/.env.local`.
 9. **Tests** — `dataSource.test.ts` (the base path and the message),
    `dataSourceWiring.test.ts` (that all three hooks actually use it). Two
    pre-existing sidecar tests asserted the `/data` dev path by name and were
@@ -113,9 +124,11 @@ in `e2e/` — a fresh-clone boot check is #215's job (queue item 4), and this
 is the shape it should take: assert a *rendered event*, not a 200.
 
 **`check_events` in `setup-local.sh`**, both directions, against a live
-server: `✅ Calendar data for 2026 is reachable (1687 events)` and, with
-`VITE_LOCAL_DATA=true` and the file removed, `exit=1` with the message
-naming `npm run sync:local` and `backend/README-LOCAL-SYNC.md`.
+dev server (re-run 2026-11-07 after round 6): CDN mode `✅ Calendar data for
+2027 is reachable from /cache/calendar-cache (52 events)`; local mode turned
+on from an env file the check's shell never saw, with no
+`all-events-2027.json` on disk, `exit=1` with the message naming the curl
+recipe, `npm run sync:local` and `backend/README-LOCAL-SYNC.md`.
 
 **The unit guards, falsified by injection.** Restoring the old ternary
 turns 7 of 12 assertions in `dataSource.test.ts` red and all 4 in
@@ -191,3 +204,27 @@ filename), #303 (retire the 10.3MB legacy feed), #304 (`useEventData` loop),
 **#301 is the one that reaches readers** and should be done first — it is the
 server-side twin of the round-3 bug, and closing it lets
 `seasonYearAt`'s "deliberately does not match" note be deleted.
+
+### Review round 6 — the setup check guessed its inputs
+
+`check_events` asserted content, but it chose *which* content from its own
+shell and its own clock, and the browser uses neither:
+
+- **Mode.** It read `VITE_LOCAL_DATA` from the shell running the script.
+  Under Docker the container's value can come from the root `.env` or the
+  bind-mounted `frontend/.env.local` instead. Now it evaluates `dataBase()`
+  from the module the dev server actually serves — `import.meta.env` is
+  inlined into it from everything Vite resolved — so the answer is the
+  browser's, gate and all. Injecting the old shell test back made it report
+  `✅ … from /cache/calendar-cache (52 events)` over a dev server in local
+  mode with no 2027 feed: a false pass over an empty calendar.
+- **Year.** It computed the October turnover; the app takes `years.json`'s
+  `defaultYear`. With the clock faked to August 2026 and `years.json` saying
+  2027, the injected turnover reported `✅ 2026 … (1687 events)` while the
+  browser asked for the missing 2027 file. The real check fails there.
+- **Compose.** `VITE_LOCAL_DATA=${VITE_LOCAL_DATA:-}` defined the variable as
+  `""` in every container, and Vite lets an empty process value beat the
+  `.env` files — reproduced on the host: `VITE_LOCAL_DATA=` in the shell plus
+  `true` in an env file inlines `""`. Now a bare `- VITE_LOCAL_DATA`, which
+  `docker compose config` renders as `null` (left out) when neither the
+  shell nor the root `.env` sets it.

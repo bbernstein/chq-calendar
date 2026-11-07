@@ -31,6 +31,20 @@ if ! command -v npm &> /dev/null; then
     exit 1
 fi
 
+# curl and node are what the readiness and content checks at the end are made
+# of. Both are checked here, before `npm ci` and a Docker build, because
+# finding out they are missing only after several minutes of building is the
+# same first-run confusion those checks exist to prevent. npm being present
+# does not imply node is on PATH (a broken nvm shim, a partial install), so
+# node is checked by name.
+for tool in curl node; do
+    if ! command -v "$tool" &> /dev/null; then
+        echo "❌ $tool is not installed. It is needed to check the stack actually"
+        echo "   serves events once it is up."
+        exit 1
+    fi
+done
+
 # Is anything listening on this port? Uses a raw TCP connect rather than
 # lsof/ss process inspection: Docker's port-forwarding sockets are owned by
 # root, so a non-root lsof cannot see them and a real conflict slips through
@@ -157,43 +171,110 @@ wait_for "LocalStack (S3)" 4566 http://localhost:4566/_localstack/health || all_
 # what is being tested is the path the browser will actually take — including
 # the /cache proxy rule in frontend/vite.config.ts, which is the piece that
 # makes a fresh clone work at all.
+#
+# Every input to that path is read from the running frontend, never worked
+# out here. An earlier version picked /data or /cache from this shell's
+# VITE_LOCAL_DATA and computed the year from the October turnover, and both
+# guesses could be wrong while the browser was right: under Docker the
+# container's VITE_LOCAL_DATA can come from the root .env or the bind-mounted
+# frontend/.env.local rather than this shell, and the browser takes its year
+# from years.json's defaultYear, not from a clock. A check that probes a
+# different file than the browser asks for passes over an empty calendar —
+# which is #286, the thing it exists to catch.
+#
+# Takes the frontend's origin so it can be exercised against a dev server on
+# another port; setup itself always uses the default.
 check_events() {
-    local year month base url count
+    local origin=${1:-http://localhost:3000}
+    local base year year_from month url count
 
-    # Same October turnover as the frontend's getDefaultYear() and the sync
-    # script's resolveYear(): from October, the app asks for next season.
-    #
-    # TZ is load-bearing, not decoration. The turnover is defined in the
-    # Institution's timezone (frontend/src/lib/constants.ts reads it through
-    # chqParts), so a contributor east of Eastern running this at 22:00 ET on
-    # Sep 30 is already on October 1 by their own clock — a bare `date` would
-    # check next season's file while their browser asked for this one, and
-    # report an empty calendar that isn't.
-    #
-    # `10#` because `date +%m` zero-pads, and 08/09 are invalid octal.
-    year=$(TZ=America/New_York date +%Y)
-    month=$((10#$(TZ=America/New_York date +%m)))
-    if [ "$month" -ge 10 ]; then
-        year=$((year + 1))
+    # Already checked up front by this script, but repeated so the function
+    # stands on its own — it is lifted out and run against a bare dev server
+    # to test it, and a missing tool must not read as "zero events".
+    if ! command -v curl > /dev/null 2>&1 || ! command -v node > /dev/null 2>&1; then
+        echo "❌ Cannot check the calendar's data: curl and node are both required."
+        return 1
     fi
 
-    # Follow the same branch the browser will: dataBase() in
-    # frontend/src/lib/dataSource.ts reads /data when VITE_LOCAL_DATA=true and
-    # the CDN prefix otherwise. Checking the other one would pass while the
-    # calendar stayed empty, which is exactly the failure being fixed.
-    if [ "${VITE_LOCAL_DATA:-}" = "true" ]; then
-        base="/data"
+    # 1. Which data base the app reads.
+    #
+    # Asked of the app itself: Vite's dev server serves each source module
+    # transformed, with import.meta.env inlined from everything Vite resolved —
+    # the process environment (this shell, or Compose's environment block,
+    # which is fed by the shell and the root .env) and frontend/.env* files,
+    # with process.env winning. So evaluating the served dataSource.ts and
+    # calling its dataBase() gives exactly the answer the browser gets,
+    # including any gate inside it (it honours VITE_LOCAL_DATA only under the
+    # dev server), with no second copy of that rule here to drift from it.
+    #
+    # This depends on dataSource.ts staying import-free: node cannot resolve
+    # the /src/... specifiers Vite rewrites imports to. If that ever changes
+    # the evaluation fails, and this reports that it could not tell rather
+    # than guessing — a guess is how the earlier version passed over #286.
+    #
+    # It also means node executes whatever the dev server on ${origin} serves
+    # at that path. That is a deliberate trade: this function only runs
+    # against the stack this script just started, after the port checks above
+    # established nothing else held those ports, and the code it runs is this
+    # repo's own dataSource.ts.
+    base=$(curl -fsS --max-time 30 "${origin}/src/lib/dataSource.ts" 2>/dev/null \
+        | node --input-type=module -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",async()=>{try{const m=await import("data:text/javascript,"+encodeURIComponent(s));const b=m.dataBase();if(typeof b!=="string"||b[0]!=="/")throw 0;console.log(b)}catch{process.exit(1)}})' \
+        2>/dev/null) || base=""
+
+    if [ -z "$base" ]; then
+        echo ""
+        echo "❌ Could not work out which data source the frontend reads."
+        echo "   This check evaluates dataBase() from"
+        echo "   ${origin}/src/lib/dataSource.ts, and that failed — either the"
+        echo "   frontend did not serve it, or dataSource.ts changed shape (it"
+        echo "   must stay free of imports for this to work). The calendar may"
+        echo "   well be fine; open ${origin} and look."
+        return 1
+    fi
+
+    # 2. Which season the app asks for.
+    #
+    # useAvailableYears reads ${base}/years.json and useSelectedYear takes its
+    # defaultYear, so that is the year to probe. The two can disagree with a
+    # clock: the server flips defaultYear on its own schedule, and a local
+    # years.json says whatever it said when it was written. Only when the
+    # manifest is missing or unreadable does the app fall back to
+    # getDefaultYear(), so only then does this.
+    year=$(curl -fsS --max-time 30 "${origin}${base}/years.json" 2>/dev/null \
+        | node -e 'let b="";process.stdin.on("data",c=>b+=c).on("end",()=>{try{const y=JSON.parse(b).defaultYear;if(!Number.isInteger(y))throw 0;console.log(y)}catch{process.exit(1)}})' \
+        2>/dev/null) || year=""
+
+    if [ -n "$year" ]; then
+        year_from="defaultYear in ${base}/years.json"
     else
-        base="/cache/calendar-cache"
+        # The same October turnover as getDefaultYear().
+        #
+        # TZ is load-bearing, not decoration. The turnover is defined in the
+        # Institution's timezone (frontend/src/lib/constants.ts reads it
+        # through chqParts), so a contributor east of Eastern running this at
+        # 22:00 ET on Sep 30 is already on October 1 by their own clock — a
+        # bare `date` would check next season's file while their browser
+        # asked for this one.
+        #
+        # `10#` because `date +%m` zero-pads, and 08/09 are invalid octal.
+        year=$(TZ=America/New_York date +%Y)
+        month=$((10#$(TZ=America/New_York date +%m)))
+        if [ "$month" -ge 10 ]; then
+            year=$((year + 1))
+        fi
+        year_from="no readable ${base}/years.json, so the app falls back to the October turnover"
     fi
-    url="http://localhost:3000${base}/all-events-${year}.json"
 
-    echo "🔎 Checking the calendar has events for ${year}..."
+    url="${origin}${base}/all-events-${year}.json"
 
-    # Counted by node rather than grepped: node is already a hard requirement
-    # above, and a substring count over 5MB of descriptions is a guess where
-    # this needs to be a fact. Prints 0 for anything unparseable or
-    # unexpectedly shaped, which is the answer we want in every such case.
+    echo "🔎 Checking the calendar has events for ${year} (${year_from})..."
+
+    # 3. Whether that file has anything in it.
+    #
+    # Counted by node rather than grepped: a substring count over 5MB of
+    # descriptions is a guess where this needs to be a fact. Prints 0 for
+    # anything unparseable or unexpectedly shaped, which is the answer we
+    # want in every such case.
     #
     # --max-time is generous: ~5MB proxied to the CDN on a cold cache.
     count=$(curl -s --max-time 60 "$url" \
@@ -205,13 +286,19 @@ check_events() {
         echo "❌ The stack is up, but the calendar has no events to show."
         echo "   Fetched: $url"
         echo ""
-        if [ "${VITE_LOCAL_DATA:-}" = "true" ]; then
-            echo "   VITE_LOCAL_DATA=true is set, so the frontend reads"
-            echo "   frontend/public/data/ — which git ignores, so a fresh"
-            echo "   clone has nothing there. Populate it with:"
+        if [ "$base" = "/data" ]; then
+            echo "   The frontend is in local-data mode (VITE_LOCAL_DATA=true),"
+            echo "   so it reads frontend/public/data/ — which git ignores, so a"
+            echo "   fresh clone has nothing there. The value came from this"
+            echo "   shell, the root .env (under Docker) or a frontend/.env*"
+            echo "   file such as frontend/.env.local."
+            echo "   Either fetch the published ${year} feed, no AWS needed:"
+            echo "     curl -fo frontend/public/data/all-events-${year}.json \\"
+            echo "       https://www.chqcal.org/cache/calendar-cache/all-events-${year}.json"
+            echo "   or sync one (needs AWS credentials):"
             echo "     npm run sync:local --workspace=backend"
-            echo "   (needs AWS credentials — see backend/README-LOCAL-SYNC.md)"
-            echo "   or unset VITE_LOCAL_DATA to load from the CDN instead."
+            echo "   See backend/README-LOCAL-SYNC.md. Or unset VITE_LOCAL_DATA"
+            echo "   wherever it is set, and restart, to load from the CDN."
         else
             echo "   The frontend proxies /cache to https://www.chqcal.org"
             echo "   (see the '/cache' rule in frontend/vite.config.ts), so this"
@@ -223,7 +310,7 @@ check_events() {
         return 1
     fi
 
-    echo "✅ Calendar data for ${year} is reachable (${count} events)"
+    echo "✅ Calendar data for ${year} is reachable from ${base} (${count} events)"
     return 0
 }
 

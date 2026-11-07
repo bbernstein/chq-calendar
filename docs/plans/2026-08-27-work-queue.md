@@ -97,7 +97,7 @@ the defect injected back.
 
 **The fix was neither option the issue listed.** `vite.config.ts:117-120` has
 proxied `/cache` to production since 2026-03-02, for the dev server *and*
-`vite preview` — so the `DEV ? '/data'` branch had been redundant for five
+`vite preview` — so the `DEV ? '/data'` branch had been redundant for six
 months and deleting it was smaller than either fetching the feed or tracking a
 fixture. Escape hatch is `VITE_LOCAL_DATA=true`, explicit by design.
 
@@ -112,13 +112,13 @@ zero referrers.
 ## 3a–3d. Spun out of #286 while fixing it
 
 All five were **found by verifying #286's own premises and then running the
-code** rather than reading it. Four are pre-existing; none were caused by
+code** rather than reading it. All five are pre-existing; none were caused by
 PR #300. Filed 2026-09-02 so they survive the PR.
 
 ### 3a. #301 — `years.json` flips `defaultYear` ~4 hours early · **Size: S · do this one first**
 
 The only one that reaches **production readers**.
-`eventsCalendarDataSyncService.ts:987` computes the October turnover on the
+`eventsCalendarDataSyncService.ts:987-988` computes the October turnover on the
 server's clock; Lambda runs UTC, so the manifest flips at 20:00 ET on Sep 30.
 `useAvailableYears.ts:55` then **overwrites** the client's correct
 Chautauqua-time value with it — so the `chqParts` indirection #243 added,
