@@ -27,7 +27,7 @@ fi
 # and host-run tests work. Checked up front rather than letting `npm ci` below
 # fail with a bare "command not found".
 if ! command -v npm &> /dev/null; then
-    echo "❌ npm is not installed. Node.js 24+ is required (see .nvmrc)."
+    echo "❌ npm is not installed. Node.js 26+ is required (see .nvmrc)."
     exit 1
 fi
 

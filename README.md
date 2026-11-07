@@ -102,7 +102,7 @@ cd backend && npm run deploy
 
 ### Prerequisites
 - Docker with the Compose plugin (Docker Compose v2)
-- Node.js 24+ (see `.nvmrc`) — required by `./scripts/setup-local.sh`, which
+- Node.js 26+ (see `.nvmrc`) — required by `./scripts/setup-local.sh`, which
   installs the workspace tree on the host as well as building the containers,
   and for any development outside Docker
 

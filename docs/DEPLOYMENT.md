@@ -16,7 +16,7 @@ The application consists of four main components:
 
 The application deploys automatically via GitHub Actions when code is pushed to the `main` branch:
 
-1. **Automated Build**: Node.js 24, TypeScript compilation
+1. **Automated Build**: Node.js 26, TypeScript compilation
 2. **Backend Deploy**: Data sync, feedback, admin, and health Lambda functions
 3. **Frontend Deploy**: Vite build to S3 + CloudFront invalidation
 4. **Health Checks**: Static file validation and API endpoint testing
@@ -115,12 +115,12 @@ npm run dev --workspace=frontend
 ### For Production Deployment
 - GitHub repository with Actions enabled
 - AWS credentials configured as GitHub secrets
-- Node.js 24+ (handled by GitHub Actions)
+- Node.js 26+ (handled by GitHub Actions)
 - Domain configured in AWS Route 53
 
 ### For Local Development
 - [Docker](https://docker.com) and Docker Compose
-- [Node.js](https://nodejs.org) 24+ (see `.nvmrc`) — required by
+- [Node.js](https://nodejs.org) 26+ (see `.nvmrc`) — required by
   `./scripts/setup-local.sh` and by the manual setup above, both of which
   install the workspace tree on the host
 - Access to production AWS endpoints (no local backend server)
@@ -203,7 +203,7 @@ aws dynamodb list-tables
 
 The production deployment workflow (`.github/workflows/deploy-production.yml`) includes:
 
-- **Node.js 24** with npm workspace support
+- **Node.js 26** with npm workspace support (the Lambda bundles still target `node24`, matching the `nodejs24.x` runtime)
 - **Separate Lambda functions** for calendar and admin handlers
 - **Frontend build** with environment variables
 - **S3 deployment** with CloudFront invalidation
