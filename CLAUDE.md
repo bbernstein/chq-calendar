@@ -118,7 +118,7 @@ These constraints affect ALL work. Do not violate them:
 
 3. **Preact, not React** — Uses Preact with `@preact/preset-vite`. Import from `preact/hooks`, `preact/compat`, etc.
 
-4. **Client-side data fetching** — Events are fetched from `/cache/calendar-cache/all-events.json` (a static file on S3/CloudFront). All filtering happens in the browser.
+4. **Client-side data fetching** — Events are fetched from `/cache/calendar-cache/all-events-<year>.json` (a static file on S3/CloudFront). All filtering happens in the browser. The year suffix matters: an unsuffixed `all-events.json` also exists on the CDN, but it is a ~10MB every-year blob that no client reads. `frontend/vite.config.ts` proxies `/cache` to production for the dev *and* preview servers, so this is the same path in every environment — see `frontend/src/lib/dataSource.ts`.
 
 5. **localStorage persistence** — User filter state is saved to localStorage with a 30-day expiry. Don't break the state schema without handling migration.
 
@@ -144,7 +144,7 @@ These constraints affect ALL work. Do not violate them:
 
 ### Data Flow
 ```
-CloudFront CDN → all-events.json → Browser Cache (1hr)
+CloudFront CDN → all-events-<year>.json → Browser Cache (1hr)
     → Client fetch → Preact state → Filter pipeline → Grouped events → Render
 ```
 

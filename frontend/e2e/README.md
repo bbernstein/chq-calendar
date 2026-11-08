@@ -36,6 +36,18 @@ prints them all as it goes, and exits non-zero at the end if any failed —
 it does not stop at the first failure. A run that fails check 12 still tells
 you about checks 13 onward, which usually matters: these failures cluster.
 
+`npm run test:browser` is `node e2e/run-all.mjs`, which runs the six suites
+**one after another, every one of them**, and ends with a per-suite summary;
+it exits non-zero if any suite did. It used to be the six joined with `&&`,
+which stops at the first red suite — and that hid most of the failure twice:
+16 of 18 red checks at the 2026 season's tail (#299), and at the 2027 rollover
+a crash in `verify-rail` concealed red checks in `verify-header-reveal` and
+`verify-full-list`. Name suites to run a subset:
+
+```bash
+URL=http://localhost:3000/ node e2e/run-all.mjs verify-rail verify-full-list
+```
+
 Running them against **production** is worth doing deliberately: it is how
 the filter-header regression was confirmed to be live, and how the fix was
 confirmed to have reached readers. A check that passes on a build known to
@@ -179,8 +191,8 @@ reject. It cannot tell the right answer from the wrong one there.
 regime, and must say so** — `enterList(page, { seedsOwnFilter: true })`.
 Off-season the landing shows only for a reader who has narrowed nothing, so a
 seeded filter suppresses it and a day list renders on a date where an unseeded
-page gets the landing. `verify-rail`'s checks 18 and 20h both seed
-`searchTerm: 'williamsburg'`; before #287 they announced `in-season` in the
+page gets the landing. `verify-rail`'s checks 18 and 20h both seed a
+`searchTerm` (derived from the feed since the 2027 rollover; see below); before #287 they announced `in-season` in the
 middle of an off-season run and `announce`'s consistency throw took the whole
 suite — and the five suites `&&`-chained after it — down with a stack trace
 and no summary. The consistency rule itself is untouched: it still fires for
@@ -264,6 +276,126 @@ rather than convenient:
   but whose programme is not up yet, which is a year with no events in it.
 
 Everything not named in those two stubs stays live production data.
+
+## The next season, published but sparse (the 2027 rollover)
+
+The fourth date boundary this suite has hit, after the hour (#249), the
+off-season (#287) and the sparse tail (#299). On **2026-10-01** the manifest's
+`defaultYear` became 2027, and 2027 was already *published* — so the default
+screen is a day list, `regime: in-season`, every load. But it is **sparse**:
+measured 2026-11-07, 52 events over 37 days from 2027-06-27, never more than
+three on any one day, against 1,688 for 2026. The load lands on the season's
+FIRST day, at the top of a ~6,400px document. Every in-season assumption that
+came from a dense season broke at once, and none of it was the app:
+
+| check | what it assumed | measured |
+|---|---|---|
+| `verify-rail` 12 @ 320px | a day tall enough to hold a stuck header | tallest 320px (3 cards) vs 441px needed |
+| `verify-rail` 18 / 20h | 'williamsburg' isolates one week | 0 of 52 events match: list empties, `enterList` throws |
+| `verify-rail` 20e / 20g | the chooser's last week can be parked on | 2027-08-23 is 93px past `maxScroll`; anchor correctly stays on 08-20 |
+| `verify-header-reveal` 4 | the landing leaves the reader "deep" | `scrollY 149`, not `> 3000` |
+| `verify-full-list` 4 | a day with 8+ cards to measure | none |
+| `verify-full-list` 10 | 40 x 600px of gestures fit in the year | 6,464px of room; ran out after ~8 gestures and still PASSED |
+
+The crash in 18 hid 20e/20g in the same suite and every red check in the two
+suites after it — see `run-all.mjs` above.
+
+**What changed, and why each check still has its subject:**
+
+- **Data the check needs is surveyed from the feed (`feed.mjs`), not written
+  down.** `yearsWithBusyDay` lists the years whose feed has a day with N+
+  events — the default year first when it qualifies, then archived years,
+  newest first. `isolatingSearchTerm` picks a one-word term whose matches all
+  fall in one season week. Against the 2026 feed it picks `williamsburg` —
+  the term a person had chosen by hand — which is the derivation's own
+  sanity check.
+- **The survey reads what the page read.** `enterList` hands the run's first
+  page to `learnFeedSource`, which takes the `years.json` and
+  `all-events-<year>.json` URLs from the page's own resource timing — so a
+  dev-server run (`/data`) and a build (`/cache/calendar-cache`) are each
+  surveyed from their own source — and notes whether the page asked for the
+  publisher sidecar. The CI build sets `VITE_ENABLE_PUBLISHER_FEEDS=true`, so
+  `loadYear` merges `publisher-events-<year>.json` exactly as `useEventData`
+  does (appended, deduplicated by id); a 404 there means no publisher events.
+  The search haystacks are built the way `decodeEventHtmlEntities` builds
+  them: HTML entities decoded, `venue.name` in place of `location`.
+- **Only a 404 means "no feed".** Any other failure (a 5xx, a network error, a
+  body without `data`) is recorded as an error, never as "0 events". When it
+  is the DEFAULT year's feed, the checks that would have chosen a year from
+  the survey (rail 12, 18, 20h; full-list 4 and 10; header-reveal's first
+  block) fail, or decline to fall back, and say why — a network blip must not
+  quietly move a check onto an archived season. An archived year's failure is
+  appended to every passing detail as `feed trouble: …`.
+- **The harness's season rule is held to the app's.** `feed.mjs`'s
+  `seasonStartDay` restates `getChautauquaSeasonWeeks`; `verify-rail` 8f
+  compares it, and the nine-week end, against the first and last day the
+  rail's week band draws.
+- **When the default year cannot exercise a check, the check runs in the
+  newest archived year that can**, opened the reader's way: `?year=N`
+  (`useSelectedYear`), then the landing's "Browse the N season", then the
+  header's year pill read back (`enterYear` in `regime.mjs`, which never
+  reports a regime — an archived year's page says nothing about the run's).
+  Sticky geometry, the intrinsic-size estimate and scroll smoothness are
+  properties of the components and the data volume, not of which year is
+  selected. Every detail line names the year it ran in and, if it moved, why.
+  Each fallback is taken only while the default year cannot do the job, so it
+  switches back by itself once the 2027 programme is published.
+- `verify-rail` **12** tries the default year first and moves on only on "no
+  day tall enough"; currently 320px parks in 2026, 200% zoom still in 2027.
+- `verify-rail` **18 / 20h** seed the derived term, and 18-pre / 20h-pre are
+  now *stricter*: the reachable count must equal the survey's predicted week
+  count (one, or two for a boundary-Saturday term), not merely be non-zero —
+  the term is chosen by code now, so its prediction is checked against the app
+  rather than trusted. When no published season can isolate a week, all six
+  FAIL with the reason; they do not skip.
+- `verify-rail` **20d-20g** jump to the reachable week farthest from the
+  reader *whose day the document can park under the rail*, both read from DOM
+  geometry, never from the rail's anchor (the thing under test; #299's 8e
+  lesson).
+- `verify-header-reveal`'s `deepAndHidden` makes depth with a wheel
+  (`makeRoomAbove`, the mirror of `makeRoomBelow`), and checks 2 and 4 print
+  how far it actually moved. The first block (checks 1-8) runs in the default
+  year when its document has 5,600px of scroll to be deep in, and otherwise in
+  the newest archived year that does — the next default season may be sparser
+  than 2027.
+- `verify-full-list` **4** measures in the first year with an 8-card day;
+  **10** measures the document's room before the run, takes the first year
+  that has it, and now ASSERTS the room, the distance the forty gestures
+  actually travelled (>= 90% of 24,000px), and that at least forty frames were
+  recorded — a clamped run, or an empty frame log scoring p95 = 0, is not a
+  measurement.
+
+**Falsified, each against a deliberately broken bundle (`npx vite build`, the
+marker confirmed in `out/assets`):** a non-sticky day header fails 12 at both
+widths (320px in 2026, 200% in 2027); destinations that ignore the filter fail
+18-pre/18a/18b and 20h-pre/20h/20i; a chooser that navigates to a different
+week fails 20e/20g, and one that navigates nowhere also fails 20d; a header
+that only reveals above `scrollY` 3000 fails 4 and 18 in both engines (the
+old harness, on that same bundle, passed 18 and failed 4 only on depth); a
+92 → 8.125px card estimate fails full-list 4 (ratio 0.11, in 2026); a 120ms
+scroll-handler stall fails 10 (p95 138ms, in 2026); and pinning 10 to the
+sparse default year fails it on the room assertion. After review:
+
+- forcing "no year can isolate a week" fails 18-pre, 18a, 18b, 20h-pre, 20h
+  and 20i, each with the reason (they used to skip);
+- a non-passive listener that swallows downward wheels fails 10 on travel
+  (`travelled 0px of >= 21600`) while its p50/p95 read 16/17ms — the old
+  check passed that bundle;
+- replacing `requestAnimationFrame` with a no-op on the first downward wheel
+  fails 10 on frames (`0 frames of >= 40`) with p50 = p95 = 0ms — the old
+  check passed that too;
+- header-reveal's first block, forced past the default year onto 2026, fails
+  4 and 18 on the reveal-only-above-3000 bundle and is 19/19 green in both
+  engines on the real one;
+- moving the app's season to the 3rd Sunday of June fails 8f (`band
+  2027-06-19..2027-08-21, feed.mjs 2027-06-26..2027-08-28`) — and 18-pre stayed
+  green on that bundle, which is exactly why 8f exists.
+
+**What no longer speaks to the default year while it is sparse, plainly:**
+`verify-rail` 12 @ 320px, `verify-full-list` 4 and 10 run against the 2026
+season, and so would 18/20h if the default year could not isolate a week.
+That is the finding: the 2027 data does not contain the subject. Nothing in
+this regime skips.
 
 ## In CI
 

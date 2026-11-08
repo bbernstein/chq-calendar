@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Event, GlobalEventData, SeasonWeek } from '@/lib/types';
 import { CACHE_EXPIRY_MS, getCategoryDisplayName, getLocationDisplayName } from '@/lib/constants';
 import { decodeHtmlEntities, decodeEventHtmlEntities } from '@/lib/utils/eventHelpers';
+import { dataBase, dataCacheKey, describeFetchFailure } from '@/lib/dataSource';
 
 interface UseEventDataProps {
   year: number;
@@ -16,7 +17,9 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
   const [loading, setLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const isLoadingRef = useRef(false);
-  const cacheKey = `chq-calendar-events-${year}`;
+  // Namespaced by data source so toggling VITE_LOCAL_DATA is visible at once
+  // rather than after the cache expires; see dataCacheKey().
+  const cacheKey = dataCacheKey(`chq-calendar-events-${year}`);
 
   const fetchAllEvents = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) {
@@ -82,10 +85,16 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
     }
 
     setLoading(true);
+    // Outside the try so the catch below can name the file in its message.
+    const cacheBase = dataBase();
+    const primaryUrl = `${cacheBase}/all-events-${year}.json`;
+    // Set once the feed's body has parsed. The catch below gives the
+    // sync:local remedy only when it has not — a bug in processing an
+    // arrived feed is not fixed by fetching it again, and saying so would
+    // point the developer the wrong way.
+    let feedArrived = false;
     try {
       const sidecarEnabled = String(import.meta.env.VITE_ENABLE_PUBLISHER_FEEDS) === 'true';
-      const cacheBase = import.meta.env.DEV ? '/data' : '/cache/calendar-cache';
-      const primaryUrl = `${cacheBase}/all-events-${year}.json`;
       const sidecarUrl = sidecarEnabled ? `${cacheBase}/publisher-events-${year}.json` : null;
 
       // Cap sidecar latency so a slow/hung publisher endpoint can't delay the
@@ -120,6 +129,7 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
 
       if (primaryResp.ok) {
         const data = await primaryResp.json();
+        feedArrived = true;
         let rawEvents = data.data || [];
 
         // Sidecar is purely additive: any failure (404, parse error, network) falls back
@@ -229,10 +239,25 @@ export function useEventData({ year, globalEventData, seasonWeeks, setAvailableC
           console.warn('Failed to save to localStorage:', e);
         }
       } else {
-        console.error('Failed to fetch events');
+        // Not a bare 'Failed to fetch events'. In dev that message left the
+        // developer with EmptyState's advice to reload, which could never
+        // help — see describeFetchFailure and #286.
+        console.error(describeFetchFailure(primaryUrl, primaryResp.status));
       }
     } catch (error) {
-      console.error('Error fetching events:', error);
+      // The same remedy as a non-2xx answer above. A rejected fetch is how an
+      // offline developer, or one whose /cache proxy cannot reach
+      // production, meets the empty calendar, and a bare 'Error fetching
+      // events' told them nothing they could act on (#286). The error itself
+      // is still logged beside the message, for its stack.
+      if (feedArrived) {
+        console.error(`Error processing ${primaryUrl}:`, error);
+      } else {
+        console.error(
+          describeFetchFailure(primaryUrl, error instanceof Error ? error : undefined),
+          error,
+        );
+      }
     } finally {
       setLoading(false);
       isLoadingRef.current = false;

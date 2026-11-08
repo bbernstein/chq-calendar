@@ -69,6 +69,29 @@ services:
       - NODE_ENV=development
       # Points browser directly to backend (Docker proxy can't reach localhost:3001)
       - VITE_API_URL=http://localhost:3001
+      # Opt in to locally-synced event files instead of the CDN. Unset by
+      # default, which is what makes a fresh clone show real events: the dev
+      # server proxies /cache to production (frontend/vite.config.ts). See
+      # backend/README-LOCAL-SYNC.md for when you want it.
+      #
+      # A bare name, not `VITE_LOCAL_DATA=${VITE_LOCAL_DATA:-}`, and the
+      # difference is the whole point. The bare form copies the value from
+      # the shell, or failing that from the root .env, and when neither sets
+      # it the variable is left out of the container entirely
+      # (`docker compose config` shows `null`). The `${...:-}` form always
+      # defines it — as an empty string when the host has none — and Vite
+      # lets any process.env value, empty included, override the .env files,
+      # so a VITE_LOCAL_DATA=true in the bind-mounted frontend/.env.local was
+      # silently ignored under Docker while working on the host.
+      #
+      # So any one of these three works, and the first that sets it wins:
+      # the shell running `docker compose up`, the root .env, then
+      # frontend/.env.local. Set it in exactly one place — an empty
+      # `VITE_LOCAL_DATA=` in the shell or root .env still counts as set and
+      # turns local data off. Restart the container after changing it; Vite
+      # reads env only at startup. It is a dev-server-only switch: a
+      # production build and `vite preview` always read the CDN.
+      - VITE_LOCAL_DATA
     volumes:
       # Scoped mounts — see the backend service above for the rationale.
       - ./frontend:/app/frontend

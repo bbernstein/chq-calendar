@@ -14,7 +14,6 @@ export const IOS_MIN_VERSION = 18;
  * in that page's copy dataset just to read one URL.
  */
 export const APP_STORE_URL = 'https://apps.apple.com/us/app/chqcalendar/id6797027562';
-export const YEARS_MANIFEST_PATH = '/cache/calendar-cache/years.json';
 /**
  * The default season year, turning over on October 1 — at Chautauqua.
  *

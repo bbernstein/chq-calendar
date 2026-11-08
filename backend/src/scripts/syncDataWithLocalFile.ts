@@ -6,9 +6,124 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { seasonYearAt } from './seasonYear';
+import { LOCAL_DATA_DIR } from './localDataDir';
+import {
+  buildLocalFeedPayload,
+  buildLocalYearsManifest,
+  isUsableCachedFeed,
+  isUsableFeedPayload,
+  localFeedFilename,
+  localFeedYears,
+  parseYearsManifest,
+  runLocalSync,
+  type YearsManifest,
+} from './localFeed';
 
 // Load environment variables from .env file
 dotenv.config({ path: path.join(__dirname, '../../.env') });
+
+/**
+ * Which season to sync, matching the season the frontend will ask for.
+ *
+ * The rule itself lives in `./seasonYear`, which documents why it is read in
+ * Chautauqua time and what it is deliberately not in step with. It is a
+ * separate module because it is the part worth testing — see
+ * `src/__tests__/seasonYear.test.ts`.
+ *
+ * `--year=<n>` overrides it. That is how you get a second season on disk to
+ * exercise year switching, the off-season landing and previewNextSeason
+ * against a realistic local dataset.
+ */
+function resolveYear(): number {
+  const flag = process.argv.find((a) => a.startsWith('--year='));
+  if (flag) {
+    const parsed = Number(flag.slice('--year='.length));
+    if (!Number.isInteger(parsed) || parsed < 2000 || parsed > 2100) {
+      console.error(`Invalid --year value: ${flag}. Expected a year like --year=2027.`);
+      process.exit(1);
+    }
+    return parsed;
+  }
+  return seasonYearAt(new Date());
+}
+
+/**
+ * Fetch production's `years.json`, or `null` if it cannot be had.
+ *
+ * Over plain HTTPS from the CDN rather than through the S3 client: the
+ * manifest is public, so this works with no credentials, and it is the same
+ * bytes the browser would get. A failure here is a warning, not an error —
+ * `buildLocalYearsManifest` can still write a manifest that matches the files
+ * on disk, which is the part the calendar depends on.
+ */
+async function fetchPublishedYearsManifest(): Promise<YearsManifest | null> {
+  const url = process.env.YEARS_MANIFEST_URL
+    || 'https://www.chqcal.org/cache/calendar-cache/years.json';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`Could not fetch the published years.json: HTTP ${res.status} from ${url}`);
+      return null;
+    }
+    const manifest = parseYearsManifest(await res.json());
+    if (!manifest) {
+      console.warn(`Could not fetch the published years.json: unexpected shape from ${url}`);
+    }
+    return manifest;
+  } catch (error) {
+    console.warn('Could not fetch the published years.json:', error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+/**
+ * Rewrite `frontend/public/data/years.json` to match the feeds on disk.
+ * Returns whether it was written.
+ *
+ * This file is tracked, and it is the one artifact of local-data mode that
+ * nothing else regenerates — it sat six months stale at `[2025, 2026]` while
+ * production served `[2025, 2026, 2027]`, so no local checkout could reach
+ * 2027 or exercise year switching, the off-season landing or
+ * previewNextSeason (#286). Resetting it by hand only restarts that clock;
+ * writing it here is what stops it.
+ *
+ * It is not a copy of production's manifest; `buildLocalYearsManifest`
+ * (./localFeed) says why, and why a copy named a season with no file behind
+ * it every October.
+ *
+ * A failed *fetch* is survivable and only warned about. A failed *write* is
+ * not: it leaves whatever `years.json` was there before, which may name a
+ * season this run did not write, and a run that reports success over that has
+ * produced the #286 empty calendar while saying it fixed it. So the caller
+ * turns `false` into a non-zero exit.
+ */
+async function refreshYearsManifest(writtenYear: number): Promise<boolean> {
+  const remote = await fetchPublishedYearsManifest();
+  if (!remote) {
+    console.warn('  Writing years.json from the feeds on disk alone.');
+  }
+  const outputPath = path.join(LOCAL_DATA_DIR, 'years.json');
+  try {
+    const manifest = buildLocalYearsManifest(
+      remote,
+      localFeedYears(await fs.readdir(LOCAL_DATA_DIR)),
+      writtenYear,
+    );
+    await fs.writeFile(outputPath, JSON.stringify(manifest, null, 2) + '\n');
+    console.log(`Wrote years.json (${manifest.years.join(', ')}; default ${manifest.defaultYear}) at: ${outputPath}`);
+    if (remote && manifest.defaultYear !== remote.defaultYear) {
+      // Not an error — the file is consistent — but the local app now opens
+      // on a different season from production's, and that deserves a line.
+      console.warn(`  Production's defaultYear is ${remote.defaultYear}, which has no local feed; the local default is ${manifest.defaultYear}.`);
+      console.warn(`  To follow production: npm run sync:local -- --year=${remote.defaultYear} --force`);
+    }
+    return true;
+  } catch (error) {
+    console.error(`Could not write ${outputPath}:`, error instanceof Error ? error.message : error);
+    return false;
+  }
+}
 
 async function main() {
   // Initialize DynamoDB client
@@ -32,16 +147,45 @@ async function main() {
   try {
     const forceUpdate = process.argv.includes('--force');
     const saveLocal = process.argv.includes('--save-local');
-    const year = new Date().getFullYear();
-    
-    let result;
-    if (forceUpdate) {
-      console.log(`Performing full season sync for ${year}...`);
-      result = await syncService.syncAllSeasonEvents(year);
-    } else {
-      console.log('Performing incremental sync...');
-      result = await syncService.performIncrementalSync();
+    const year = resolveYear();
+
+    // `--year=` only reaches the sync on the `--force` path, through
+    // `runLocalSync` (./localFeed), which also explains why that is a
+    // full-year sync. Without `--force` we run `performIncrementalSync()`,
+    // which takes no year at all and syncs a now-relative window — so
+    // `sync:local -- --year=2027` would sync *this* season and then write
+    // whatever the cache happened to hold for 2027 under a 2027 filename.
+    // That is a silently wrong file, which is the exact failure mode this
+    // whole change exists to remove, so refuse rather than warn.
+    //
+    // The fetch modes are exempt, but not because they skip the sync — they
+    // don't; the incremental sync above runs regardless of these flags. They
+    // are exempt because for them `--year` selects *which cached season to
+    // pull down*, and that is exactly what it does. Nothing about the named
+    // year is promised and then quietly not delivered, which is the only
+    // thing this guard is here to prevent.
+    const yearWasExplicit = process.argv.some((a) => a.startsWith('--year='));
+    const fetchOnly = process.argv.includes('--fetch-cache')
+      || process.argv.includes('--fetch-s3-direct');
+    if (yearWasExplicit && !forceUpdate && !fetchOnly) {
+      console.error(`Refusing to run: --year=${year} without --force.`);
+      console.error('');
+      console.error('  An incremental sync ignores --year, so this would sync the current');
+      console.error(`  season and then write the cache's ${year} data to ${localFeedFilename(year)}.`);
+      console.error('');
+      console.error('  To actually sync that season:');
+      console.error(`    npm run sync:local -- --year=${year} --force`);
+      console.error('  To just download that season\'s published feed (no AWS access,');
+      console.error('  no cache TTL to race):');
+      console.error(`    curl -fo frontend/public/data/${localFeedFilename(year)} \\`);
+      console.error(`      https://www.chqcal.org/cache/calendar-cache/${localFeedFilename(year)}`);
+      process.exit(1);
     }
+    
+    console.log(forceUpdate
+      ? `Performing full sync for ${year}...`
+      : 'Performing incremental sync...');
+    const result = await runLocalSync(syncService, { force: forceUpdate, year });
     
     console.log('Sync completed:');
     console.log(`  Success: ${result.success}`);
@@ -60,9 +204,33 @@ async function main() {
     
     console.log(`  Duration: ${result.duration}ms`);
 
-    // Now fetch the cached all-events.json file
-    if (saveLocal || process.argv.includes('--fetch-cache')) {
-      console.log('\nFetching all-events.json from cache...');
+    // Now fetch the cached feed the frontend actually reads.
+    //
+    // The name matters. The frontend requests `all-events-<year>.json`
+    // (frontend/src/hooks/useEventData.ts), while the cache also holds a
+    // legacy unversioned `all-events.json` — every year at once, ~10MB, and
+    // read by nothing. This script wrote that one, under that name, so
+    // `npm run sync:local` produced a file the app never requested and the
+    // developer was left with an empty calendar and no clue why (#286).
+    // `--fetch-cache` persists too, not just `--save-local`. It used to fetch
+    // the feed, print a count and write nothing — so `npm run sync:fetch`,
+    // whose whole documented job is "fetch the cached feed", left the
+    // developer with console output, no file, and no indication it had not
+    // done what it said. That is the silent-success-over-empty-output shape
+    // this change exists to remove, so the command now does what its name,
+    // its docs and the --year guard's own advice all promise.
+    const persistLocally = saveLocal || process.argv.includes('--fetch-cache');
+    const fetchS3Direct = process.argv.includes('--fetch-s3-direct');
+    // Whether either write path below actually produced the feed file. Every
+    // way of reaching them is a request for that file, so finishing without
+    // it is a failure, and the exit code says so — see the end of `main`.
+    let wroteFeed = false;
+    // Whether a feed was written but `years.json` beside it could not be.
+    // Also a failure: the old manifest may name a season this run did not
+    // write, and that is the empty calendar — see `refreshYearsManifest`.
+    let manifestFailed = false;
+    if (persistLocally) {
+      console.log(`\nFetching ${localFeedFilename(year)} from cache...`);
       
       // Initialize cache service to retrieve the data
       const cacheService = new MultiLayerCacheService({
@@ -72,31 +240,53 @@ async function main() {
         s3KeyPrefix: process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache'
       });
 
-      // Get all events (empty filter means all events)
-      const allEvents = await cacheService.get({ filters: {} });
-      
-      if (allEvents && allEvents.data) {
-        console.log(`Retrieved ${allEvents.data.length} events from cache`);
+      // `get()` returns the cached *payload* — the bare Event[] — not the
+      // stored wrapper. `isUsableCachedFeed` (./localFeed) says why the guard
+      // that used to read `allEvents.data` could never pass.
+      const events = await cacheService.get({ filters: {}, year });
+
+      if (isUsableCachedFeed(events)) {
+        console.log(`Retrieved ${events.length} events from cache`);
+
+        // Save to local file system
+        const outputDir = LOCAL_DATA_DIR;
+        const outputPath = path.join(outputDir, localFeedFilename(year));
         
-        if (saveLocal) {
-          // Save to local file system
-          const outputDir = path.join(__dirname, '../../../../frontend/public/data');
-          const outputPath = path.join(outputDir, 'all-events.json');
-          
-          // Ensure directory exists
-          await fs.mkdir(outputDir, { recursive: true });
-          
-          // Write the file
-          await fs.writeFile(outputPath, JSON.stringify(allEvents, null, 2));
-          console.log(`\nSaved all-events.json to: ${outputPath}`);
-        }
+        // Ensure directory exists
+        await fs.mkdir(outputDir, { recursive: true });
+        
+        // Re-wrap the bare array in the `{ data: [...] }` envelope the
+        // frontend reads; see `buildLocalFeedPayload` for why.
+        const payload = buildLocalFeedPayload(events, year);
+        await fs.writeFile(outputPath, JSON.stringify(payload, null, 2));
+        console.log(`\nSaved ${localFeedFilename(year)} to: ${outputPath}`);
+        wroteFeed = true;
+        // Assigned, not latched: with --save-local and --fetch-s3-direct the
+        // later write is the one on disk, so it decides the outcome.
+        manifestFailed = !(await refreshYearsManifest(year));
+        console.log('Set VITE_LOCAL_DATA=true to make the frontend read it; see backend/README-LOCAL-SYNC.md.');
       } else {
-        console.log('No events found in cache');
+        // Reported as an error, not the `console.log('No events found in
+        // cache')` it used to be. Not `process.exit(1)` here, so that the
+        // --fetch-s3-direct fallback below still gets its turn when it was
+        // asked for; the exit code is decided once both have run.
+        console.error(`No usable events for ${year} in the cache; ${localFeedFilename(year)} was not written.`);
+        if (!forceUpdate) {
+          // True of the incremental sync specifically: it re-warms only the
+          // server's own default season, so any other season's object can be
+          // past its 60-minute TTL, and an expired object reads as a miss.
+          console.error('  An incremental sync re-warms only the server\'s current season, so this');
+          console.error('  season\'s cached feed may be past its TTL. To rebuild it from DynamoDB:');
+          console.error(`    npm run sync:local -- --year=${year} --force`);
+        }
+        console.error('  Or download the published feed (no AWS access needed):');
+        console.error(`    curl -fo frontend/public/data/${localFeedFilename(year)} \\`);
+        console.error(`      https://www.chqcal.org/cache/calendar-cache/${localFeedFilename(year)}`);
       }
     }
 
     // Alternative: Direct S3 fetch if cache service doesn't work
-    if (process.argv.includes('--fetch-s3-direct')) {
+    if (fetchS3Direct) {
       console.log('\nFetching directly from S3...');
       
       const s3Client = new S3Client({
@@ -111,35 +301,73 @@ async function main() {
         }),
       });
 
-      const s3Key = `${process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache'}/all-events.json`;
+      const s3Key = `${process.env.CACHE_S3_KEY_PREFIX || 'calendar-cache'}/${localFeedFilename(year)}`;
+      const bucket = process.env.CACHE_S3_BUCKET || 'chautauqua-calendar-cache';
       
       try {
         const command = new GetObjectCommand({
-          Bucket: process.env.CACHE_S3_BUCKET || 'chautauqua-calendar-cache',
+          Bucket: bucket,
           Key: s3Key,
         });
 
         const response = await s3Client.send(command);
         const bodyString = await response.Body?.transformToString();
         
-        if (bodyString) {
-          const cachedData = JSON.parse(bodyString);
+        const cachedData: unknown = bodyString ? JSON.parse(bodyString) : undefined;
+
+        // The guard the cache path above has always had, and this one did
+        // not: an object of `{ data: [] }` was written as an empty feed and
+        // counted as success. See `isUsableFeedPayload`.
+        if (isUsableFeedPayload(cachedData)) {
           console.log(`Retrieved ${cachedData.data.length} events directly from S3`);
           
           // Save to local file system
-          const outputDir = path.join(__dirname, '../../../../frontend/public/data');
-          const outputPath = path.join(outputDir, 'all-events.json');
+          const outputDir = LOCAL_DATA_DIR;
+          const outputPath = path.join(outputDir, localFeedFilename(year));
           
           // Ensure directory exists
           await fs.mkdir(outputDir, { recursive: true });
           
-          // Write the file (just the data part, not the cache metadata)
+          // Written whole: the S3 object is already the `{ data: [...] }`
+          // envelope the frontend reads, so passing it through is correct
+          // here — unlike the cacheService path above, which hands back the
+          // bare array and has to re-wrap.
           await fs.writeFile(outputPath, JSON.stringify(cachedData, null, 2));
-          console.log(`\nSaved all-events.json to: ${outputPath}`);
+          console.log(`\nSaved ${localFeedFilename(year)} to: ${outputPath}`);
+          wroteFeed = true;
+          // Same refresh as the --save-local branch above. This fallback
+          // writes the same local files, so it has the same reason to keep
+          // years.json current; skipping it here would leave the manifest
+          // stale for anyone who reaches for --fetch-s3-direct when the cache
+          // service fails, which is the drift this change exists to stop.
+          manifestFailed = !(await refreshYearsManifest(year));
+          console.log('Set VITE_LOCAL_DATA=true to make the frontend read it; see backend/README-LOCAL-SYNC.md.');
+        } else {
+          // Left `wroteFeed` false, so the run exits non-zero below.
+          console.error(`No usable events in s3://${bucket}/${s3Key}; ${localFeedFilename(year)} was not written.`);
+          console.error('  Download the published feed instead (no AWS access needed):');
+          console.error(`    curl -fo frontend/public/data/${localFeedFilename(year)} \\`);
+          console.error(`      https://www.chqcal.org/cache/calendar-cache/${localFeedFilename(year)}`);
         }
       } catch (error) {
         console.error('Failed to fetch from S3:', error);
       }
+    }
+
+    // Asked for the feed and did not write it: exit non-zero. Both paths
+    // above used to finish with exit 0 whatever happened, so a run that wrote
+    // nothing looked — to a shell `&&`, to a wrapper script, to a developer
+    // skimming a scrolled-off log — exactly like one that worked. That is the
+    // silent-success-over-empty-output shape #286 was. `exitCode` rather than
+    // `exit()` so the clients' handles drain and the log above is flushed.
+    if ((persistLocally || fetchS3Direct) && !wroteFeed) {
+      console.error(`\nFailed: ${localFeedFilename(year)} was not written.`);
+      process.exitCode = 1;
+    }
+    if (manifestFailed) {
+      console.error(`\nFailed: ${localFeedFilename(year)} was written, but years.json beside it was not.`);
+      console.error('  The app follows years.json, so it may open on a season with no local feed.');
+      process.exitCode = 1;
     }
     
   } catch (error) {

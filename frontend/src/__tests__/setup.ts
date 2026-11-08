@@ -17,6 +17,24 @@ const localStorageMock = (() => {
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
+// Every test starts from a fresh clone's data source: VITE_LOCAL_DATA unset,
+// so the hooks read the CDN prefix. The suite is written against that
+// default, and the opt-in tests stub 'true' themselves. Without this pin, a
+// developer who followed backend/README-LOCAL-SYNC.md and has
+// VITE_LOCAL_DATA=true in their shell or frontend/.env.local (both of which
+// reach import.meta.env here, via process.env) gets a run of red tests — and a
+// red `npm run build`, which runs the suite before bundling.
+//
+// This deletes the variable outright rather than calling
+// `vi.stubEnv('VITE_LOCAL_DATA', '')`, on purpose. `vi.unstubAllEnvs()`
+// restores each stubbed variable to the value it had *before its first
+// stub*, and several files call it in their own beforeEach — which runs after
+// any hook registered here. A stub in this file would be undone by those
+// calls and the ambient 'true' would come straight back. Removing it from
+// process.env before any test runs makes "unset" the baseline that
+// unstubAllEnvs restores to.
+delete process.env.VITE_LOCAL_DATA;
+
 // JSDOM does not implement window.matchMedia. Default to `matches: false` so
 // CSS media-query feature checks (e.g. responsive layouts in admin pages)
 // don't crash under test. Individual tests can override per-case if needed.
