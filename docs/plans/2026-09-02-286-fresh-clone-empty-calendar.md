@@ -135,9 +135,10 @@ turns 7 of 12 assertions in `dataSource.test.ts` red and all 4 in
 `dataSourceWiring.test.ts`; restoring the bare `console.error('Failed to
 fetch events')` turns the message check red on its own.
 
-**Full checklist.** Frontend `npm run build`: 111 files, 1347 tests, lines
-87.07% against a 74.3 floor. Backend `npm run validate` clean and `npm run
-build`: 71 suites, 909 tests.
+**Full checklist** (as of the first commit; superseded by the figures under
+"Status at round 6" below). Frontend `npm run build`: 111 files, 1347 tests,
+lines 87.07% against a 74.3 floor. Backend `npm run validate` clean and
+`npm run build`: 71 suites, 909 tests.
 
 ### One incidental finding, not fixed here
 
@@ -228,3 +229,25 @@ shell and its own clock, and the browser uses neither:
   `true` in an env file inlines `""`. Now a bare `- VITE_LOCAL_DATA`, which
   `docker compose config` renders as `null` (left out) when neither the
   shell nor the root `.env` sets it.
+
+### Status at round 6 (2026-11-07)
+
+Verification at the PR head: frontend `npm run build` 111 files, **1363
+tests**; backend validate clean, `npm run build` 73 suites, **955 tests**;
+`npm run test:browser` all six suites green with nothing skipped.
+
+Two date-driven failures on `main`, unrelated to #286, were fixed on this
+branch (and on #309), because they kept every PR red:
+
+- `filterHeader.test.tsx` seeded `lastSaved` from the real clock and then
+  pinned the clock to July 1 of `getDefaultYear()`. From October 1 that is
+  next July, so the saved state read as ~236 days old and expired. The unit
+  suite failed, and so did `browser-checks`, at its build step, which meant
+  no e2e suite had run since the flip.
+- Once they ran, the e2e suites failed on the **sparse next season** that
+  is now the default (2027: 52 events, at most 3 a day). Fixed in the harness
+  by surveying the live feeds, from the base the page reads and merged with
+  the publisher sidecar. `run-all.mjs` replaces the `&&` chain.
+
+Filed from this round: #310 (the manual sync API warms the default year,
+not the one it synced).
