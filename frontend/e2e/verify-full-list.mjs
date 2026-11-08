@@ -14,7 +14,7 @@ import { chromium, webkit } from 'playwright';
 import { pinClock, atMidMorning, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
 import { enterList, enterYear, currentRegime, makeRoomBelow, surveyPinnableToday } from './regime.mjs';
-import { yearsWithBusyDay, describeSurvey, surveyTrouble, loadYear } from './feed.mjs';
+import { yearsWithBusyDay, describeSurvey, surveyTrouble, loadYear, chqDayKeyOf } from './feed.mjs';
 
 const URL = process.env.URL || 'http://localhost:3000/';
 const browser = await chromium.launch();
@@ -288,7 +288,12 @@ const selectedYear = page => page.evaluate(() => {
     check('1a every day of the year is mounted', false, why);
     check('1b every event of the year is mounted', false, why);
   } else {
-    const expectedDays = new Set(loaded.events.map(e => e.startDate.slice(0, 10))).size;
+    // Keyed the way the app files an event (`chqDayKeyOf`), not by the
+    // string's first ten characters — an offset timestamp can belong to the
+    // previous Chautauqua day. An unparseable date lands in no day, as in
+    // the app.
+    const expectedDays = new Set(loaded.events.map(e => chqDayKeyOf(e.startDate))
+      .filter(k => k !== null)).size;
     const from = `${loaded.primary} all-events + ${loaded.added} publisher`;
     check('1a every day of the year is mounted', mounted.days === expectedDays,
       `${mounted.days} sections of ${expectedDays} day keys in the ${year} feed (${from})`);

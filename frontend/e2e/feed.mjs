@@ -172,12 +172,63 @@ export function loadYear(year) {
   return yearCache.get(key);
 }
 
-const dayOf = e => (e.startDate ?? '').slice(0, 10);
+/**
+ * The Chautauqua day an event's `startDate` falls on — the day the app files
+ * it under — or null when the app could not parse it either.
+ *
+ * `startDate.slice(0, 10)` is right for the CHQ feed, whose timestamps are
+ * all naive Institution wall time, and wrong for an offset-bearing one: a
+ * publisher event at `2026-07-04T01:00:00Z` is 21:00 on July 3 in New York,
+ * and the app shows it on July 3. A survey keyed on the 4th would pick the
+ * wrong busy day, place a search hit in the wrong week, and miscount
+ * verify-full-list 1a's mounted days.
+ *
+ * Restates `parseEventDate` (src/lib/utils/chqTime.ts) followed by
+ * `dayKeyOf` (dayWindow.ts, i.e. `chqDayKey`), because these scripts are plain
+ * Node and cannot import the app's TypeScript:
+ *
+ *  - an explicit `Z` or `±hh:mm` / `±hhmm` suffix that `Date` can parse names
+ *    an absolute instant, and the day is that instant's date in
+ *    America/New_York;
+ *  - otherwise `yyyy-mm-dd[T ]hh:mm[:ss]…` is Institution wall time, so the
+ *    day is the wall date — after the same calendar normalisation
+ *    `chqDateAt` applies (`Date.UTC` rolls `24:30` or Feb 30 forward
+ *    identically);
+ *  - otherwise a bare `yyyy-mm-dd` is that day;
+ *  - otherwise null (the app's `Invalid Date`; such an event lands in no day).
+ *
+ * `src/__tests__/e2eFeedDayKey.test.ts` holds this to the app's own functions
+ * over a table that includes the midnight-crossing offsets, so the copy cannot
+ * drift silently.
+ */
+const CHQ_DAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+const utcDayKey = ms => new Date(ms).toISOString().slice(0, 10);
+export function chqDayKeyOf(startDate) {
+  const s = startDate ?? '';
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+    const absolute = new Date(s);
+    if (!Number.isNaN(absolute.getTime())) return CHQ_DAY.format(absolute);
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
+  if (m) {
+    return utcDayKey(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] ?? 0)));
+  }
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (dateOnly) return utcDayKey(Date.UTC(+dateOnly[1], +dateOnly[2] - 1, +dateOnly[3]));
+  return null;
+}
+
+const dayOf = e => chqDayKeyOf(e.startDate);
 
 /** The largest number of events on any single day of `events`. */
 export function busiestDay(events) {
   const per = new Map();
-  for (const e of events) per.set(dayOf(e), (per.get(dayOf(e)) ?? 0) + 1);
+  for (const e of events) {
+    const day = dayOf(e);
+    if (day !== null) per.set(day, (per.get(day) ?? 0) + 1);
+  }
   let best = { day: null, count: 0 };
   for (const [day, count] of per) {
     if (count > best.count || (count === best.count && day < best.day)) best = { day, count };
@@ -275,6 +326,8 @@ const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.pa
  * the nine weeks.
  */
 export function seasonWeeksOf(day, start, weeks = 9) {
+  // A null day — an event `chqDayKeyOf` could not place — is in no week.
+  if (!day) return [];
   const d = daysBetween(start, day);
   if (d < 0 || d > weeks * 7) return [];
   const out = [];
