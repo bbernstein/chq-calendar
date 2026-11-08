@@ -14,7 +14,7 @@ import { chromium, webkit } from 'playwright';
 import { pinClock, atMidMorning, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
 import { enterList, enterYear, currentRegime, makeRoomBelow, surveyPinnableToday } from './regime.mjs';
-import { yearsWithBusyDay, describeSurvey, surveyTrouble } from './feed.mjs';
+import { yearsWithBusyDay, describeSurvey, surveyTrouble, loadYear } from './feed.mjs';
 
 const URL = process.env.URL || 'http://localhost:3000/';
 const browser = await chromium.launch();
@@ -261,28 +261,40 @@ const selectedYear = page => page.evaluate(() => {
 // `groupedEvents.slice(0, 12)` at the `<EventListView>` call site in
 // `page.tsx`, confirmed the marker prop reached the bundle, and measured:
 // 12 sections of 89 and 12 cards of 1,687 — 1a FAIL, 1b FAIL.
+//
+// **Expected against the set the page SHOWS**, which is not one file. The
+// per-year `all-events-<year>.json` is still the base — never the combined
+// `all-events.json`, which the app does not read — but when the build has
+// `VITE_ENABLE_PUBLISHER_FEEDS` on (CI's browser-checks build does, and so
+// does production) `useEventData` also merges `publisher-events-<year>.json`,
+// appended and deduplicated by id. This check used to count the primary file
+// alone, from a hardcoded `/cache/calendar-cache` path, so the first publisher
+// event to reach a sidecar would have turned 1b red on a correct app — and a
+// dev-server run, which reads `/data`, would have counted a different file
+// from the one on screen. `loadYear` (`feed.mjs`) reads from the base the page
+// actually requested and merges the sidecar exactly when the page asked for
+// one, so the expectation and the page cannot drift apart. A feed it cannot
+// read fails both checks with the reason instead of comparing against nothing.
 {
   const page = await newPage();
   const year = await selectedYear(page);
-  const seen = await page.evaluate(async y => {
-    // The same per-year file `useEventData` fetches, not the combined
-    // `all-events.json`: the app never reads the combined one, and counting
-    // against a file the app does not use would be a check on the CDN rather
-    // than on the app.
-    const res = await fetch(`/cache/calendar-cache/all-events-${y}.json`);
-    const { data } = await res.json();
-    const days = new Set(data.map(e => e.startDate.slice(0, 10)));
-    return {
-      expectedDays: days.size,
-      expectedEvents: data.length,
-      mountedDays: document.querySelectorAll('[data-day-key]').length,
-      mountedCards: document.querySelectorAll('[data-event-id]').length,
-    };
-  }, year);
-  check('1a every day of the year is mounted', seen.mountedDays === seen.expectedDays,
-    `${seen.mountedDays} sections of ${seen.expectedDays} day keys in the ${year} feed`);
-  check('1b every event of the year is mounted', seen.mountedCards === seen.expectedEvents,
-    `${seen.mountedCards} cards of ${seen.expectedEvents} events in the ${year} feed`);
+  const loaded = await loadYear(year);
+  const mounted = await page.evaluate(() => ({
+    days: document.querySelectorAll('[data-day-key]').length,
+    cards: document.querySelectorAll('[data-event-id]').length,
+  }));
+  if (loaded.error) {
+    const why = `the ${year} feed could not be read: ${loaded.error}`;
+    check('1a every day of the year is mounted', false, why);
+    check('1b every event of the year is mounted', false, why);
+  } else {
+    const expectedDays = new Set(loaded.events.map(e => e.startDate.slice(0, 10))).size;
+    const from = `${loaded.primary} all-events + ${loaded.added} publisher`;
+    check('1a every day of the year is mounted', mounted.days === expectedDays,
+      `${mounted.days} sections of ${expectedDays} day keys in the ${year} feed (${from})`);
+    check('1b every event of the year is mounted', mounted.cards === loaded.events.length,
+      `${mounted.cards} cards of ${loaded.events.length} events in the ${year} feed (${from})`);
+  }
   await page.close();
 }
 

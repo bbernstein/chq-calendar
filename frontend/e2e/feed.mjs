@@ -155,13 +155,18 @@ export function loadYear(year) {
       const primary = await readFeed(`${base}all-events-${year}.json`);
       if (primary.error) return { year, events: null, missing: false, error: primary.error };
       let events = primary.data;
+      let added = 0;
       if (publisher) {
         const side = await readFeed(`${base}publisher-events-${year}.json`);
         if (side.error) return { year, events: null, missing: false, error: `publisher sidecar: ${side.error}` };
         const seen = new Set(events.map(e => e.id));
-        events = events.concat(side.data.filter(e => e && e.id && !seen.has(e.id)));
+        const additions = side.data.filter(e => e && e.id && !seen.has(e.id));
+        added = additions.length;
+        events = events.concat(additions);
       }
-      return { year, events, missing: primary.missing, error: null };
+      // `primary` and `added` ride along so a caller can say where the count
+      // came from — "52 all-events + 1 publisher" — rather than just a total.
+      return { year, events, primary: primary.data.length, added, missing: primary.missing, error: null };
     })());
   }
   return yearCache.get(key);
