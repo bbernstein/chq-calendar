@@ -101,6 +101,15 @@ async function main() {
       await fs.writeFile(outputPath, JSON.stringify(cacheData, null, 2));
       
       console.log(`\nAlso saved locally to: ${outputPath}`);
+      // Said out loud because this used to read as the way to populate local
+      // mode, and it is not: the frontend requests all-events-<year>.json,
+      // never this unversioned name (#302). sync:local writes the file the
+      // frontend actually reads.
+      console.warn(
+        'Note: the frontend never reads all-events.json, so this file does not populate local mode.\n'
+        + '  For VITE_LOCAL_DATA=true, use `npm run sync:local` (writes all-events-<year>.json and years.json),\n'
+        + '  or the no-AWS curl recipe in backend/README-LOCAL-SYNC.md. See #302.',
+      );
     }
 
   } catch (error) {

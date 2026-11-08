@@ -123,6 +123,16 @@ one production's daily and weekly syncs run — so it also records a `full` row
 in the sync-status table and rewarms that year's published feed. Without
 `--force` it is an incremental, now-relative sync.
 
+**Around October 1, prefer `--force`.** The incremental sync takes no year
+and re-warms the *server's* default season, which it reads from the machine
+clock. This script picks its season in Chautauqua time (`seasonYear.ts`). For
+a few hours around the turnover the two disagree (21:00 Pacific on
+September 30 is already October 1 in Chautauqua), and then the incremental
+run warms one season while the script reads the other. If that season's
+cached feed has expired, the run writes nothing and exits non-zero, naming
+`--year=<n> --force` and the no-AWS `curl` as the fixes. It does not report a
+false success. Making the service warm the requested year is #310.
+
 Both `sync:local` and `sync:fetch` **exit non-zero when they write no file**
 (an empty cache, a missing or empty S3 object), rather than printing a success
 line over nothing. They also exit non-zero when the feed was written but
