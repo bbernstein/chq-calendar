@@ -11,8 +11,8 @@
 import { chromium } from 'playwright';
 import { pinClock, atMidMorning, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList, enterYear, currentRegime, surveyPinnableToday } from './regime.mjs';
-import { fetchManifest, fetchYear, isolatingSearchTerm, yearsWithBusyDay, describeSurvey } from './feed.mjs';
+import { enterList, enterYear, shownYear, currentRegime, surveyPinnableToday } from './regime.mjs';
+import { fetchManifest, loadYear, isolatingSearchTerm, yearsWithBusyDay, describeSurvey, surveyTrouble, seasonStartDay, seasonWeeksOf } from './feed.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -180,6 +180,37 @@ const railHeight = p => p.evaluate(() =>
   const role = await page.$eval('[data-day-rail]', e => `${e.getAttribute('role')}/${e.getAttribute('aria-label')}`);
   check('8c rail is a labelled group', role === 'group/Days', role);
   check('8d no role=menu anywhere', (await page.$$('[role=menu]')).length === 0);
+
+  // The harness's own copy of the season rule, held to the app's.
+  //
+  // `feed.mjs` restates `getChautauquaSeasonWeeks` (Saturday before the 4th
+  // Sunday of June, nine weeks) because these scripts cannot import the app's
+  // TypeScript, and `isolatingSearchTerm` decides which week a day is in from
+  // that copy. The rail's week band is drawn FROM the app's rule: a column
+  // carries band bars exactly when its day is inside a season week. So the
+  // first and last barred columns are the app's season edges, and a drift in
+  // either copy fails here, by name, instead of surfacing as a puzzling
+  // 18-pre count. Read from the band rather than from the first and last chip
+  // because the rail also spans any out-of-season event day (`navigableBounds`).
+  {
+    const year = await shownYear(page);
+    const band = await page.evaluate(() => {
+      const cols = [...document.querySelectorAll('[data-day-rail] [data-rail-content] > [data-rail-column]')]
+        .map(c => ({ day: c.querySelector('[data-chip]')?.dataset.chip ?? null,
+          barred: c.querySelectorAll('[data-band-bar]').length > 0 }))
+        .filter(c => c.barred && c.day);
+      return { first: cols[0]?.day ?? null, last: cols.at(-1)?.day ?? null };
+    });
+    const start = year ? seasonStartDay(year) : null;
+    const end = start
+      ? new Date(Date.parse(`${start}T00:00:00Z`) + 63 * 86400000).toISOString().slice(0, 10)
+      : null;
+    const lastWeeks = end ? seasonWeeksOf(end, start) : [];
+    check("8f the harness's season rule agrees with the rail's week band",
+      !!start && band.first === start && band.last === end && lastWeeks.at(-1) === 9,
+      `${year}: band ${band.first}..${band.last}, feed.mjs ${start}..${end} ` +
+      `(last day in week ${lastWeeks.join('/')})`);
+  }
 
   // Highlight tracks scroll.
   //
@@ -724,7 +755,7 @@ if (currentRegime() === 'off-season') {
 // day tall enough); the 320px case currently takes 2026. Both flip back to the
 // default year by themselves once that season's programme is published.
 const TALL = await (async () => {
-  const busy = await yearsWithBusyDay(URL, 8);
+  const busy = await yearsWithBusyDay(8);
   return { ...busy,
     candidates: [busy.defaultYear, ...busy.years.filter(y => y !== busy.defaultYear)] };
 })();
@@ -734,6 +765,15 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
   // reader is. Only a "no day tall enough" answer moves on to the next
   // candidate; any other failure (a scroll that never settled, a missing rail)
   // is a finding about the app and is reported from the year it happened in.
+  // A default year whose feed could not be read fails here rather than
+  // falling back: a 5xx is not evidence that 2027 has no tall day.
+  if (TALL.defaultError) {
+    const why = `the default ${TALL.defaultYear} feed could not be read, so no year was ` +
+      `chosen: ${describeSurvey(TALL.survey)}`;
+    check(`12 header clears the rail @ ${label}`, false, why);
+    check(`12 no horizontal page overflow @ ${label}`, false, why);
+    continue;
+  }
   let page, parked, year;
   const passedOver = [];
   for (year of TALL.candidates) {
@@ -967,7 +1007,12 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
     passedOver.push(`${year} has no day tall enough at ${label}`);
     await page.close();
   }
-  const where = `in ${year}` + (passedOver.length ? ` (${passedOver.join('; ')})` : '');
+  // Named from the page's own year pill, not from the candidate list: an
+  // off-season `enterList` can enter the list through the landing's "Browse
+  // the N season" (`enterSeasonFromLanding`'s fallback), so the year the
+  // candidate loop ASKED for is not necessarily the year on screen.
+  const where = `in ${await shownYear(page)}` +
+    (passedOver.length ? ` (${passedOver.join('; ')})` : '') + surveyTrouble(TALL.survey);
   await page.waitForTimeout(300);
 
   const geom = !parked.ok ? null : await page.evaluate((key) => {
@@ -1355,12 +1400,23 @@ for (const [label, width, zoom] of [['320px', 320, 1], ['200% zoom', 900, 2]]) {
 // narrowing it and the date keys are ignored on read. Re-verified after
 // removing them — 1 reachable week, 8 unreachable, unchanged.
 const ISOLATE = await (async () => {
-  const manifest = await fetchManifest(URL);
+  const manifest = await fetchManifest();
   const order = [manifest.defaultYear,
     ...manifest.years.filter(y => y < manifest.defaultYear).sort((a, b) => b - a)];
   const tried = [];
   for (const year of order) {
-    const found = isolatingSearchTerm(await fetchYear(URL, year).catch(() => []), year);
+    const loaded = await loadYear(year);
+    // A feed that could not be READ is not a feed with no isolating term. For
+    // the default year that ends the search — falling back to an archived
+    // season because of a 5xx would be a choice made by the network — and the
+    // error is what 18-pre and 20h-pre report, in red. An archived year's
+    // error is recorded and the next year tried.
+    if (loaded.error) {
+      tried.push(`${year}: FETCH FAILED (${loaded.error})`);
+      if (year === manifest.defaultYear) return { term: null, why: tried.join('; ') };
+      continue;
+    }
+    const found = isolatingSearchTerm(loaded.events, year);
     if (found.term) {
       return { ...found, year, isDefault: year === manifest.defaultYear,
         tell: `term '${found.term}' from the ${year} feed: ${found.events} events on ` +
@@ -1392,10 +1448,15 @@ const isolatedPage = (opts) => newPage({
     lastSaved: FIXED_NOW.getTime(),
   })],
 });
+// No year able to isolate a week is a FAILURE, not a skip — the same rule as
+// 20d's "no parkable week". The state this check exists for has to be
+// constructible from some published season; if none can produce it, or the
+// default year's feed could not be read, that wants a person, and a skip would
+// let the run report green over three checks that never happened.
 if (!ISOLATE.term) {
-  for (const name of ['18-pre the search term narrows to exactly one theme week',
+  for (const name of ['18-pre the search term leaves exactly its predicted week(s) reachable',
     '18a an unreachable week says so rather than offering a trip',
-    '18b the fill is faded and the label is not']) skip(name, ISOLATE.why);
+    '18b the fill is faded and the label is not']) check(name, false, ISOLATE.why);
 } else {
   const page = await isolatedPage({
     // The seed suppresses the off-season landing, so this page's screen says
@@ -1433,7 +1494,7 @@ if (!ISOLATE.term) {
   // `> 0` alone was enough while the term was a hand-checked constant; now the
   // term is chosen by code, and a rail that offered a trip to a week the term
   // never touches must not pass because the count happened to be non-zero.
-  check('18-pre the search term narrows to exactly one theme week',
+  check('18-pre the search term leaves exactly its predicted week(s) reachable',
     state.count > 0 && state.reachableCount === ISOLATE.weeks.length,
     `${state.reachableCount} reachable (predicted ${ISOLATE.weeks.length}), ` +
     `${state.count} unreachable — ${ISOLATE.tell}`);
@@ -1485,6 +1546,17 @@ if (!ISOLATE.term) {
   await page.mouse.wheel(0, 6000);
   await page.waitForTimeout(700);
   const before = await anchorChip(page);
+  // How deep "deep" actually got, printed on 20a and 20d. The wheel asks for
+  // 6000px; a short season gives less (2027 on this phone: ~6,400px of scroll
+  // in all), and a season sparser still could leave the reader near the top,
+  // where 20a would prove little and 20d's farthest parkable week could be
+  // close by. A red run here should say so itself rather than send the next
+  // reader looking for a defect in the chooser.
+  const depth = await page.evaluate(() => ({
+    y: Math.round(window.scrollY),
+    max: Math.round(document.documentElement.scrollHeight - window.innerHeight),
+  }));
+  const depthTell = `deep scroll reached scrollY ${depth.y} of ${depth.max}`;
 
   const triggerBox = await page.evaluate(() => {
     const el = document.querySelector('[data-week-chooser-trigger]');
@@ -1495,7 +1567,8 @@ if (!ISOLATE.term) {
   });
   check('20a the chooser is on screen after a deep scroll',
     !!triggerBox && triggerBox.onScreen,
-    triggerBox ? `top=${triggerBox.top.toFixed(0)} ${triggerBox.w}x${triggerBox.h}` : 'no trigger');
+    (triggerBox ? `top=${triggerBox.top.toFixed(0)} ${triggerBox.w}x${triggerBox.h}` : 'no trigger') +
+      ` (${depthTell})`);
 
   await page.click('[data-week-chooser-trigger]');
   await page.waitForSelector('[data-week-chooser-popover]', { timeout: 3000 });
@@ -1565,13 +1638,14 @@ if (!ISOLATE.term) {
     // not one a real feed produces, and if it ever does it deserves a look.
     check('20d a chooser tap navigates', false,
       `no reachable week whose day can be parked under the rail (${jumped.reachable} ` +
-      `reachable, unparkable: ${jumped.unparkable.join(',') || 'none'})`);
+      `reachable, unparkable: ${jumped.unparkable.join(',') || 'none'}; ${depthTell})`);
   } else {
     await page.waitForTimeout(900);
     const after = await anchorChip(page);
     check('20d a chooser tap navigates', !!after && after !== before,
       `${before} → ${after} (week ${jumped.week}, ${jumped.distance}px away` +
-      (jumped.unparkable.length ? `; passed over unparkable ${jumped.unparkable.join(',')}` : '') + ')');
+      (jumped.unparkable.length ? `; passed over unparkable ${jumped.unparkable.join(',')}` : '') +
+      `; ${depthTell})`);
     // Where it SAID it would go, not merely somewhere. The rail's standing rule:
     // a control names its destination, and the destination is where it lands.
     check('20e it lands on the day it named', after === jumped.day,
@@ -1601,10 +1675,11 @@ if (!ISOLATE.term) {
 // hoped for. A check that never creates the state it names can only skip.
 // The term is check 18's — derived from the feed (`ISOLATE`), and opened in the
 // same year — so both checks construct the same state and agree about it.
+// A failure, not a skip, for check 18's reason.
 if (!ISOLATE.term) {
-  for (const name of ['20h-pre the seed narrows to exactly one theme week',
+  for (const name of ['20h-pre the seed leaves exactly its predicted week(s) reachable',
     '20h an unreachable week in the grid says so rather than offering a trip',
-    '20i the grid fades the fill and not the numeral']) skip(name, ISOLATE.why);
+    '20i the grid fades the fill and not the numeral']) check(name, false, ISOLATE.why);
 } else {
   const page = await isolatedPage({
     width: 390, height: 844,
@@ -1632,7 +1707,7 @@ if (!ISOLATE.term) {
   // Both counts, as in 18-pre: zero unreachable is the original gap, and zero
   // reachable would mean the term matched nothing at all and 20h passes
   // vacuously.
-  check('20h-pre the seed narrows to exactly one theme week',
+  check('20h-pre the seed leaves exactly its predicted week(s) reachable',
     state.dim > 0 && state.reachable === ISOLATE.weeks.length,
     `${state.reachable} reachable (predicted ${ISOLATE.weeks.length}), ${state.dim} unreachable — ${ISOLATE.tell}`);
   check('20h an unreachable week in the grid says so rather than offering a trip',

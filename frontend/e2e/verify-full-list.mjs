@@ -14,7 +14,7 @@ import { chromium, webkit } from 'playwright';
 import { pinClock, atMidMorning, FIXED_NOW } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
 import { enterList, enterYear, currentRegime, makeRoomBelow, surveyPinnableToday } from './regime.mjs';
-import { yearsWithBusyDay, describeSurvey } from './feed.mjs';
+import { yearsWithBusyDay, describeSurvey, surveyTrouble } from './feed.mjs';
 
 const URL = process.env.URL || 'http://localhost:3000/';
 const browser = await chromium.launch();
@@ -375,14 +375,23 @@ const selectedYear = page => page.evaluate(() => {
 // year is used whenever its feed has an 8-event day, and otherwise the newest
 // archived year that does (`yearsWithBusyDay`, opened through `?year=` and
 // the landing's "Browse the N season" — `enterYear`). The detail names it.
-const DENSE = await yearsWithBusyDay(URL, 8);
+const DENSE = await yearsWithBusyDay(8);
 const denseYear = DENSE.years[0] ?? null;
 const denseOpts = denseYear === null || denseYear === DENSE.defaultYear ? {} : { year: denseYear };
-const denseTell = denseYear === DENSE.defaultYear ? `in ${denseYear}`
-  : `in ${denseYear}, the default ${DENSE.defaultYear} having no 8-event day`;
-{
+// A default year whose feed could not be READ fails the check rather than
+// falling back — a 5xx is not evidence that the year has no 8-card day.
+if (DENSE.defaultError) {
+  check('4 the intrinsic size is in the right order of magnitude', false,
+    `the default ${DENSE.defaultYear} feed could not be read, so no year was chosen: ` +
+    describeSurvey(DENSE.survey));
+} else {
   const page = await newPage(denseOpts);
   await settle(page);
+  // Named from the page's own year pill, not from the survey's choice.
+  const onScreen = await selectedYear(page);
+  const denseTell = (onScreen === DENSE.defaultYear ? `in ${onScreen}`
+    : `in ${onScreen}, the default ${DENSE.defaultYear} having no 8-event day`) +
+    surveyTrouble(DENSE.survey);
   const measured = await page.evaluate(async () => {
     const secs = [...document.querySelectorAll('[data-day-key]')];
     // A section with enough cards that the header estimate is not most of
@@ -986,10 +995,15 @@ for (const engineName of ['chromium', 'webkit']) {
 // spike's run was roughly twice as long in wall-clock and its percentiles are
 // diluted by idle frames this loop does not have.
 const LONG = await (async () => {
-  const any = await yearsWithBusyDay(URL, 1);
+  const any = await yearsWithBusyDay(1);
   return { ...any, candidates: [any.defaultYear, ...any.years.filter(y => y !== any.defaultYear)] };
 })();
-{
+if (LONG.defaultError) {
+  // As in check 4: an unreadable default-year feed is red, not a fallback.
+  check('10 forty gestures over the whole year stay smooth', false,
+    `the default ${LONG.defaultYear} feed could not be read, so no year was chosen: ` +
+    describeSurvey(LONG.survey));
+} else {
   // A browser of its own, and that is the whole reason this check is
   // trustworthy.
   //
@@ -1066,7 +1080,9 @@ const LONG = await (async () => {
     passedOver.push(`${year} has ${room}px of ${NEED}`);
     await page.close();
   }
-  const where = `in ${year}` + (passedOver.length ? ` (${passedOver.join('; ')})` : '');
+  // Named from the page's own year pill — see check 4.
+  const where = `in ${await selectedYear(page)}` +
+    (passedOver.length ? ` (${passedOver.join('; ')})` : '') + surveyTrouble(LONG.survey);
   // One warm-up gesture INSIDE the recording, then the frame log is cleared.
   // The first interval a fresh rAF loop records spans the gap between
   // registering the callback and the first wheel arriving over CDP — idle
@@ -1106,10 +1122,27 @@ const LONG = await (async () => {
   // p50 and p95 only — see this check's header for the eight-sample evidence
   // that the worst frame is not a property of the build. `worst`, `over100`
   // and `over50` are printed as diagnostics on every run, pass or fail.
+  //
+  // Two more preconditions, both measured rather than predicted, because
+  // either one failing turns the frame statistics into nothing:
+  //
+  //  - **The run actually TRAVELLED.** `room` above is read off a document
+  //    whose skipped sections report their intrinsic-size estimate, so it is
+  //    a prediction. What the gestures really did is `scrollY - startY`, and a
+  //    run that clamped, or whose wheels were swallowed, must fail here — 90%
+  //    of the 24,000px asked for, which leaves room for a correction or two
+  //    and none for a clamp (the clamped 2027 run moved 4,804px).
+  //  - **Frames were actually RECORDED.** An empty frame log gives p50 = p95
+  //    = 0 through the `?? 0` above, which is the best score there is. At
+  //    least one frame per gesture: forty gestures 50ms apart cannot paint
+  //    fewer than forty frames on a working page (measured 140-191 at 4x).
+  const TRAVEL = 0.9 * 40 * 600;
+  const travelled = f.scrollY - f.startY;
   check('10 forty gestures over the whole year stay smooth',
-    room >= NEED && f.p50 < 40 && f.p95 < 90,
+    room >= NEED && travelled >= TRAVEL && f.count >= 40 && f.p50 < 40 && f.p95 < 90,
     `p50 ${f.p50}ms, p95 ${f.p95}ms (asserted: p50 < 40, p95 < 90; ${room}px of room for ` +
-    `${NEED}px of gestures, asserted) ${where} — diagnostics: ` +
+    `${NEED}px of gestures, travelled ${travelled}px of >= ${TRAVEL}, ${f.count} frames ` +
+    `of >= 40, all asserted) ${where} — diagnostics: ` +
     `worst ${f.worst}ms, ${f.over100} frames over 100ms and ${f.over50} over 50ms ` +
     `of ${f.count}, ${f.startY} → ${f.scrollY}`);
   await page.close();

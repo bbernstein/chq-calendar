@@ -11,6 +11,8 @@
  *
  * The race below replaces that hang with an answer.
  */
+import { learnFeedSource } from './feed.mjs';
+
 let regime = null;
 
 /**
@@ -52,7 +54,16 @@ const DAY = '[data-day-key]';
  * stops a run from silently taking both branches, and it stays in force for
  * every page that can honestly speak to which regime it found.
  */
-export async function enterList(page, { seedsOwnFilter = false } = {}) {
+export async function enterList(page, opts = {}) {
+  const result = await enterListInner(page, opts);
+  // The first page of every run teaches the feed survey which base the page
+  // reads and whether it merges the publisher sidecar (`feed.mjs`); later
+  // pages confirm it.
+  await learnFeedSource(page);
+  return result;
+}
+
+async function enterListInner(page, { seedsOwnFilter = false } = {}) {
   // A page that cannot report the regime must not be the page that
   // establishes it: if the opt-out were used first, the run would lose its
   // one chance to detect the regime from a page that could see it. Both
@@ -347,6 +358,18 @@ export async function makeRoomAbove(page, want = 3500) {
 }
 
 /**
+ * The year the page says it is showing — the header's own `N Season` pill —
+ * or null. Read back rather than assumed wherever a detail line names a year:
+ * the URL, the candidate a loop asked for and the year on screen can differ.
+ */
+export async function shownYear(page) {
+  const y = await page.evaluate(() => [...document.querySelectorAll('header button')]
+    .map(b => /^(\d{4}) Season$/.exec(b.textContent.trim())?.[1])
+    .find(Boolean) ?? null);
+  return y === null ? null : Number(y);
+}
+
+/**
  * Open the list for a year OTHER than the run's default, the way a reader
  * reaches one — and without reporting a regime. Call after
  * `goto(URL + '?year=N')`, instead of `enterList`.
@@ -399,12 +422,11 @@ export async function enterYear(page, year) {
     await browse.click();
     await page.waitForSelector(DAY, { timeout: 30000 });
   }
-  const shown = await page.evaluate(() => [...document.querySelectorAll('header button')]
-    .map(b => /^(\d{4}) Season$/.exec(b.textContent.trim())?.[1])
-    .find(Boolean) ?? null);
-  if (Number(shown) !== year) {
+  const shown = await shownYear(page);
+  if (shown !== year) {
     throw new Error(`enterYear(${year}): the header says the page is showing ${shown}`);
   }
+  await learnFeedSource(page);
   await settleAtTop(page);
   return year;
 }

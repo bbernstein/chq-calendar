@@ -1,5 +1,5 @@
 /**
- * What the live feeds can support, surveyed from Node before any page opens.
+ * What the live feeds can support, surveyed from Node alongside the pages.
  *
  * Several checks need something specific from the data: a day with enough
  * events on it to be tall, or a search term confined to one week of the
@@ -10,13 +10,84 @@
  * three on one day, and no Williamsburg programme at all. The app was right
  * about every one of them; the harness had written the 2026 season down.
  *
- * So these questions are asked of the feed on every run, through the same
- * origin the app itself reads (`/cache` is proxied to production by
- * `vite.config.ts` for the preview server CI uses), and the answer moves with
- * the data.
+ * So these questions are asked of the feed on every run, and the answer moves
+ * with the data.
+ *
+ * ## The survey reads what the PAGE read, not what it is assumed to read
+ *
+ * `useEventData` picks its base at build time — `/data` under the dev server,
+ * `/cache/calendar-cache` in a build (proxied to production by `vite.config.ts`
+ * for the preview server CI uses) — and merges the publisher sidecar
+ * `publisher-events-<year>.json` into the year when
+ * `VITE_ENABLE_PUBLISHER_FEEDS` is on, which it is for the CI browser-checks
+ * build (`build-and-test.yml`) and for production. A survey with its own
+ * hardcoded base and no sidecar could pick a year, or a search term, out of a
+ * data set the page is not showing. So `learnFeedSource(page)` reads the
+ * page's own network log after its first load — the URL of the
+ * `all-events-<year>` file it fetched, the `years.json` it fetched, and whether
+ * it asked for a publisher sidecar — and every survey below reads from exactly
+ * those. `enterList` calls it on the run's first page; a survey before that
+ * throws, as an ordering bug, the way `currentRegime()` does.
  */
+let source = null;
 
-const feedUrl = (base, file) => new URL(`cache/calendar-cache/${file}`, base).toString();
+/**
+ * Learn where the page reads its data from. Idempotent; a later page that read
+ * from somewhere else is a harness bug and throws.
+ */
+export async function learnFeedSource(page) {
+  // Playwright's own request log first (`page.requests()`, the last ~100):
+  // the suites pin the page clock, and `page.clock` replaces `performance`
+  // with a fake whose resource-timing buffer is empty — measured, the first
+  // version of this read `[]` on every pinned page. The in-page resource
+  // timing is kept as a second source for a page that is not pinned.
+  const wanted = n => /\/(years\.json|all-events-\d{4}\.json|publisher-events-\d{4}\.json)(\?|$)/.test(n);
+  const logged = typeof page.requests === 'function'
+    ? (await page.requests()).map(r => r.url())
+    : [];
+  const timed = await page.evaluate(() => {
+    try { return performance.getEntriesByType('resource').map(e => e.name); } catch { return []; }
+  });
+  const seen = [...new Set([...logged, ...timed])].filter(wanted);
+  const events = seen.find(n => /\/all-events-\d{4}\.json/.test(n));
+  const manifest = seen.find(n => /\/years\.json/.test(n));
+  // A LATER page that no longer has the requests in view — `page.requests()`
+  // keeps about the last hundred, and a mounted 2026 season can load more
+  // images than that — confirms nothing and contradicts nothing. Only the
+  // first page has to be able to answer.
+  if (source && (!events || !manifest)) return source;
+  if (!events || !manifest) {
+    throw new Error(
+      'learnFeedSource: the page has no resource entry for years.json and an ' +
+      `all-events-<year>.json, so the survey cannot know what it read: ${JSON.stringify(seen)}`
+    );
+  }
+  const learned = {
+    base: events.replace(/all-events-\d{4}\.json.*$/, ''),
+    manifest: manifest.replace(/\?.*$/, ''),
+    publisher: seen.some(n => /\/publisher-events-\d{4}\.json/.test(n)),
+  };
+  // Compared on the base only. Whether the sidecar request shows up in
+  // resource timing is a property of the build, but a sidecar aborted by the
+  // app's 3s timeout may leave no entry, and that must not be read as a page
+  // reading from somewhere else.
+  if (source && source.base !== learned.base) {
+    throw new Error(`learnFeedSource: this run read ${JSON.stringify(source)} and a later page ` +
+      `read ${JSON.stringify(learned)}`);
+  }
+  if (!source) {
+    source = learned;
+    console.log(`feed: ${source.base} (publisher sidecar ${source.publisher ? 'merged' : 'off'})`);
+  }
+  return source;
+}
+
+export const feedSourceKnown = () => source !== null;
+
+function need() {
+  if (!source) throw new Error('feed survey before any page taught it the feed source — ordering bug');
+  return source;
+}
 
 async function getJson(url) {
   const res = await fetch(url);
@@ -24,14 +95,76 @@ async function getJson(url) {
   return res.json();
 }
 
-export async function fetchManifest(base) {
-  return getJson(feedUrl(base, 'years.json'));
+/**
+ * The years manifest the page read. Not cached and not softened: without it
+ * there is no default year to reason about, and a suite that cannot learn one
+ * should stop loudly rather than guess.
+ */
+export async function fetchManifest() {
+  return getJson(need().manifest);
 }
 
-/** The per-year file `useEventData` reads — never the unsuffixed every-year blob. */
-export async function fetchYear(base, year) {
-  const { data } = await getJson(feedUrl(base, `all-events-${year}.json`));
-  return Array.isArray(data) ? data : [];
+/**
+ * One JSON file as `{ data, missing, error }`. Only a 404 is `missing`; every
+ * other failure is an `error` with `data` null.
+ */
+async function readFeed(url) {
+  try {
+    const res = await fetch(url);
+    if (res.status === 404) return { data: [], missing: true, error: null };
+    if (!res.ok) return { data: null, missing: false, error: `${url} answered ${res.status}` };
+    const body = await res.json();
+    if (!Array.isArray(body?.data)) return { data: null, missing: false, error: `${url} has no data array` };
+    return { data: body.data, missing: false, error: null };
+  } catch (e) {
+    return { data: null, missing: false, error: `${url}: ${e.message}` };
+  }
+}
+
+/**
+ * The year as the page shows it — `all-events-<year>.json`, plus the publisher
+ * sidecar when the page asked for one, merged the way `useEventData` merges
+ * it (appended, deduplicated by `id`, entries without an id dropped) — as
+ * `{ year, events, missing, error }`.
+ *
+ * **Only a 404 means "no feed".** Every other failure — a 5xx, a network
+ * error, a body that is not the feed's shape — is an `error`, and `events` is
+ * `null`, not `[]`. The first version caught everything into an empty list,
+ * so a transient 502 on the DEFAULT year would have read as "2027: 0 events"
+ * and quietly moved checks 12, 4, 10, 18 and 20h onto an archived season with
+ * a detail line that looked like a fact about the data. (A published-but-empty
+ * year is a 200 with `data: []` — 2028 is one today — so `missing` and an
+ * empty `events` are different answers, and both honest.)
+ *
+ * The sidecar is optional in the app: any failure there falls back to the
+ * primary alone. Here a 404 is "no publisher events" — the normal state for
+ * every year at the time of writing — but any OTHER sidecar failure is an
+ * error too, because the page may well have received the sidecar the survey
+ * just failed to fetch, and the two would then disagree about the year.
+ *
+ * Cached per process and year: each feed is several MB (2026 is ~5MB) and a
+ * suite asks for the same year up to four times. The cache holds the PROMISE,
+ * so concurrent callers share one request.
+ */
+const yearCache = new Map();
+export function loadYear(year) {
+  const { base, publisher } = need();
+  const key = `${base}|${publisher}|${year}`;
+  if (!yearCache.has(key)) {
+    yearCache.set(key, (async () => {
+      const primary = await readFeed(`${base}all-events-${year}.json`);
+      if (primary.error) return { year, events: null, missing: false, error: primary.error };
+      let events = primary.data;
+      if (publisher) {
+        const side = await readFeed(`${base}publisher-events-${year}.json`);
+        if (side.error) return { year, events: null, missing: false, error: `publisher sidecar: ${side.error}` };
+        const seen = new Set(events.map(e => e.id));
+        events = events.concat(side.data.filter(e => e && e.id && !seen.has(e.id)));
+      }
+      return { year, events, missing: primary.missing, error: null };
+    })());
+  }
+  return yearCache.get(key);
 }
 
 const dayOf = e => (e.startDate ?? '').slice(0, 10);
@@ -62,33 +195,66 @@ export function busiestDay(events) {
  * Returns the full survey alongside, so a caller that finds nothing can say
  * what each year offered instead of failing on an empty list.
  */
-export async function yearsWithBusyDay(base, minEvents) {
-  const manifest = await fetchManifest(base);
+export async function yearsWithBusyDay(minEvents) {
+  const manifest = await fetchManifest();
   const survey = [];
   for (const year of manifest.years) {
-    const events = await fetchYear(base, year).catch(() => []);
-    survey.push({ year, events: events.length, busiest: busiestDay(events) });
+    const { events, missing, error } = await loadYear(year);
+    survey.push({ year, events: events?.length ?? null, missing, error,
+      busiest: events ? busiestDay(events) : { day: null, count: 0 } });
   }
-  const fits = s => s.busiest.count >= minEvents;
+  // A year whose feed could not be READ is never a candidate — and when that
+  // year is the default one, the caller is told, through `defaultError`, so it
+  // can fail rather than fall back. Falling back would be choosing an archived
+  // season because of a network blip, and saying so in a line that reads as
+  // data.
+  const fits = s => !s.error && s.busiest.count >= minEvents;
   const ordered = [
     ...survey.filter(s => s.year === manifest.defaultYear && fits(s)),
     ...survey.filter(s => s.year < manifest.defaultYear && fits(s)).sort((a, b) => b.year - a.year),
   ].map(s => s.year);
-  return { defaultYear: manifest.defaultYear, years: ordered, survey };
+  const defaultError = survey.find(s => s.year === manifest.defaultYear)?.error ?? null;
+  return { defaultYear: manifest.defaultYear, defaultError, years: ordered, survey };
 }
 
-/** One line per year, for a detail string: `2027: 52 events, busiest 3 (2027-08-20)`. */
+/**
+ * '' when every year's feed was read, otherwise `; feed trouble: …` naming the
+ * years that failed. Appended to every PASSING detail that came out of a
+ * survey, so a feed outage on an archived year — which never turns a check
+ * red by itself — is still on the page rather than only in the failure path.
+ */
+export function surveyTrouble(survey) {
+  const bad = survey.filter(s => s.error);
+  return bad.length ? `; feed trouble: ${bad.map(s => `${s.year} ${s.error}`).join('; ')}` : '';
+}
+
+/**
+ * One clause per year, for a detail string:
+ * `2027: 52 events, busiest 3 (2027-08-20)`, `2029: no feed (404)`, or
+ * `2026: FETCH FAILED (… answered 502)` — so a fallback, or the lack of one,
+ * explains itself.
+ */
 export function describeSurvey(survey) {
   return survey
-    .map(s => `${s.year}: ${s.events} events, busiest ${s.busiest.count}` +
-      (s.busiest.day ? ` (${s.busiest.day})` : ''))
+    .map(s => s.error ? `${s.year}: FETCH FAILED (${s.error})`
+      : s.missing ? `${s.year}: no feed (404)`
+      : `${s.year}: ${s.events} events, busiest ${s.busiest.count}` +
+        (s.busiest.day ? ` (${s.busiest.day})` : ''))
     .join('; ');
 }
 
 /**
  * The opening Saturday of `year`'s season, as a day key: the Saturday before
- * the fourth Sunday of June — the rule `getChautauquaSeasonWeeks` implements
- * and `verify-full-list`'s check 6 reads back.
+ * the fourth Sunday of June.
+ *
+ * **A restatement, not the source of truth.** The rule lives in the app's
+ * `getChautauquaSeasonWeeks` (`src/lib/utils/dateHelpers.ts`), which these
+ * plain-Node scripts cannot import. `verify-full-list`'s check 6 carries a
+ * third copy. So `verify-rail`'s check 8f compares this, and `seasonWeeksOf`'s
+ * nine-week end, against the rail's own first and last chip for the year on
+ * screen, and fails when they disagree — the rail is built from
+ * `getChautauquaSeasonWeeks`, so a drift in either copy shows up there before
+ * it can mislead `isolatingSearchTerm` about which week a day is in.
  */
 export function seasonStartDay(year) {
   const june1 = new Date(Date.UTC(year, 5, 1));
@@ -113,12 +279,47 @@ export function seasonWeeksOf(day, start, weeks = 9) {
   return out;
 }
 
-/** The haystacks `searchEvents` (searchHelpers.ts) scores a term against. */
+/**
+ * `decodeHtmlEntities` (`src/lib/utils/eventHelpers.ts`), restated: these
+ * scripts are plain Node and cannot import the app's TypeScript. Same table,
+ * same regex, same numeric handling, same "unknown entity stays as-is".
+ */
+const HTML_ENTITY_MAP = {
+  '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'",
+  '&apos;': "'", '&#x27;': "'", '&ndash;': '\u2013', '&mdash;': '\u2014',
+  '&nbsp;': '\u00A0', '&lsquo;': '\u2018', '&rsquo;': '\u2019',
+  '&ldquo;': '\u201C', '&rdquo;': '\u201D', '&hellip;': '\u2026',
+  '&copy;': '\u00A9', '&reg;': '\u00AE', '&trade;': '\u2122', '&deg;': '\u00B0',
+};
+const ENTITY_REGEX = /&(?:#x[\da-fA-F]+|#\d+|[a-zA-Z]+);/g;
+function decodeHtmlEntities(str) {
+  if (!str) return str;
+  const s = String(str);
+  if (!s.includes('&')) return s;
+  return s.replace(ENTITY_REGEX, (m) => {
+    if (HTML_ENTITY_MAP[m]) return HTML_ENTITY_MAP[m];
+    if (m.startsWith('&#x')) { const c = parseInt(m.slice(3, -1), 16); return isNaN(c) ? m : String.fromCodePoint(c); }
+    if (m.startsWith('&#')) { const c = parseInt(m.slice(2, -1), 10); return isNaN(c) ? m : String.fromCodePoint(c); }
+    return m;
+  });
+}
+
+/**
+ * The haystacks `searchEvents` (searchHelpers.ts) scores a term against, built
+ * the way the app builds them: `decodeEventHtmlEntities` (eventHelpers.ts)
+ * decodes title, description, presenter, tags and category names, and
+ * replaces `location` with the decoded `venue.name` whenever there is one.
+ * The first version read the raw `location` and undecoded strings, so a term
+ * matching only a venue name, or only across an `&amp;`, was predicted wrong.
+ */
 function haystacks(e) {
+  const location = e.venue?.name ? decodeHtmlEntities(e.venue.name) : decodeHtmlEntities(e.location);
   return [
-    e.title, e.description, e.presenter, e.location,
-    ...(e.tags ?? []), ...(e.categories ?? []).map(c => c?.name),
-  ].filter(Boolean).map(s => String(s).toLowerCase());
+    decodeHtmlEntities(e.title), decodeHtmlEntities(e.description),
+    decodeHtmlEntities(e.presenter), location,
+    ...(e.tags ?? []).map(decodeHtmlEntities),
+    ...(e.categories ?? []).map(c => decodeHtmlEntities(c?.name)),
+  ].filter(Boolean).map(x => String(x).toLowerCase());
 }
 
 /**
@@ -155,7 +356,7 @@ export function isolatingSearchTerm(events, year) {
   const indexed = events.map(e => ({ day: dayOf(e), hay: haystacks(e) }));
   const words = new Set();
   for (const e of inSeason) {
-    for (const w of (e.title ?? '').toLowerCase().match(/[a-z]{5,}/g) ?? []) words.add(w);
+    for (const w of (decodeHtmlEntities(e.title) ?? '').toLowerCase().match(/[a-z]{5,}/g) ?? []) words.add(w);
   }
   let best = null;
   for (const word of [...words].sort()) {
