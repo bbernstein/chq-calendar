@@ -21,7 +21,8 @@
 import { chromium, webkit } from 'playwright';
 import { pinClock } from './fixedNow.mjs';
 import { check, skip, finish } from './results.mjs';
-import { enterList, makeRoomAbove, makeRoomBelow } from './regime.mjs';
+import { enterList, enterYear, shownYear, makeRoomAbove, makeRoomBelow } from './regime.mjs';
+import { yearsWithBusyDay, describeSurvey, surveyTrouble } from './feed.mjs';
 
 const URL = process.env.URL ?? 'http://localhost:3000/';
 
@@ -41,7 +42,7 @@ console.log(`engine: ${ENGINE}`);
 
 const browser = await engines[ENGINE].launch();
 
-async function phone({ reducedMotion } = {}) {
+async function phone({ reducedMotion, year } = {}) {
   const ctx = await browser.newContext({
     viewport: { width: 390, height: 844 },
     // Touch emulation only under Chromium: WebKit refuses `mouse.wheel` in a
@@ -59,9 +60,15 @@ async function phone({ reducedMotion } = {}) {
   await pinClock(page);
   // Tie the context's lifetime to the page's, or every check leaks one.
   page.once('close', () => { ctx.close().catch(() => {}); });
-  await page.goto(URL, { waitUntil: 'networkidle' });
-  // Off-season the default screen is the landing, not a day list.
-  await enterList(page);
+  // `year` opens a year other than the default — the first block uses it when
+  // the default year's document is too short to be "deep" in; see `enterYear`.
+  if (year) {
+    await page.goto(`${URL}?year=${year}`, { waitUntil: 'networkidle' });
+    await enterYear(page, year);
+  } else {
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    await enterList(page);
+  }
   return page;
 }
 
@@ -155,7 +162,7 @@ const deepAndHidden = async (p, y = 6000) => {
   // a downward wheel moves 0px and the header is right not to hide. Six checks
   // in this suite reported `scrollY=159747` and a header that would not park on
   // 2026-08-31; see `makeRoomBelow` in `regime.mjs` for the measurements.
-  await makeRoomBelow(p);
+  const madeBelow = await makeRoomBelow(p);
   await settle(p);
   // ...and somewhere to have come FROM. The opposite trap, and the regime that
   // sprang it is the 2026-10-01 rollover: the default year became a season
@@ -170,8 +177,12 @@ const deepAndHidden = async (p, y = 6000) => {
   // so that neither undoes the other: in the 2026 tail the reader starts at
   // the bottom and only `makeRoomBelow` moves; at the 2027 rollover the
   // reader starts at the top and only this does.
-  await makeRoomAbove(p, 3600);
+  const madeAbove = await makeRoomAbove(p, 3600);
   await settle(p);
+  // Both returns travel with the geometry, and checks 2 and 4 print them: a
+  // red "not deep" should say how far the harness actually got the reader,
+  // not leave the next person to guess whether the gesture was swallowed.
+  const made = { madeBelow, madeAbove };
   // Wheel until it is actually hidden, rather than assuming one tick does it.
   //
   // One tick is not a reliable unit of scrolling. WebKit on Linux splits a
@@ -182,16 +193,56 @@ const deepAndHidden = async (p, y = 6000) => {
   // failures of whatever it was testing.
   for (let i = 0; i < 5; i++) {
     const seen = await geometry(p);
-    if (seen.bottom <= 0) return seen;
+    if (seen.bottom <= 0) return { ...seen, ...made };
     await wheel(p, 120);
     await settle(p);
   }
-  return geometry(p);
+  return { ...(await geometry(p)), ...made };
 };
 
 // ───────────────────────────────────────── hide on the way down, reveal coming back
+//
+// **In a year with room to be deep in.** Check 4 is about a reveal from DEEP in
+// the list — `scrollY > 3000` — and that needs a document of at least
+// `DEEP_NEED` px of scroll: `deepAndHidden`'s 3600 of depth plus the 2000 of
+// room below it keeps. The default year has it today (2027: ~6,400px on this
+// phone), but only just, and the next default season (2028, from 2027-10-01)
+// may well be sparser still; a check that went red then would be reporting the
+// data, not the header. So the same loop as `verify-full-list`'s check 10: the
+// default year first, always (it also establishes the run's regime), then the
+// newest archived year that has the room, through `enterYear`. Measured on the
+// page, not predicted from the feed, because what matters is the document.
+// The detail names the year from the header's own pill.
+const DEEP_NEED = 3600 + 2000;
 {
-  const p = await phone();
+  let p, year, depthRoom;
+  const passedOver = [];
+  const YEARS = { candidates: [null] };
+  for (let i = 0; i < YEARS.candidates.length; i++) {
+    year = YEARS.candidates[i];
+    p = await phone(year === null ? {} : { year });
+    if (year === null) {
+      // Surveyed after the first page, which is what teaches `feed.mjs` the
+      // base the page reads (`learnFeedSource`, from `enterList`).
+      const any = await yearsWithBusyDay(1);
+      YEARS.survey = any.survey;
+      YEARS.defaultError = any.defaultError;
+      YEARS.candidates.push(...any.years.filter(y => y !== any.defaultYear));
+    }
+    depthRoom = await p.evaluate(() =>
+      Math.round(document.documentElement.scrollHeight - window.innerHeight));
+    // An unreadable default-year feed ends the search here: it says nothing
+    // about whether the default year is deep enough, and the default page is
+    // already open and measured, so the checks run there and the detail says
+    // why no fallback was considered.
+    if (depthRoom >= DEEP_NEED || YEARS.defaultError || i === YEARS.candidates.length - 1) break;
+    passedOver.push(`${await shownYear(p)} has ${depthRoom}px of scroll, needs ${DEEP_NEED}`);
+    await p.context().close();
+  }
+  const where = `in ${await shownYear(p)}` +
+    (passedOver.length ? ` (${passedOver.join('; ')})` : '') +
+    (YEARS.defaultError ? `; default-year feed unreadable, no fallback: ${describeSurvey(YEARS.survey)}`
+      : surveyTrouble(YEARS.survey ?? []));
   const atTop = await geometry(p);
   check('1 header is on screen at the top of the document',
     atTop.top === 0 && atTop.bottom > 0 && !atTop.inert,
@@ -199,7 +250,8 @@ const deepAndHidden = async (p, y = 6000) => {
 
   const deep = await deepAndHidden(p);
   check('2 header is parked out of sight once scrolled down',
-    deep.bottom <= 0, `bottom=${deep.bottom} scrollY=${deep.scrollY}`);
+    deep.bottom <= 0, `bottom=${deep.bottom} scrollY=${deep.scrollY} ` +
+      `(wheeled ${deep.madeAbove}px deeper, ${deep.madeBelow}px back for room; ${where})`);
   // AC: "the day rail remains flush with the top edge and keeps working
   // exactly as it does today."
   check('3 the rail is flush with the top edge while the header is hidden',
@@ -212,7 +264,8 @@ const deepAndHidden = async (p, y = 6000) => {
   const revealed = await geometry(p);
   check('4 a small scroll up reveals the header from deep in the list',
     revealed.top === 0 && revealed.bottom > 0 && revealed.scrollY > 3000,
-    `top=${revealed.top} bottom=${revealed.bottom} scrollY=${revealed.scrollY}`);
+    `top=${revealed.top} bottom=${revealed.bottom} scrollY=${revealed.scrollY} ` +
+      `(${depthRoom}px of scroll; wheeled ${deep.madeAbove}px deeper; ${where})`);
   // The reader chose the rail riding down over being covered: both surfaces
   // usable at once. One animated variable feeds both, so a drift here means
   // the header's `top` and the rail's have come apart.

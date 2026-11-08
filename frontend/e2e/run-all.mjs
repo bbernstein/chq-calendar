@@ -73,4 +73,7 @@ const failed = results.filter(r => !r.ok);
 console.log(failed.length
   ? `\n${failed.length} of ${results.length} suites failed: ${failed.map(f => f.suite).join(', ')}`
   : `\nall ${results.length} suites passed`);
-process.exit(failed.length ? 1 : 0);
+// `exitCode`, not `exit()`: an immediate exit straight after `console.log`
+// can truncate the summary when stdout is a pipe (macOS), and the summary is
+// the whole point. Nothing is left running, so Node exits on its own.
+process.exitCode = failed.length ? 1 : 0;
