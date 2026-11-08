@@ -249,10 +249,10 @@ jobs:
         # which made the downstream datetime.fromisoformat('') throw.
         run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - name: Use Node.js 24
+      - name: Use Node.js 26
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
           cache-dependency-path: package-lock.json
 
@@ -1228,10 +1228,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Use Node.js 24
+      - name: Use Node.js 26
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
           cache-dependency-path: package-lock.json
 

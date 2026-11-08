@@ -11,6 +11,8 @@
  *
  * The race below replaces that hang with an answer.
  */
+import { learnFeedSource } from './feed.mjs';
+
 let regime = null;
 
 /**
@@ -52,7 +54,16 @@ const DAY = '[data-day-key]';
  * stops a run from silently taking both branches, and it stays in force for
  * every page that can honestly speak to which regime it found.
  */
-export async function enterList(page, { seedsOwnFilter = false } = {}) {
+export async function enterList(page, opts = {}) {
+  const result = await enterListInner(page, opts);
+  // The first page of every run teaches the feed survey which base the page
+  // reads and whether it merges the publisher sidecar (`feed.mjs`); later
+  // pages confirm it.
+  await learnFeedSource(page);
+  return result;
+}
+
+async function enterListInner(page, { seedsOwnFilter = false } = {}) {
   // A page that cannot report the regime must not be the page that
   // establishes it: if the opt-out were used first, the run would lose its
   // one chance to detect the regime from a page that could see it. Both
@@ -305,6 +316,119 @@ export async function makeRoomBelow(page, want = 2000) {
   await page.mouse.wheel(0, -short);
   await page.waitForTimeout(450);
   return (await room()) - before;
+}
+
+/**
+ * Guarantee the reader is at least `want` px down the document — "deep in the
+ * list" — moving them there with a WHEEL. Returns how far the page actually
+ * moved, re-measured, never the amount asked for (the rule `makeRoomBelow`
+ * records, for the same reason).
+ *
+ * The mirror image of `makeRoomBelow`, and the regime that needs it is the one
+ * that arrived on 2026-10-01. Until then the load landed the reader on TODAY,
+ * which in any season that had started was tens of thousands of pixels down,
+ * so "deep" came free and every `window.scrollTo(0, 6000)` that `useDayAnchor`'s
+ * hold undid was harmless. Once `defaultYear` rolled over to a season that has
+ * not started, the landing is that season's FIRST day, at the top of the
+ * document. Measured on a 390x844 phone against the 2027 feed:
+ *
+ *     after enterList, scrollTo(0, 6000) and five 120px wheels   scrollY 189
+ *     one 40px wheel up                                           scrollY 149
+ *
+ * and `verify-header-reveal`'s check 4 — "a small scroll up reveals the header
+ * from DEEP in the list", `scrollY > 3000` — failed on an app that had
+ * revealed the header exactly as it should. The depth is the check's own
+ * precondition, so the harness has to establish it rather than assume it.
+ *
+ * A wheel, not `scrollTo`: only a real gesture releases the hold, and a wheel
+ * that releases it also moves the page.
+ */
+export async function makeRoomAbove(page, want = 3500) {
+  const y = () => page.evaluate(() => Math.round(window.scrollY));
+  const before = await y();
+  const short = Math.max(0, Math.ceil(want - before));
+  if (short === 0) return 0;
+  const at = await page.evaluate(() => ({
+    x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2),
+  }));
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.wheel(0, short);
+  await page.waitForTimeout(450);
+  return (await y()) - before;
+}
+
+/**
+ * The year the page says it is showing — the header's own `N Season` pill —
+ * or null. Read back rather than assumed wherever a detail line names a year:
+ * the URL, the candidate a loop asked for and the year on screen can differ.
+ */
+export async function shownYear(page) {
+  const y = await page.evaluate(() => [...document.querySelectorAll('header button')]
+    .map(b => /^(\d{4}) Season$/.exec(b.textContent.trim())?.[1])
+    .find(Boolean) ?? null);
+  return y === null ? null : Number(y);
+}
+
+/**
+ * Open the list for a year OTHER than the run's default, the way a reader
+ * reaches one — and without reporting a regime. Call after
+ * `goto(URL + '?year=N')`, instead of `enterList`.
+ *
+ * Some checks need content the default year does not have. Since 2026-10-01
+ * the default year is a published but sparse 2027 — 52 events over 37 days,
+ * at most three on any day — and `verify-rail`'s check 12 needs a day tall
+ * enough to hold a stuck header, `verify-full-list`'s check 4 a day with 8+
+ * cards to measure, and its check 10 a document long enough that forty
+ * gestures do not run out of page. Those are facts about the DATA, not about
+ * the year, so those checks take the densest year that can exercise them
+ * (`feed.mjs`), which off-season is the season that just ran.
+ *
+ * `?year=` is the app's own route (`useSelectedYear`). An archived year opens
+ * on the off-season landing — a season that has ended — and its
+ * "Browse the N season" button is the reader's way past it; that button is
+ * pressed by NAME, with the year in it, so a page that silently fell back to
+ * the default year cannot satisfy it. The header's year pill is then read back
+ * and must name `year`, for the same reason.
+ *
+ * It never announces. What an archived year's page shows says nothing about
+ * the run's regime — it is a landing on every date there is — and feeding it to
+ * `announce` would trip the consistency rule exactly as #287's seeded pages
+ * did. A page that has not let the run establish a regime first is an
+ * ordering bug, as with `seedsOwnFilter`.
+ */
+export async function enterYear(page, year) {
+  if (regime === null) {
+    throw new Error(
+      `enterYear(${year}): ran before any page established the regime — a page ` +
+      'showing a non-default year cannot detect one, so the run would have none'
+    );
+  }
+  const first = await Promise.race([
+    page.waitForSelector(DAY, { timeout: 30000 }).then(() => 'day'),
+    page.waitForSelector(LANDING, { timeout: 30000 }).then(() => 'landing'),
+  ]).catch(() => 'nothing');
+  if (first === 'nothing') {
+    throw new Error(`enterYear(${year}): neither a day list nor a landing after 30s`);
+  }
+  if (first === 'landing') {
+    const browse = page.getByRole('button', { name: `Browse the ${year} season`, exact: true });
+    if (await browse.count() === 0) {
+      const offered = await page.$$eval(`${LANDING} button`, els => els.map(e => e.textContent.trim()));
+      throw new Error(
+        `enterYear(${year}): the landing offers no "Browse the ${year} season" — ` +
+        `it offers ${JSON.stringify(offered)}`
+      );
+    }
+    await browse.click();
+    await page.waitForSelector(DAY, { timeout: 30000 });
+  }
+  const shown = await shownYear(page);
+  if (shown !== year) {
+    throw new Error(`enterYear(${year}): the header says the page is showing ${shown}`);
+  }
+  await learnFeedSource(page);
+  await settleAtTop(page);
+  return year;
 }
 
 /**

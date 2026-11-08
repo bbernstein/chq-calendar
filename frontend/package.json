@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=26.0.0"
   },
   "scripts": {
     "dev": "vite",
@@ -19,7 +19,7 @@
     "about:screenshots:ios": "node scripts/prepare-about-screenshots.mjs",
     "about:screenshots:web": "node scripts/capture-web-screenshots.mjs",
     "about:screenshots": "npm run about:screenshots:ios && npm run about:screenshots:web",
-    "test:browser": "node e2e/verify-rail.mjs && node e2e/verify-filter-reveal.mjs && node e2e/verify-timezone.mjs && node e2e/verify-offseason.mjs && node e2e/verify-header-reveal.mjs && node e2e/verify-full-list.mjs"
+    "test:browser": "node e2e/run-all.mjs"
   },
   "dependencies": {
     "preact": "^10.28.4"
@@ -30,7 +30,7 @@
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",
-    "@types/node": "^24",
+    "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@typescript-eslint/eslint-plugin": "^8",
